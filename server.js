@@ -17,6 +17,13 @@ app.use(express.json());
 app.use("/api/pos_machine", require("./routes/posMachineRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));
 app.use("/api/transaction", require("./routes/transactionRoutes"));
+app.use("/api/admin", require("./routes/adminRoutes"));
+app.use("/api/franchaise", require("./routes/franchaiseRoutes"));
+app.use("/api/merchant", require("./routes/merchantRoutes"));
+app.use('/api/payment', require('./routes/payments/sddsRoutes'));
+app.use('/api/credit-bill',require('./routes/cc/billAvenue/creditBillRoutes') )
+app.get('/ping', (req, res) => res.send('Server is running!'));
+
 
 
 app.use(errorHandler)

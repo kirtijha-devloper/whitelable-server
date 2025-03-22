@@ -1,0 +1,90 @@
+const axios = require('axios');
+
+const BASE_URL = 'https://sdds.flightapi.co.in/api';
+
+let bearerToken = ''; // Temp store. Use Redis/db for prod.
+
+// Set token when user logs in
+const setBearerToken = (token) => {
+  bearerToken = token;
+};
+
+// Get headers with Authorization token
+const getAuthHeader = () => ({
+  headers: {
+    Authorization: `Bearer ${bearerToken}`
+  }
+});
+
+// Common request wrapper
+const request = async ({ method, endpoint, data = {}, withAuth = false }) => {
+  try {
+    const config = {
+      method,
+      url: `${BASE_URL}${endpoint}`,
+      data,
+      ...(withAuth ? getAuthHeader() : {})
+    };
+
+    const response = await axios(config);
+    return response.data;
+  } catch (error) {
+    console.error(`SDDS Service Error [${endpoint}]`, error?.response?.data || error.message);
+    throw error.response?.data || { message: 'Something went wrong!' };
+  }
+};
+
+// =================== API METHODS ===================
+
+// Login
+const login = async (payload) => {
+  const data = await request({ method: 'POST', endpoint: '/api-login', data: payload });
+  setBearerToken(data.token); // Save token for next calls
+  return data;
+};
+
+// Verify TPIN
+const verifyTPIN = async (payload) => {
+  return await request({ method: 'POST', endpoint: '/verify-tpin', data: payload, withAuth: true });
+};
+
+// Remitter login (Mobile Verify)
+const remitterLogin = async (payload) => {
+  return await request({ method: 'POST', endpoint: '/financial-services/mobile-verify', data: payload, withAuth: true });
+};
+
+// Remitter register (OTP verification)
+const remitterRegister = async (payload) => {
+  return await request({ method: 'POST', endpoint: '/financial-services/verification', data: payload, withAuth: true });
+};
+
+// Get Remitter Beneficiaries
+const getBeneficiaries = async (payload) => {
+  return await request({ method: 'POST', endpoint: '/remitter-bank-details/remitter_bank_list', data: payload, withAuth: true });
+};
+
+// Add Beneficiary
+const addBeneficiary = async (payload) => {
+  return await request({ method: 'POST', endpoint: '/remitter-bank-details/add_bank', data: payload, withAuth: true });
+};
+
+// Delete Beneficiary
+const deleteBeneficiary = async (payload) => {
+  return await request({ method: 'POST', endpoint: '/remitter-bank-details/delete_bank_account', data: payload, withAuth: true });
+};
+
+// Transfer IMPS
+const transferIMPS = async (payload) => {
+  return await request({ method: 'POST', endpoint: '/hdfc/cbx-transaction-api', data: payload, withAuth: true });
+};
+
+module.exports = {
+  login,
+  verifyTPIN,
+  remitterLogin,
+  remitterRegister,
+  getBeneficiaries,
+  addBeneficiary,
+  deleteBeneficiary,
+  transferIMPS
+};
