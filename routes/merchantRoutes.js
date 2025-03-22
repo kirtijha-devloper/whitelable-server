@@ -1,10 +1,13 @@
 const express = require("express");
-const router = express.Router();
-const {  getAdminDashboard} = require("../controllers/adminController");
 // const validateToken = require("../middleware/validateTokenHandler");
 
 
 
+const router = express.Router();
+
+
+
+// router.route("/dashboard").get( getAdminDashboard );
 
 
 module.exports = router;

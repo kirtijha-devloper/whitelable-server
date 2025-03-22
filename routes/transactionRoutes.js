@@ -1,7 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 
-const { uploadCSV } = require("../controllers/transactionController");
+const { uploadCSV, getAllTransaction , getTransactionByID, getAllFileUpload, getFilteredTransactions} = require("../controllers/transactionController");
 
 const router = express.Router();
 
@@ -17,5 +17,17 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 router.post("/upload-csv", upload.single("csv"), uploadCSV);
+
+router.route("/").get( getAllTransaction );
+
+router.route("/filter").get(getFilteredTransactions);
+
+router.route("/file-uploaded").get( getAllFileUpload );
+
+router.route("/:id").get( getTransactionByID );
+
+
+
+
 
 module.exports = router;
