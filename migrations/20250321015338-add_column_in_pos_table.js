@@ -4,22 +4,6 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    // Step 1: Add the new columns
-    await queryInterface.addColumn("PosMachines", "abheepay_id", {
-      type: Sequelize.INTEGER,
-      allowNull: true, // Set to `false` if the column should not allow null values
-    });
-
-    await queryInterface.addColumn("PosMachines", "assigned_user_id", {
-      type: Sequelize.INTEGER,
-      allowNull: true, // Set to `false` if the column should not allow null values
-    });
-
-    await queryInterface.addColumn("PosMachines", "franchaise_id", {
-      type: Sequelize.INTEGER,
-      allowNull: true, // Set to `false` if the column should not allow null values
-    });
-
     // Step 2: Add foreign key constraints (optional)
     await queryInterface.addConstraint("PosMachines", {
       fields: ["assigned_user_id"],

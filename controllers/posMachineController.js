@@ -9,7 +9,7 @@ try {
 const posMachines = await PosMachine.findAll();
   res.json({list:posMachines});
 } catch (error) {
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: error });
 };
 });
 
