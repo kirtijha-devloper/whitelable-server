@@ -3,7 +3,7 @@ const router = express.Router();
 const { getAllPosMachine,createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered, markAsReturnInitiated } = require("../controllers/posMachineController");
 const validateToken = require("../middleware/validateTokenHandler");
 
-router.use(validateToken)
+// router.use(validateToken)
 router.route("/").get( getAllPosMachine );
 
 router.route("/").post( createPosMachine );

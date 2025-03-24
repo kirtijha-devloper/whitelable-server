@@ -9,7 +9,7 @@ const User = db.define('User', {
         type: Sequelize.INTEGER
       },
       name: {
-        allowNull: false,
+        allowNull: true,
         type: Sequelize.STRING
       },
       email: {
@@ -17,12 +17,12 @@ const User = db.define('User', {
         type: Sequelize.STRING
       },
       mobile_number: {
-        allowNull: false,
+        allowNull: true,
         type: Sequelize.STRING
       },
 
       mobile_number_country_code: {
-        allowNull: false,
+        allowNull: true,
         type: Sequelize.STRING
       },
 
@@ -31,14 +31,10 @@ const User = db.define('User', {
         type: Sequelize.STRING    
       },
 
-      is_admin: {
-        type: Sequelize.BOOLEAN, defaultValue: false
-      },
-      is_franchise: {
-        type: Sequelize.BOOLEAN, defaultValue: false
-      },
-      is_merchant: {
-        type: Sequelize.BOOLEAN, defaultValue: true 
+      role: {
+        type: Sequelize.STRING,
+        allowNull: false,
+        defaultValue: 'merchant'
       },
       abheepay_id: {
       type: Sequelize.STRING
@@ -67,19 +63,20 @@ const User = db.define('User', {
       is_approved: {  
         type: Sequelize.BOOLEAN,
         defaultValue: false },
-      is_pos_asigned: {  type: Sequelize.BOOLEAN, defaultValue: false },
-
-
-    createdAt: {
-        allowNull: false,
-        type: Sequelize.DATE,
-        defaultValue: Sequelize.NOW
+      organization_name: {
+        allowNull: true,
+        type: Sequelize.STRING
       },
-      updatedAt: {
-        allowNull: false,
-        type: Sequelize.DATE,
-        defaultValue: Sequelize.NOW
-      }
+      createdAt: {
+          allowNull: false,
+          type: Sequelize.DATE,
+          defaultValue: Sequelize.NOW
+        },
+        updatedAt: {
+          allowNull: false,
+          type: Sequelize.DATE,
+          defaultValue: Sequelize.NOW
+        }
 })
 
 module.exports = User;
