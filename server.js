@@ -12,15 +12,18 @@ const cors = require('cors');
 const allowedOrigins = [process.env.DOMAIN_NAME, process.env.STAGING_DOMAIN_NAME];
 
 const port = process.env.PORT || 5000;
-app.use(cors({
-  origin: function(origin, callback){
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  }
-}));
+// For Production
+// app.use(cors({
+//   origin: function(origin, callback){
+//     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+//       callback(null, true);
+//     } else {
+//       callback(new Error('Not allowed by CORS'));
+//     }
+//   }
+// }));
+
+app.use(cors())
 
 app.use(express.json());
 
