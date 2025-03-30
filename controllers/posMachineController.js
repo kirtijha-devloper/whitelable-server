@@ -146,9 +146,9 @@ const assignPosMachineToFranchaise = asyncHandler ( async (req, res) => {
 });
 
 const assignPosMachineToMerhcant = asyncHandler ( async (req, res) => {
-    const ids = req.body.ids
+    const id = req.body.id
     const franchaiseId = req.merchantId
-    if (!ids || !Array.isArray(ids) || ids.length === 0 || !merchantId) {
+    if (!id || !Array.isArray(ids) || ids.length === 0 || !franchaiseId) {
         res.status(400);
         throw new Error ("All fields are mandatory !")
     }
@@ -157,14 +157,13 @@ const assignPosMachineToMerhcant = asyncHandler ( async (req, res) => {
         { assigned_user_id: merchantId },
         {
         where: {
-            id: ids
+            id: id
         }
         }
     );
 
     res.status(200).json({
-        message: `POS Machines assigned to merchant ${merchantId}`,
-        updatedCount: updated[0] // this gives number of affected rows
+        message: `POS Machines assigned to merchant ${merchantId}`
     });
 });
 
