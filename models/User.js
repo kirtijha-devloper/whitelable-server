@@ -67,6 +67,19 @@ const User = db.define('User', {
         allowNull: true,
         type: Sequelize.STRING
       },
+      is_pos_asigned: {
+        type: Sequelize.BOOLEAN,
+        defaultValue: false },
+      status: {
+        type: Sequelize.STRING,
+        allowNull: false,
+        defaultValue: 'active',
+        },
+      wallet: {
+        type: Sequelize.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0.00,
+      },
       createdAt: {
           allowNull: false,
           type: Sequelize.DATE,

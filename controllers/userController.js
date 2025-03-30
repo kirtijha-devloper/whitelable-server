@@ -67,58 +67,6 @@ const loginUser = asyncHandler( async (req, res) => {
     }
 });
 
-const onBoardUser = asyncHandler(async(req, res) => {
-    const { email, password, mobile_number } = req.body
-    if (!email || !mobile_number || !password) {
-        res.status(400);
-        throw new Error("email, mobile_number and password fields are mandatory. !") ;
-    }
-    const existingUser = await User.findOne({
-        where: {
-            [Op.or]: [
-                { email: email },
-                { mobile_number: mobile_number }
-            ]
-        }
-        });
-    if (existingUser) {
-        res.status(400);
-        throw new Error("User with this email or mobile number already exists!");
-    }
-    const hashPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({
-        email: email,
-        password: hashPassword,
-        is_approved: false,
-        mobile_number: mobile_number,
-        status: "active",
-        is_approved: req.is_approved || false,
-        role: req.role || "merhcant",
-        organization_name: req.organization_name,
-        dob: req.dob,
-        gender: req.gender,
-        address1: req.address1,
-        address2: req.address2,
-        city: city.req,
-        district: req.district,
-        pincode: req.pincode,  
-        state: req.state,
-        country:  req.country,
-        pan_number: req.pan_number,
-        aadhar_number: req.aadhar_number,
-        pan_number_url: req.pan_number_url,
-        aadhar_number_url: req.aadhar_number_url,
-        shop_with_photo_url: req.shop_with_photo_url,
-    }
-    );
-    console.log("OnBoarded User", user)
-    if (user) {
-        res.status(201).json({id: user.id})
-    } else {
-        res.status(400);
-        throw new Error("User is not valid !")
-    }
-})
 
 const approveUser = asyncHandler( async (req, res) => {
     const role = req.user.role
@@ -140,7 +88,19 @@ const approveUser = asyncHandler( async (req, res) => {
 
 const currentUser = asyncHandler( async (req, res) => {
     const user = await User.findOne({ where: { email: req.user.email } })
-    res.json(user);
+    res.json({
+        email: user.email,
+        mobile_number: user.mobile_number, 
+        name: (user.name || "NA"), 
+        mobile_number_country_code: (user.mobile_number_country_code || "+91"),
+        role: user.role || "merhcant",
+        abheepay_id: user.abheepay_id,
+        is_approved: user.is_approved,
+        organization_name: user.organization_name || "NA",
+        status: user.status,
+        is_pos_assigned: ( user.is_pos_assigned || false),
+        wallet: user.wallet
+});
 });
 
-module.exports = {registerUser, loginUser, currentUser, onBoardUser, approveUser }
+module.exports = {registerUser, loginUser, currentUser, approveUser }

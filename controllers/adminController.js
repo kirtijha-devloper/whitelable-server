@@ -41,7 +41,7 @@ const getAdminDashboard = asyncHandler( async (req, res) => {
   //           count: activeMerchant.length,
   //           list: activeMerchant, // You can limit fields if needed
   //         },
-  //         franchises: {
+  //         franchaises: {
   //           count: activeFranchaiset.length,
   //           list: activeFranchaiset,
   //         }}
