@@ -14,14 +14,18 @@ const onBoardUser = asyncHandler(async(req, res) => {
     }
 
 
-    const existingUser = await User.findOne({
-        where: {
-            [Op.or]: [
-                { email: email },
-                { mobile_number: mobile_number }
-            ]
-        }
-        });
+    // const existingUser = await User.findOne({
+    //     where: {
+    //         [Op.or]: [
+    //             { email: email },
+    //             { mobile_number: mobile_number }
+    //         ]
+    //     }
+    //     });
+
+    const {id} = req.params
+
+    const existingUser = await User.findByPk(id)
     
     if (existingUser) {
         res.status(400);
@@ -54,7 +58,7 @@ const onBoardUser = asyncHandler(async(req, res) => {
         password: hashPassword,
         mobile_number: mobile_number,
         mobile_number_country_code: req.body.mobile_number_country_code || "+91",
-        is_approved: req.body.is_approved || false,
+        is_approved: true,
         organization_name: req.body.organization_name,
         dob: req.body.dob,
         gender: req.body.gender,
