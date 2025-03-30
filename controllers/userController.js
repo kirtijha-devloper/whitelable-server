@@ -3,6 +3,21 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const User = require('../models/User');
 
+
+const getUsers = asyncHandler(async (req, res) => {
+    const { status } = req.query;
+
+    const where = {};
+    if (status) where.status = status;
+
+    const users = await User.findAll({ 
+        where,
+        limit: 10,
+        order: [['createdAt', 'DESC']]});
+
+    res.status(200).json(users);
+    });
+
 const registerUser = asyncHandler( async (req, res) => {
     try {
     console.log("hrespones", req.body)
@@ -82,7 +97,9 @@ const approveUser = asyncHandler( async (req, res) => {
     const id = req.params.id
     const user = await User.findOne({ where: { id } });
 
+    user.is_approved = true;
 
+    await user.save();
     if (user) {
         res.status(200).json(loginUserRole)
     } else {
@@ -92,21 +109,21 @@ const approveUser = asyncHandler( async (req, res) => {
 
 });
 
-const currentUser = asyncHandler( async (req, res) => {
-    const user = await User.findOne({ where: { email: req.user.email } })
-    res.json({
-        email: user.email,
-        mobile_number: user.mobile_number, 
-        name: (user.name || "NA"), 
-        mobile_number_country_code: (user.mobile_number_country_code || "+91"),
-        role: user.role || "merhcant",
-        abheepay_id: user.abheepay_id,
-        is_approved: user.is_approved,
-        organization_name: user.organization_name || "NA",
-        status: user.status,
-        is_pos_assigned: ( user.is_pos_assigned || false),
-        wallet: user.wallet
-});
+    const currentUser = asyncHandler( async (req, res) => {
+        const user = await User.findOne({ where: { email: req.user.email } })
+        res.json({
+            email: user.email,
+            mobile_number: user.mobile_number, 
+            name: (user.name || "NA"), 
+            mobile_number_country_code: (user.mobile_number_country_code || "+91"),
+            role: user.role || "merhcant",
+            abheepay_id: user.abheepay_id,
+            is_approved: user.is_approved,
+            organization_name: user.organization_name || "NA",
+            status: user.status,
+            is_pos_assigned: ( user.is_pos_assigned || false),
+            wallet: user.wallet
+    });
 });
 
-module.exports = {registerUser, loginUser, currentUser, approveUser }
+module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers }
