@@ -5,12 +5,16 @@ const asyncHandler = require("express-async-handler")
 const PosMachine = require('../models/posMachine');
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
+    const { status, tid_number } = req.query;
 try {
-const posMachines = await PosMachine.findAll();
-  res.json({list: posMachines});
-} catch (error) {
-    res.status(500).json({ error: error });
-};
+     const where = {};
+    if (tid_number) where.tid_number = tid_number;
+    if (status) where.status = status;
+    const posMachines = await PosMachine.findAll({where});
+    res.json({list: posMachines});
+    } catch (error) {
+        res.status(500).json({ error: error });
+    };
 });
 
 // @desc Create  Pos Machine
@@ -93,8 +97,8 @@ const markAsDelivered = asyncHandler( async (req, res) => {
     const id = req.params.id;
     const posMachineById = await PosMachine.findByPk(id)
     if (posMachineById) {
-        posMachineById.status = "delivered";
-        await posMachineById.destroy();
+        posMachineById.status = "delivered"
+         await posMachineById.save();
         res.status(200).json(posMachineById)
     } else {
         res.status(404);
@@ -109,7 +113,7 @@ const markAsReturnInitiated = asyncHandler( async (req, res) => {
     if (posMachineById) {
         posMachineById.status = "return_initiated";
         posMachineById.remarks = remarks;
-        await posMachineById.destroy();
+         await posMachineById.save();
         res.status(200).json(posMachineById)
     } else {
         res.status(404);
@@ -136,7 +140,7 @@ const assignPosMachineToFranchaise = asyncHandler ( async (req, res) => {
     );
 
     res.status(200).json({
-        message: `POS Machines assigned to franchise ${franchaiseId}`,
+        message: `POS Machines assigned to franchaise ${franchaiseId}`,
         updatedCount: updated[0] // this gives number of affected rows
     });
 });

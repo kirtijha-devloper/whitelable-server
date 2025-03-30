@@ -5,7 +5,8 @@ const bcrypt = require("bcrypt");
 
 const onBoardUser = asyncHandler(async(req, res) => {
     try{
-    const role = "merchant"
+    console.log("test franchaise")
+    const role = "franchaise"
     const { email, password, mobile_number } = req.body
 
     if (!email || !mobile_number || !password) {
@@ -49,7 +50,7 @@ const onBoardUser = asyncHandler(async(req, res) => {
     }
 
     const user = await User.create({
-        role: role,
+        role: "franchaise",
         email: email,
         password: hashPassword,
         mobile_number: mobile_number,
@@ -95,7 +96,7 @@ const getUserById = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('User not found');
   }
-if (user.role !== "merchant") {
+if (user.role !== "franchaise") {
     res.status(404);
     throw new Error('User not found');
 }
@@ -104,7 +105,7 @@ if (user.role !== "merchant") {
 
 const getUsers = asyncHandler(async (req, res) => {
   const { status } = req.query;
-  const role = "merchant"
+  const role = "franchaise"
 
   const where = {};
   if (role) where.role = role;
