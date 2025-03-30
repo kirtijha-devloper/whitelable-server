@@ -1,6 +1,6 @@
 const express = require("express")
 const router = express.Router();
-const { getAllPosMachine,createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered, markAsReturnInitiated } = require("../controllers/posMachineController");
+const { getAllPosMachine,createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered, markAsReturnInitiated, assignPosMachineToFranchaise, assignPosMachineToMerhcant } = require("../controllers/posMachineController");
 const validateToken = require("../middleware/validateTokenHandler");
 
 // router.use(validateToken)
@@ -18,5 +18,8 @@ router.route("/:id").delete( deletePosMachine );
 router.route("/delivered/:id").put( markAsDelivered );
 
 router.route("/returned-initiated/:id").put( markAsReturnInitiated );
+
+router.route("/assign-to-franchaise").post( assignPosMachineToFranchaise );
+router.route("/assign-to-merchant").post( assignPosMachineToMerhcant );
 
 module.exports = router;
