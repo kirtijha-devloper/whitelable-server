@@ -2,17 +2,14 @@ const express = require("express");
 const { errorHandler } = require("./middleware/errorHandler");
 const dotenv = require("dotenv").config();
 const connectDb = require("./config/dbConnection");
-
-
-connectDb();
-
+const db = require('./config/database');
 
 const app = express();
-const cors = require('cors');
-const allowedOrigins = [process.env.DOMAIN_NAME, process.env.STAGING_DOMAIN_NAME];
 
 const port = process.env.PORT || 5000;
+const cors = require('cors');
 // For Production
+// const allowedOrigins = [process.env.DOMAIN_NAME, process.env.STAGING_DOMAIN_NAME];
 // app.use(cors({
 //   origin: function(origin, callback){
 //     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
@@ -24,12 +21,11 @@ const port = process.env.PORT || 5000;
 // }));
 
 app.use(cors())
-
 app.use(express.json());
 
 
 
-app.use("/api/pos_machine", require("./routes/posMachineRoutes"));
+app.use("/api/pos-machine", require("./routes/posMachineRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));
 app.use("/api/transaction", require("./routes/transactionRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
@@ -40,9 +36,20 @@ app.use('/api/credit-bill',require('./routes/cc/billAvenue/creditBillRoutes') )
 app.get('/api/ping', (req, res) => res.send('Server is running!'));
 
 
-
 app.use(errorHandler)
 
-app.listen(port, () => {
-console.log(`Server running on port ${port}`);
-});
+const startServer = async () => {
+  try {
+    await connectDb(); // Connect to DB
+    await db.sync({ alter: true }); // Sync models in dev
+
+    app.listen(port, () => {
+      console.log(`🚀 Server running on port ${port}`);
+    });
+  } catch (err) {
+    console.error("❌ Server start failed:", err.message);
+    process.exit(1);
+  }
+};
+
+startServer();

@@ -44,7 +44,7 @@ const PosMachine = db.define('PosMachine', {
         type: Sequelize.STRING    
       },
 
-      reamrks: { type: Sequelize.STRING },
+      remarks: { type: Sequelize.STRING },
       abheepay_id: { type: Sequelize.INTEGER },
       assigned_user_id: { type: Sequelize.INTEGER },
       franchaise_id: { type: Sequelize.INTEGER },
