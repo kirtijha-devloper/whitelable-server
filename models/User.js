@@ -43,7 +43,7 @@ const User = db.define('User', {
       type: Sequelize.DATE
       },
       gender: {
-      type: Sequelize.DATE
+      type: Sequelize.STRING
       },
       address1: {
       type: Sequelize.STRING },

@@ -139,7 +139,7 @@ const approveUser = asyncHandler( async (req, res) => {
 });
 
 const currentUser = asyncHandler( async (req, res) => {
-    const user = await User.findOne({ where: { email: req.user.email } });
+    const user = await User.findOne({ where: { email: req.user.email } })
     res.json(user);
 });
 
