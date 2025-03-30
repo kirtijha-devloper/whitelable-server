@@ -4,9 +4,10 @@ const jwt = require("jsonwebtoken");
 const User = require('../models/User');
 
 const registerUser = asyncHandler( async (req, res) => {
+    try {
     console.log("hrespones", req.body)
-    const { email, password} = req.body
-    if (!email || !password) {
+    const { email, password, role} = req.body
+    if (!email || !password || !role) {
         res.status(400);
         throw new Error("All fields are mandatory. !") ;
     }
@@ -24,6 +25,10 @@ const registerUser = asyncHandler( async (req, res) => {
     const user = await User.create({
       email: email,
       password: hashPassword,
+      role: role,
+      mobile_number: req.body.mobile_number,
+      mobile_number_country_code: (req.body.mobile_number || "+91"),
+      name: req.body.name,
       is_approved: false,
       status: "active"
     }
@@ -37,6 +42,7 @@ const registerUser = asyncHandler( async (req, res) => {
         res.status(400);
         throw new Error("User is not valid !")
     }
+    } catch(error) {res.status(500).json({ error });}
 });
 
 const loginUser = asyncHandler( async (req, res) => {
