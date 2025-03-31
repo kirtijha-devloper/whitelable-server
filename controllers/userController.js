@@ -21,7 +21,7 @@ const getUsers = asyncHandler(async (req, res) => {
 const getUserByID = asyncHandler( async (req, res) => {
     try {
         const role = req.user.role
-        console.log("test01", role)
+      
         if (role !== "admin") {
             res.status(400);
             throw new Error ("You are not allowed!")
@@ -147,6 +147,7 @@ const approveUser = asyncHandler( async (req, res) => {
 });
 
     const currentUser = asyncHandler( async (req, res) => {
+try {
         const user = await User.findOne({ where: { email: req.user.email } })
         res.json({
             email: user.email,
@@ -161,6 +162,10 @@ const approveUser = asyncHandler( async (req, res) => {
             is_pos_assigned: ( user.is_pos_assigned || false),
             wallet: user.wallet
     });
+} catch(err) {
+res.status(404);
+    throw new Error("token is expired!")
+}
 });
 
 module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID}
