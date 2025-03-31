@@ -37,12 +37,32 @@ const registerUser = asyncHandler( async (req, res) => {
    
     // await User.sync(); 
     const hashPassword = await bcrypt.hash(password, 10);
+
+     let abheepay_id = '';
+    let abheepayPrefix = '';
+    let count = 0;
+    if (role == 'merchant') {
+        abheepayPrefix = 'APM';
+        count = await User.count({ where: { role: 'merchant' } });
+        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
+        } else if (role == 'franchaise') {
+        abheepayPrefix = 'APF';
+        count = await User.count({ where: { role: 'franchaise' } });
+        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
+        } else if (role == 'admin') {
+        abheepayPrefix = 'APA';
+        count = await User.count({ where: { role: 'admin' } });
+        if (count == 0) {count = 1}
+        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
+    }
+
     const user = await User.create({
       email: email,
       password: hashPassword,
       role: role,
       mobile_number: req.body.mobile_number,
       mobile_number_country_code: (req.body.mobile_number || "+91"),
+      abheepay_id: abheepay_id,
       name: req.body.name,
       is_approved: false,
       status: "active"
