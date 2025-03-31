@@ -8,14 +8,14 @@ const validateToken = require("../middleware/validateTokenHandler");
 // @public access
 
 router.get('/', validateToken, getUsers)
+router.get("/current", validateToken, currentUser);
 router.get('/:id', validateToken, getUserByID)
-router.post("/register",validateToken,  registerUser);
+router.post("/register", validateToken, registerUser);
+router.post("/login", loginUser);
 
-// @public access
-router.post("/login" ,loginUser);
 
 // @private access
-router.get("/current" , validateToken, currentUser);
+
 
 
 
