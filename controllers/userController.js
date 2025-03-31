@@ -18,6 +18,23 @@ const getUsers = asyncHandler(async (req, res) => {
     res.status(200).json(users);
     });
 
+const getUserByID = asyncHandler( async (req, res) => {
+    try {
+        const role = req.user.role
+        console.log("test01", role)
+        if (role !== "admin") {
+            res.status(400);
+            throw new Error ("You are not allowed!")
+        }
+
+        const { id } = req.params;
+        console.log("test01", id)
+        const user = await User.findByPk(id);
+        res.status(200).json({user});
+    
+} catch (err) {res.json(err)}
+});
+
 const registerUser = asyncHandler( async (req, res) => {
     try {
     console.log("hrespones", req.body)
@@ -146,4 +163,4 @@ const approveUser = asyncHandler( async (req, res) => {
     });
 });
 
-module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers }
+module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID}
