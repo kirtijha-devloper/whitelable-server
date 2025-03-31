@@ -4,14 +4,15 @@ const { Op } = require("sequelize");
 const bcrypt = require("bcrypt");
 
 const onBoardUser = asyncHandler(async(req, res) => {
-    try{
+   try{
+    
     const role = "merchant"
-    const { email, password, mobile_number } = req.body
+    // const { email, password, mobile_number } = req.body
 
-    if (!email || !mobile_number || !password) {
-        res.status(400);
-        throw new Error("email, mobile_number and password fields are mandatory. !") ;
-    }
+    // if (!email || !mobile_number || !password) {
+    //     res.status(400);
+    //     throw new Error("email, mobile_number and password fields are mandatory. !") ;
+    // }
 
 
     // const existingUser = await User.findOne({
@@ -25,68 +26,54 @@ const onBoardUser = asyncHandler(async(req, res) => {
 
     const {id} = req.params
 
-    const existingUser = await User.findByPk(id)
-    
-    if (existingUser) {
+    const user = await User.findByPk(id)
+
+    if (!user) {
         res.status(400);
-        throw new Error("User with this email or mobile number already exists!");
-    }
+        throw new Error("User does not exists!");
+    };
+   
 
-    const hashPassword = await bcrypt.hash(password, 10);
+      const panFile = req.files?.pan_photo?.[0];
+      const aadharFile = req.files?.aadhar_photo?.[0];
+      const shopFile = req.files?.shop_photo?.[0];
 
-    let abheepay_id = '';
-    let abheepayPrefix = '';
-    let count = 0;
-    if (role == 'merchant') {
-        abheepayPrefix = 'APM';
-        count = await User.count({ where: { role: 'merchant' } });
-        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        } else if (role == 'franchaise') {
-        abheepayPrefix = 'APF';
-        count = await User.count({ where: { role: 'franchaise' } });
-        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        } else if (role == 'admin') {
-        abheepayPrefix = 'APA';
-        count = await User.count({ where: { role: 'admin' } });
-        if (count == 0) {count = 1}
-        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-    }
+      const baseUrl = `${req.protocol}://${req.get('host')}/uploads/`;
+      const panUrl = panFile ? `${baseUrl}${panFile.filename}` : null;
+      const aadharUrl = aadharFile ? `${baseUrl}${aadharFile.filename}` : null;
+      const shopUrl = shopFile ? `${baseUrl}${shopFile.filename}` : null;
 
-    const user = await User.create({
-        role: role,
-        email: email,
-        password: hashPassword,
-        mobile_number: mobile_number,
-        mobile_number_country_code: req.body.mobile_number_country_code || "+91",
-        is_approved: true,
-        organization_name: req.body.organization_name,
-        dob: req.body.dob,
-        gender: req.body.gender,
-        address1: req.body.address1,
-        address2: req.body.address2,
-        city: req.body.city,
-        district: req.body.district,
-        pincode: req.body.pincode,  
-        state: req.body.state,
-        country:  req.body.country,
-        pan_number: req.body.pan_number,
-        aadhar_number: req.body.aadhar_number,
-        pan_number_url: req.body.pan_number_url,
-        aadhar_number_url: req.body.aadhar_number_url,
-        shop_with_photo_url: req.body.shop_with_photo_url,
-        abheepay_id: abheepay_id,
-        status: "active"
-    }
-    );
-    console.log("OnBoarded User", user)
+      user.set({
+      role: role,
+      is_approved: true,
+      organization_name: req.body.organization_name,
+      dob: req.body.dob,
+      gender: req.body.gender,
+      address1: req.body.address1,
+      address2: req.body.address2,
+      city: req.body.city,
+      district: req.body.district,
+      pincode: req.body.pincode,
+      state: req.body.state,
+      country: req.body.country,
+      pan_number: req.body.pan_number,
+      aadhar_number: req.body.aadhar_number,
+      pan_number_url: panUrl || user.pan_number_url,
+      aadhar_number_url: aadharUrl || user.aadhar_number_url,
+      shop_with_photo_url: shopUrl || user.shop_with_photo_url,
+      status: "active"
+    });
+
+await user.save();
+
     if (user) {
-        res.status(201).json({id: user.id})
+        res.status(200).json({id: user.id})
     } else {
         res.status(400);
         throw new Error("User is not valid !")
     }
     } catch (error) {
-         res.status(500).json({ error });
+         res.status(500).json({ error: error });
     }
 });
 

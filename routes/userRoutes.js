@@ -8,7 +8,7 @@ const validateToken = require("../middleware/validateTokenHandler");
 // @public access
 
 router.get('/', validateToken, getUsers)
-router.post("/register", registerUser);
+router.post("/register",validateToken,  registerUser);
 
 // @public access
 router.post("/login" ,loginUser);
