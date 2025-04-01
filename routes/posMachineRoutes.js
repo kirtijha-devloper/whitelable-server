@@ -1,25 +1,46 @@
-const express = require("express")
+const express = require("express");
 const router = express.Router();
-const { getAllPosMachine,createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered, markAsReturnInitiated, assignPosMachineToFranchaise, assignPosMachineToMerhcant } = require("../controllers/posMachineController");
+
+const {
+  getAllPosMachine,
+  createPosMachine,
+  getPosMachine,
+  activatePosMachine,
+  deactivatePosMachine,
+  deletePosMachine,
+  markAsDelivered,
+  markAsReturnInitiated,
+  assignPosMachineToFranchaise,
+  assignPosMachineToMerhcant,
+  getPosMachineList
+} = require("../controllers/posMachineController");
+
 const validateToken = require("../middleware/validateTokenHandler");
 
-// router.use(validateToken)
-router.route("/").get( getAllPosMachine );
+// 🛡️ Protect routes below this line (if needed)
+router.use(validateToken);
 
-router.route("/").post( createPosMachine );
+// 🔍 Get all + paginated list
+router.get("/", getAllPosMachine);                 // admin use
+router.get("/list", getPosMachineList);            // role-based filtered list with pagination
 
-router.route("/activate/:id").put( activatePosMachine );
-router.route("/de-activate/:id").put( deactivatePosMachine );
+// ➕ Create
+router.post("/", createPosMachine);
 
-router.route("/:id").get( getPosMachine );
+// 🔄 Activate/Deactivate
+router.put("/activate/:id", activatePosMachine);
+router.put("/de-activate/:id", deactivatePosMachine);
 
-router.route("/:id").delete( deletePosMachine );
+// 📦 Status updates
+router.put("/delivered/:id", markAsDelivered);
+router.put("/returned-initiated/:id", markAsReturnInitiated);
 
-router.route("/delivered/:id").put( markAsDelivered );
+// 🎯 Assignments
+router.post("/assign-to-franchaise", assignPosMachineToFranchaise);
+router.post("/assign-to-merchant", assignPosMachineToMerhcant);
 
-router.route("/returned-initiated/:id").put( markAsReturnInitiated );
-
-router.route("/assign-to-franchaise").post( assignPosMachineToFranchaise );
-router.route("/assign-to-merchant").post( assignPosMachineToMerhcant );
+// 🧍 Get single, Delete
+router.get("/:id", getPosMachine);
+router.delete("/:id", deletePosMachine);
 
 module.exports = router;

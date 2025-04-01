@@ -7,7 +7,7 @@ const PosMachine = require('../models/posMachine');
 const getAllPosMachine = asyncHandler(async (req, res) => {
     const { status, tid_number } = req.query;
 try {
-     const where = {};
+    const where = {};
     if (tid_number) where.tid_number = tid_number;
     if (status) where.status = status;
     const posMachines = await PosMachine.findAll({where});
@@ -124,7 +124,7 @@ const markAsReturnInitiated = asyncHandler( async (req, res) => {
 
 const assignPosMachineToFranchaise = asyncHandler ( async (req, res) => {
     const ids = req.body.ids
-    const franchaiseId = req.franchaiseId
+    const franchaiseId = req.body.franchaise_id
     if (!ids || !Array.isArray(ids) || ids.length === 0 || !franchaiseId) {
         res.status(400);
         throw new Error ("All fields are mandatory !")
@@ -147,13 +147,13 @@ const assignPosMachineToFranchaise = asyncHandler ( async (req, res) => {
 
 const assignPosMachineToMerhcant = asyncHandler ( async (req, res) => {
     const id = req.body.id
-    const franchaiseId = req.merchantId
-    if (!id || !Array.isArray(ids) || ids.length === 0 || !franchaiseId) {
+    const merchantId = req.body.merchantId
+    if (!id || id.length === 0 || !merchantId) {
         res.status(400);
         throw new Error ("All fields are mandatory !")
     }
 
-    const updated = await PosMachine.update(
+    await PosMachine.update(
         { assigned_user_id: merchantId },
         {
         where: {
@@ -162,11 +162,53 @@ const assignPosMachineToMerhcant = asyncHandler ( async (req, res) => {
         }
     );
 
+    const merchant = await User.findByPk(id)
+    await merchant.update({is_pos_assigned: true});
+
     res.status(200).json({
         message: `POS Machines assigned to merchant ${merchantId}`
     });
 });
 
+const getPosMachineList = asyncHandler(async (req, res) => {
+    try {
+    console.log("user", req.user.role)
+    const { status, page = 1, limit = 10 } = req.query;
+    const role = req.user.role; 
+    const id = req.user.id;
+
+    const offset = (page - 1) * limit;
+    const where = {};
+
+    if (status) where.status = status;
+
+    // Role-based scoping
+    if (role === 'franchaise') {
+      where.franchaise_id = id;
+    } else if (role === 'merchant') {
+      where.assigned_user_id = id;
+    }
+
+    const { count, rows: machines } = await PosMachine.findAndCountAll({
+      where,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.status(200).json({
+      totalItems: count,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(count / limit),
+      data: machines
+    });
+    } catch (error) {
+    res.status(500).json({
+        message: `Error ${error}`
+    });
+};
+  });
 
 
-module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToFranchaise, assignPosMachineToMerhcant}
+
+module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToFranchaise, assignPosMachineToMerhcant, getPosMachineList}
