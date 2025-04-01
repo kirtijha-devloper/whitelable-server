@@ -3,6 +3,7 @@ const asyncHandler = require("express-async-handler")
 // @route GET /api/pos_machine
 
 const PosMachine = require('../models/posMachine');
+const User = require('../models/User');
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
     const { status, tid_number } = req.query;
@@ -122,16 +123,34 @@ const markAsReturnInitiated = asyncHandler( async (req, res) => {
 });
 
 
-const assignPosMachineToFranchaise = asyncHandler ( async (req, res) => {
+const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
     const ids = req.body.ids
-    const franchaiseId = req.body.franchaise_id
-    if (!ids || !Array.isArray(ids) || ids.length === 0 || !franchaiseId) {
+    const userId = req.body.user_id
+    if (!ids || !Array.isArray(ids) || ids.length === 0 || !userId) {
         res.status(400);
-        throw new Error ("All fields are mandatory !")
+        throw new Error ("POS machine IDs are required!")
     }
 
+     if (!userId) {
+    res.status(400);
+    throw new Error("Target user_id is required");
+    }
+
+    if (role === 'merchant') {
+    res.status(403);
+    throw new Error("Merchants cannot assign POS machines");
+    }
+
+    const user = User.findByPk(userId)
+    const assigneeRole = user.role
+
+    const where = {}
+    if (assigneeRole === "franchaise") {where.franchaise_id = userId};
+    if (assigneeRole === "merchant") {where.assigned_user_id = userId};
+
+
     const updated = await PosMachine.update(
-        { franchaise_id: franchaiseId },
+        { where},
         {
         where: {
             id: ids
@@ -140,8 +159,8 @@ const assignPosMachineToFranchaise = asyncHandler ( async (req, res) => {
     );
 
     res.status(200).json({
-        message: `POS Machines assigned to franchaise ${franchaiseId}`,
-        updatedCount: updated[0] // this gives number of affected rows
+        message: `POS Machines assigned `,
+        updatedCount: updated[0]
     });
 });
 
@@ -211,4 +230,4 @@ const getPosMachineList = asyncHandler(async (req, res) => {
 
 
 
-module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToFranchaise, assignPosMachineToMerhcant, getPosMachineList}
+module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerhcant, getPosMachineList}

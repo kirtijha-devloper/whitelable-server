@@ -3,6 +3,7 @@ const fs = require("fs");
 const csvParser = require("csv-parser");
 const Transaction = require("../models/Transaction");
 const { Op } = require("sequelize");
+const PosMachine = require("../models/posMachine");
 
 const uploadCSV = (req, res) => {
   if (!req.file) {
@@ -108,6 +109,33 @@ const uploadCSV = (req, res) => {
 
         // Bulk insert
         await Transaction.bulkCreate(sanitizedResults);
+        console.log("CSV data uploaded successfully")
+
+        const settledTransactions = sanitizedResults.filter(t => t.Status?.toLowerCase() === "settled");
+        const walletRequests = [];
+        for (const tx of settledTransactions) {
+          // 🔐 Make sure you have a valid user to attach (modify logic as needed)
+          const posMachine = await PosMachine.findOne({where: {mid_number: tx.MID}})
+
+          if (!user) {
+            console.warn(`No user found for mobile: ${tx.MID}, skipping wallet request`);
+            continue;
+          }
+
+          walletRequests.push({
+            type: "razorpay",
+            amount: tx.Amount,
+            status: "pending", // Marked as request
+            reason: `Razorpay transaction ID: ${tx.ID}`,
+            requested_by: posMachine.assigned_user_id, // assuming self-initiated
+            settlement_type: "today_settlement"
+          });
+        }
+
+        if (walletRequests.length) {
+          await WalletTransaction.bulkCreate(walletRequests);
+          console.log(`Wallet requests created: ${walletRequests.length}`);
+}
 
         res.status(200).json({
           message: "CSV data uploaded successfully",

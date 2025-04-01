@@ -80,6 +80,22 @@ const User = db.define('User', {
         allowNull: false,
         defaultValue: 0.00,
       },
+      wallet_hold: {
+        type: Sequelize.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0.00,
+      },
+      settlement_type: {
+        type: Sequelize.STRING,
+        allowNull: false,
+        defaultValue: 'today_settlement',
+        validate: {
+          isIn: {
+            args: [['today_settlement', 'next_day_settlement']],
+            msg: 'settlement_type must be either "today_settlement" or "next_day_settlement"'
+          }
+        }
+      },
       createdAt: {
           allowNull: false,
           type: Sequelize.DATE,
