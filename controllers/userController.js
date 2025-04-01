@@ -1,8 +1,10 @@
 const asyncHandler = require("express-async-handler");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const User = require('../models/User');
-
+const  User = require('../models/User');
+const ChargeType = require('../models/ChargeType');
+const ChargeSlab = require('../models/ChargeSlab')
+const { Op } = require('sequelize');
 
 const getUsers = asyncHandler(async (req, res) => {
     const { status } = req.query;
@@ -18,29 +20,84 @@ const getUsers = asyncHandler(async (req, res) => {
     res.status(200).json(users);
     });
 
-const getUserByID = asyncHandler( async (req, res) => {
-    try {
-        const role = req.user.role
-      
-        if (role !== "admin") {
-            res.status(400);
-            throw new Error ("You are not allowed!")
-        }
+    const getUserByID = asyncHandler(async (req, res) => {
+        try {
+            const role = req.user.role;
+            const searchedId = req.params.id;
+            const isPosRentalSlabRequired = req.body.is_pos_rental_slab_required;
+            const isPayoutSlabRequired = req.body.is_payout_slab_required;
 
-        const { id } = req.params;
-        console.log("test01", id)
-        const user = await User.findByPk(id);
-        res.status(200).json({user});
-    
-} catch (err) {res.json(err)}
-});
+            const searchedUser = await User.findByPk(searchedId);
+
+            if (!searchedUser) {
+            res.status(404);
+            throw new Error("User Not Found.");
+            }
+
+            if (role === "franchaise") {
+            if (searchedUser.franchaise_id !== req.user.id) {
+                res.status(403);
+                throw new Error("You are not allowed to view this user.");
+            }
+            }
+
+            if (role === "merchant") {
+            if (req.user.id !== Number(searchedId)) {
+                res.status(403);
+                throw new Error("You are not allowed to view this user.");
+            }
+            }
+            const response = {}
+            response.user = searchedUser
+        if (isPosRentalSlabRequired) {
+            const chargeType = await ChargeType.findOne({
+                where: { category: 'pos_rental' }
+                });
+
+                if (!chargeType) {
+                res.status(404);
+                throw new Error("POS rental charge type not found");
+                }
+
+                const slabs = await ChargeSlab.findAll({
+                where: {
+                    charge_type_id: chargeType.id,
+                    user_id: searchedId
+                }
+                });
+                response.pos_rental_slabs = slabs;
+            }
+        if (isPayoutSlabRequired) {
+            const chargeType = await ChargeType.findOne({
+                where: { category: 'payout_slab' }
+                });
+
+                if (!chargeType) {
+                res.status(404);
+                throw new Error("POS rental charge type not found");
+                }
+
+                const slabs = await ChargeSlab.findAll({
+                where: {
+                    charge_type_id: chargeType.id,
+                    user_id: searchedId
+                }
+                });
+                response.payout_slabs = slabs;
+            }
+            res.status(200).json(searchedUser);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
 
 const registerUser = asyncHandler( async (req, res) => {
     try {
     const { email, password, role} = req.body
     if (!email || !password || !role) {
         res.status(400);
-        throw new Error("All fields are mandatory. !") ;
+        throw new Error("All fields are mandatory!") ;
     }
 
     const userAvailable = await User.findOne({ where: { email: email } });
@@ -53,35 +110,35 @@ const registerUser = asyncHandler( async (req, res) => {
     // await User.sync(); 
     const hashPassword = await bcrypt.hash(password, 10);
 
-     let abheepay_id = '';
-    let abheepayPrefix = '';
-    let count = 0;
-    if (role == 'merchant') {
-        abheepayPrefix = 'APM';
-        count = await User.count({ where: { role: 'merchant' } });
-        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        } else if (role == 'franchaise') {
-        abheepayPrefix = 'APF';
-        count = await User.count({ where: { role: 'franchaise' } });
-        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        } else if (role == 'admin') {
-        abheepayPrefix = 'APA';
-        count = await User.count({ where: { role: 'admin' } });
-        if (count == 0) {count = 1}
-        abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-    }
+    let abheepay_id = '';
+        let abheepayPrefix = '';
+        let count = 0;
+        if (role == 'merchant') {
+            abheepayPrefix = 'APM';
+            count = await User.count({ where: { role: 'merchant' } });
+            abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
+            } else if (role == 'franchaise') {
+            abheepayPrefix = 'APF';
+            count = await User.count({ where: { role: 'franchaise' } });
+            abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
+            } else if (role == 'admin') {
+            abheepayPrefix = 'APA';
+            count = await User.count({ where: { role: 'admin' } });
+            if (count == 0) {count = 1}
+            abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
+        }
 
     const user = await User.create({
-      email: email,
-      password: hashPassword,
-      role: role,
-      mobile_number: req.body.mobile_number,
-      mobile_number_country_code: (req.body.mobile_number || "+91"),
-      abheepay_id: abheepay_id,
-      name: req.body.name,
-      is_approved: false,
-      status: "active"
-    }
+        email: email,
+        password: hashPassword,
+        role: role,
+        mobile_number: req.body.mobile_number,
+        mobile_number_country_code: (req.body.mobile_number_country_code || "+91"),
+        abheepay_id: abheepay_id,
+        name: req.body.name,
+        is_approved: false,
+        status: "active"
+        }
     );
 
     console.log("User created", user)

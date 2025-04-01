@@ -8,6 +8,10 @@ const WalletTransaction = db.define('WalletTransaction', {
     primaryKey: true,
     type: Sequelize.INTEGER
   },
+  user_id: {
+    type: Sequelize.INTEGER,
+    allowNull: false
+  },
   type: {
     type: Sequelize.STRING,
     allowNull: false
@@ -42,17 +46,18 @@ const WalletTransaction = db.define('WalletTransaction', {
     defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
   }
 });
-
-// WalletTransaction.associate = function(models) {
-//   WalletTransaction.belongsTo(models.User, {
-//     foreignKey: 'user_id',
-//     as: 'requester'
-//   });
-
-//   WalletTransaction.belongsTo(models.User, {
-//     foreignKey: 'user_id',
-//     as: 'approver'
-//   });
-// };
-
+WalletTransaction.associate = function(models) {
+  WalletTransaction.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+  WalletTransaction.belongsTo(models.User, {
+    foreignKey: 'requested_by',
+    as: 'requester'
+  });
+  WalletTransaction.belongsTo(models.User, {
+    foreignKey: 'approved_by',
+    as: 'approver'
+  });
+};
 module.exports = WalletTransaction;
