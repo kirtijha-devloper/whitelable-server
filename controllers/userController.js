@@ -47,8 +47,10 @@ const getUsers = asyncHandler(async (req, res) => {
                 throw new Error("You are not allowed to view this user.");
             }
             }
-            const response = {}
+            const response = {};
+
             response.user = searchedUser
+
         if (isPosRentalSlabRequired) {
             const chargeType = await ChargeType.findOne({
                 where: { category: 'pos_rental' }
@@ -85,7 +87,7 @@ const getUsers = asyncHandler(async (req, res) => {
                 });
                 response.payout_slabs = slabs;
             }
-            res.status(200).json(searchedUser);
+            res.status(200).json(response);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -171,7 +173,7 @@ const loginUser = asyncHandler( async (req, res) => {
                 role: user.role
             }},
             process.env.ACCESS_TOKEN_SECRET,
-            {expiresIn: "30m"}
+            {expiresIn: "59m"}
         );
         res.status(200).json({accessToken})
     }else {
@@ -202,26 +204,32 @@ const approveUser = asyncHandler( async (req, res) => {
 });
 
     const currentUser = asyncHandler( async (req, res) => {
-try {
-        const user = await User.findOne({ where: { email: req.user.email } })
-        res.json({
-            email: user.email,
-            mobile_number: user.mobile_number, 
-            name: (user.name || "NA"), 
-            mobile_number_country_code: (user.mobile_number_country_code || "+91"),
-            role: user.role || "merhcant",
-            abheepay_id: user.abheepay_id,
-            is_approved: user.is_approved,
-            organization_name: user.organization_name || "NA",
-            status: user.status,
-            is_pos_assigned: ( user.is_pos_assigned || false),
-            wallet: user.wallet,
-            id: user.id
-    });
-} catch(err) {
-res.status(404);
-    throw new Error("token is expired!")
-}
-});
+        try {
+                const user = await User.findOne({ where: { email: req.user.email } })
+                res.json({
+                    email: user.email,
+                    mobile_number: user.mobile_number, 
+                    name: (user.name || "NA"), 
+                    mobile_number_country_code: (user.mobile_number_country_code || "+91"),
+                    role: user.role || "merhcant",
+                    abheepay_id: user.abheepay_id,
+                    is_approved: user.is_approved,
+                    organization_name: user.organization_name || "NA",
+                    status: user.status,
+                    is_pos_asigned: ( user.is_pos_asigned || false),
+                    wallet: user.wallet,
+                    id: user.id
+            });
+        } catch(err) {
+        res.status(404);
+            throw new Error("token is expired!")
+        }
+        });
 
-module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID}
+    const updatePassword = asyncHandler(async (req, res) => {
+        
+    });
+
+    const updateFranchaiseID = asyncHandler(async (req, res) => {});
+
+module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateFranchaiseID}
