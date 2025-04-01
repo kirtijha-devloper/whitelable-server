@@ -37,7 +37,6 @@ const getUserByID = asyncHandler( async (req, res) => {
 
 const registerUser = asyncHandler( async (req, res) => {
     try {
-    console.log("hrespones", req.body)
     const { email, password, role} = req.body
     if (!email || !password || !role) {
         res.status(400);
@@ -51,6 +50,7 @@ const registerUser = asyncHandler( async (req, res) => {
         throw new Error("User Already Exist!");
     }
 
+console.log("test")
    
     // await User.sync(); 
     const hashPassword = await bcrypt.hash(password, 10);
@@ -160,7 +160,8 @@ try {
             organization_name: user.organization_name || "NA",
             status: user.status,
             is_pos_assigned: ( user.is_pos_assigned || false),
-            wallet: user.wallet
+            wallet: user.wallet,
+            id: user.id
     });
 } catch(err) {
 res.status(404);

@@ -129,7 +129,4 @@ const updateUserStatus = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Status updated', id });
 });
 
-
-
-
 module.exports = {onBoardUser, getUserById, getUsers, updateUserStatus}
