@@ -4,14 +4,15 @@ const asyncHandler = require("express-async-handler")
 
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
+const { response } = require("express");
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
-    const { status, tid_number, is_pos_assigned } = req.query;
+    const { status, tid_number, is_pos_asigned } = req.query;
 try {
     const where = {};
     if (tid_number) where.tid_number = tid_number;
     if (status) where.status = status;
-    if (is_pos_assigned) where.is_pos_assigned = is_pos_assigned
+    if (is_pos_asigned) where.is_pos_asigned = is_pos_asigned
     const posMachines = await PosMachine.findAll({where});
     res.json({list: posMachines});
     } catch (error) {
@@ -142,16 +143,18 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
     throw new Error("Merchants cannot assign POS machines");
     }
 
-    const user = User.findByPk(userId)
+    const  user = await User.findByPk(userId)
+
+    if (user.is_pos_asigned) {
+        res.status(400);
+        throw new Error("User Id has already pos assigned");
+    }
+
     const assigneeRole = user.role
 
-    const where = {}
-    if (assigneeRole === "franchaise") {where.franchaise_id = userId};
-    if (assigneeRole === "merchant") {where.assigned_user_id = userId};
-
-
     const updated = await PosMachine.update(
-        { where},
+        { ...(assigneeRole === "franchaise" && { franchaise_id: userId }),
+      ...(assigneeRole === "merchant" && { assigned_user_id: userId })},
         {
         where: {
             id: ids
@@ -159,7 +162,7 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
         }
     );
 
-    user.is_pos_assigned = true
+    user.is_pos_asigned = true
     await user.save()
 
     res.status(200).json({
@@ -170,12 +173,37 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
 
 const assignPosMachineToMerhcant = asyncHandler ( async (req, res) => {
     const id = req.body.id
-    const merchantId = req.body.merchantId
-    if (!id || id.length === 0 || !merchantId) {
+    const userId = req.body.user_id
+    if (!id || !userId) {
         res.status(400);
         throw new Error ("All fields are mandatory !")
     }
+    if (req.user.role == "merchant") {
+        res.status(400);
+        throw new Error("You are not allowed to assign.");
+    }
+    const user = await User.findByPk(userId)
+    if (user.role !== "merchant") {
+        res.status(400);
+        throw new Error("Please select correct merchant.");
+    }
 
+    if (req.user.role == "franchaise") {
+        if (user.franchaise_id) {
+            if (user.franchaise_id !== req.user.id) {
+                res.status(400);
+                throw new Error("Please select correct merchant.");
+            }
+        } else {
+            res.status(400);
+                throw new Error("Please select correct merchant.");
+}
+
+
+    }
+
+    
+    merchant
     await PosMachine.update(
         { assigned_user_id: merchantId },
         {
@@ -186,7 +214,7 @@ const assignPosMachineToMerhcant = asyncHandler ( async (req, res) => {
     );
 
     const merchant = await User.findByPk(id)
-    await merchant.update({is_pos_assigned: true});
+    await merchant.update({is_pos_asigned: true});
 
     res.status(200).json({
         message: `POS Machines assigned to merchant ${merchantId}`
