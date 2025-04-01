@@ -33,6 +33,7 @@ app.use("/api/franchaise", require("./routes/franchaiseRoutes"));
 app.use("/api/merchant", require("./routes/merchantRoutes"));
 app.use('/api/payment', require('./routes/payments/sddsRoutes'));
 app.use('/api/credit-bill',require('./routes/cc/billAvenue/creditBillRoutes') )
+app.use('/api/wallet', require('./routes/walletTransactionRoutes'))
 app.get('/api/ping', (req, res) => res.send('Server is running!'));
 
 

@@ -7,7 +7,7 @@ const upload = require("../utils/mutlerSetup")
 
 router.use(validateToken)
 
-router.route("/:id").post( upload.fields([
+router.route("/:id/onboard").post( upload.fields([
     { name: 'pan_photo', maxCount: 1 },
     { name: 'aadhar_photo', maxCount: 1 },
     { name: 'shop_photo', maxCount: 1 }

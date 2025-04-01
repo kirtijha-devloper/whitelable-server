@@ -10,7 +10,7 @@ const {
   deletePosMachine,
   markAsDelivered,
   markAsReturnInitiated,
-  assignPosMachineToFranchaise,
+  assignPosMachineToUserID,
   assignPosMachineToMerhcant,
   getPosMachineList
 } = require("../controllers/posMachineController");
@@ -36,7 +36,7 @@ router.put("/delivered/:id", markAsDelivered);
 router.put("/returned-initiated/:id", markAsReturnInitiated);
 
 // 🎯 Assignments
-router.post("/assign-to-franchaise", assignPosMachineToFranchaise);
+router.post("/assign", assignPosMachineToUserID);
 router.post("/assign-to-merchant", assignPosMachineToMerhcant);
 
 // 🧍 Get single, Delete
