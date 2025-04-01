@@ -6,11 +6,12 @@ const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
-    const { status, tid_number } = req.query;
+    const { status, tid_number, is_pos_assigned } = req.query;
 try {
     const where = {};
     if (tid_number) where.tid_number = tid_number;
     if (status) where.status = status;
+    if (is_pos_assigned) where.is_pos_assigned = is_pos_assigned
     const posMachines = await PosMachine.findAll({where});
     res.json({list: posMachines});
     } catch (error) {
@@ -136,7 +137,7 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
     throw new Error("Target user_id is required");
     }
 
-    if (role === 'merchant') {
+    if (req.user.role === 'merchant') {
     res.status(403);
     throw new Error("Merchants cannot assign POS machines");
     }
@@ -157,6 +158,9 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
         }
         }
     );
+
+    user.is_pos_assigned = true
+    await user.save()
 
     res.status(200).json({
         message: `POS Machines assigned `,
