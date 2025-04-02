@@ -8,12 +8,8 @@ const WalletTransaction = db.define('WalletTransaction', {
     primaryKey: true,
     type: Sequelize.INTEGER
   },
-  user_id: {
-    type: Sequelize.INTEGER,
-    allowNull: false
-  },
   type: {
-    type: Sequelize.STRING,
+    type: Sequelize.STRING, // request, add, 
     allowNull: false
   },
   amount: {
@@ -22,7 +18,7 @@ const WalletTransaction = db.define('WalletTransaction', {
   },
   status: {
     type: Sequelize.STRING,
-    defaultValue: 'pending'
+    defaultValue: 'pending'  // pending completed expired
   },
   reason: {
     type: Sequelize.STRING
@@ -35,6 +31,10 @@ const WalletTransaction = db.define('WalletTransaction', {
     type: Sequelize.INTEGER,
     allowNull: true
   },
+  source: {                               
+  type: Sequelize.STRING,  // razorpay, merchant, franchaise
+  allowNull: true // optional, set to false if always required
+},
   createdAt: {
     allowNull: false,
     type: Sequelize.DATE,

@@ -8,43 +8,50 @@ const { Op } = require('sequelize');
 
 
 const requestFund = asyncHandler(async (req, res) =>{
-const { user_id, amount, reason } = req.body;
+  const role = req.user.role
+  const { user_id, amount, reason } = req.body;
   const user = await User.findByPk(user_id);
   if (!user) throw new Error("User not found");
 
-  user.wallet = parseFloat(user.wallet) + parseFloat(amount);
-  await user.save();
+  let source  = ''
+  if (role === "merchant") {
+    source = "merchant"
+  }
+  if (role == "franchaise") {
+    source = "franchaise"
+  }
+  if (role == "admin") {
+    source = "admin"
+  } 
 
-  await WalletTransaction.create({
+  const wallet = await WalletTransaction.create({
     type: "request",
     amount,
-    status: "completed",
+    status: "pending",
     reason,
     requested_by: user_id,
-    approved_by: req.user.id,
+    source: source
   });
 
-  res.status(200).json({ message: "Fund added", balance: user.wallet });
+  res.status(200).json({ message: "Fund Requested", balance: user.wallet, id: wallet.id });
 });
 
 const transferFund = asyncHandler(async (req, res) =>{
-    const transactionId = req.body.transaction_id;
-    const userId = req.body.user_id;
-    const senderId = req.user.id
-
-    const wallet_transaction = await WalletTransaction.findByPk(transactionId);
+    const id = req.params;
+    const wallet_transaction = await WalletTransaction.findByPk(id);
     if (!wallet_transaction) throw new Error("Request not found");
-    
-    await WalletTransaction.create({
-    user_id,
-    type: "transfer",
-    amount,
-    status: "completed",
-    reason,
-    requested_by: userId,
-    approved_by: senderId
-  });
+
+    const user = await User.findByPk(wallet_transaction.requested_by)
+     if (!user) throw new Error("User not found");
+
+    user.wallet = parseFloat(user.wallet) + parseFloat(amount);
+    await user.save();
+
+    wallet_transaction.status = "completed"
+    wallet_transaction.approved_by= req.user.id
+    await wallet_transaction.save()
   
+    res.status(200).json({ message: "Amount Transfered", balance: user.wallet, hold: user.wallet_hold });
 })
 
 const holdFund = asyncHandler(async (req, res) => {
@@ -144,6 +151,16 @@ const getTransactionsByRole = asyncHandler(async (req, res) => {
   });
 });
 
+const getWalletRequestById = asyncHandler(async (req, res) => {
+    const id = req.params.id;
+    const walletTransaction = await WalletTransaction.findByPk(id);
+    if (!walletTransaction) {
+      res.status(404);
+      throw new Error('Transaction not found');
+    };
+    res.status(200).json(walletTransaction);
+  });
+
 
 
 
@@ -153,5 +170,6 @@ module.exports = {
   holdFund,
   unholdFund,
   getWalletRequests,
-  getTransactionsByRole
+  getTransactionsByRole,
+  getWalletRequestById
 } 
