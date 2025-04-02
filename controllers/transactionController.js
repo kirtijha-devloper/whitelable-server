@@ -2,6 +2,7 @@ const asyncHandler = require("express-async-handler")
 const fs = require("fs");
 const csvParser = require("csv-parser");
 const Transaction = require("../models/Transaction");
+const WalletTransaction = require("../models/WalletTransaction")
 const { Op } = require("sequelize");
 const PosMachine = require("../models/posMachine");
 
@@ -117,18 +118,18 @@ const uploadCSV = (req, res) => {
           // 🔐 Make sure you have a valid user to attach (modify logic as needed)
           const posMachine = await PosMachine.findOne({where: {mid_number: tx.MID}})
 
-          if (!user) {
-            console.warn(`No user found for mobile: ${tx.MID}, skipping wallet request`);
+          if (!posMachine) {
+            console.warn(`No POS Machine Found in our system: ${tx.MID}, skipping wallet request`);
             continue;
           }
 
           walletRequests.push({
-            type: "razorpay",
+            type: "request",
             amount: tx.Amount,
             status: "pending", // Marked as request
             reason: `Razorpay transaction ID: ${tx.ID}`,
             requested_by: posMachine.assigned_user_id, // assuming self-initiated
-            settlement_type: "today_settlement"
+            source: "razorpay"
           });
         }
 
@@ -174,7 +175,6 @@ function parseIntOrNull(value) {
 const getAllTransaction = asyncHandler(async (req, res) => {
 try {
   const transactions = await Transaction.findAll();
-  console.log("create params: afrer tra")
     res.json({list: transactions});
   } catch (error) {
       console.error("Error fetching transactions:", error);

@@ -24,8 +24,8 @@ const getUsers = asyncHandler(async (req, res) => {
         try {
             const role = req.user.role;
             const searchedId = req.params.id;
-            const isPosRentalSlabRequired = req.body.is_pos_rental_slab_required;
-            const isPayoutSlabRequired = req.body.is_payout_slab_required;
+            const isPosRentalSlabRequired = req.query.is_pos_rental_slab_required;
+            const isPayoutSlabRequired = req.query.is_payout_slab_required;
 
             const searchedUser = await User.findByPk(searchedId);
 
@@ -52,36 +52,18 @@ const getUsers = asyncHandler(async (req, res) => {
             response.user = searchedUser
 
         if (isPosRentalSlabRequired) {
-            const chargeType = await ChargeType.findOne({
-                where: { category: 'pos_rental' }
-                });
-
-                if (!chargeType) {
-                res.status(404);
-                throw new Error("POS rental charge type not found");
-                }
-
                 const slabs = await ChargeSlab.findAll({
                 where: {
-                    charge_type_id: chargeType.id,
+                    charge_type_category: "pos_rental",
                     user_id: searchedId
                 }
                 });
                 response.pos_rental_slabs = slabs;
             }
         if (isPayoutSlabRequired) {
-            const chargeType = await ChargeType.findOne({
-                where: { category: 'payout_slab' }
-                });
-
-                if (!chargeType) {
-                res.status(404);
-                throw new Error("POS rental charge type not found");
-                }
-
                 const slabs = await ChargeSlab.findAll({
                 where: {
-                    charge_type_id: chargeType.id,
+                    charge_type_category: "payout_slab",
                     user_id: searchedId
                 }
                 });
@@ -173,7 +155,7 @@ const loginUser = asyncHandler( async (req, res) => {
                 role: user.role
             }},
             process.env.ACCESS_TOKEN_SECRET,
-            {expiresIn: "59m"}
+            {expiresIn: "5h"}
         );
         res.status(200).json({accessToken})
     }else {
