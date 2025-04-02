@@ -163,6 +163,37 @@ const unholdFund = asyncHandler(async (req, res) => {
   res.status(200).json({ message: "Amount held", balance: user.wallet, hold: user.wallet_hold });
 });
 
+const getUserWalletTransactions = asyncHandler(async (req, res) => {
+    const { type, id: transactionId, status, user_id } = req.body;
+
+     const where = {};
+    if (transactionId) {
+      where.id = transactionId;
+    }
+
+    if (type) {
+      where.type = type;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (user_id) {
+       where.requested_by = user_id;
+    }
+
+    const transactions = await WalletTransaction.findAll({
+        where,
+        order: [['createdAt', 'DESC']]
+      });
+
+    res.status(200).json({
+      count: transactions.length,
+      transactions,
+  });
+});
+
 const getWalletRequests = asyncHandler(async (req, res) => {
     
     const transactions = await WalletTransaction.findAll({
@@ -230,5 +261,6 @@ module.exports = {
   unholdFund,
   getWalletRequests,
   getTransactionsByRole,
-  getWalletRequestById
+  getWalletRequestById,
+  getUserWalletTransactions
 } 
