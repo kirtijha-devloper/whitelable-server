@@ -7,7 +7,8 @@ const {
   unholdFund,
   getWalletRequests,
   getTransactionsByRole,
-  getWalletRequestById
+  getWalletRequestById,
+  getUserWalletTransactions
 } = require("../controllers/walletTransactionController");
 
 const validateToken = require("../middleware/validateTokenHandler");
@@ -18,8 +19,9 @@ router.post("/request", requestFund);
 router.post("/transer/:id", transferFund)
 router.post("/hold/:id", holdFund);
 router.post("/unhold/:id", unholdFund);
+router.post("/filter", getUserWalletTransactions)
 router.get("/requests", getWalletRequests);
-router.get("list", getTransactionsByRole)
+router.get("/list", getTransactionsByRole)
 router.get("/:id", getWalletRequestById)
 
 module.exports = router;
