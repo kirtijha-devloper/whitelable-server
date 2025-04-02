@@ -164,6 +164,7 @@ const unholdFund = asyncHandler(async (req, res) => {
 });
 
 const getUserWalletTransactions = asyncHandler(async (req, res) => {
+  try {
     const { type, id: transactionId, status, user_id } = req.body;
 
      const where = {};
@@ -192,6 +193,7 @@ const getUserWalletTransactions = asyncHandler(async (req, res) => {
       count: transactions.length,
       transactions,
   });
+  } catch (err) { console.error(err); res.status(500).json({ message: "Internal Server Error" }); }
 });
 
 const getWalletRequests = asyncHandler(async (req, res) => {
@@ -252,7 +254,24 @@ const getWalletRequestById = asyncHandler(async (req, res) => {
   });
 
 
+const getSingleTransactionHistory = asyncHandler(async (req, res) => {
+    const {id} = req.params
+     const walletTransaction = await WalletTransaction.findByPk(id);
+    if (!walletTransaction) {
+      res.status(404);
+      throw new Error("Wallet Transaction NOT FOUND")
+    }
+    const transactions = await WalletTransaction.findAll({
+      where: { reference_id: walletTransaction.id },
+      order: [["createdAt", "DESC"]],
+    });
 
+    const allTransactions = [walletTransaction.toJSON(), ...transactions];
+    res.status(200).json({
+      count: allTransactions.length,
+      allTransactions,
+    });
+});
 
 module.exports = {
   requestFund,
@@ -262,5 +281,6 @@ module.exports = {
   getWalletRequests,
   getTransactionsByRole,
   getWalletRequestById,
-  getUserWalletTransactions
+  getUserWalletTransactions,
+  getSingleTransactionHistory
 } 
