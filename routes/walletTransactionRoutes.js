@@ -15,9 +15,9 @@ const validateToken = require("../middleware/validateTokenHandler");
 router.use(validateToken);
 
 router.post("/request", requestFund);
-router.post("/transer", transferFund)
-router.post("/hold", holdFund);
-router.post("/unhold", unholdFund);
+router.post("/transer/:id", transferFund)
+router.post("/hold/:id", holdFund);
+router.post("/unhold/:id", unholdFund);
 router.get("/requests", getWalletRequests);
 router.get("list", getTransactionsByRole)
 router.get("/:id", getWalletRequestById)
