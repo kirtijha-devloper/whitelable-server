@@ -9,11 +9,11 @@ const ChargeSlab = db.define('ChargeSlab', {
   },
   charge_type_category: {
     type: Sequelize.STRING,
-    allowNull: true
+    allowNull: false
   },
   charge_type_id: {
     type: Sequelize.INTEGER,
-    allowNull: false
+    allowNull: true
   },
   user_id: {
     type: Sequelize.INTEGER,

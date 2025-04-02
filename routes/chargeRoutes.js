@@ -6,10 +6,11 @@ const {
   createChargeType,
   getChargeTypes,
   createChargeSlab,
-  getSlabsByType,
+  getSlabsByCategory,
   updateChargeSlab,
   deleteChargeSlab,
-  deleteChargeType
+  deleteChargeType,
+  getSlabsById
 } = require("../controllers/chargeController");
 
 router.use(validateToken);
@@ -21,7 +22,8 @@ router.delete("/type/:id", deleteChargeType);    // Delete a charge type by ID
 
 // 📦 Charge Slab routes
 router.post("/slab", createChargeSlab);          // Create new slab
-router.get("/slab/:typeId", getSlabsByType);     // Get slabs by charge type ID
+router.post("/slab/list", getSlabsByCategory);   // Get slabs by category + user_id from body
+router.get("/slab/:id", getSlabsById);     // Get slab by ID
 router.put("/slab/:id", updateChargeSlab);       // Update slab
 router.delete("/slab/:id", deleteChargeSlab);    // Delete slab
 

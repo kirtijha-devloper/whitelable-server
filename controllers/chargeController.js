@@ -37,6 +37,24 @@ const getChargeTypes = asyncHandler(async (req, res) => {
   res.status(200).json({ types });
 });
 
+const getSlabsById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  if (!id) {
+    res.status(400);
+    throw new Error("Slab ID is required");
+  }
+
+  const slab = await ChargeSlab.findByPk(id);
+
+  if (!slab) {
+    res.status(404);
+    throw new Error("Charge slab not found");
+  }
+
+  res.status(200).json({ slab });
+});
+
 // ✅ Create a charge slab
 const createChargeSlab = asyncHandler(async (req, res) => {
   const {
@@ -49,44 +67,79 @@ const createChargeSlab = asyncHandler(async (req, res) => {
     user_id // optional
   } = req.body;
 
-  if (!charge_type_category || (!max_amount && !flat_fee)) {
-    res.status(400);
-    throw new Error("Category must be provided")};
+  console.log("charge slab", req)
+  if (!charge_type_category || (!flat_fee && !percent_fee)) {
+      res.status(400);
+      throw new Error("charge_type_name and at least one of flat_fee or percent_fee is required");
+    }
+ 
+  // Default values if null
+  const newMin = parseFloat(min_amount) || 0;
+  const newMax = parseFloat(max_amount) || Infinity;
+
+   // Find existing slabs for this user + charge type
+  const existingSlabs = await ChargeSlab.findAll({
+    where: {
+      charge_type_category,
+      user_id: user_id || null
+    }
+  });
+
   
-    // let resolvedChargeTypeId = charge_type_id;
-    // if (!charge_type_id) {
-    // const existChargeType = await ChargeType.findOne({where: {category: charge_type_category}});
-    // if (!existChargeType) { 
-    //     res.status(404);
-    //     throw new Error("Charge slab not found");
-    // }
-      
-    // resolvedChargeTypeId = existChargeType.id;
-  // };
+  // Check for overlap
+  const isOverlapping = existingSlabs.some((slab) => {
+    const slabMin = parseFloat(slab.min_amount) || 0;
+    const slabMax = parseFloat(slab.max_amount) || Infinity;
 
-  const slab = await ChargeSlab.create({
-    charge_type_category: charge_type_category,
-    user_id: user_id || null,
-    created_by: req.user.id,
-    min_amount: min_amount || null,
-    max_amount: max_amount || null,
-    flat_fee: flat_fee || null,
-    percent_fee: percent_fee || null
-    });
+    return (
+      newMin <= slabMax && newMax >= slabMin
+    );
+  });
 
-  res.status(201).json({ message: "Charge Slab created", slab });
+console.log("charge TEST 01", isOverlapping)
+  if (isOverlapping) {
+    res.status(400);
+    throw new Error("Overlapping slab exists for this charge_type_name and user.");
+  }
+
+
+  // Create new slab
+    const slab = await ChargeSlab.create({
+      charge_type_category: charge_type_category,
+      user_id: user_id || null,
+      created_by: req.user.id,
+      min_amount: min_amount || null,
+      max_amount: max_amount || null,
+      flat_fee: flat_fee || null,
+      percent_fee: percent_fee || null
+      });
+  console.log("charge TEST")
+
+    res.status(201).json({ message: "Charge Slab created", slab });
 });
 
 // ✅ Get slabs by charge type
-const getSlabsByType = asyncHandler(async (req, res) => {
-  const { typeId } = req.params;
+const getSlabsByCategory = asyncHandler(async (req, res) => {
+  const { charge_type_category, user_id } = req.body;
 
-  const slabs = await ChargeSlab.findAll({
-    where: { charge_type_id: typeId }
-  });
+  if (!charge_type_category) {
+    res.status(400);
+    throw new Error("charge_type_category is required");
+  }
+
+  const where = {
+    charge_type_category
+  };
+
+  if (user_id) {
+    where.user_id = user_id;
+  }
+
+  const slabs = await ChargeSlab.findAll({ where });
 
   res.status(200).json({ slabs });
 });
+
 
 // ✅ Update slab
 const updateChargeSlab = asyncHandler(async (req, res) => {
@@ -141,13 +194,13 @@ const deleteChargeType = asyncHandler(async (req, res) => {
   res.status(200).json({ message: "Charge Type deleted successfully" });
 });
 
-
 module.exports = {
   createChargeType,
   getChargeTypes,
   createChargeSlab,
-  getSlabsByType,
+  getSlabsByCategory,
   updateChargeSlab,
   deleteChargeSlab,
-  deleteChargeType
+  deleteChargeType,
+  getSlabsById
 };
