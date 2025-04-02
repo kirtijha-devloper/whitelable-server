@@ -7,6 +7,10 @@ const ChargeSlab = db.define('ChargeSlab', {
     autoIncrement: true,
     primaryKey: true
   },
+  charge_type_category: {
+    type: Sequelize.STRING,
+    allowNull: true
+  },
   charge_type_id: {
     type: Sequelize.INTEGER,
     allowNull: false

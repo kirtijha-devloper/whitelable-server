@@ -1,4 +1,5 @@
-const { ChargeType, ChargeSlab } = require("../models");
+const ChargeType = require("../models/ChargeType");
+const ChargeSlab = require("../models/ChargeSlab");
 const asyncHandler = require("express-async-handler");
 
 // ✅ Create a new Charge Type
@@ -39,7 +40,6 @@ const getChargeTypes = asyncHandler(async (req, res) => {
 // ✅ Create a charge slab
 const createChargeSlab = asyncHandler(async (req, res) => {
   const {
-    charge_type_name,
     charge_type_category,
     charge_type_id, // optional
     min_amount,
@@ -49,23 +49,23 @@ const createChargeSlab = asyncHandler(async (req, res) => {
     user_id // optional
   } = req.body;
 
-  if (!charge_type_id && (!charge_type_name || !charge_type_category)) {
+  if (!charge_type_category || (!max_amount && !flat_fee)) {
     res.status(400);
-    throw new Error("Either charge_type_id or charge_type_name + category must be provided")};
+    throw new Error("Category must be provided")};
   
-    let resolvedChargeTypeId = charge_type_id;
-    if (!charge_type_id) {
-    const existChargeType = await ChargeType.findOne({where: {name: charge_type_name, category: charge_type_category}});
-    if (!existChargeType) { 
-        res.status(404);
-        throw new Error("Charge slab not found");
-    }
+    // let resolvedChargeTypeId = charge_type_id;
+    // if (!charge_type_id) {
+    // const existChargeType = await ChargeType.findOne({where: {category: charge_type_category}});
+    // if (!existChargeType) { 
+    //     res.status(404);
+    //     throw new Error("Charge slab not found");
+    // }
       
-    resolvedChargeTypeId = existChargeType.id;
-  };
+    // resolvedChargeTypeId = existChargeType.id;
+  // };
 
   const slab = await ChargeSlab.create({
-    charge_type_id: resolvedChargeTypeId,
+    charge_type_category: charge_type_category,
     user_id: user_id || null,
     created_by: req.user.id,
     min_amount: min_amount || null,

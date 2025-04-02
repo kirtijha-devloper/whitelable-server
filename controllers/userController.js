@@ -227,7 +227,29 @@ const approveUser = asyncHandler( async (req, res) => {
         });
 
     const updatePassword = asyncHandler(async (req, res) => {
-        
+        const { id, password } = req.body;
+
+        if (!id || !password) {
+            res.status(400);
+            throw new Error("All fields are mandatory!");
+        }
+
+        if (req.user.id !== Number(id)) {
+            res.status(401);
+            throw new Error("You are not authorized.");
+        }
+
+        const user = await User.findByPk(id);
+        if (!user) {
+            res.status(404);
+            throw new Error("User not found.");
+        }
+
+        const hashPassword = await bcrypt.hash(password, 10);
+        user.password = hashPassword;
+        await user.save();
+
+        res.status(200).json({ message: "Password updated successfully." });
     });
 
     const updateFranchaiseID = asyncHandler(async (req, res) => {});
