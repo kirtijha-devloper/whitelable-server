@@ -97,9 +97,11 @@ if (user.role !== "franchaise") {
 const getUsers = asyncHandler(async (req, res) => {
   const { status } = req.query;
   const role = "franchaise"
+  const franchaiseId = req.user.id
 
   const where = {};
   if (role) where.role = role;
+  if (franchaiseId) where.franchaiseId = franchaiseId;
   if (status) where.status = status;
 
   const users = await User.findAll({ where });
