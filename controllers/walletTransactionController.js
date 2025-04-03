@@ -9,20 +9,20 @@ const { Op } = require('sequelize');
 
 const requestFund = asyncHandler(async (req, res) =>{
   const role = req.user.role
+
+
   const { user_id, amount, reason } = req.body;
+
+  if (!amount || parseFloat(amount) <= 0) {
+    res.status(400);
+    throw new Error("Amount must be greater than zero");
+  }
+
   const user = await User.findByPk(user_id);
   if (!user) throw new Error("User not found");
 
-  let source  = ''
-  if (role === "merchant") {
-    source = "merchant"
-  }
-  if (role == "franchaise") {
-    source = "franchaise"
-  }
-  if (role == "admin") {
-    source = "admin"
-  } 
+
+  let source = role;
 
   const wallet = await WalletTransaction.create({
     type: "request",

@@ -35,6 +35,9 @@ app.use('/api/payment', require('./routes/payments/sddsRoutes'));
 app.use('/api/credit-bill',require('./routes/cc/billAvenue/creditBillRoutes') )
 app.use('/api/wallet', require('./routes/walletTransactionRoutes'));
 app.use('/api/charge', require('./routes/chargeRoutes'));
+app.use('/api/ledger', require('./routes/ledgerRoutes'));
+app.use('/api/dashboard', require('./routes/dashboardRoutes'));
+
 app.get('/api/ping', (req, res) => res.send('Server is running!'));
 
 
