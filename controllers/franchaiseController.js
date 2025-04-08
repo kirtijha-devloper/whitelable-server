@@ -95,17 +95,19 @@ if (user.role !== "franchaise") {
 });
 
 const getUsers = asyncHandler(async (req, res) => {
-  const { status } = req.query;
-  const role = "franchaise"
-  const franchaiseId = req.user.id
-
-  const where = {};
-  if (role) where.role = role;
-  if (franchaiseId) where.franchaiseId = franchaiseId;
-  if (status) where.status = status;
-
-  const users = await User.findAll({ where });
-
+  const userRole = req.user.role
+  if (userRole === "merchant") {
+    res.status(400);
+    throw new Error('you are not allowed!');
+    }
+  let users;
+  if (userRole === "admin") {
+      const role = "franchaise"
+      users = await User.findAll({ role: role, status: "active" });
+  }
+  if (userRole == "franchaise") {
+      users = await User.findAll({ status: "active" , id: req.user.id});
+  }
   res.status(200).json(users);
 });
 

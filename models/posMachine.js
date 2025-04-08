@@ -8,13 +8,13 @@ const PosMachine = db.define('PosMachine', {
         type: Sequelize.INTEGER
       },
       mid_number: {
-        type: Sequelize.INTEGER
+        type: Sequelize.STRING
       },
       tid_number: {
-        type: Sequelize.INTEGER
+        type: Sequelize.STRING
       },
       device_serial_number: {
-        type: Sequelize.INTEGER
+        type: Sequelize.STRING
       },
       status: {
         type: Sequelize.STRING    

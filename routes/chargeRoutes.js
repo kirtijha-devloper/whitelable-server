@@ -10,7 +10,7 @@ const {
   updateChargeSlab,
   deleteChargeSlab,
   deleteChargeType,
-  getSlabsById
+  getSlabsById,
 } = require("../controllers/chargeController");
 
 router.use(validateToken);

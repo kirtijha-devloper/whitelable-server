@@ -5,7 +5,7 @@ const { uploadCSV, getAllTransaction , getTransactionByID, getAllFileUpload, get
 
 const router = express.Router();
 
-router.post("/upload-csv", upload.single("csv"), uploadCSV);
+router.post("/upload-csv", upload.single("file"), uploadCSV);
 
 router.route("/").get( getAllTransaction );
 

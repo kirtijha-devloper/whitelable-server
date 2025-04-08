@@ -5,13 +5,17 @@ const sddsService = require('../../services/payments/sddsService');
 // Login Controller
 router.post('/login', async (req, res) => {
   try {
+    if (!req.body.browser_id || !req.body.lat || !req.body.long) {
+      res.status(400);
+      throw new Error('Missing required parameters');
+    }
     const payload = {
-      username: '9024621059',
-      password: '12345678',
+      username: process.env.SDDS_USERNAME,
+      password: process.env.SDDS_USERNAME,
       otp: 'yes',
-      browser_id: '52e49c456f92b900cf0ed2e20172a7c2',
-      lat: '26.9194401',
-      long: '75.7531271'
+      browser_id: req.body.browser_id,
+      lat: req.body.lat,
+      long: req.body.long
     };
 
     const data = await sddsService.login(payload);
@@ -27,11 +31,15 @@ router.post('/login', async (req, res) => {
 
 // Verify TPIN Controller
 router.post('/verify-tpin', async (req, res) => {
+   if (!req.body.browser_id) {
+      res.status(400);
+      throw new Error('Missing required parameters');
+    }
   try {
     const payload = {
-      tpin: '0000',
+      tpin: process.env.TPIN,
       login: 'yes',
-      browser_id: '52e49c456f92b900cf0ed2e20172a7c2'
+      browser_id: req.body.browser_id
     };
 
     const data = await sddsService.verifyTPIN(payload);
@@ -48,10 +56,18 @@ router.post('/verify-tpin', async (req, res) => {
 // Remitter Login Controller
 router.post('/remitter-login', async (req, res) => {
   try {
+      const mobileNumber = req.body.mobile_number
+      const lat = req.body.lat
+      const long = req.body.long
+
+      if (!mobileNumber || !lat || !long){
+          res.status(400);
+          throw new Error('Invalid request');
+      }
     const payload = {
-      mobileNumber: '9999988888',
-      lat: '26.8913845',
-      long: '75.7728197'
+      mobileNumber: mobileNumber,
+      lat: lat,
+      long: long
     };
 
     const data = await sddsService.remitterLogin(payload);
@@ -69,13 +85,29 @@ router.post('/remitter-login', async (req, res) => {
 
 router.post('/remitter-register', async (req, res) => {
   try {
+      const mobileNumber = req.body.mobile_number
+      const otp = req.body.otp
+      const name = req.body.name
+      if (!mobileNumber|| !otp || !name){
+          res.status(400);
+          throw new Error('Invalid request');
+      }
     const payload = {
-      mobileNumber: '8888899999',
-      otp: '1234',
-      name: 'test'
+      mobileNumber: mobileNumber,
+      otp: otp,
+      name: name
     };
 
     const data = await sddsService.remitterRegister(payload);
+
+    await Remitter.create({
+      merchant_id: req.user.id,
+      mobileNumber,
+      otp,
+      name,
+      external_reference_id: data?.reference_id || null
+    });
+
     res.json({ message: 'Remitter registered', data });
   } catch (error) {
     res.status(500).json({ error });
@@ -99,17 +131,31 @@ router.post('/remitter-beneficiaries', async (req, res) => {
 
 router.post('/add-beneficiary', async (req, res) => {
   try {
+    const remitterId = req.body.remitter_id
+    const mobileNumber = req.body.mobile_number
+    const bankName = req.body.bank_name
+    const accountNumber = req.body.account_number
+    const ifscCode = req.body.ifsc_code
+    const bankAccountHolderName = req.body.bank_account_holder_name
+    const beneficiaryMobile = req.body.beneficiary_mobile
+
     const payload = {
-      mobile: '9024621059',
-      bank_name: 'Test Bank',
-      bank_account_number: '12344895783748',
-      bank_account_holder_name: 'Test',
-      bank_ifsc: 'TEST1223',
-      BeneficiaryMobile: '99999777777',
+      mobile: mobileNumber,
+      bank_name: bankName,
+      bank_account_number: accountNumber,
+      bank_account_holder_name: bankAccountHolderName,
+      bank_ifsc: ifscCode,
+      BeneficiaryMobile: beneficiaryMobile,
       status: 1
     };
 
     const data = await sddsService.addBeneficiary(payload);
+
+     await Beneficiary.create({
+      ...payload,
+      external_reference_id: data?.reference_id || null, user_id: req.user.id, remitter_id: remitterId 
+    });
+
     res.json({ message: 'Beneficiary added', data });
   } catch (error) {
     res.status(500).json({ error });
@@ -117,6 +163,7 @@ router.post('/add-beneficiary', async (req, res) => {
 });
 
 router.post('/delete-beneficiary', async (req, res) => {
+  const id  = req.body.id;
   try {
     const payload = {
       id: 1,

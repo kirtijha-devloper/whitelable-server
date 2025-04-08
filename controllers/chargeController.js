@@ -194,6 +194,20 @@ const deleteChargeType = asyncHandler(async (req, res) => {
   res.status(200).json({ message: "Charge Type deleted successfully" });
 });
 
+const getChargeSlabByUserId =  asyncHandler(async (req, res) => {
+  const role = req.user.role;
+  const userId = req.user.id;
+  if (role === "merchant") {
+    existingSlab = await ChargeSlab.findOne({where: {user_id: userId, category: "pos_rental"}})
+    if (existingSlab) {
+    res.status(200).json(existingSlab)
+} else {
+    res.status(404).json({message: "No charge slab found"})
+  }
+  }
+
+  });
+
 module.exports = {
   createChargeType,
   getChargeTypes,

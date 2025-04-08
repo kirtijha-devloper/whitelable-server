@@ -95,6 +95,18 @@ if (user.role !== "merchant") {
 
 const getUsers = asyncHandler(async (req, res) => {
   const { status } = req.query;
+  if (!status) {status = "active"}
+  if (req.user.role === "franchaise") {
+    const userId = req.user.id
+    const where = {};
+    if (userId) where.franchaise_id = userId;
+    if (status) where.status = status;
+  
+    const users = await User.findAll({ where });
+
+    res.status(200).json(users)
+    
+  } else {
   const role = "merchant"
 
   const where = {};
@@ -103,7 +115,7 @@ const getUsers = asyncHandler(async (req, res) => {
 
   const users = await User.findAll({ where });
 
-  res.status(200).json(users);
+  res.status(200).json(users);}
 });
 
 const updateUserStatus = asyncHandler(async (req, res) => {
