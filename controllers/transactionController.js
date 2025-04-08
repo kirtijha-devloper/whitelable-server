@@ -6,6 +6,13 @@ const WalletTransaction = require("../models/WalletTransaction")
 const { Op } = require("sequelize");
 const PosMachine = require("../models/posMachine");
 
+
+const formatMidNumbers = (mids) => {
+  return mids
+    .filter(mid => mid) // skip null/undefined
+    .map(mid => String(mid).replace(/'/g, '').trim()) // remove single quotes + trim
+    .map(mid => `'${mid}'`); // wrap in single quotes
+};
 const uploadCSV = (req, res) => {
   console.log("data:")
   // const cleanMID = (mid) => (mid || "").replace(/'/g, "").trim();
@@ -32,6 +39,9 @@ console.log("data5:")
             console.warn(`Missing mandatory field(s) at row ${i + 1}`);
             return; // Skip invalid rows
           }
+
+          
+
 
           // Prepare and sanitize the record
           const sanitizedRecord = {
@@ -106,16 +116,37 @@ console.log("data5:")
         });
 
         console.log("Sanitized Records Count:", sanitizedResults.length);
+        const existingIds = await Transaction.findAll({
+          where: {
+            ID: sanitizedResults.map(tx => tx.ID)
+          },
+          attributes: ['ID'],
+          raw: true
+        });
 
-        if (sanitizedResults.length === 0) {
+        const existingIdSet = new Set(existingIds.map(tx => tx.ID));
+        const newTransactions = sanitizedResults
+          .filter(tx => !existingIdSet.has(tx.ID))
+          .map(tx => ({
+            ...tx,
+            MID: tx.MID ? String(tx.MID).replace(/'/g, '').trim() : null, // Clean MID here,
+            Username: tx.Username ? String(tx.Username).replace(/'/g, '').trim() : null,
+            TID: tx.TID ? String(tx.TID).replace(/'/g, '').trim() : null,
+            DeviceSerial: tx.DeviceSerial ? String(tx.DeviceSerial).replace(/'/g, '').trim() : null,
+          }));
+
+
+        if (newTransactions.length === 0) {
           return res.status(400).json({ message: "No valid records found in CSV." });
         }
 
         // Bulk insert
-        await Transaction.bulkCreate(sanitizedResults);
+        await Transaction.bulkCreate(newTransactions, {
+          ignoreDuplicates: true // ✅ This will skip records with duplicate primary keys
+        });
         console.log("CSV data uploaded successfully")
 
-        const settledTransactions = sanitizedResults.filter(t => t.Status?.toLowerCase() === "settled");
+        const settledTransactions = newTransactions.filter(t => t.Status === "SETTLED");
         const walletRequests = [];
         for (const tx of settledTransactions) {
           // 🔐 Make sure you have a valid user to attach (modify logic as needed)
@@ -123,7 +154,7 @@ console.log("data5:")
 
           if (!posMachine) {
             console.warn(`No POS Machine Found in our system: ${tx.MID}, skipping wallet request`);
-            continue;
+            // continue;
           }
 
           walletRequests.push({
@@ -131,7 +162,7 @@ console.log("data5:")
             amount: tx.Amount,
             status: "pending", // Marked as request
             reason: `Razorpay transaction ID: ${tx.ID}`,
-            requested_by: posMachine.assigned_user_id, // assuming self-initiated
+            requested_by: 1 || null, // assuming self-initiated
             source: "razorpay"
           });
         }
@@ -156,6 +187,7 @@ console.log("data5:")
       }
     });
 };
+
 
 // Helpers
 function parseDate(dateStr) {

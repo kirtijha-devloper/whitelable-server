@@ -104,21 +104,21 @@ const getDashboard = asyncHandler(async (req, res) => {
         Transaction.sum('Amount', {
           where: {
             createdAt: { [Op.between]: [start, end] },
-            MID: mids
+            MID: mids?.map(val => '${val}').join(', ')
           }
         }),
         Transaction.sum('Amount', {
           where: {
             Status: "SETTLED",
             createdAt: { [Op.between]: [start, end] },
-            MID: mids
+            MID: mids?.map(val => '${val}').join(', ')
           }
         }),
         Transaction.sum('Amount', {
           where: {
             Status: "FAILED",
             createdAt: { [Op.between]: [start, end] },
-            MID: mids
+            MID: mids?.map(val => '${val}').join(', ')
           }
         })
       ]);
