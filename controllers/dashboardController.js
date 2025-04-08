@@ -94,25 +94,31 @@ const getDashboard = asyncHandler(async (req, res) => {
     }
 
     if (role === "merchant") {
+      const machines = await PosMachine.findAll({
+        where: { assigned_user_id: userId },
+        attributes: ['mid_number'],
+        raw: true
+        });
+      const mids = machines.map(machine => machine.mid_number).filter(Boolean); 
       const [total, success, fail] = await Promise.all([
         Transaction.sum('Amount', {
           where: {
             createdAt: { [Op.between]: [start, end] },
-            MID: req.user.mid_number
+            MID: mids
           }
         }),
         Transaction.sum('Amount', {
           where: {
             Status: "SETTLED",
             createdAt: { [Op.between]: [start, end] },
-            MID: req.user.mid_number
+            MID: mids
           }
         }),
         Transaction.sum('Amount', {
           where: {
             Status: "FAILED",
             createdAt: { [Op.between]: [start, end] },
-            MID: req.user.mid_number
+            MID: mids
           }
         })
       ]);

@@ -193,7 +193,7 @@ const approveUser = asyncHandler( async (req, res) => {
                     mobile_number: user.mobile_number, 
                     name: (user.name || "NA"), 
                     mobile_number_country_code: (user.mobile_number_country_code || "+91"),
-                    role: user.role || "merhcant",
+                    role: user.role || "merchant",
                     abheepay_id: user.abheepay_id,
                     is_approved: user.is_approved,
                     organization_name: user.organization_name || "NA",
@@ -233,6 +233,7 @@ const approveUser = asyncHandler( async (req, res) => {
 
         res.status(200).json({ message: "Password updated successfully." });
     });
+
 
     const updateFranchaiseID = asyncHandler(async (req, res) => {});
 

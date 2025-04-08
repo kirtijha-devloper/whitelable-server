@@ -7,16 +7,19 @@ const { Op } = require("sequelize");
 const PosMachine = require("../models/posMachine");
 
 const uploadCSV = (req, res) => {
+  console.log("data:")
+  // const cleanMID = (mid) => (mid || "").replace(/'/g, "").trim();
   if (!req.file) {
     return res.status(400).json({ message: "No file uploaded" });
   }
-
+console.log("data5:")
   const results = [];
   const sanitizedResults = [];
 
   fs.createReadStream(req.file.path)
     .pipe(csvParser())
     .on("data", (row) => {
+      console.log("data:", row)
       results.push(row);
     })
     .on("end", async () => {
