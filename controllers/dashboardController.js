@@ -2,7 +2,8 @@ const asyncHandler = require("express-async-handler");
 const { Op } = require('sequelize');
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
-const Transaction = require("../models/Transaction")
+const Transaction = require("../models/Transaction");
+const WalletTransaction = require("../models/WalletTransaction");
 
 
 const getTodayRange = () => {
@@ -42,11 +43,14 @@ const getDashboard = asyncHandler(async (req, res) => {
         })
       ]);
 
+      const today_total_payout = await WalletTransaction.sum('amount', { where: { status: "completed", type:{ [Op.in]: ["transfer", "unhold"]}, createdAt: { [Op.between]: [start, end] } } });
+
       data = {
         pos_machines: { active: activeMachineCount, inactive: deactiveMachineCount },
         merchants: { count: activeMerchantCount },
         franchaises: { count: activeFranchaiseCount },
-        pos_transactions: { total, success, fail }
+        pos_transactions: { total, success, fail },
+        today_total_payout: today_total_payout
       };
     }
 
@@ -86,10 +90,14 @@ const getDashboard = asyncHandler(async (req, res) => {
         })
       ]);
 
+      const today_total_payout = await WalletTransaction.sum('amount', { where: { requested_by: req.user.id, status: "completed", type:{ [Op.in]: ["transfer", "hold"]}, createdAt: { [Op.between]: [start, end] } } });
+
       data = {
         assigned_merchants: { count: assignedMerchantCount },
         pos_machines: { count: posMachineCount },
-        pos_transactions: { total, success, fail }
+        pos_transactions: { total, success, fail },
+        today_total_payout: today_total_payout
+
       };
     }
 
@@ -123,8 +131,11 @@ const getDashboard = asyncHandler(async (req, res) => {
         })
       ]);
 
+      const today_total_payout = await WalletTransaction.sum('amount', { where: { requested_by: req.user.id, status: "completed", type:{ [Op.in]: ["transfer", "hold"]}, createdAt: { [Op.between]: [start, end] } } });
+
       data = {
-        pos_transactions: { total, success, fail }
+        pos_transactions: { total, success, fail },
+        today_total_payout: today_total_payout
       };
     }
 
@@ -135,8 +146,67 @@ const getDashboard = asyncHandler(async (req, res) => {
     res.status(500).json({ message: 'Internal Server Error' });
   }
 });
+
+const normalizeDate = (dateStr, isEnd = false) => {
+  const d = new Date(dateStr);
+  if (isNaN(d)) return null;
+  return isEnd
+    ? new Date(d.setHours(23, 59, 59, 999))
+    : new Date(d.setHours(0, 0, 0, 0));
+};
+
+const getTodayPayoutList = asyncHandler(async (req, res) => {
+  const { role, id: userId } = req.user;
+  const { date, startDate, endDate } = req.query;
+
+  let start, end;
+
+  if (date) {
+    start = normalizeDate(date);
+    end = normalizeDate(date, true);
+  } else if (startDate || endDate) {
+    start = normalizeDate(startDate);
+    end = normalizeDate(endDate, true);
+  } else {
+    ({ start, end } = getTodayRange());
+  }
+
+  if (!start || !end) {
+    return res.status(400).json({ message: "Invalid date format" });
+  }
+
+  const where = {
+    status: "completed",
+    type: { [Op.in]: ["transfer", "unhold"] },
+    createdAt: { [Op.between]: [start, end] }
+  };
+
+  if (role === "franchaise") {
+    const merchants = await User.findAll({
+      where: { franchaise_id: userId },
+      attributes: ["id"],
+    });
+    const merchantIds = merchants.map((u) => u.id);
+    where.requested_by = { [Op.in]: [...merchantIds, userId] };
+  } else if (role === "merchant") {
+    where.requested_by = userId;
+  }
+
+  const payouts = await WalletTransaction.findAll({
+    where,
+    order: [["createdAt", "DESC"]],
+  });
+
+  res.status(200).json({
+    count: payouts.length,
+    message: "Payout list fetched successfully.",
+    date_range: { start, end },
+    data: payouts,
+  });
+});
+
     
 
 
-module.exports = {getDashboard}
+module.exports = {getDashboard, getTodayPayoutList}
 
