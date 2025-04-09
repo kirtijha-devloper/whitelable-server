@@ -37,7 +37,6 @@ const requestFund = asyncHandler(async (req, res) =>{
 });
 
 const transferFund = asyncHandler(async (req, res) =>{
-  try{
     if (req.user.role !== "admin") {
       res.status(401);
       throw new Error("you are not allowed to transfer amount")
@@ -59,11 +58,21 @@ const transferFund = asyncHandler(async (req, res) =>{
 
     if (!walletTransaction) throw new Error("Request not found");
 
-    const user = await User.findByPk(walletTransaction.requested_by)
+     const sender = await User.findByPk(req.user.id); // the one approving
+      if (!sender) {
+        res.status(404);
+        throw new Error("Sender/approver not found");
+      }
+        
+        if (parseFloat(sender.wallet) < parseFloat(walletTransaction.amount)) {
+          res.status(400);
+          throw new Error("Insufficient balance to transfer funds");
+        }
+    const receiver = await User.findByPk(walletTransaction.requested_by)
 
-    if (!user) throw new Error("User not found");
-    user.wallet = parseFloat(user.wallet) + parseFloat(walletTransaction.amount);
-    await user.save();
+    if (!receiver) throw new Error("User not found");
+    receiver.wallet = parseFloat(receiver.wallet) + parseFloat(walletTransaction.amount);
+    await receiver.save();
 
     walletTransaction.status = "completed"
     walletTransaction.approved_by= req.user.id
@@ -78,12 +87,12 @@ const transferFund = asyncHandler(async (req, res) =>{
         requested_by: walletTransaction.requested_by,
         reference_id: walletTransaction.id
       });
+      sender.wallet = parseFloat(sender.wallet) - parseFloat(walletTransaction.amount);
+      console.log("sender wallet", parseFloat(sender.wallet) - parseFloat(walletTransaction.amount))
+      await sender.save();
   
-    res.status(200).json({ message: "Amount Transfered", balance: user.wallet, hold: user.wallet_hold });
-    } catch (err) {
-        req.status(500);
-        throw new Error("INter servererror")
-    }
+    res.status(200).json({ message: "Amount Transfered", balance: receiver.wallet, hold: receiver.wallet_hold });
+    
 });
 
 const holdFund = asyncHandler(async (req, res) => {
@@ -137,14 +146,25 @@ const unholdFund = asyncHandler(async (req, res) => {
     throw new Error("WallentTransaction should be in hold status for unhold")
   }
 
-  const user = await User.findByPk(walletTransaction.requested_by);
-  if (!user) throw new Error("Requested User not found");
+  const receiver = await User.findByPk(walletTransaction.requested_by);
+  if (!receiver) throw new Error("Requested User not found");
+
+   const sender = await User.findByPk(req.user.id); // the one approving
+  if (!sender) {
+    res.status(404);
+    throw new Error("Sender/approver not found");
+  }
+
+  if (parseFloat(sender.wallet) < parseFloat(walletTransaction.amount)) {
+    res.status(400);
+    throw new Error("Insufficient balance to transfer funds");
+  }
 
   // if parseFloat(user.wallet_hold) < parseFloat(walletTransaction.amount)){
   // }
-  user.wallet_hold = parseFloat(user.wallet_hold) -  parseFloat(walletTransaction.amount);
-  user.wallet = parseFloat(user.wallet) +  parseFloat(walletTransaction.amount);
-  await user.save();
+  receiver.wallet_hold = parseFloat(receiver.wallet_hold) -  parseFloat(walletTransaction.amount);
+  receiver.wallet = parseFloat(receiver.wallet) +  parseFloat(walletTransaction.amount);
+  await receiver.save();
 
   walletTransaction.approved_by = req.user.id
   walletTransaction.status = "completed"
@@ -159,8 +179,11 @@ const unholdFund = asyncHandler(async (req, res) => {
           requested_by: walletTransaction.requested_by,
           reference_id: walletTransaction.id
         });
+
+  sender.wallet = parseFloat(sender.wallet) - parseFloat(walletTransaction.amount);
+  await sender.save();
   
-  res.status(200).json({ message: "Amount held", balance: user.wallet, hold: user.wallet_hold });
+  res.status(200).json({ message: "Amount held", balance: receiver.wallet, hold: receiver.wallet_hold });
 });
 
 const getUserWalletTransactions = asyncHandler(async (req, res) => {

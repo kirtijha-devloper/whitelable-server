@@ -162,7 +162,7 @@ console.log("data5:")
             amount: tx.Amount,
             status: "pending", // Marked as request
             reason: `Razorpay transaction ID: ${tx.ID}`,
-            requested_by: 1 || null, // assuming self-initiated
+            requested_by: posMachine.assigned_user_id, // assuming self-initiated
             source: "razorpay"
           });
         }
@@ -309,5 +309,8 @@ console.log("Final WHERE clause:", whereCondition);
   }
 });
 
+// const triggerWalletRequest = asyncHandler(async (req, res) => {
+  
+// });
 
 module.exports = { uploadCSV, getAllTransaction, getTransactionByID, getAllFileUpload, getFilteredTransactions };

@@ -105,7 +105,7 @@ const getUsers = asyncHandler(async (req, res) => {
       const role = "franchaise"
       users = await User.findAll({ role: role, status: "active" });
   }
-  if (userRole == "franchaise") {
+  if (userRole === "franchaise") {
       users = await User.findAll({ status: "active" , id: req.user.id});
   }
   res.status(200).json(users);
