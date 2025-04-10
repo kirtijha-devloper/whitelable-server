@@ -194,19 +194,31 @@ const deleteChargeType = asyncHandler(async (req, res) => {
   res.status(200).json({ message: "Charge Type deleted successfully" });
 });
 
-const getChargeSlabByUserId =  asyncHandler(async (req, res) => {
-  const role = req.user.role;
+const getChargeSlabByUserId = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  if (role === "merchant") {
-    existingSlab = await ChargeSlab.findOne({where: {user_id: userId, category: "pos_rental"}})
-    if (existingSlab) {
-    res.status(200).json(existingSlab)
-} else {
-    res.status(404).json({message: "No charge slab found"})
-  }
+  const isDefaultNeeded = req.params.is_default_needed === "true"; // Convert string to boolean
+
+  let existingSlab = await ChargeSlab.findOne({
+    where: { user_id: userId, charge_type_category: "pos_rental" }
+  });
+
+  if (existingSlab) {
+    return res.status(200).json(existingSlab);
   }
 
-  });
+  if (isDefaultNeeded) {
+    existingSlab = await ChargeSlab.findOne({
+      where: { user_id: null, charge_type_category: "pos_rental" }
+    });
+
+    if (existingSlab) {
+      return res.status(200).json(existingSlab);
+    }
+  }
+
+  res.status(404).json({ message: "No charge slab found" });
+});
+
 
 module.exports = {
   createChargeType,
@@ -216,5 +228,6 @@ module.exports = {
   updateChargeSlab,
   deleteChargeSlab,
   deleteChargeType,
-  getSlabsById
+  getSlabsById,
+  getChargeSlabByUserId
 };
