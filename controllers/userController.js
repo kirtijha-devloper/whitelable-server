@@ -5,6 +5,7 @@ const  User = require('../models/User');
 const ChargeType = require('../models/ChargeType');
 const ChargeSlab = require('../models/ChargeSlab')
 const { Op } = require('sequelize');
+const PosMachine = require("../models/posMachine");
 
 const getUsers = asyncHandler(async (req, res) => {
     const { status } = req.query;
@@ -26,6 +27,7 @@ const getUsers = asyncHandler(async (req, res) => {
             const searchedId = req.params.id;
             const isPosRentalSlabRequired = req.query.is_pos_rental_slab_required;
             const isPayoutSlabRequired = req.query.is_payout_slab_required;
+            const isPosDetailRequired = req.query.is_pos_detail_required;
 
             const searchedUser = await User.findByPk(searchedId);
 
@@ -72,6 +74,26 @@ const getUsers = asyncHandler(async (req, res) => {
             res.status(200).json(response);
         } catch (err) {
             res.status(500).json({ error: err.message });
+        }
+
+        if (isPosDetailRequired) {
+            const posDetails = [];
+           if (searchedUser.role === "merchant") {
+                posDetails = await PosMachine.findAll({
+                where: {
+                    assigned_user_id: searchedId,
+                    status: "active",
+                },
+                });
+                } else if (searchedUser.role === "franchaise") {
+                posDetails = await PosMachine.findAll({
+                where: {
+                    franchaise_id: searchedId,
+                    status: "active",
+                },
+                });
+            }
+         response.pos_details = posDetails;
         }
     });
 
@@ -200,6 +222,7 @@ const approveUser = asyncHandler( async (req, res) => {
                     status: user.status,
                     is_pos_asigned: ( user.is_pos_asigned || false),
                     wallet: user.wallet,
+                    wallet_hold: user.wallet_hold,
                     id: user.id
             });
         } catch(err) {
