@@ -173,7 +173,7 @@ const loginUser = asyncHandler( async (req, res) => {
     if (user && (await bcrypt.compare(password, user.password))){
         try {
         const otp = Math.floor(100000 + Math.random() * 900000);
-        const apikey = "Q5aq9iNxvaiOWS";
+        const apikey = "Q5aq9iNxvaSeiOWS";
         const senderid = "ABHEPY";
         const message = encodeURIComponent(`Dear Customer, your login OTP for Abheepay is ${otp} and valid for 5 minutes. TEAM-ABHEEPAY`);
         const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
