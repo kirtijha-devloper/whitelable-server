@@ -27,7 +27,7 @@ router.post("/slab/list", getSlabsByCategory);   // Get slabs by category + user
 router.get("/slab/:id", getSlabsById);     // Get slab by ID
 router.put("/slab/:id", updateChargeSlab);       // Update slab
 router.delete("/slab/:id", deleteChargeSlab);    // Delete slab
-router.get("/slab/user/:id", getChargeSlabByUserId); // Get slabs
+router.get("/slab/user/:id", getChargeSlabByUserId); // Get slabs on basis of user
 
 module.exports = router;
 

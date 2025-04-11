@@ -6,6 +6,7 @@ const ChargeType = require('../models/ChargeType');
 const ChargeSlab = require('../models/ChargeSlab')
 const { Op } = require('sequelize');
 const PosMachine = require("../models/posMachine");
+const OTP = require("../models/Otp");
 
 const getUsers = asyncHandler(async (req, res) => {
     const { status } = req.query;
@@ -100,13 +101,14 @@ const getUsers = asyncHandler(async (req, res) => {
 
 const registerUser = asyncHandler( async (req, res) => {
     try {
-    const { email, password, role} = req.body
-    if (!email || !password || !role) {
+    const {email, password, role} = req.body
+    const  mobileNumber = req.body.mobile_number
+    if (!mobileNumber || !password || !role || !email) {
         res.status(400);
         throw new Error("All fields are mandatory!") ;
     }
 
-    const userAvailable = await User.findOne({ where: { email: email } });
+    const userAvailable = await User.findOne({ where: { mobile_number: mobileNumber, status: "active" } });
 
     if (userAvailable) {
         res.status(400);
@@ -159,31 +161,42 @@ const registerUser = asyncHandler( async (req, res) => {
 });
 
 const loginUser = asyncHandler( async (req, res) => {
-    const { email, password } = req.body
-    if (!email || !password) {
+    const { password } = req.body
+    const mobileNumber = req.mobile_number
+    if (!mobileNumber || !password) {
         res.status(400);
         throw new Error("All fields are mandatory. !") ;
     }
 
-    const user = await User.findOne({ where: { email: email } });
+    const user = await User.findOne({ where: { mobile_number: mobileNumber } });
 
     if (user && (await bcrypt.compare(password, user.password))){
-        const accessToken = jwt.sign({
-            user: {
-                name: user.name,
-                email: user.email,
-                mobile_number: user.mobile_number,
-                id: user.id,
-                role: user.role
-            }},
-            process.env.ACCESS_TOKEN_SECRET,
-            {expiresIn: "5h"}
-        );
-        res.status(200).json({accessToken})
+        try {
+        const otp = Math.floor(100000 + Math.random() * 900000);
+        const apikey = "Q5aq9iNxvaiOWS";
+        const senderid = "ABHEPY";
+        const message = encodeURIComponent(`Dear Customer your ${purpose} OTP for Abheepay is ${otp}. TEAM-ABHEEPAY`);
+        const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
+
+        await axios.get(url);
+
+        // Save OTP in DB with expiry (5 mins)
+        await OTP.upsert({
+        mobile,
+        otp,
+        purpose,
+        expires_at: new Date(Date.now() + 5 * 60 * 1000)
+        });
+        res.json({ success: true, message: "OTP sent successfully" , });
+    } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to send OTP" });
+  }
     }else {
         res.status(401);
         throw new Error("Email or Password are not valid !.")
     }
+    
 });
 
 
@@ -260,4 +273,106 @@ const approveUser = asyncHandler( async (req, res) => {
 
     const updateFranchaiseID = asyncHandler(async (req, res) => {});
 
-module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateFranchaiseID}
+    const sendOtp =  asyncHandler(async (req, res) => {
+
+        try {
+        const { mobile, purpose } = req.body;
+
+        if (!mobile || !["login", "forgot_password"].includes(purpose)) {
+        return res.status(400).json({ message: "Invalid request" });
+        }
+
+        // Generate OTP
+        const otp = Math.floor(100000 + Math.random() * 900000);
+
+        const apikey = "Q5aq9iNxvaiOWS";
+        const senderid = "ABHEPY";
+        const message = encodeURIComponent(`Dear Customer your ${purpose} OTP for Abheepay is ${otp}. TEAM-ABHEEPAY`);
+        const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
+
+        await axios.get(url);
+
+        // Save OTP in DB with expiry (5 mins)
+        await OTP.upsert({
+        mobile,
+        otp,
+        purpose,
+        expires_at: new Date(Date.now() + 5 * 60 * 1000)
+        });
+
+        res.json({ success: true, message: "OTP sent successfully" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to send OTP" });
+    }
+    });
+
+    const verifyOtp  = asyncHandler(async (req, res) => {
+
+        const { mobile, otp, purpose } = req.body;
+
+        const record = await OTP.findOne({
+            where: {
+            mobile,
+            otp,
+            purpose,
+            expires_at: { [Op.gt]: new Date() }
+            }
+        });
+
+        if (!record) {
+            return res.status(400).json({ message: "Invalid or expired OTP" });
+        }
+
+        await record.destroy(); // OTP should be one-time use
+
+        if (purpose === "login") {
+            // Issue login token
+            const user = await User.findOne({ where: { mobile_number: mobile } });
+            if (!user) return res.status(404).json({ message: "User not found" });
+
+            const accessToken = jwt.sign(
+            { user: { id: user.id,  name: user.name, mobile_number: user.mobile_number } },
+            process.env.ACCESS_TOKEN_SECRET,
+            { expiresIn: "5h" }
+            );
+
+            res.json({ message: "OTP verified", token: accessToken });
+        }
+
+        if (purpose === "forgot_password") {
+            // Return a temporary token to allow password reset
+            const resetToken = jwt.sign(
+            { mobile, purpose },
+            process.env.ACCESS_TOKEN_SECRET,
+            { expiresIn: "10m" }
+            );
+
+            res.json({ message: "OTP verified", resetToken });
+        }
+    });
+
+    const resetPassword = asyncHandler(async (req, res) => {
+        const { new_password, token } = req.body;
+        try {
+            const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+            if (decoded.purpose !== "forgot_password") {
+            return res.status(403).json({ message: "Invalid token purpose" });
+            }
+
+            const user = await User.findOne({ where: { mobile_number: decoded.mobile } });
+            if (!user) return res.status(404).json({ message: "User not found" });
+
+            const hashPassword = await bcrypt.hash(new_password, 10);
+            user.password = hashPassword;
+            await user.save();
+
+            res.json({ message: "Password reset successfully" });
+        } catch (err) {
+            return res.status(403).json({ message: "Invalid or expired token" });
+        }
+    });
+
+
+
+module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateFranchaiseID, sendOtp, verifyOtp, resetPassword }
