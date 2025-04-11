@@ -7,6 +7,7 @@ const ChargeSlab = require('../models/ChargeSlab')
 const { Op } = require('sequelize');
 const PosMachine = require("../models/posMachine");
 const OTP = require("../models/Otp");
+const axios = require('axios');
 
 const getUsers = asyncHandler(async (req, res) => {
     const { status } = req.query;
