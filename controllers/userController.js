@@ -288,7 +288,7 @@ const approveUser = asyncHandler( async (req, res) => {
         const apikey = "Q5aq9iNxvaiOWS";
         const senderid = "ABHEPY";
         const message = encodeURIComponent(`Dear Customer your ${purpose} OTP for Abheepay is ${otp}. TEAM-ABHEEPAY`);
-        const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
+        const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobileNumber}&message=${message}`;
 
         await axios.get(url);
 
