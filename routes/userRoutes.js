@@ -10,7 +10,7 @@ const validateToken = require("../middleware/validateTokenHandler");
 router.get('/', validateToken, getUsers)
 router.get("/current", validateToken, currentUser);
 router.get('/:id', validateToken, getUserByID)
-router.post("/register", validateToken, registerUser);
+router.post("/register", registerUser);
 router.post("/login", loginUser);
 router.put("/update-password", validateToken, updatePassword);
 router.post("/send-otp", validateToken, sendOtp);
