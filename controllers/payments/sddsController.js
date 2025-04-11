@@ -1,6 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const sddsService = require('../../services/payments/sddsService');
+const asyncHandler = require("express-async-handler");
+const Remitter = require("../../models/Remitter")
+const WalletTransaction = require("../../models/WalletTransaction")
+const User = require("../../models/User")
+const Beneficiary = require("../../models/Beneficiary")
 
 // Login Controller
 router.post('/login', async (req, res) => {
@@ -64,6 +69,12 @@ router.post('/remitter-login', async (req, res) => {
           res.status(400);
           throw new Error('Invalid request');
       }
+
+      const remitter = await Remitter.findOne({where: {mobile_number: mobileNumber }})
+      if (!remitter) {
+        return res.status(404).json({ message: "Remitter not found. Please register first." });
+      }
+
     const payload = {
       mobileNumber: mobileNumber,
       lat: lat,
@@ -181,23 +192,104 @@ router.post('/delete-beneficiary', async (req, res) => {
 
 router.post('/transfer-imps', async (req, res) => {
   try {
+    const userId = req.user.id
+    const userRole = req.user.role
+
+    const user = await User.findByPk(userId)
+    const amount = parseFloat(req.body.amount);
+  
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ message: "Invalid transfer amount" });
+    }
+
+    if (parseFloat(user.wallet) < amount) {
+      return res.status(400).json({ message: "Insufficient wallet balance" });
+    }
+    
     const payload = {
       TRANSFER_TYPE_DESC: 'IMPS',
-      BENE_BANK: 'ABC Bank',
-      INPUT_DEBIT_AMOUNT: '101',
+      BENE_BANK: req.body.bene_bank,
+      INPUT_DEBIT_AMOUNT: amount.toString(),
       INPUT_VALUE_DATE: '13/12/2024',
       TRANSACTION_TYPE: 'SINGLE',
-      BENE_ACC_NAME: 'Lucy',
-      BENE_ACC_NO: '5072500101670801',
-      BENE_BRANCH: 'NA',
-      BENE_IDN_CODE: 'ICIC0000002'
+      BENE_ACC_NAME: req.body.bene_acc_name ,
+      BENE_ACC_NO: req.body.bene_acc_no,
+      BENE_BRANCH: req.body.bene_branch || 'NA',
+      BENE_IDN_CODE: req.body.bene_ifsc
     };
 
     const data = await sddsService.transferIMPS(payload);
+    // Deduct balance from user wallet
+    user.wallet = parseFloat(user.wallet) - amount;
+    await user.save();
+
+    await WalletTransaction.create({
+      type: "transfer",
+      amount: amount,
+      status: "completed",
+      reason: `IMPS to ${payload.BENE_ACC_NAME}`,
+      requested_by: userId,
+      approved_by: userId,
+      source: "imps",
+      reference_id: data?.transaction_id || null
+    });
+
     res.json({ message: 'IMPS transfer successful', data });
   } catch (error) {
     res.status(500).json({ error });
   }
 });
+
+router.get('/remitter-list', async (req, res) => {
+  const merchantId = req.user.id;
+   const remitters = await Remitter.findAll({
+    where: { merchant_id: merchantId },
+    order: [["createdAt", "DESC"]],
+  });
+
+  res.status(200).json({
+    success: true,
+    count: remitters.length,
+    data: remitters,
+  });
+});
+
+router.get('/imps-transaction-list', async (req, res) => {
+  const merchantId = req.user.id;
+   const remitters = await Remitter.findAll({
+    where: { merchant_id: merchantId },
+    order: [["createdAt", "DESC"]],
+  });
+
+  res.status(200).json({
+    success: true,
+    count: remitters.length,
+    data: remitters,
+  });
+});
+
+  router.get('/imps-transactions', async (req, res) => {
+    const userId = req.user.id;
+    const role = req.user.role;
+
+     const where = {
+        type: "transfer",
+        source: "imps"
+      };
+
+      if (role !== "admin") {
+        where.requested_by = userId;
+      }
+
+    const transactions = await WalletTransaction.findAll({
+      where,
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.status(200).json({
+      count: transactions.length,
+      transactions,
+    });
+  });
 
 module.exports = router;
