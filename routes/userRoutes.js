@@ -14,7 +14,7 @@ router.post("/register", registerUser); // register new user User
 router.post("/login", loginUser);
 router.put("/update-password", validateToken, updatePassword);
 router.post("/send-otp", validateToken, sendOtp);
-router.post("/verify-otp", validateToken, verifyOtp);
+router.post("/verify-otp", verifyOtp);
 router.post("/reset-password", validateToken, resetPassword);
 
 
