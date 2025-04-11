@@ -162,7 +162,7 @@ const registerUser = asyncHandler( async (req, res) => {
 
 const loginUser = asyncHandler( async (req, res) => {
     const { password } = req.body
-    const mobileNumber = req.mobile_number
+    const mobileNumber = req.body.mobile_number
     if (!mobileNumber || !password) {
         res.status(400);
         throw new Error("All fields are mandatory. !") ;
@@ -212,7 +212,7 @@ const approveUser = asyncHandler( async (req, res) => {
 
     await user.save();
     if (user) {
-        res.status(200).json(loginUserRole)
+        res.status(200).json(user)
     } else {
         res.status(404);
             throw new Error ("NoT Found !")
