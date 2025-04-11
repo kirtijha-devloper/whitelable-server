@@ -183,9 +183,9 @@ const loginUser = asyncHandler( async (req, res) => {
 
         // Save OTP in DB with expiry (5 mins)
         await OTP.upsert({
-        mobile,
+        mobile: mobileNumber,
         otp,
-        purpose,
+        purpose: "login",
         expires_at: new Date(Date.now() + 5 * 60 * 1000)
         });
         res.json({ success: true, message: "OTP sent successfully" , });
@@ -310,11 +310,12 @@ const approveUser = asyncHandler( async (req, res) => {
 
     const verifyOtp  = asyncHandler(async (req, res) => {
 
-        const { mobile, otp, purpose } = req.body;
+        const {otp, purpose } = req.body;
+        const mobileNumber = req.body.mobile_number;
 
         const record = await OTP.findOne({
             where: {
-            mobile,
+            mobile: mobileNumber,
             otp,
             purpose,
             expires_at: { [Op.gt]: new Date() }
@@ -329,7 +330,7 @@ const approveUser = asyncHandler( async (req, res) => {
 
         if (purpose === "login") {
             // Issue login token
-            const user = await User.findOne({ where: { mobile_number: mobile } });
+            const user = await User.findOne({ where: { mobile_number: mobileNumber } });
             if (!user) return res.status(404).json({ message: "User not found" });
 
             const accessToken = jwt.sign(
@@ -344,7 +345,7 @@ const approveUser = asyncHandler( async (req, res) => {
         if (purpose === "forgot_password") {
             // Return a temporary token to allow password reset
             const resetToken = jwt.sign(
-            { mobile, purpose },
+            { mobile_number: mobileNumber, purpose },
             process.env.ACCESS_TOKEN_SECRET,
             { expiresIn: "10m" }
             );
@@ -361,7 +362,7 @@ const approveUser = asyncHandler( async (req, res) => {
             return res.status(403).json({ message: "Invalid token purpose" });
             }
 
-            const user = await User.findOne({ where: { mobile_number: decoded.mobile } });
+            const user = await User.findOne({ where: { mobile_number: decoded.mobile_number } });
             if (!user) return res.status(404).json({ message: "User not found" });
 
             const hashPassword = await bcrypt.hash(new_password, 10);
