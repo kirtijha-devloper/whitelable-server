@@ -223,7 +223,7 @@ const approveUser = asyncHandler( async (req, res) => {
 
     const currentUser = asyncHandler( async (req, res) => {
         try {
-                const user = await User.findOne({ where: { email: req.user.email } })
+                const user = await User.findOne({ where: { mobile_number: req.user.mobile_number } })
                 res.json({
                     email: user.email,
                     mobile_number: user.mobile_number, 
