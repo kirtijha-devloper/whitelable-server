@@ -127,13 +127,45 @@ router.post('/remitter-register', async (req, res) => {
 
 router.post('/remitter-beneficiaries', async (req, res) => {
   try {
-    const payload = {
-      mobile: '9999988888',
-      lat: '26.8913845',
-      long: '75.7728197'
+    const userId = req.user.id
+    const { lat, long } = req.body;
+    const mobileNumber = req.body.mobile_number
+    const remitterId = req.body.remitter_id // if remitter wise seggrigation is there.
+    const status = req.body.status
+    const thirdPartyDataRequired =  req.body.third_party_data_required // case when third party data is required
+
+     if (!mobileNumber || !lat || !long) {
+      res.status(400);
+      throw new Error("Missing required fields");
+    }
+   
+
+    if (thirdPartyDataRequired){
+       const payload = {
+      mobile: mobileNumber,
+      lat,
+      long
     };
 
     const data = await sddsService.getBeneficiaries(payload);
+    return res.json({ message: 'Beneficiaries fetched', data });
+    }
+
+    
+    const where = {
+        remitter_id: remitterId,
+        status: status || 'active'
+      };
+
+      if (role !== "admin") {
+        where.user_id = userId;
+      }
+
+    const data = await Beneficiary.findAll({
+      where,
+      order: [["createdAt", "DESC"]],
+    });
+
     res.json({ message: 'Beneficiaries fetched', data });
   } catch (error) {
     res.status(500).json({ error });
@@ -150,6 +182,11 @@ router.post('/add-beneficiary', async (req, res) => {
     const bankAccountHolderName = req.body.bank_account_holder_name
     const beneficiaryMobile = req.body.beneficiary_mobile
 
+     if (!remitterId || !mobileNumber || !bankName || !accountNumber || !ifscCode || !bankAccountHolderName || !beneficiaryMobile) {
+      res.status(400);
+      throw new Error("All fields are required");
+    }
+
     const payload = {
       mobile: mobileNumber,
       bank_name: bankName,
@@ -162,10 +199,18 @@ router.post('/add-beneficiary', async (req, res) => {
 
     const data = await sddsService.addBeneficiary(payload);
 
-     await Beneficiary.create({
-      ...payload,
-      external_reference_id: data?.reference_id || null, user_id: req.user.id, remitter_id: remitterId 
-    });
+      await Beneficiary.create({
+        user_id: req.user.id,
+        remitter_id: remitterId,
+        mobile: mobileNumber,
+        bank_name: bankName,
+        bank_account_number: accountNumber,
+        bank_account_holder_name: bankAccountHolderName,
+        bank_ifsc: ifscCode,
+        beneficiary_mobile: beneficiaryMobile,
+        status: "active",
+        external_reference_id: data?.reference_id || null
+      });
 
     res.json({ message: 'Beneficiary added', data });
   } catch (error) {
@@ -174,16 +219,32 @@ router.post('/add-beneficiary', async (req, res) => {
 });
 
 router.post('/delete-beneficiary', async (req, res) => {
-  const id  = req.body.id;
+  const {id, lat,long}  = req.body;
+  const mobilelNumber = req.body.mobile_number
+
+   if (!id || !mobilelNumber || !lat || !long) {
+    res.status(400);
+    throw new Error("Missing required fields");
+  }
+
+    const beneficiary = await Beneficiary.findByPk(id);
+     if (!beneficiary) {
+    res.status(404);
+    throw new Error("Beneficiary not found");
+    }
   try {
-    const payload = {
-      id: 1,
-      mobile: '9999988888',
-      lat: '26.8913845',
-      long: '75.7728197'
-    };
+      const payload = {
+        id: beneficiary.external_reference_id,
+        mobile: mobilelNumber,
+        lat,
+        long
+      };
 
     const data = await sddsService.deleteBeneficiary(payload);
+
+    beneficiary.status = "in_active"
+    await beneficiary.save();
+
     res.json({ message: 'Beneficiary deleted', data });
   } catch (error) {
     res.status(500).json({ error });
@@ -268,7 +329,7 @@ router.get('/imps-transaction-list', async (req, res) => {
   });
 });
 
-  router.get('/imps-transactions', async (req, res) => {
+  router.get('/imps-transactions-list', async (req, res) => {
     const userId = req.user.id;
     const role = req.user.role;
 
