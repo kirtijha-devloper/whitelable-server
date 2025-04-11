@@ -176,7 +176,7 @@ const loginUser = asyncHandler( async (req, res) => {
         const apikey = "Q5aq9iNxvaSeiOWS";
         const senderid = "ABHEPY";
         const message = encodeURIComponent(`Dear Customer, your login OTP for Abheepay is ${otp} and valid for 5 minutes. TEAM-ABHEEPAY`);
-        const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
+        const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobileNumber}&message=${message}`;
 
         await axios.get(url);
 
