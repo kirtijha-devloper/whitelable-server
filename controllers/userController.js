@@ -334,7 +334,7 @@ const approveUser = asyncHandler( async (req, res) => {
             if (!user) return res.status(404).json({ message: "User not found" });
 
             const accessToken = jwt.sign(
-            { user: { id: user.id,  name: user.name, mobile_number: user.mobile_number } },
+            { user: { id: user.id,  name: user.name, mobile_number: user.mobile_number, role: user.role } },
             process.env.ACCESS_TOKEN_SECRET,
             { expiresIn: "5h" }
             );
