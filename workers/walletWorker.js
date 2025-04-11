@@ -1,6 +1,6 @@
 const walletQueue = require("../queues/walletQueue");
 const User = require("../models/User");
-const WalletTransaction = require("../models/walletTransaction");
+const WalletTransaction = require("../models/WalletTransaction");
 
 walletQueue.process(async (job) => {
   const { transactions } = job.data;

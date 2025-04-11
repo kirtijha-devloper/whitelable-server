@@ -1,6 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const sddsService = require('../../services/payments/sddsService');
+const asyncHandler = require("express-async-handler");
+const Remitter = require("../../models/Remitter")
+const WalletTransaction = require("../../models/WalletTransaction")
+const User = require("../../models/User")
+const Beneficiary = require("../../models/Beneficiary")
 
 // Login Controller
 router.post('/login', async (req, res) => {
@@ -64,6 +69,12 @@ router.post('/remitter-login', async (req, res) => {
           res.status(400);
           throw new Error('Invalid request');
       }
+
+      const remitter = await Remitter.findOne({where: {mobile_number: mobileNumber }})
+      if (!remitter) {
+        return res.status(404).json({ message: "Remitter not found. Please register first." });
+      }
+
     const payload = {
       mobileNumber: mobileNumber,
       lat: lat,
@@ -116,13 +127,45 @@ router.post('/remitter-register', async (req, res) => {
 
 router.post('/remitter-beneficiaries', async (req, res) => {
   try {
-    const payload = {
-      mobile: '9999988888',
-      lat: '26.8913845',
-      long: '75.7728197'
+    const userId = req.user.id
+    const { lat, long } = req.body;
+    const mobileNumber = req.body.mobile_number
+    const remitterId = req.body.remitter_id // if remitter wise seggrigation is there.
+    const status = req.body.status
+    const thirdPartyDataRequired =  req.body.third_party_data_required // case when third party data is required
+
+     if (!mobileNumber || !lat || !long) {
+      res.status(400);
+      throw new Error("Missing required fields");
+    }
+   
+
+    if (thirdPartyDataRequired){
+       const payload = {
+      mobile: mobileNumber,
+      lat,
+      long
     };
 
     const data = await sddsService.getBeneficiaries(payload);
+    return res.json({ message: 'Beneficiaries fetched', data });
+    }
+
+    
+    const where = {
+        remitter_id: remitterId,
+        status: status || 'active'
+      };
+
+      if (role !== "admin") {
+        where.user_id = userId;
+      }
+
+    const data = await Beneficiary.findAll({
+      where,
+      order: [["createdAt", "DESC"]],
+    });
+
     res.json({ message: 'Beneficiaries fetched', data });
   } catch (error) {
     res.status(500).json({ error });
@@ -139,6 +182,11 @@ router.post('/add-beneficiary', async (req, res) => {
     const bankAccountHolderName = req.body.bank_account_holder_name
     const beneficiaryMobile = req.body.beneficiary_mobile
 
+     if (!remitterId || !mobileNumber || !bankName || !accountNumber || !ifscCode || !bankAccountHolderName || !beneficiaryMobile) {
+      res.status(400);
+      throw new Error("All fields are required");
+    }
+
     const payload = {
       mobile: mobileNumber,
       bank_name: bankName,
@@ -151,10 +199,18 @@ router.post('/add-beneficiary', async (req, res) => {
 
     const data = await sddsService.addBeneficiary(payload);
 
-     await Beneficiary.create({
-      ...payload,
-      external_reference_id: data?.reference_id || null, user_id: req.user.id, remitter_id: remitterId 
-    });
+      await Beneficiary.create({
+        user_id: req.user.id,
+        remitter_id: remitterId,
+        mobile: mobileNumber,
+        bank_name: bankName,
+        bank_account_number: accountNumber,
+        bank_account_holder_name: bankAccountHolderName,
+        bank_ifsc: ifscCode,
+        beneficiary_mobile: beneficiaryMobile,
+        status: "active",
+        external_reference_id: data?.reference_id || null
+      });
 
     res.json({ message: 'Beneficiary added', data });
   } catch (error) {
@@ -163,16 +219,32 @@ router.post('/add-beneficiary', async (req, res) => {
 });
 
 router.post('/delete-beneficiary', async (req, res) => {
-  const id  = req.body.id;
+  const {id, lat,long}  = req.body;
+  const mobilelNumber = req.body.mobile_number
+
+   if (!id || !mobilelNumber || !lat || !long) {
+    res.status(400);
+    throw new Error("Missing required fields");
+  }
+
+    const beneficiary = await Beneficiary.findByPk(id);
+     if (!beneficiary) {
+    res.status(404);
+    throw new Error("Beneficiary not found");
+    }
   try {
-    const payload = {
-      id: 1,
-      mobile: '9999988888',
-      lat: '26.8913845',
-      long: '75.7728197'
-    };
+      const payload = {
+        id: beneficiary.external_reference_id,
+        mobile: mobilelNumber,
+        lat,
+        long
+      };
 
     const data = await sddsService.deleteBeneficiary(payload);
+
+    beneficiary.status = "in_active"
+    await beneficiary.save();
+
     res.json({ message: 'Beneficiary deleted', data });
   } catch (error) {
     res.status(500).json({ error });
@@ -181,23 +253,104 @@ router.post('/delete-beneficiary', async (req, res) => {
 
 router.post('/transfer-imps', async (req, res) => {
   try {
+    const userId = req.user.id
+    const userRole = req.user.role
+
+    const user = await User.findByPk(userId)
+    const amount = parseFloat(req.body.amount);
+  
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ message: "Invalid transfer amount" });
+    }
+
+    if (parseFloat(user.wallet) < amount) {
+      return res.status(400).json({ message: "Insufficient wallet balance" });
+    }
+    
     const payload = {
       TRANSFER_TYPE_DESC: 'IMPS',
-      BENE_BANK: 'ABC Bank',
-      INPUT_DEBIT_AMOUNT: '101',
+      BENE_BANK: req.body.bene_bank,
+      INPUT_DEBIT_AMOUNT: amount.toString(),
       INPUT_VALUE_DATE: '13/12/2024',
       TRANSACTION_TYPE: 'SINGLE',
-      BENE_ACC_NAME: 'Lucy',
-      BENE_ACC_NO: '5072500101670801',
-      BENE_BRANCH: 'NA',
-      BENE_IDN_CODE: 'ICIC0000002'
+      BENE_ACC_NAME: req.body.bene_acc_name ,
+      BENE_ACC_NO: req.body.bene_acc_no,
+      BENE_BRANCH: req.body.bene_branch || 'NA',
+      BENE_IDN_CODE: req.body.bene_ifsc
     };
 
     const data = await sddsService.transferIMPS(payload);
+    // Deduct balance from user wallet
+    user.wallet = parseFloat(user.wallet) - amount;
+    await user.save();
+
+    await WalletTransaction.create({
+      type: "transfer",
+      amount: amount,
+      status: "completed",
+      reason: `IMPS to ${payload.BENE_ACC_NAME}`,
+      requested_by: userId,
+      approved_by: userId,
+      source: "imps",
+      reference_id: data?.transaction_id || null
+    });
+
     res.json({ message: 'IMPS transfer successful', data });
   } catch (error) {
     res.status(500).json({ error });
   }
 });
+
+router.get('/remitter-list', async (req, res) => {
+  const merchantId = req.user.id;
+   const remitters = await Remitter.findAll({
+    where: { merchant_id: merchantId },
+    order: [["createdAt", "DESC"]],
+  });
+
+  res.status(200).json({
+    success: true,
+    count: remitters.length,
+    data: remitters,
+  });
+});
+
+router.get('/imps-transaction-list', async (req, res) => {
+  const merchantId = req.user.id;
+   const remitters = await Remitter.findAll({
+    where: { merchant_id: merchantId },
+    order: [["createdAt", "DESC"]],
+  });
+
+  res.status(200).json({
+    success: true,
+    count: remitters.length,
+    data: remitters,
+  });
+});
+
+  router.get('/imps-transactions-list', async (req, res) => {
+    const userId = req.user.id;
+    const role = req.user.role;
+
+     const where = {
+        type: "transfer",
+        source: "imps"
+      };
+
+      if (role !== "admin") {
+        where.requested_by = userId;
+      }
+
+    const transactions = await WalletTransaction.findAll({
+      where,
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.status(200).json({
+      count: transactions.length,
+      transactions,
+    });
+  });
 
 module.exports = router;
