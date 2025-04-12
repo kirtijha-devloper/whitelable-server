@@ -78,23 +78,23 @@ const getUsers = asyncHandler(async (req, res) => {
                 response.payout_slabs = slabs;
             }
              if (isPosDetailRequired) {
-                const posDetails = [];
-            if (searchedUser.role === "merchant") {
+                let posDetails = [];
+                    if (searchedUser.role === "merchant") {
                     posDetails = await PosMachine.findAll({
-                    where: {
+                        where: {
                         assigned_user_id: searchedId,
                         status: "active",
-                    },
+                        },
                     });
                     } else if (searchedUser.role === "franchaise") {
                     posDetails = await PosMachine.findAll({
-                    where: {
+                        where: {
                         franchaise_id: searchedId,
                         status: "active",
-                    },
+                        },
                     });
-                }
-            response.pos_details = posDetails;
+                    }
+                response.pos_details = posDetails;
         }
             res.status(200).json(response);
 
