@@ -150,7 +150,8 @@ const registerUser = asyncHandler( async (req, res) => {
         abheepay_id: abheepay_id,
         name: req.body.name,
         is_approved: false,
-        status: "active"
+        status: "active",
+        ...(req.user.role === "franchaise" && role === "merchant" && { franchaise_id: req.user.id })
         }
     );
 
