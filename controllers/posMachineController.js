@@ -7,18 +7,36 @@ const User = require('../models/User');
 const { response } = require("express");
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
-    const { status, tid_number, is_pos_asigned } = req.query;
-try {
+  const { status, tid_number, is_pos_asigned } = req.query;
+  const userRole = req.user.role;
+  const userId = req.user.id;
+
+  try {
     const where = {};
+
+    // Filters from query
     if (tid_number) where.tid_number = tid_number;
     if (status) where.status = status;
-    if (is_pos_asigned) where.is_pos_asigned = is_pos_asigned
-    const posMachines = await PosMachine.findAll({where,  order: [['createdAt', 'DESC']],});
-    res.json({list: posMachines});
-    } catch (error) {
-        res.status(500).json({ error: error });
-    };
+    if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
+
+    // Role-based access
+    if (userRole === "franchaise") {
+      where.franchaise_id = userId;
+    } else if (userRole === "merchant") {
+      where.assigned_user_id = userId;
+    }
+
+    const posMachines = await PosMachine.findAll({
+      where,
+      order: [['createdAt', 'DESC']],
+    });
+
+    res.json({ list: posMachines });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Something went wrong" });
+  }
 });
+
 
 // @desc Create  Pos Machine
 // @route POST /api/pos_machine
