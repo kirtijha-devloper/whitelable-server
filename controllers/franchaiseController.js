@@ -103,10 +103,19 @@ const getUsers = asyncHandler(async (req, res) => {
   let users;
   if (userRole === "admin") {
       const role = "franchaise"
-      users = await User.findAll({ where:{role: role, status: "active" }});
+      users = await User.findAll({ 
+        where:{role: role, status: "active" },  
+        order: [['createdAt', 'DESC']]
+      });
   }
   if (userRole === "franchaise") {
-      users = await User.findAll({ where: {status: "active" , id: req.user.id}});
+      users = await User.findAll({
+        where: {
+          status: "active",
+          id: req.user.id
+        },
+        order: [['createdAt', 'DESC']]
+      });
   }
   res.status(200).json(users);
 });

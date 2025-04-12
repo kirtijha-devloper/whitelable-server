@@ -102,7 +102,7 @@ const getUsers = asyncHandler(async (req, res) => {
     if (userId) where.franchaise_id = userId;
     if (status) where.status = status;
   
-    const users = await User.findAll({ where });
+    const users = await User.findAll({ where , order: [['createdAt', 'DESC']] });
 
     res.status(200).json(users)
     
@@ -113,7 +113,7 @@ const getUsers = asyncHandler(async (req, res) => {
   if (role) where.role = role;
   if (status) where.status = status;
 
-  const users = await User.findAll({ where });
+  const users = await User.findAll({ where,  order: [['createdAt', 'DESC']]  });
 
   res.status(200).json(users);}
 });
