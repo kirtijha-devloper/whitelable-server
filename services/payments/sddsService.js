@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const BASE_URL = 'https://sdds.flightapi.co.in/api';
+const BASE_URL = 'https://uatapi.sddspl.com';
 
 let bearerToken = ''; // Temp store. Use Redis/db for prod.
 

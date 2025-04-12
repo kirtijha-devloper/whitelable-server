@@ -173,21 +173,21 @@ const loginUser = asyncHandler( async (req, res) => {
 
     if (user && (await bcrypt.compare(password, user.password))){
         try {
-        const otp = Math.floor(100000 + Math.random() * 900000);
-        const apikey = "Q5aq9iNxvaSeiOWS";
-        const senderid = "ABHEPY";
-        const message = encodeURIComponent(`Dear Customer your login OTP for POS Abheepay is ${otp} and valid for 5 minutes TEAM-ABHEEPAY`);
-        const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobileNumber}&message=${message}`;
+        // const otp = Math.floor(100000 + Math.random() * 900000);
+        // const apikey = "Q5aq9iNxvaSeiOWS";
+        // const senderid = "ABHEPY";
+        // const message = encodeURIComponent(`Dear Customer your login OTP for POS Abheepay is ${otp} and valid for 5 minutes TEAM-ABHEEPAY`);
+        // const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobileNumber}&message=${message}`;
 
-        await axios.get(url);
+        // await axios.get(url);
 
-        // Save OTP in DB with expiry (5 mins)
-        await OTP.upsert({
-        mobile: mobileNumber,
-        otp,
-        purpose: "login",
-        expires_at: new Date(Date.now() + 5 * 60 * 1000)
-        });
+        // // Save OTP in DB with expiry (5 mins)
+        // await OTP.upsert({
+        // mobile: mobileNumber,
+        // otp,
+        // purpose: "login",
+        // expires_at: new Date(Date.now() + 5 * 60 * 1000)
+        // });
         res.json({ success: true, message: "OTP sent successfully" , });
     } catch (err) {
     console.error(err);
@@ -313,20 +313,20 @@ const approveUser = asyncHandler( async (req, res) => {
         const {otp, purpose } = req.body;
         const mobileNumber = req.body.mobile_number;
 
-        const record = await OTP.findOne({
-            where: {
-            mobile: mobileNumber,
-            otp,
-            purpose,
-            expires_at: { [Op.gt]: new Date() }
-            }
-        });
+        // const record = await OTP.findOne({
+        //     where: {
+        //     mobile: mobileNumber,
+        //     otp,
+        //     purpose,
+        //     expires_at: { [Op.gt]: new Date() }
+        //     }
+        // });
 
-        if (!record) {
-            return res.status(400).json({ message: "Invalid or expired OTP" });
-        }
+        // if (!record) {
+        //     return res.status(400).json({ message: "Invalid or expired OTP" });
+        // }
 
-        await record.destroy(); // OTP should be one-time use
+        // await record.destroy(); // OTP should be one-time use
 
         if (purpose === "login") {
             // Issue login token
