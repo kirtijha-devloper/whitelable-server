@@ -20,6 +20,9 @@ const Remitter = db.define('Remitter', {
     type: Sequelize.STRING,
     allowNull: false
   },
+  status: {type: Sequelize.STRING,
+      allowNull: false,
+      defaultValue: 'active'},
   external_reference_id: {
     type: Sequelize.STRING,
     allowNull: true // if sdds returns a reference ID
