@@ -15,8 +15,8 @@ router.post('/login', async (req, res) => {
       throw new Error('Missing required parameters');
     }
     const payload = {
-      username: process.env.SDDS_USERNAME,
-      password: process.env.SDDS_USERNAME,
+      username: '9024621059',
+      password: '12345678',
       otp: 'yes',
       browser_id: req.body.browser_id,
       lat: req.body.lat,
