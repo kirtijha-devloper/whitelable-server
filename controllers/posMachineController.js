@@ -13,7 +13,7 @@ try {
     if (tid_number) where.tid_number = tid_number;
     if (status) where.status = status;
     if (is_pos_asigned) where.is_pos_asigned = is_pos_asigned
-    const posMachines = await PosMachine.findAll({where});
+    const posMachines = await PosMachine.findAll({where,  order: [['createdAt', 'DESC']],});
     res.json({list: posMachines});
     } catch (error) {
         res.status(500).json({ error: error });
@@ -128,22 +128,26 @@ const markAsReturnInitiated = asyncHandler( async (req, res) => {
 const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
     const ids = req.body.ids
     const userId = req.body.user_id
-    if (!ids || !Array.isArray(ids) || ids.length === 0 || !userId) {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
         res.status(400);
         throw new Error ("POS machine IDs are required!")
     }
 
      if (!userId) {
-    res.status(400);
-    throw new Error("Target user_id is required");
+        res.status(400);
+        throw new Error("Target user_id is required");
     }
 
     if (req.user.role === 'merchant') {
-    res.status(403);
-    throw new Error("Merchants cannot assign POS machines");
+        res.status(403);
+        throw new Error("Merchants cannot assign POS machines");
     }
 
     const  user = await User.findByPk(userId)
+     if (!user) {
+        res.status(404);
+        throw new Error("User Not Found!");
+    }
 
     if (user.is_pos_asigned) {
         res.status(400);
@@ -153,8 +157,11 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
     const assigneeRole = user.role
 
     const updated = await PosMachine.update(
-        { ...(assigneeRole === "franchaise" && { franchaise_id: userId }),
-      ...(assigneeRole === "merchant" && { assigned_user_id: userId })},
+        
+        { status: "active",
+        ...(assigneeRole === "franchaise" && { franchaise_id: userId }),
+        ...(assigneeRole === "merchant" && { assigned_user_id: userId })
+        },
         {
         where: {
             id: ids
