@@ -16,8 +16,8 @@
 #       - name: Deploy to VPS
 #         uses: appleboy/ssh-action@v0.1.10
 #         with:
-#           host: 147.93.110.29
-#           username: posadmin
+#           host: ${{ secrets.VPS_HOST }}
+#           username: ${{ secrets.VPS_USER }}
 #           key: ${{ secrets.VPS_PRIVATE_KEY }}
 #           script: |
 #             # Define branch -> environment mapping
@@ -25,20 +25,33 @@
 #             ENV="production"
 #             DIR="/var/www/pos.abheepay.com/pos-server"
 #             PM2_APP="pos-server"
-#           else [ "${{ github.ref }}" == "refs/heads/staging" ]; then
+#           elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
 #             ENV="staging"
 #             DIR="/var/www/staging.pos.abheepay.com/pos-server"
 #             PM2_APP="pos-server-staging"
+#           else
+#             echo "Unsupported branch: ${{ github.ref }}"
+#             exit 1
 #           fi
 
 #           echo "Deploying $ENV to $DIR"
 
-#           cd $DIR
+#           if [ -d "$DIR" ]; then
+#             cd $DIR
+#           else
+#             echo "Directory $DIR does not exist."
+#             exit 1
+#           fi
+
+#           git stash --include-untracked
 #           git pull origin ${{ github.ref_name }}
-#           npm install --legacy-peer-deps
+#           git stash pop || true
+#           npm install --production
 
 #           # Run migrations!
 #           npx sequelize-cli db:migrate --env $ENV
 
 #           # Restart the backend app
 #           pm2 restart $PM2_APP --update-env
+
+#           echo "Deployment completed successfully!"
