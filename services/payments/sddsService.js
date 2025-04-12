@@ -1,6 +1,7 @@
 const axios = require('axios');
+const https = require('https');
 
-const BASE_URL = 'https://uatapi.sddspl.com';
+const BASE_URL = 'https://uatapi.sddspl.com/api';
 
 let bearerToken = ''; // Temp store. Use Redis/db for prod.
 
@@ -17,28 +18,54 @@ const getAuthHeader = () => ({
 });
 
 // Common request wrapper
+// const request = async ({ method, endpoint, data = {}, withAuth = false }) => {
+//   try {
+//     const config = {
+//       method,
+//       url: `${BASE_URL}${endpoint}`,
+//       data,
+//       ...(withAuth ? getAuthHeader() : {})
+//     };
+//    console.log("config", config)
+
+//     const response = await axios(config);
+//    console.log("response", response)
+//     return response.data;
+//   } catch (error) {
+//     console.error(`SDDS Service Error [${endpoint}]`, error?.response?.data || error.message);
+//     throw error.response?.data || { message: 'Something went wrong!' };
+//   }
+// };
+
 const request = async ({ method, endpoint, data = {}, withAuth = false }) => {
   try {
+    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
     const config = {
       method,
       url: `${BASE_URL}${endpoint}`,
       data,
+      httpsAgent,
       ...(withAuth ? getAuthHeader() : {})
     };
 
+    console.log("config", config);
+
     const response = await axios(config);
+    console.log("response", response);
     return response.data;
   } catch (error) {
     console.error(`SDDS Service Error [${endpoint}]`, error?.response?.data || error.message);
     throw error.response?.data || { message: 'Something went wrong!' };
   }
 };
-
 // =================== API METHODS ===================
 
 // Login
 const login = async (payload) => {
+  console.log("test", payload)
   const data = await request({ method: 'POST', endpoint: '/api-login', data: payload });
+  console.log("data", data)
   setBearerToken(data.token); // Save token for next calls
   return data;
 };
