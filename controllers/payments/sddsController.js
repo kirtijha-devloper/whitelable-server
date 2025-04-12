@@ -136,7 +136,8 @@ router.post('/remitter-beneficiaries', async (req, res) => {
     const { lat, long } = req.body;
     const mobileNumber = req.body.mobile_number
     const status = req.body.status
-    const thirdPartyDataRequired =  false // case when third party data is required
+    const thirdPartyDataRequired =  req.body.is_third_party_data_required // case when third party data is required
+    const token = req.body.sddsToken
 
     if (!mobileNumber || !lat || !long) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
@@ -149,7 +150,7 @@ router.post('/remitter-beneficiaries', async (req, res) => {
     }
 
     // If you want data from third-party (SDDS)
-    if (false) {
+    if (thirdPartyDataRequired) {
       const payload = { mobile: mobileNumber, lat, long };
       const data = await sddsService.getBeneficiaries({ payload, token });
       return res.status(200).json({ message: 'Beneficiaries fetched from SDDS', data });
@@ -206,7 +207,6 @@ router.post('/add-beneficiary', async (req, res) => {
     };
 
     const data = await sddsService.addBeneficiary({payload, token});
-
       await Beneficiary.create({
         user_id: req.user?.id || 10,
         remitter_id: remitterId,
@@ -217,7 +217,7 @@ router.post('/add-beneficiary', async (req, res) => {
         bank_ifsc: ifscCode,
         beneficiary_mobile: beneficiaryMobile,
         status: 1,
-        external_reference_id: data?.data?.data?.id || null
+        external_reference_id: data?.data?.id || null
       });
 
     res.json({ message: 'Beneficiary added', data });
@@ -227,23 +227,24 @@ router.post('/add-beneficiary', async (req, res) => {
 });
 
 router.post('/delete-beneficiary', async (req, res) => {
-  const {id, lat,long}  = req.body;
+  const {reference_id, lat,long, id}  = req.body;
   const mobilelNumber = req.body.mobile_number
   const token = req.body.sddsToken
 
-   if (!id || !mobilelNumber || !lat || !long) {
+   if (!reference_id || !id || !mobilelNumber || !lat || !long) {
     res.status(400);
     throw new Error("Missing required fields");
   }
 
-    const beneficiary = await Beneficiary.findByPk(id);
+  const beneficiary = await Beneficiary.findByPk(id);
      if (!beneficiary) {
     res.status(404);
     throw new Error("Beneficiary not found");
     }
+
   try {
       const payload = {
-        id: beneficiary.external_reference_id,
+        id: beneficiary.external_reference_id || reference_id,
         mobile: mobilelNumber,
         lat,
         long
@@ -251,7 +252,7 @@ router.post('/delete-beneficiary', async (req, res) => {
 
     const data = await sddsService.deleteBeneficiary({payload, token});
 
-    beneficiary.status = "in_active"
+    beneficiary.status = 0
     await beneficiary.save();
 
     res.json({ message: 'Beneficiary deleted', data });

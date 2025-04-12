@@ -68,7 +68,7 @@ const remitterRegister = async ({payload, token}) => {
 };
 
 // Get Remitter Beneficiaries
-const getBeneficiaries = async (payloa, tokend) => {
+const getBeneficiaries = async ({payload, token}) => {
   return await request({ method: 'POST', endpoint: '/remitter-bank-details/remitter_bank_list', data: payload, withAuth: true, token: token });
 };
 
