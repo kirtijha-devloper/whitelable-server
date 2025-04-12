@@ -71,11 +71,7 @@ router.post('/remitter-login', async (req, res) => {
           throw new Error('Invalid request');
       }
 
-      const remitter = await Remitter.findOne({where: {mobile_number: mobileNumber }})
-      if (!remitter) {
-        return res.status(404).json({ message: "Remitter not found. Please register first." });
-      }
-
+      
     const payload = {
       mobileNumber: mobileNumber,
       lat: lat,
@@ -83,6 +79,11 @@ router.post('/remitter-login', async (req, res) => {
     };
 
     const data = await sddsService.remitterLogin({payload ,token});
+
+    const remitter = await Remitter.findOne({where: {mobile_number: mobileNumber }})
+      if (!remitter) {
+        return res.status(404).json({ message: "Remitter not found. Please register first." , data});
+      }
 
     res.json({
       message: 'Remitter login successful',
@@ -131,56 +132,52 @@ router.post('/remitter-register', async (req, res) => {
 router.post('/remitter-beneficiaries', async (req, res) => {
   try {
     const userId = req.user?.id || 10;
-    const role = req.user?.role || merchant;
+    const role = req.user?.role || "merchant";
     const { lat, long } = req.body;
     const mobileNumber = req.body.mobile_number
-    const remitterId = req.body.remitter_id // if remitter wise seggrigation is there.
     const status = req.body.status
-    const thirdPartyDataRequired =  req.body.third_party_data_required // case when third party data is required
-    const token = req.body.sddsToken
+    const thirdPartyDataRequired =  false // case when third party data is required
 
-     if (!mobileNumber || !lat || !long) {
-      res.status(400);
-      throw new Error("Missing required fields");
-    }
-   
-    const remitter = Remitter.findOne({where: {mobile_number: mobileNumber}})
-      if (!remitter) {
-          res.status(400);
-          throw new Error('Invalid request');
-      }
-
-    if (thirdPartyDataRequired){
-        const payload = {
-        mobile: mobileNumber,
-        lat,
-        long
-      };
-
-      const data = await sddsService.getBeneficiaries({payload, token});
-      return res.json({ message: 'Beneficiaries fetched', data });
+    if (!mobileNumber || !lat || !long) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    
+    const remitter = await Remitter.findOne({ where: { mobile_number: mobileNumber } });
+
+    if (!remitter) {
+      return res.status(404).json({ success: false, message: 'Remitter not found. Please register first.' });
+    }
+
+    // If you want data from third-party (SDDS)
+    if (false) {
+      const payload = { mobile: mobileNumber, lat, long };
+      const data = await sddsService.getBeneficiaries({ payload, token });
+      return res.status(200).json({ message: 'Beneficiaries fetched from SDDS', data });
+    }
+
+    // Fetch from local DB
     const where = {
-        remitter_id: remitterId,
-        status: status || 'active'
-      };
+      remitter_id: remitter.id,
+      status: 1
+    };
 
-      if (role !== "admin") {
-        where.user_id = userId;
-      }
+    if (role !== "admin") {
+      where.user_id = userId;
+    }
 
     const data = await Beneficiary.findAll({
       where,
       order: [["createdAt", "DESC"]],
     });
 
-    res.json({ message: 'Beneficiaries fetched', data });
+    res.status(200).json({ message: 'Beneficiaries fetched', data });
+
   } catch (error) {
+    console.error("Error fetching beneficiaries:", error);
     res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
+
 
 router.post('/add-beneficiary', async (req, res) => {
   try {
@@ -211,7 +208,7 @@ router.post('/add-beneficiary', async (req, res) => {
     const data = await sddsService.addBeneficiary({payload, token});
 
       await Beneficiary.create({
-        user_id: req.user.id,
+        user_id: req.user?.id || 10,
         remitter_id: remitterId,
         mobile: mobileNumber,
         bank_name: bankName,
@@ -219,13 +216,13 @@ router.post('/add-beneficiary', async (req, res) => {
         bank_account_holder_name: bankAccountHolderName,
         bank_ifsc: ifscCode,
         beneficiary_mobile: beneficiaryMobile,
-        status: "active",
-        external_reference_id: data?.reference_id || null
+        status: 1,
+        external_reference_id: data?.data?.data?.id || null
       });
 
     res.json({ message: 'Beneficiary added', data });
   } catch (error) {
-    res.status(500).json({ error });
+     res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
