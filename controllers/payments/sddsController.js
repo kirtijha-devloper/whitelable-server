@@ -30,7 +30,7 @@ router.post('/login', async (req, res) => {
       data
     });
   } catch (error) {
-    res.status(500).json({ error });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
@@ -54,7 +54,7 @@ router.post('/verify-tpin', async (req, res) => {
       data
     });
   } catch (error) {
-    res.status(500).json({ error });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
@@ -64,8 +64,9 @@ router.post('/remitter-login', async (req, res) => {
       const mobileNumber = req.body.mobile_number
       const lat = req.body.lat
       const long = req.body.long
+      const token = req.body.sddsToken
 
-      if (!mobileNumber || !lat || !long){
+      if (!mobileNumber || !lat || !long || !token){
           res.status(400);
           throw new Error('Invalid request');
       }
@@ -81,14 +82,14 @@ router.post('/remitter-login', async (req, res) => {
       long: long
     };
 
-    const data = await sddsService.remitterLogin(payload);
+    const data = await sddsService.remitterLogin({payload ,token});
 
     res.json({
       message: 'Remitter login successful',
       data
     });
   } catch (error) {
-    res.status(500).json({ error });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
@@ -96,59 +97,68 @@ router.post('/remitter-login', async (req, res) => {
 
 router.post('/remitter-register', async (req, res) => {
   try {
+      const userId =  req.user?.id || 10;
+      
       const mobileNumber = req.body.mobile_number
       const otp = req.body.otp
       const name = req.body.name
-      if (!mobileNumber|| !otp || !name){
+      const token = req.body.sddsToken
+      if (!mobileNumber|| !name){
           res.status(400);
           throw new Error('Invalid request');
       }
+
     const payload = {
       mobileNumber: mobileNumber,
       otp: otp,
       name: name
     };
 
-    const data = await sddsService.remitterRegister(payload);
-
+    const data = await sddsService.remitterRegister({payload, token});
+    
     await Remitter.create({
-      merchant_id: req.user.id,
-      mobileNumber,
-      otp,
-      name,
-      external_reference_id: data?.reference_id || null
+      merchant_id: userId,
+      mobile_number: mobileNumber,
+      name: name,
+      external_reference_id: data?.reference_id || null // need to change after api response
     });
-
-    res.json({ message: 'Remitter registered', data });
+    res.json({ message: 'Remitter registered' , data});
   } catch (error) {
-    res.status(500).json({ error });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
 router.post('/remitter-beneficiaries', async (req, res) => {
   try {
-    const userId = req.user.id
+    const userId = req.user?.id || 10;
+    const role = req.user?.role || merchant;
     const { lat, long } = req.body;
     const mobileNumber = req.body.mobile_number
     const remitterId = req.body.remitter_id // if remitter wise seggrigation is there.
     const status = req.body.status
     const thirdPartyDataRequired =  req.body.third_party_data_required // case when third party data is required
+    const token = req.body.sddsToken
 
      if (!mobileNumber || !lat || !long) {
       res.status(400);
       throw new Error("Missing required fields");
     }
    
+    const remitter = Remitter.findOne({where: {mobile_number: mobileNumber}})
+      if (!remitter) {
+          res.status(400);
+          throw new Error('Invalid request');
+      }
 
     if (thirdPartyDataRequired){
-       const payload = {
-      mobile: mobileNumber,
-      lat,
-      long
-    };
+        const payload = {
+        mobile: mobileNumber,
+        lat,
+        long
+      };
 
-    const data = await sddsService.getBeneficiaries(payload);
-    return res.json({ message: 'Beneficiaries fetched', data });
+      const data = await sddsService.getBeneficiaries({payload, token});
+      return res.json({ message: 'Beneficiaries fetched', data });
     }
 
     
@@ -168,7 +178,7 @@ router.post('/remitter-beneficiaries', async (req, res) => {
 
     res.json({ message: 'Beneficiaries fetched', data });
   } catch (error) {
-    res.status(500).json({ error });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
@@ -181,6 +191,7 @@ router.post('/add-beneficiary', async (req, res) => {
     const ifscCode = req.body.ifsc_code
     const bankAccountHolderName = req.body.bank_account_holder_name
     const beneficiaryMobile = req.body.beneficiary_mobile
+    const token = req.body.sddsToken
 
      if (!remitterId || !mobileNumber || !bankName || !accountNumber || !ifscCode || !bankAccountHolderName || !beneficiaryMobile) {
       res.status(400);
@@ -197,7 +208,7 @@ router.post('/add-beneficiary', async (req, res) => {
       status: 1
     };
 
-    const data = await sddsService.addBeneficiary(payload);
+    const data = await sddsService.addBeneficiary({payload, token});
 
       await Beneficiary.create({
         user_id: req.user.id,
@@ -221,6 +232,7 @@ router.post('/add-beneficiary', async (req, res) => {
 router.post('/delete-beneficiary', async (req, res) => {
   const {id, lat,long}  = req.body;
   const mobilelNumber = req.body.mobile_number
+  const token = req.body.sddsToken
 
    if (!id || !mobilelNumber || !lat || !long) {
     res.status(400);
@@ -240,7 +252,7 @@ router.post('/delete-beneficiary', async (req, res) => {
         long
       };
 
-    const data = await sddsService.deleteBeneficiary(payload);
+    const data = await sddsService.deleteBeneficiary({payload, token});
 
     beneficiary.status = "in_active"
     await beneficiary.save();
@@ -255,6 +267,7 @@ router.post('/transfer-imps', async (req, res) => {
   try {
     const userId = req.user.id
     const userRole = req.user.role
+    const token = req.body.sddsToken
 
     const user = await User.findByPk(userId)
     const amount = parseFloat(req.body.amount);
@@ -279,7 +292,7 @@ router.post('/transfer-imps', async (req, res) => {
       BENE_IDN_CODE: req.body.bene_ifsc
     };
 
-    const data = await sddsService.transferIMPS(payload);
+    const data = await sddsService.transferIMPS({payload, token});
     // Deduct balance from user wallet
     user.wallet = parseFloat(user.wallet) - amount;
     await user.save();
