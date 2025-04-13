@@ -7,7 +7,7 @@ const Remitter = db.define('Remitter', {
     autoIncrement: true,
     primaryKey: true
   },
-    merchant_id: {
+    merchant_id: {  // basically this merhcant id means here all user id, could be franchaise id.
         type: Sequelize.INTEGER,
         allowNull: false
     },

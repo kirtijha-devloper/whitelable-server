@@ -3,7 +3,7 @@ const sddsController = require('../../controllers/payments/sddsController');
 
 const router = express.Router();
 
-const validateToken = require("../middleware/validateTokenHandler");
+const validateToken = require("../../middleware/validateTokenHandler");
 
 router.use(validateToken);
 

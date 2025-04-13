@@ -178,7 +178,10 @@ console.log("data5:")
         });
       } catch (err) {
         console.error("Error inserting data:", err);
-        res.status(500).json({ message: "Failed to upload CSV data" });
+        res.status(500).json({
+            success: false,
+            message: err.message || "Failed to upload CSV data",
+          });
       } finally {
         // Clean up the uploaded file
         fs.unlink(req.file.path, (err) => {
@@ -213,7 +216,10 @@ try {
     res.json({list: transactions});
   } catch (error) {
       console.error("Error fetching transactions:", error);
-      res.status(500).json({ error: 'Internal Server Error' });
+      res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
   };
 });
 
@@ -305,7 +311,10 @@ console.log("Final WHERE clause:", whereCondition);
     });
   } catch (error) {
     console.error("Error fetching filtered transactions:", error);
-    res.status(500).json({ message: "Internal Server Error" });
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
   }
 });
 

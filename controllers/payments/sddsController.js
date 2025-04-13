@@ -121,7 +121,7 @@ router.post('/remitter-register', async (req, res) => {
       merchant_id: userId,
       mobile_number: mobileNumber,
       name: name,
-      external_reference_id: data?.reference_id || null // need to change after api response
+      external_reference_id: data?.user?.id || null // For now api not sending any reference ID
     });
     res.json({ message: 'Remitter registered' , data});
   } catch (error) {
@@ -189,6 +189,7 @@ router.post('/add-beneficiary', async (req, res) => {
     const ifscCode = req.body.ifsc_code
     const bankAccountHolderName = req.body.bank_account_holder_name
     const beneficiaryMobile = req.body.beneficiary_mobile
+    const branchName = req.body.branch_name
     const token = req.body.sddsToken
 
      if (!remitterId || !mobileNumber || !bankName || !accountNumber || !ifscCode || !bankAccountHolderName || !beneficiaryMobile) {
@@ -216,6 +217,7 @@ router.post('/add-beneficiary', async (req, res) => {
         bank_account_holder_name: bankAccountHolderName,
         bank_ifsc: ifscCode,
         beneficiary_mobile: beneficiaryMobile,
+        bank_branch_name:  branchName,
         status: 1,
         external_reference_id: data?.data?.id || null
       });
@@ -257,15 +259,20 @@ router.post('/delete-beneficiary', async (req, res) => {
 
     res.json({ message: 'Beneficiary deleted', data });
   } catch (error) {
-    res.status(500).json({ error });
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
   }
 });
 
 router.post('/transfer-imps', async (req, res) => {
+  let pending_transaction;
   try {
-    const userId = req.user.id
-    const userRole = req.user.role
+    const userId = req.user?.id || 11
+    const userRole = req.user?.role || 'merchant'
     const token = req.body.sddsToken
+    const beneficiaryId = req.body.beneficiary_id
 
     const user = await User.findByPk(userId)
     const amount = parseFloat(req.body.amount);
@@ -277,91 +284,145 @@ router.post('/transfer-imps', async (req, res) => {
     if (parseFloat(user.wallet) < amount) {
       return res.status(400).json({ message: "Insufficient wallet balance" });
     }
-    
-    const payload = {
-      TRANSFER_TYPE_DESC: 'IMPS',
-      BENE_BANK: req.body.bene_bank,
-      INPUT_DEBIT_AMOUNT: amount.toString(),
-      INPUT_VALUE_DATE: '13/12/2024',
-      TRANSACTION_TYPE: 'SINGLE',
-      BENE_ACC_NAME: req.body.bene_acc_name ,
-      BENE_ACC_NO: req.body.bene_acc_no,
-      BENE_BRANCH: req.body.bene_branch || 'NA',
-      BENE_IDN_CODE: req.body.bene_ifsc
-    };
 
+    const beneficiary = await Beneficiary.findByPk(beneficiaryId)
+     if (!beneficiary) {
+      return res.status(404).json({ message: "Beneficiary not found" });
+    }
+
+    if (beneficiary.status === 0) {
+      return res.status(400).json({ message: "Beneficiary is disabled" });
+    }
+
+    pending_transaction = await WalletTransaction.create({
+      type: "request",
+      amount: amount,
+      status: "pending",
+      reason: `IMPS to ${beneficiary.bank_account_holder_name}`,
+      requested_by: beneficiary.id,
+      source: "imps"
+    });
+
+
+    const payload= {
+      TRANSFER_TYPE_DESC: "IMPS",
+      BENE_BANK: beneficiary.bank_name,
+      INPUT_DEBIT_AMOUNT: req.body.amount,
+      INPUT_VALUE_DATE: "12/04/2025",
+      TRANSACTION_TYPE: "SINGLE",
+      BENE_ACC_NAME: beneficiary.bank_account_holder_name,
+      BENE_ACC_NO: beneficiary.bank_account_number,
+      BENE_BRANCH: beneficiary.bank_branch_name,
+      BENE_IDN_CODE: beneficiary.bank_ifsc
+    }
     const data = await sddsService.transferIMPS({payload, token});
     // Deduct balance from user wallet
     user.wallet = parseFloat(user.wallet) - amount;
     await user.save();
+    pending_transaction.status = "completed"
+    await pending_transaction.save()
 
     await WalletTransaction.create({
       type: "transfer",
       amount: amount,
       status: "completed",
       reason: `IMPS to ${payload.BENE_ACC_NAME}`,
-      requested_by: userId,
-      approved_by: userId,
+      requested_by: beneficiary.id,
+      approved_by: beneficiary.remitter_id,
       source: "imps",
-      reference_id: data?.transaction_id || null
+      reference_id: userId // need to think what shuold be passed
     });
 
     res.json({ message: 'IMPS transfer successful', data });
   } catch (error) {
-    res.status(500).json({ error });
+      if (pending_transaction) {
+      pending_transaction.status = "failed"
+      pending_transaction.reason = `IMPS to ${payload.BENE_ACC_NAME} FAILED`
+      await pending_transaction.save();
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
   }
 });
 
 router.get('/remitter-list', async (req, res) => {
-  const merchantId = req.user.id;
-   const remitters = await Remitter.findAll({
-    where: { merchant_id: merchantId },
-    order: [["createdAt", "DESC"]],
-  });
+  try {
+    const userId = req.user?.id;
+    const role = req.user?.role;
 
-  res.status(200).json({
-    success: true,
-    count: remitters.length,
-    data: remitters,
-  });
-});
+    const where = {};
+    if (role === 'merchant') {
+      where.merchant_id = userId;
+    }
 
-router.get('/imps-transaction-list', async (req, res) => {
-  const merchantId = req.user.id;
-   const remitters = await Remitter.findAll({
-    where: { merchant_id: merchantId },
-    order: [["createdAt", "DESC"]],
-  });
-
-  res.status(200).json({
-    success: true,
-    count: remitters.length,
-    data: remitters,
-  });
-});
-
-  router.get('/imps-transactions-list', async (req, res) => {
-    const userId = req.user.id;
-    const role = req.user.role;
-
-     const where = {
-        type: "transfer",
-        source: "imps"
-      };
-
-      if (role !== "admin") {
-        where.requested_by = userId;
-      }
-
-    const transactions = await WalletTransaction.findAll({
+    const remitters = await Remitter.findAll({
       where,
       order: [["createdAt", "DESC"]],
     });
 
     res.status(200).json({
-      count: transactions.length,
-      transactions,
+      success: true,
+      count: remitters.length,
+      data: remitters,
     });
-  });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong while fetching remitter list",
+    });
+  }
+});
+
+  router.get('/imps-transactions-list', async (req, res) => {
+    try {
+      const role = req.user?.role || "merchant";
+
+      const { remitter_id, beneficiary_id, user_id, status } = req.query;
+      const where = {
+        type: "transfer",
+        source: "imps"
+      };
+
+      if (status) {
+        where.status = status;
+      }
+
+      if(user_id){
+        const remitters = await Remitter.findAll({
+          where: { merchant_id: user_id },
+          attributes: ['id']
+        });
+
+         const remitterIds = remitters.map(r => r.id);
+         where.approved_by = remitterIds
+      }
+
+
+      // 🔍 Optional filters
+      if (remitter_id) {
+        where.approved_by = remitter_id;
+      }
+
+      if (beneficiary_id) {
+        where.requested_by = beneficiary_id;
+      }
+
+      const transactions = await WalletTransaction.findAll({
+        where,
+        order: [["createdAt", "DESC"]],
+      });
+
+      res.status(200).json({
+        count: transactions.length,
+        transactions,
+      });
+    } catch (error) {
+      console.error("IMPS Transaction List Error:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch transactions." });
+    }
+});
+
 
 module.exports = router;

@@ -33,7 +33,10 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
 
     res.json({ list: posMachines });
   } catch (error) {
-    res.status(500).json({ error: error.message || "Something went wrong" });
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
   }
 });
 
@@ -59,7 +62,10 @@ const createPosMachine = asyncHandler(async (req, res ) => {
 
     res.status(201).json(newPosMachine);
     } catch (error) {
-    res.status(500).json({ error: error });
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
 };
 });
 
@@ -280,7 +286,8 @@ const getPosMachineList = asyncHandler(async (req, res) => {
     });
     } catch (error) {
     res.status(500).json({
-        message: `Error ${error}`
+      success: false,
+      message: error.message || "Something went wrong",
     });
 };
   });

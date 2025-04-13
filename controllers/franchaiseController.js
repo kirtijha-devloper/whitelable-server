@@ -74,8 +74,11 @@ await user.save();
         throw new Error("User is not valid !")
     }
     } catch (error) {
-         res.status(500).json({ error: error });
-    }
+        res.status(500).json({
+        success: false,
+        message: error.message || "Something went wrong",
+      });
+      }
 });
 
 const getUserById = asyncHandler(async (req, res) => {

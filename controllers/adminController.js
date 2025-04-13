@@ -46,7 +46,10 @@ const getAdminDashboard = asyncHandler( async (req, res) => {
   });
   } catch (error) {
       console.error('Error fetching admin dashboard data:', error);
-      res.status(500).json({ message: 'Internal Server Error' });
+      res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
     }
 });
     

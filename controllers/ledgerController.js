@@ -61,7 +61,10 @@ const User = require("../models/User");
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Internal Server Error" });
+    res.status(500).json({
+      success: false,
+      message: err.message || "Something went wrong",
+    });
   }
 });
 
