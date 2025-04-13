@@ -44,6 +44,10 @@ const Beneficiary = db.define('Beneficiary', {
   external_reference_id: {
     type: Sequelize.STRING,
     allowNull: true
+  },
+    bank_branch_name: {
+    type: Sequelize.STRING,
+    allowNull: false
   }
 }, {
   timestamps: true

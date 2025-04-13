@@ -216,7 +216,11 @@ const getUserWalletTransactions = asyncHandler(async (req, res) => {
       count: transactions.length,
       transactions,
   });
-  } catch (err) { console.error(err); res.status(500).json({ message: "Internal Server Error" }); }
+  } catch (err) { console.error(err); 
+      res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    }); }
 });
 
 const getWalletRequests = asyncHandler(async (req, res) => {

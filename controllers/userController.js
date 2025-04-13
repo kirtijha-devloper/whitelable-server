@@ -3,7 +3,8 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const  User = require('../models/User');
 const ChargeType = require('../models/ChargeType');
-const ChargeSlab = require('../models/ChargeSlab')
+const ChargeSlab = require('../models/ChargeSlab');
+const Tpin = require('../models/Tpin');
 const { Op } = require('sequelize');
 const PosMachine = require("../models/posMachine");
 const OTP = require("../models/Otp");
@@ -99,7 +100,10 @@ const getUsers = asyncHandler(async (req, res) => {
             res.status(200).json(response);
 
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({
+            success: false,
+            message: err.message || "Something went wrong",
+            });
         }
     });
 
@@ -163,7 +167,12 @@ const registerUser = asyncHandler( async (req, res) => {
         res.status(400);
         throw new Error("User is not valid !")
     }
-    } catch(error) {res.status(500).json({ error });}
+    } catch(error) {
+        res.status(500).json({
+        success: false,
+        message: error.message || "Something went wrong",
+    });
+    }
 });
 
 const loginUser = asyncHandler( async (req, res) => {
@@ -380,6 +389,56 @@ const approveUser = asyncHandler( async (req, res) => {
         }
     });
 
+   
+
+const generateTpin = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+
+  const tpin = Math.floor(100000 + Math.random() * 900000);
+  const expires_at = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000); // 15 days
+    await Tpin.destroy({ where: { user_id: userId } });
+    const hashTpin = await bcrypt.hash(tpin.toString(), 10);
+
+  await Tpin.create({
+    user_id: userId,
+    tpin: hashTpin,
+    expires_at
+  });
+
+  res.json({ message: "T-PIN generated successfully", tpin });
+});
+
+const verifyTpin = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { tpin } = req.body;
+
+  if (!tpin) {
+    res.status(400);
+    throw new Error("T-PIN is required");
+  }
+
+  const savedTpin = await Tpin.findOne({ where: { user_id: userId } });
+
+  if (!savedTpin) {
+    res.status(404);
+    throw new Error("T-PIN not found. Please generate one.");
+  }
+
+  if (new Date(savedTpin.expires_at) < new Date()) {
+    res.status(400);
+    throw new Error("T-PIN has expired. Please generate a new one.");
+  }
+
+  const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
+
+  if (!isMatch) {
+    res.status(401);
+    throw new Error("Invalid T-PIN");
+  }
+
+  res.status(200).json({ message: "T-PIN verified successfully" });
+});
 
 
-module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateFranchaiseID, sendOtp, verifyOtp, resetPassword }
+
+module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateFranchaiseID, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin}
