@@ -5,7 +5,8 @@ const asyncHandler = require("express-async-handler");
 const Remitter = require("../../models/Remitter")
 const WalletTransaction = require("../../models/WalletTransaction")
 const User = require("../../models/User")
-const Beneficiary = require("../../models/Beneficiary")
+const Beneficiary = require("../../models/Beneficiary");
+const ChargeSlab = require('../../models/ChargeSlab');
 
 // Login Controller
 router.post('/login', async (req, res) => {
@@ -377,19 +378,53 @@ router.get('/remitter-list', async (req, res) => {
 });
 
   router.get('/remitter/:id', async (req, res) => {
-    try {
-      const id = req.params.id;
+  try {
+    const id = req.params.id;
 
-      const remitter = await Remitter.findByPk(id)
-      if (!remitter) {
-          res.status(400);
-          throw new Error('Remitter not found');
-      }
-      res.status(200).json(remitter);
-    } catch (error) {
-      res.status(500).json({ success: false, message: "Something went wrong" });
+    const remitter = await Remitter.findByPk(id);
+    if (!remitter) {
+      return res.status(404).json({
+        success: false,
+        message: 'Remitter not found'
+      });
     }
+
+    const slab = await ChargeSlab.findAll({
+      where: {
+        charge_type_category: "payout_slab",
+        user_id: remitter.merchant_id
+      }
+    });
+
+    if (!slab.length) {
+      return res.status(200).json({
+        success: true,
+        message: "No payout slab found for this remitter's merchant.",
+        data: {
+          remitter,
+          payout_slab: []
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        remitter,
+        payout_slab: slab
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching remitter:", error);
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong"
+    });
+  }
 });
+
+
 
   router.get('/imps-transactions-list', async (req, res) => {
     try {
