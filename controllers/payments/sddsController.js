@@ -339,7 +339,7 @@ router.post('/transfer-imps', async (req, res) => {
   } catch (error) {
       if (pending_transaction) {
       pending_transaction.status = "failed"
-      pending_transaction.reason = `IMPS to ${payload.BENE_ACC_NAME} FAILED`
+      pending_transaction.reason = `IMPS FAILED`
       await pending_transaction.save();
     }
     res.status(500).json({
@@ -430,12 +430,14 @@ router.get('/remitter-list', async (req, res) => {
     try {
       const role = req.user?.role || "merchant";
 
-      const { remitter_id, beneficiary_id, user_id, status } = req.query;
+      const { remitter_id, beneficiary_id, user_id, status, type } = req.query;
       const where = {
-        type: "transfer",
         source: "imps"
       };
 
+      if (type) {
+        where.type = type;
+      }
       if (status) {
         where.status = status;
       }
