@@ -87,6 +87,7 @@ router.post('/remitter-login', async (req, res) => {
 
     res.json({
       message: 'Remitter login successful',
+      remitter_id: remitter.id,
       data
     });
   } catch (error) {
@@ -117,13 +118,13 @@ router.post('/remitter-register', async (req, res) => {
 
     const data = await sddsService.remitterRegister({payload, token});
     
-    await Remitter.create({
+   const remitter =  await Remitter.create({
       merchant_id: userId,
       mobile_number: mobileNumber,
       name: name,
       external_reference_id: data?.user?.id || null // For now api not sending any reference ID
     });
-    res.json({ message: 'Remitter registered' , data});
+    res.json({ message: 'Remitter registered' , data, remitter_id: remitter.id});
   } catch (error) {
     res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
@@ -373,6 +374,17 @@ router.get('/remitter-list', async (req, res) => {
       message: error.message || "Something went wrong while fetching remitter list",
     });
   }
+});
+
+  router.get('/remitter/:id', async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      const remitter = await Remitter.findByPk(id)
+      res.status(200).json(remitter);
+    } catch (error) {
+      res.status(500).json({ success: false, message: "Failed to fetch transactions." });
+    }
 });
 
   router.get('/imps-transactions-list', async (req, res) => {
