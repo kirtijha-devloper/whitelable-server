@@ -275,6 +275,8 @@ router.post('/transfer-imps', async (req, res) => {
     const userRole = req.user?.role || 'merchant'
     const token = req.body.sddsToken
     const beneficiaryId = req.body.beneficiary_id
+    const externalReferenceId = req.body.external_reference_id
+    const remitterNumber = req.body.remitter_number
 
     const user = await User.findByPk(userId)
     const amount = parseFloat(req.body.amount);
@@ -315,7 +317,9 @@ router.post('/transfer-imps', async (req, res) => {
       BENE_ACC_NAME: beneficiary.bank_account_holder_name,
       BENE_ACC_NO: beneficiary.bank_account_number,
       BENE_BRANCH: beneficiary.bank_branch_name,
-      BENE_IDN_CODE: beneficiary.bank_ifsc
+      BENE_IDN_CODE: beneficiary.bank_ifsc,
+      REMITTER_BENE_ID: externalReferenceId,
+      REMITTER_NUMBER: remitterNumber
     }
     const data = await sddsService.transferIMPS({payload, token});
     // Deduct balance from user wallet
