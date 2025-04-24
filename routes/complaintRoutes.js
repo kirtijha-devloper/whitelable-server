@@ -67,7 +67,7 @@ router.get('/', async (req, res) => {
 
         const complaints = await Complaint.findAll({
         where: whereCondition,
-        include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email'] }],
+        // include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email'] }],
         order: [['createdAt', 'DESC']],
         });
 
