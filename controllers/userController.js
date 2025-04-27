@@ -44,11 +44,11 @@ const getUsers = asyncHandler(async (req, res) => {
                     res.status(403);
                     throw new Error("You are not allowed to view this user.");
                 }
-                if (searchedUser.franchaise_id !== req.user.id) {  //may be not valid logic, will check after
-                    res.status(403);
-                    throw new Error("You are not allowed to view this user.");
-                }
-            }
+            //     if (searchedUser.franchaise_id !== req.user.id) {  //may be not valid logic, will check after
+            //         res.status(403);
+            //         throw new Error("You are not allowed to view this user.");
+            //     }
+            // }
 
             if (role === "merchant") {
                 if (req.user.id !== Number(searchedId)) {
