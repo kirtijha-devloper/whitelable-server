@@ -24,88 +24,93 @@ const getUsers = asyncHandler(async (req, res) => {
     res.status(200).json(users);
 });
 
-    const getUserByID = asyncHandler(async (req, res) => {
-        try {
-            const role = req.user.role;
-            const searchedId = req.params.id;
-            const isPosRentalSlabRequired = req.query.is_pos_rental_slab_required;
-            const isPayoutSlabRequired = req.query.is_payout_slab_required;
-            const isPosDetailRequired = req.query.is_pos_detail_required;
+const getUserByID = asyncHandler(async (req, res) => {
+  try {
+    const role = req.user.role;
+    const searchedId = req.params.id;
+    const isPosRentalSlabRequired = req.query.is_pos_rental_slab_required;
+    const isPayoutSlabRequired = req.query.is_payout_slab_required;
+    const isPosDetailRequired = req.query.is_pos_detail_required;
 
-            const searchedUser = await User.findByPk(searchedId);
+    const searchedUser = await User.findByPk(searchedId);
 
-            if (!searchedUser) {
-                res.status(404);
-                throw new Error("User Not Found.");
-            }
+    if (!searchedUser) {
+      res.status(404);
+      throw new Error("User Not Found.");
+    }
 
-            if (role === "franchaise") {
-                if (searchedUser.role === "franchaise" &&  searchedUser.id !== req.user.id) {
-                    res.status(403);
-                    throw new Error("You are not allowed to view this user.");
-                }
-            //     if (searchedUser.franchaise_id !== req.user.id) {  //may be not valid logic, will check after
-            //         res.status(403);
-            //         throw new Error("You are not allowed to view this user.");
-            //     }
-            // }
+    if (role === "franchaise") {
+      if (searchedUser.role === "franchaise" && searchedUser.id !== req.user.id) {
+        res.status(403);
+        throw new Error("You are not allowed to view this user.");
+      }
+      // Uncomment and fix if needed:
+      // if (searchedUser.franchaise_id !== req.user.id) {
+      //   res.status(403);
+      //   throw new Error("You are not allowed to view this user.");
+      // }
+    }
 
-            if (role === "merchant") {
-                if (req.user.id !== Number(searchedId)) {
-                    res.status(403);
-                    throw new Error("You are not allowed to view this user.");
-                }
-            }
-            const response = {};
+    if (role === "merchant") {
+      if (req.user.id !== Number(searchedId)) {
+        res.status(403);
+        throw new Error("You are not allowed to view this user.");
+      }
+    }
 
-            response.user = searchedUser
+    const response = {};
+    response.user = searchedUser;
 
-            if (isPosRentalSlabRequired) {
-                const slabs = await ChargeSlab.findAll({
-                where: {
-                    charge_type_category: "pos_rental",
-                    user_id: searchedId
-                }
-                });
-                response.pos_rental_slabs = slabs;
-            }
-            if (isPayoutSlabRequired) {
-                const slabs = await ChargeSlab.findAll({
-                where: {
-                    charge_type_category: "payout",
-                    user_id: searchedId
-                }
-                });
-                response.payout_slabs = slabs;
-            }
-             if (isPosDetailRequired) {
-                let posDetails = [];
-                    if (searchedUser.role === "merchant") {
-                    posDetails = await PosMachine.findAll({
-                        where: {
-                        assigned_user_id: searchedId,
-                        status: "active",
-                        },
-                    });
-                    } else if (searchedUser.role === "franchaise") {
-                    posDetails = await PosMachine.findAll({
-                        where: {
-                        franchaise_id: searchedId,
-                        status: "active",
-                        },
-                    });
-                    }
-                response.pos_details = posDetails;
-        }
-            res.status(200).json(response);
+    if (isPosRentalSlabRequired) {
+      const slabs = await ChargeSlab.findAll({
+        where: {
+          charge_type_category: "pos_rental",
+          user_id: searchedId,
+        },
+      });
+      response.pos_rental_slabs = slabs;
+    }
 
-        } catch (err) {
-            res.status(500).json({
-            success: false,
-            message: err.message || "Something went wrong",
-            });
-        }
+    if (isPayoutSlabRequired) {
+      const slabs = await ChargeSlab.findAll({
+        where: {
+          charge_type_category: "payout",
+          user_id: searchedId,
+        },
+      });
+      response.payout_slabs = slabs;
+    }
+
+    if (isPosDetailRequired) {
+      let posDetails = [];
+      if (searchedUser.role === "merchant") {
+        posDetails = await PosMachine.findAll({
+          where: {
+            assigned_user_id: searchedId,
+            status: "active",
+          },
+        });
+      } else if (searchedUser.role === "franchaise") {
+        posDetails = await PosMachine.findAll({
+          where: {
+            franchaise_id: searchedId,
+            status: "active",
+          },
+        });
+      }
+      response.pos_details = posDetails;
+    }
+
+    res.status(200).json(response);
+    
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message || "Something went wrong",
     });
+  }
+});
+
 
 
 const registerUser = asyncHandler( async (req, res) => {
