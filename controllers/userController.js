@@ -398,19 +398,20 @@ const approveUser = asyncHandler( async (req, res) => {
 
 const generateTpin = asyncHandler(async (req, res) => {
   const userId = req.user.id;
+  const userTpin = req.body.tpin;
 
-  const tpin = Math.floor(100000 + Math.random() * 900000);
+  const tpin = userTpin || Math.floor(100000 + Math.random() * 900000);
   const expires_at = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000); // 15 days
     await Tpin.destroy({ where: { user_id: userId } });
     const hashTpin = await bcrypt.hash(tpin.toString(), 10);
 
-  await Tpin.create({
+  await Tpin.upsert({
     user_id: userId,
     tpin: hashTpin,
     expires_at
   });
 
-  res.json({ message: "T-PIN generated successfully", tpin });
+  res.json({ message: "T-PIN created/updated successfully", tpin });
 });
 
 const verifyTpin = asyncHandler(async (req, res) => {
