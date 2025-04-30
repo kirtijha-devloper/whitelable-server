@@ -208,8 +208,5 @@ const getTodayPayoutList = asyncHandler(async (req, res) => {
   });
 });
 
-    
-
-
 module.exports = {getDashboard, getTodayPayoutList}
 

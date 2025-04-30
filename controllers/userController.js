@@ -9,6 +9,7 @@ const { Op } = require('sequelize');
 const PosMachine = require("../models/posMachine");
 const OTP = require("../models/Otp");
 const axios = require('axios');
+const sendOtpHelper = require("../utils/sendOtp");
 
 const getUsers = asyncHandler(async (req, res) => {
     const { status } = req.query;
@@ -192,21 +193,22 @@ const loginUser = asyncHandler( async (req, res) => {
 
     if (user && (await bcrypt.compare(password, user.password))){
         try {
-        // const otp = Math.floor(100000 + Math.random() * 900000);
-        // const apikey = "Q5aq9iNxvaSeiOWS";
-        // const senderid = "ABHEPY";
-        // const message = encodeURIComponent(`Dear Customer your login OTP for POS Abheepay is ${otp} and valid for 5 minutes TEAM-ABHEEPAY`);
-        // const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobileNumber}&message=${message}`;
+        const otp = Math.floor(100000 + Math.random() * 900000);
+        const apikey = "Q5aq9iNxvaSeiOWS";
+        const senderid = "ABHEPY";
+        const message = encodeURIComponent(`Dear Customer your login OTP for POS Abheepay is ${otp} and valid for 5 minutes TEAM-ABHEEPAY`);
+        const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobileNumber}&message=${message}`;
+        console.log("url...", url)
+        const abs = await axios.get(url);
+        console.log("abs..", abs)
 
-        // await axios.get(url);
-
-        // // Save OTP in DB with expiry (5 mins)
-        // await OTP.upsert({
-        // mobile: mobileNumber,
-        // otp,
-        // purpose: "login",
-        // expires_at: new Date(Date.now() + 5 * 60 * 1000)
-        // });
+        // Save OTP in DB with expiry (5 mins)
+        await OTP.upsert({
+          mobile: mobileNumber,
+          otp,
+          purpose: "login",
+          expires_at: new Date(Date.now() + 5 * 60 * 1000)
+        });
         res.json({ success: true, message: "OTP sent successfully" , });
     } catch (err) {
     console.error(err);
@@ -393,8 +395,6 @@ const approveUser = asyncHandler( async (req, res) => {
             return res.status(403).json({ message: "Invalid or expired token" });
         }
     });
-
-   
 
 const generateTpin = asyncHandler(async (req, res) => {
   const userId = req.user.id;

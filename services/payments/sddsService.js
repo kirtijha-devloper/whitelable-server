@@ -1,7 +1,7 @@
 const axios = require('axios');
 const https = require('https');
 
-const BASE_URL = 'https://uatapi.sddspl.com/api';
+const BASE_URL = 'https://api.sddspl.com/api';
 
 let bearerToken = ''; // Temp store. Use Redis/db for prod.
 
