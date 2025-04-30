@@ -7,6 +7,7 @@ const WalletTransaction = require("../../models/WalletTransaction")
 const User = require("../../models/User")
 const Beneficiary = require("../../models/Beneficiary");
 const ChargeSlab = require('../../models/ChargeSlab');
+const Tpin = require('../../models/Tpin');
 
 // Login Controller
 router.post('/login', async (req, res) => {
@@ -16,8 +17,8 @@ router.post('/login', async (req, res) => {
       throw new Error('Missing required parameters');
     }
     const payload = {
-      username: '9024621059',
-      password: '12345678',
+      username: '7669978021',
+      password: '7669978021',
       otp: 'yes',
       browser_id: req.body.browser_id,
       lat: req.body.lat,
@@ -133,7 +134,7 @@ router.post('/remitter-register', async (req, res) => {
 
 router.post('/remitter-beneficiaries', async (req, res) => {
   try {
-    const userId = req.user?.id || 10;
+    const userId = req.user?.id;
     const role = req.user?.role || "merchant";
     const { lat, long } = req.body;
     const mobileNumber = req.body.mobile_number
@@ -277,6 +278,32 @@ router.post('/transfer-imps', async (req, res) => {
     const beneficiaryId = req.body.beneficiary_id
     const externalReferenceId = req.body.external_reference_id
     const remitterNumber = req.body.remitter_number
+
+      // const tpin  = req.body.tpin;
+
+      // if (!tpin) {
+      //   res.status(400);
+      //   throw new Error("T-PIN is required");
+      // }
+
+      // const savedTpin = await Tpin.findOne({ where: { user_id: userId } });
+
+      // if (!savedTpin) {
+      //   res.status(404);
+      //   throw new Error("T-PIN not found. Please generate one.");
+      // }
+
+      // if (new Date(savedTpin.expires_at) < new Date()) {
+      //   res.status(400);
+      //   throw new Error("T-PIN has expired. Please generate a new one.");
+      // }
+
+      // const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
+
+      // if (!isMatch) {
+      //   res.status(401);
+      //   throw new Error("Invalid T-PIN");
+      // }
 
     const user = await User.findByPk(userId)
     const amount = parseFloat(req.body.amount);
@@ -428,7 +455,7 @@ router.get('/remitter-list', async (req, res) => {
   }
 });
 
-
+// TODO: Seggrigation on franchise and merhchant level on transaction data
 
   router.get('/imps-transactions-list', async (req, res) => {
     try {
