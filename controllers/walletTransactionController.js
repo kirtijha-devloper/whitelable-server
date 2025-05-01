@@ -5,7 +5,7 @@ const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const PosMachine = require('../models/posMachine');
 const { Op } = require('sequelize');
-
+const { createLedgerEntry } = require('../utils/ledger');
 
 const requestFund = asyncHandler(async (req, res) =>{
   const role = req.user.role
@@ -37,62 +37,79 @@ const requestFund = asyncHandler(async (req, res) =>{
 });
 
 const transferFund = asyncHandler(async (req, res) =>{
+  try {
     if (req.user.role !== "admin") {
       res.status(401);
       throw new Error("you are not allowed to transfer amount")
     }
     
-  const {id} = req.params;
-  const transactionId = parseInt(id, 10);
+    const {id} = req.params;
+    const transactionId = parseInt(id, 10);
 
-  if (isNaN(transactionId)) {
-    res.status(400);
-    throw new Error("Invalid transaction ID");
-  }
-    const walletTransaction = await WalletTransaction.findByPk(transactionId);
-    if (walletTransaction.status !== "pending" && walletTransaction.type !== "request") {
+    if (isNaN(transactionId)) {
       res.status(400);
-      throw new Error("Wallet Transaction is not valid for transfer ")
+      throw new Error("Invalid transaction ID");
     }
-      
-
-    if (!walletTransaction) throw new Error("Request not found");
-
-     const sender = await User.findByPk(req.user.id); // the one approving
-      if (!sender) {
-        res.status(404);
-        throw new Error("Sender/approver not found");
+      const walletTransaction = await WalletTransaction.findByPk(transactionId);
+      if (walletTransaction.status !== "pending" && walletTransaction.type !== "request") {
+        res.status(400);
+        throw new Error("Wallet Transaction is not valid for transfer ")
       }
         
-        if (parseFloat(sender.wallet) < parseFloat(walletTransaction.amount)) {
-          res.status(400);
-          throw new Error("Insufficient balance to transfer funds");
+
+      if (!walletTransaction) throw new Error("Request not found");
+
+      const sender = await User.findByPk(req.user.id); // the one approving
+    console.log("sender balanece", sender)
+        if (!sender) {
+          res.status(404);
+          throw new Error("Sender/approver not found");
         }
-    const receiver = await User.findByPk(walletTransaction.requested_by)
+          console.log("sender waller", sender.wallet)
+console.log("wallettrwa waller", walletTransaction.amount)
+          if (parseFloat(sender.wallet) < parseFloat(walletTransaction.amount)) {
+            res.status(400);
+            throw new Error("Insufficient balance to transfer funds");
+          }
+      const receiver = await User.findByPk(walletTransaction.requested_by)
 
-    if (!receiver) throw new Error("User not found");
-    receiver.wallet = parseFloat(receiver.wallet) + parseFloat(walletTransaction.amount);
-    await receiver.save();
+      if (!receiver) throw new Error("User not found");
+      receiver.wallet = parseFloat(receiver.wallet) + parseFloat(walletTransaction.amount);
+      await receiver.save();
 
-    walletTransaction.status = "completed"
-    walletTransaction.approved_by= req.user.id
-    await walletTransaction.save()
+      walletTransaction.status = "completed"
+      walletTransaction.approved_by= req.user.id
+      await walletTransaction.save()
 
-    await WalletTransaction.create({
-        type: "transfer",
-        amount: parseFloat(walletTransaction.amount),
-        status: "completed",
-        reason: "Fund Tranfer",
-        approved_by: req.user.id,
-        requested_by: walletTransaction.requested_by,
-        reference_id: walletTransaction.id
-      });
+      await WalletTransaction.create({
+          type: "transfer",
+          amount: parseFloat(walletTransaction.amount),
+          status: "completed",
+          reason: "Fund Tranfer",
+          approved_by: req.user.id,
+          requested_by: walletTransaction.requested_by,
+          reference_id: walletTransaction.id
+        });
       sender.wallet = parseFloat(sender.wallet) - parseFloat(walletTransaction.amount);
       console.log("sender wallet", parseFloat(sender.wallet) - parseFloat(walletTransaction.amount))
       await sender.save();
-  
+
+      // await createLedgerEntry(
+      //   "Merchant Wallet Top-up",
+      //   new Date(),
+      //   [
+      //     { account_id: merchantWalletAccountId, type: 'debit', amount: walletTransaction.amount },
+      //     { account_id: platformIncomeAccountId, type: 'credit', amount: walletTransaction.amount }
+      //   ])
+
     res.status(200).json({ message: "Amount Transfered", balance: receiver.wallet, hold: receiver.wallet_hold });
-    
+  }
+    catch (err) { console.error(err); 
+      res.status(500).json({
+      success: false,
+      message: err.message || "Something went wrong",
+    }); 
+    }
 });
 
 const holdFund = asyncHandler(async (req, res) => {
@@ -212,14 +229,54 @@ const getUserWalletTransactions = asyncHandler(async (req, res) => {
         order: [['createdAt', 'DESC']]
       });
 
+     const formattedTransactions = await Promise.all(transactions.map(async (txn) => {
+      let requestUserDetails = null;
+      let approveUserDetails = null;
+
+      if (txn.requested_by) {
+        requestUserDetails = await User.findByPk(txn.requested_by, {
+          attributes: ['id', 'name', 'email'], // Select the required attributes
+        });
+      }
+        if (txn.approved_by) {
+        approveUserDetails = await User.findByPk(txn.approved_by, {
+          attributes: ['id', 'name', 'email'], // Select the required attributes
+        });
+      }
+
+
+      return {
+        id: txn.id,
+        type: txn.type,
+        status: txn.status,
+        requested_by: txn.requested_by,
+        approved_by: txn.approved_by,
+        amount: txn.amount,
+        reason: txn.reason,
+        reference_id: txn.reference_id,
+        createdAt: txn.createdAt,
+        updatedAt: txn.updatedAt,
+        request_details: requestUserDetails ? {
+          id: requestUserDetails.id,
+          name: requestUserDetails.name,
+          email: requestUserDetails.email,
+        } : null, // Include user details if available
+        approve_details: approveUserDetails ? {
+          id: approveUserDetails.id,
+          name: approveUserDetails.name,
+          email: approveUserDetails.email,
+        } : null, // Include user details if available
+      };
+    }));
+
     res.status(200).json({
-      count: transactions.length,
-      transactions,
-  });
+      count: formattedTransactions.length,
+      transactions: formattedTransactions, // return the formatted transactions
+    });
   } catch (err) { console.error(err); 
       res.status(500).json({
       success: false,
-      message: error.message || "Something went wrong",
+      message: err.message || "Something went wrong",
     }); }
 });
 
