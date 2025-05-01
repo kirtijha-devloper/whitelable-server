@@ -5,7 +5,6 @@ const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const PosMachine = require('../models/posMachine');
 const { Op } = require('sequelize');
-const { createLedgerEntry } = require('../utils/ledger');
 
 const requestFund = asyncHandler(async (req, res) =>{
   const role = req.user.role
