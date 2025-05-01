@@ -8,6 +8,7 @@ const User = require("../../models/User")
 const Beneficiary = require("../../models/Beneficiary");
 const ChargeSlab = require('../../models/ChargeSlab');
 const Tpin = require('../../models/Tpin');
+const { Op } = require("sequelize");
 
 // Login Controller
 router.post('/login', async (req, res) => {
@@ -498,10 +499,41 @@ router.get('/remitter-list', async (req, res) => {
         order: [["createdAt", "DESC"]],
       });
 
+      const remitterIds = [...new Set(transactions.map(txn => txn.approved_by).filter(Boolean))];
+      const beneficiaryIds = [...new Set(transactions.map(txn => txn.requested_by).filter(Boolean))];
+      const userIds = [...new Set(transactions.map(txn => txn.user_id).filter(Boolean))];
+
+    const [remitters, beneficiaries, users] = await Promise.all([
+      Remitter.findAll({ where: { id: { [Op.in]: remitterIds } }, attributes: ['id', 'name'] }),
+      Beneficiary.findAll({ where: { id: { [Op.in]: beneficiaryIds } }, attributes: ['id', 'bank_name', 'bank_account_number', 'bank_ifsc', 'beneficiary_mobile'] }),
+    ]);
+
+    // Create lookup maps
+    const remitterMap = Object.fromEntries(remitters.map(r => [r.id, r]));
+    const beneficiaryMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
+
+    // Format response
+    const formattedTransactions = transactions.map(txn => {
+      const beneficiary = beneficiaryMap[txn.requested_by] || {};
+      return {
+        id: txn.id,
+        date_time: txn.createdAt,
+        mobile_number: beneficiary.beneficiary_mobile,
+        txn_no: txn.reference_id,
+        bank_name: beneficiary.bank_name || null,
+        account_no: beneficiary.bank_account_number || null,
+        ifsc_code: beneficiary.bank_ifsc || null,
+        utr_no: txn.utr_no || null,
+        amount: txn.amount,
+        status: txn.status
+        // Add more fields if needed
+      };
+    });
+
       res.status(200).json({
-        count: transactions.length,
-        transactions,
-      });
+      count: formattedTransactions.length,
+      transactions: formattedTransactions,
+    });
     } catch (error) {
       console.error("IMPS Transaction List Error:", error);
       res.status(500).json({ success: false, message: "Failed to fetch transactions." });

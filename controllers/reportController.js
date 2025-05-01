@@ -120,7 +120,7 @@ const getWalletReport = asyncHandler(async (req, res) => {
       }
 
       return {
-        sl: transactions.length - index,
+        id: txn.id,
         date_and_time: txn.createdAt,
         utr_no: txn.reference_id || "-",
         description: txn.reason || txn.type,
