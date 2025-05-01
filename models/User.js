@@ -99,10 +99,10 @@ const User = db.define('User', {
       franchaise_id: {
         type: Sequelize.INTEGER,
         allowNull: true,
-        references: {
-          model: 'Users',
-          key: 'id'
-        }
+        // references: {
+        //   model: 'Users',
+        //   key: 'id'
+        // }
       },
       createdAt: {
           allowNull: false,
