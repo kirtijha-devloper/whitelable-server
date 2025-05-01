@@ -31,7 +31,30 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
       order: [['createdAt', 'DESC']],
     });
 
-    res.json({ list: posMachines });
+    const formattedPosMachines = await Promise.all(posMachines.map(async (posMachine) => {
+      let assignedUser = null;
+      
+      if (posMachine.assigned_user_id) {
+        assignedUser = await User.findByPk(posMachine.assigned_user_id, {
+          attributes: ['id', 'name', 'email'], // Select the required attributes
+        });
+      }
+         return {
+        id: posMachine.id,
+        tid_number: posMachine.tid_number,
+        status: posMachine.status,
+        remarks: posMachine.remarks,
+        assigned_user: assignedUser ? {
+          id: assignedUser.id,
+          name: assignedUser.name,
+          email: assignedUser.email,
+        } : null, // Include user details if assigned
+        franchaise_id: posMachine.franchaise_id,
+        createdAt: posMachine.createdAt,
+        updatedAt: posMachine.updatedAt,
+      };
+    }));
+    res.json({ list: formattedPosMachines });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -278,11 +301,35 @@ const getPosMachineList = asyncHandler(async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    const formattedPosMachines = await Promise.all(machines.map(async (posMachine) => {
+      let assignedUser = null;
+      
+      if (posMachine.assigned_user_id) {
+        assignedUser = await User.findByPk(posMachine.assigned_user_id, {
+          attributes: ['id', 'name', 'email'], // Select the required attributes
+        });
+      }
+         return {
+        id: posMachine.id,
+        tid_number: posMachine.tid_number,
+        status: posMachine.status,
+        remarks: posMachine.remarks,
+        assigned_user: assignedUser ? {
+          id: assignedUser.id,
+          name: assignedUser.name,
+          email: assignedUser.email,
+        } : null, // Include user details if assigned
+        franchaise_id: posMachine.franchaise_id,
+        createdAt: posMachine.createdAt,
+        updatedAt: posMachine.updatedAt,
+      };
+    }));
+
     res.status(200).json({
       totalItems: count,
       currentPage: parseInt(page),
       totalPages: Math.ceil(count / limit),
-      data: machines
+      data: formattedPosMachines
     });
     } catch (error) {
     res.status(500).json({

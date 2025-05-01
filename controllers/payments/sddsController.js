@@ -9,6 +9,7 @@ const Beneficiary = require("../../models/Beneficiary");
 const ChargeSlab = require('../../models/ChargeSlab');
 const Tpin = require('../../models/Tpin');
 const { Op } = require("sequelize");
+const db = require("../../config/database");
 
 // Login Controller
 router.post('/login', async (req, res) => {
@@ -101,6 +102,7 @@ router.post('/remitter-login', async (req, res) => {
 // Add other controllers similarly...
 
 router.post('/remitter-register', async (req, res) => {
+  const t = await db.transaction();
   try {
       const userId =  req.user?.id || 10;
       
@@ -126,9 +128,12 @@ router.post('/remitter-register', async (req, res) => {
       mobile_number: mobileNumber,
       name: name,
       external_reference_id: data?.user?.id || null // For now api not sending any reference ID
-    });
+    }, { transaction: t });
+
+    await t.commit();
     res.json({ message: 'Remitter registered' , data, remitter_id: remitter.id});
   } catch (error) {
+    await t.rollback();
     res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
