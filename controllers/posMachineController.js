@@ -42,6 +42,9 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
          return {
         id: posMachine.id,
         tid_number: posMachine.tid_number,
+        mid_number: posMachine.mid_number,
+        device_serial_number: posMachine.device_serial_number,
+        razorpay_id: posMachine.razorpay_id,
         status: posMachine.status,
         remarks: posMachine.remarks,
         assigned_user: assignedUser ? {
@@ -76,10 +79,13 @@ const createPosMachine = asyncHandler(async (req, res ) => {
             throw new Error ("All fields are mandatory !")
     };
 
+    const razorpayId = req.body.razorpayid
+
     const newPosMachine = await PosMachine.create({
         tid_number: req.body.tid_number,   
         mid_number: req.body.mid_number, 
         device_serial_number: req.body.device_serial_number,
+        razorpay_id: razorpayId,
         remarks: req.body.remarks || "added",
         status: "added"})
 

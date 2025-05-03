@@ -37,7 +37,7 @@ router.put("/returned-initiated/:id", markAsReturnInitiated);
 
 // 🎯 Assignments
 router.post("/assign", assignPosMachineToUserID);
-router.post("/assign-to-merchant", assignPosMachineToMerhcant);
+router.post("/assign-to-merchant", assignPosMachineToMerhcant); // Not in use
 
 // 🧍 Get single, Delete
 router.get("/:id", getPosMachine);
