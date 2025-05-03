@@ -84,7 +84,7 @@ router.get('/', async (req, res) => {
 
       return {
         id: complaint.id,
-        description: complaint.description,
+        message: complaint.message,
         status: complaint.status,
         createdAt: complaint.createdAt,
         updatedAt: complaint.updatedAt,
