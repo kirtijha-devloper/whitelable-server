@@ -13,9 +13,14 @@ const PosMachine = db.define('PosMachine', {
       tid_number: {
         type: Sequelize.STRING
       },
+      // razor_pa
       device_serial_number: {
         type: Sequelize.STRING
       },
+      razorpay_id: {
+        type: Sequelize.STRING
+      },
+
       status: {
         type: Sequelize.STRING    
       },
