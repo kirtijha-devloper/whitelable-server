@@ -7,7 +7,7 @@ const User = require('../models/User');
 const { response } = require("express");
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
-  const { status, tid_number, is_pos_asigned } = req.query;
+  const { status, tid_number, mid_number, device_serial_number, razorpay_id, is_pos_asigned } = req.query;
   const userRole = req.user.role;
   const userId = req.user.id;
 
@@ -16,6 +16,10 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
 
     // Filters from query
     if (tid_number) where.tid_number = tid_number;
+    if (mid_number) where.mid_number = mid_number;
+    if (device_serial_number) where.device_serial_number = device_serial_number;
+    if (razorpay_id) where.razorpay_id = razorpay_id;
+
     if (status) where.status = status;
     if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
 
@@ -33,10 +37,17 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
 
     const formattedPosMachines = await Promise.all(posMachines.map(async (posMachine) => {
       let assignedUser = null;
+      let franchaiseDetails = null;
       
       if (posMachine.assigned_user_id) {
         assignedUser = await User.findByPk(posMachine.assigned_user_id, {
-          attributes: ['id', 'name', 'email'], // Select the required attributes
+          attributes: ['id', 'name', 'email', 'abheepay_id'], // Select the required attributes
+        });
+      }
+
+      if (posMachine.franchaise_id) {
+        franchaiseDetails = await User.findByPk(posMachine.franchaise_id, {
+          attributes: ['id', 'name', 'email', 'abheepay_id'], // Select the required attributes
         });
       }
          return {
@@ -53,6 +64,11 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
           email: assignedUser.email,
         } : null, // Include user details if assigned
         franchaise_id: posMachine.franchaise_id,
+        franchaise_detail: franchaiseDetails ? {
+          id: franchaiseDetails.id,
+          name: franchaiseDetails.name,
+          email: franchaiseDetails.email,
+        } : null,
         createdAt: posMachine.createdAt,
         updatedAt: posMachine.updatedAt,
       };

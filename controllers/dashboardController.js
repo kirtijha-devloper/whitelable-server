@@ -50,7 +50,7 @@ const getDashboard = asyncHandler(async (req, res) => {
         merchants: { count: activeMerchantCount },
         franchaises: { count: activeFranchaiseCount },
         pos_transactions: { total, success, fail },
-        today_total_payout: today_total_payout
+        today_total_payout: today_total_payout || 0
       };
     }
 

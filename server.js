@@ -3,6 +3,7 @@ const { errorHandler } = require("./middleware/errorHandler");
 const dotenv = require("dotenv").config();
 const connectDb = require("./config/dbConnection");
 const db = require('./config/database');
+const fileUpload = require('express-fileupload');
 
 const app = express();
 
@@ -19,6 +20,15 @@ const cors = require('cors');
 //     }
 //   }
 // }));
+
+app.use(fileUpload({
+  useTempFiles: true,
+  tempFileDir: '/tmp/',
+  limits: {
+    fileSize: 1024 * 1024 * 5, // 5MB
+  },
+  abortOnLimit: true,
+}));
 
 app.use(cors())
 app.use(express.json());
