@@ -88,18 +88,18 @@ const getWalletReport = asyncHandler(async (req, res) => {
 
     
     let whereClause = {}
-      if (user !== 'admin') {
-      whereClause = {
-        requested_by: userId,
-        // status: "completed",
-      };
-    }
+      if (user.role !== "admin") {
+        whereClause = {
+          requested_by: userId,
+          // status: "completed",
+        };
+      }
 
-    if (startDate && endDate) {
-      whereClause.createdAt = {
-        [Op.between]: [new Date(startDate), new Date(endDate)],
-      };
-    }
+      if (startDate && endDate) {
+        whereClause.createdAt = {
+          [Op.between]: [new Date(startDate), new Date(endDate)],
+        };
+      }
 
     const transactions = await WalletTransaction.findAll({
       where: whereClause,
