@@ -2,11 +2,16 @@ const asyncHandler = require("express-async-handler");
 const User = require('../models/User');
 const { Op } = require("sequelize");
 const bcrypt = require("bcrypt");
-const upload = require("../utils/mutlerSetup")
+const cloudinary = require("cloudinary").v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const onBoardUser = asyncHandler(async(req, res) => {
     try{
-    
     const role = "franchaise"
     // const { email, password, mobile_number } = req.body
 
@@ -35,14 +40,22 @@ const onBoardUser = asyncHandler(async(req, res) => {
     };
    
 
-      const panFile = req.files?.pan_photo?.[0];
-      const aadharFile = req.files?.aadhar_photo?.[0];
-      const shopFile = req.files?.shop_photo?.[0];
+      const panFile = req.files?.pan_photo;
+      const aadharFile = req.files?.aadhar_photo;
+      const shopFile = req.files?.shop_photo;
 
-      const baseUrl = `${req.protocol}://${req.get('host')}/uploads/`;
-      const panUrl = panFile ? `${baseUrl}${panFile.filename}` : null;
-      const aadharUrl = aadharFile ? `${baseUrl}${aadharFile.filename}` : null;
-      const shopUrl = shopFile ? `${baseUrl}${shopFile.filename}` : null;
+      const panUrl = panFile ? await cloudinary.uploader.upload(panFile.tempFilePath, {
+        folder: "franchaise",
+      }) : null;
+      const aadharUrl = aadharFile ? await cloudinary.uploader.upload(aadharFile.tempFilePath, {
+        folder: "franchaise",
+      }) : null;
+
+      const shopUrl = shopFile ? await cloudinary.uploader.upload(shopFile.tempFilePath, {
+        folder: "franchaise",
+      }) : null;
+
+  
 
       user.set({
       role: role,
@@ -59,9 +72,9 @@ const onBoardUser = asyncHandler(async(req, res) => {
       country: req.body.country,
       pan_number: req.body.pan_number,
       aadhar_number: req.body.aadhar_number,
-      pan_number_url: panUrl || user.pan_number_url,
-      aadhar_number_url: aadharUrl || user.aadhar_number_url,
-      shop_with_photo_url: shopUrl || user.shop_with_photo_url,
+      pan_number_url: panUrl.secure_url || user.pan_number_url,
+      aadhar_number_url: aadharUrl.secure_url || user.aadhar_number_url,
+      shop_with_photo_url: shopUrl.secure_url || user.shop_with_photo_url,
       status: "active"
     });
 

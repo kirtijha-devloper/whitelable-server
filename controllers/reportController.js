@@ -86,10 +86,14 @@ const getWalletReport = asyncHandler(async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const whereClause = {
-      requested_by: userId,
-      // status: "completed",
-    };
+    
+    let whereClause = {}
+      if (user !== 'admin') {
+      whereClause = {
+        requested_by: userId,
+        // status: "completed",
+      };
+    }
 
     if (startDate && endDate) {
       whereClause.createdAt = {
