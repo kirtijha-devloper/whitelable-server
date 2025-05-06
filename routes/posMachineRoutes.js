@@ -12,7 +12,8 @@ const {
   markAsReturnInitiated,
   assignPosMachineToUserID,
   assignPosMachineToMerhcant,
-  getPosMachineList
+  getPosMachineList,
+  updatePosMachine
 } = require("../controllers/posMachineController");
 
 const validateToken = require("../middleware/validateTokenHandler");
@@ -35,6 +36,8 @@ router.put("/de-activate/:id", deactivatePosMachine);
 router.put("/delivered/:id", markAsDelivered);
 router.put("/returned-initiated/:id", markAsReturnInitiated);
 
+
+
 // 🎯 Assignments
 router.post("/assign", assignPosMachineToUserID);
 router.post("/assign-to-merchant", assignPosMachineToMerhcant); // Not in use
@@ -42,5 +45,6 @@ router.post("/assign-to-merchant", assignPosMachineToMerhcant); // Not in use
 // 🧍 Get single, Delete
 router.get("/:id", getPosMachine);
 router.delete("/:id", deletePosMachine);
+router.put("/:id", updatePosMachine);
 
 module.exports = router;
