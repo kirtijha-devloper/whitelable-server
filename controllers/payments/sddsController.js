@@ -104,7 +104,7 @@ router.post('/remitter-login', async (req, res) => {
 router.post('/remitter-register', async (req, res) => {
   const t = await db.transaction();
   try {
-      const userId =  req.user?.id || 10;
+      const userId =  req.user?.id;
       
       const mobileNumber = req.body.mobile_number
       const otp = req.body.otp
@@ -122,6 +122,10 @@ router.post('/remitter-register', async (req, res) => {
     };
 
     const data = await sddsService.remitterRegister({payload, token});
+
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid response from remitter register service');
+    }
     
    const remitter =  await Remitter.create({
       merchant_id: userId,

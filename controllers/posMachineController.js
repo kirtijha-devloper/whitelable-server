@@ -384,7 +384,7 @@ const updatePosMachine = asyncHandler(async (req, res) => {
     
 
     // Find the POS machine by ID
-    const posMachine = await PosMachine.findById(id);
+    const posMachine = await PosMachine.findByPk(id);
     if (!posMachine) {
       res.status(404);
       throw new Error("POS Machine not found");
