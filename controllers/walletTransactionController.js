@@ -65,7 +65,7 @@ const transferFund = asyncHandler(async (req, res) =>{
           throw new Error("Sender/approver not found");
         }
           console.log("sender waller", sender.wallet)
-console.log("wallettrwa waller", walletTransaction.amount)
+
           if (parseFloat(sender.wallet) < parseFloat(walletTransaction.amount)) {
             res.status(400);
             throw new Error("Insufficient balance to transfer funds");
@@ -234,12 +234,12 @@ const getUserWalletTransactions = asyncHandler(async (req, res) => {
 
       if (txn.requested_by) {
         requestUserDetails = await User.findByPk(txn.requested_by, {
-          attributes: ['id', 'name', 'email'], // Select the required attributes
+          attributes: ['id', 'name', 'email', 'abheepay_id'], // Select the required attributes
         });
       }
         if (txn.approved_by) {
         approveUserDetails = await User.findByPk(txn.approved_by, {
-          attributes: ['id', 'name', 'email'], // Select the required attributes
+          attributes: ['id', 'name', 'email', 'abheepay_id'], // Select the required attributes
         });
       }
 
