@@ -145,6 +145,11 @@ const deactivatePosMachine = asyncHandler( async (req, res) => {
     if (posMachineById) {
         posMachineById.status = "in_active";
         await posMachineById.save();
+        if (posMachineById.assigned_user_id) {
+            const user = await User.findById(posMachineById.assigned_user_id)
+            user.is_pos_asigned = false
+            await user.save()
+        }
         res.status(200).json(posMachineById)
     } else {
         res.status(404);
@@ -237,9 +242,10 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
         }
         }
     );
-
-    user.is_pos_asigned = true
-    await user.save()
+    if (assigneeRole === "merchant"){
+      user.is_pos_asigned = true
+      await user.save()
+    }
 
     res.status(200).json({
         message: `POS Machines assigned `,
@@ -362,5 +368,52 @@ const getPosMachineList = asyncHandler(async (req, res) => {
   });
 
 
+const updatePosMachine = asyncHandler(async (req, res) => {
+  try {
+    const { id } = req.params; // Assuming the ID is passed as a route param
+    const {
+      tid_number,
+      mid_number,
+      device_serial_number,
+      razorpayid,
+      remarks,
+      status
+    } = req.body;
 
-module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerhcant, getPosMachineList}
+    // Validate if all required fields are present
+    
+
+    // Find the POS machine by ID
+    const posMachine = await PosMachine.findById(id);
+    if (!posMachine) {
+      res.status(404);
+      throw new Error("POS Machine not found");
+    }
+
+    // Update fields
+    posMachine.tid_number = tid_number || posMachine.tid_number;
+    posMachine.mid_number = mid_number || posMachine.mid_number;
+    posMachine.device_serial_number = device_serial_number || posMachine.device_serial_number;
+    posMachine.razorpay_id = razorpayid || posMachine.razorpay_id;
+    posMachine.remarks = remarks || posMachine.remarks;
+    posMachine.status = status || posMachine.status;
+
+    if (!posMachine.tid_number || !posMachine.mid_number || !posMachine.device_serial_number) {
+      res.status(400);
+      throw new Error("All fields are mandatory!");
+    }
+
+    const updatedPosMachine = await posMachine.save();
+
+    res.status(200).json(updatedPosMachine);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
+  }
+});
+
+
+
+module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerhcant, getPosMachineList, updatePosMachine}

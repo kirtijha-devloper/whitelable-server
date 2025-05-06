@@ -369,7 +369,7 @@ router.post('/transfer-imps', async (req, res) => {
       requested_by: beneficiary.id,
       approved_by: beneficiary.remitter_id,
       source: "imps",
-      reference_id: userId // need to think what shuold be passed
+      reference_id: data.data.paymentrefno // need to think what shuold be passed
     });
 
     res.json({ message: 'IMPS transfer successful', data });
@@ -528,7 +528,7 @@ router.get('/remitter-list', async (req, res) => {
         bank_name: beneficiary.bank_name || null,
         account_no: beneficiary.bank_account_number || null,
         ifsc_code: beneficiary.bank_ifsc || null,
-        utr_no: txn.utr_no || null,
+        utr_no: txn.reference_id || null,
         amount: txn.amount,
         status: txn.status
         // Add more fields if needed
