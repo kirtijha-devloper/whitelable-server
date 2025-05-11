@@ -90,10 +90,16 @@ const createPosMachine = asyncHandler(async (req, res ) => {
     try {
     console.log("create params:", req.body)
     const { tid_number, mid_number, device_serial_number } = req.body;
+    const userRole = req.user.role
     if (!tid_number || !mid_number || !device_serial_number) {
         res.status(400);
             throw new Error ("All fields are mandatory !")
     };
+
+    let franchaiseId = ''
+    if (userRole === "franchaise") {
+      franchaiseId = req.user.id
+    }
 
     const razorpayId = req.body.razorpayid
 
@@ -103,7 +109,8 @@ const createPosMachine = asyncHandler(async (req, res ) => {
         device_serial_number: req.body.device_serial_number,
         razorpay_id: razorpayId,
         remarks: req.body.remarks || "added",
-        status: "added"})
+        status: "added",
+        franchaise_id: franchaiseId})
 
     res.status(201).json(newPosMachine);
     } catch (error) {
@@ -139,23 +146,34 @@ const activatePosMachine = asyncHandler( async (req, res) => {
     };
 });
 
-const deactivatePosMachine = asyncHandler( async (req, res) => {
-    const id = req.params.id;
-    const posMachineById = await PosMachine.findByPk(id)
-    if (posMachineById) {
-        posMachineById.status = "in_active";
-        await posMachineById.save();
-        if (posMachineById.assigned_user_id) {
-            const user = await User.findById(posMachineById.assigned_user_id)
-            user.is_pos_asigned = false
-            await user.save()
-        }
-        res.status(200).json(posMachineById)
-    } else {
-        res.status(404);
-            throw new Error ("NoT Found !")
-    };
+const deactivatePosMachine = asyncHandler(async (req, res) => {
+  const id = req.params.id;
+  const posMachineById = await PosMachine.findByPk(id);
+
+  if (!posMachineById) {
+    res.status(404);
+    throw new Error("Not Found!");
+  }
+
+  // Save the assigned user ID before clearing it
+  const assignedUserId = posMachineById.assigned_user_id;
+
+  posMachineById.status = "in_active";
+  posMachineById.assigned_user_id = null;
+  posMachineById.franchaise_id = null;
+  await posMachineById.save();
+
+  if (assignedUserId) {
+    const user = await User.findByPk(assignedUserId);
+    if (user) {
+      user.is_pos_asigned = false;
+      await user.save();
+    }
+  }
+
+  res.status(200).json(posMachineById);
 });
+
 
 const deletePosMachine = asyncHandler( async (req, res) => {
     const id = req.params.id;
