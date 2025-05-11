@@ -96,7 +96,7 @@ const createPosMachine = asyncHandler(async (req, res ) => {
             throw new Error ("All fields are mandatory !")
     };
 
-    let franchaiseId = ''
+    let franchaiseId = null
     if (userRole === "franchaise") {
       franchaiseId = req.user.id
     }
