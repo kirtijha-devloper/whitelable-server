@@ -10,6 +10,7 @@ const ChargeSlab = require('../../models/ChargeSlab');
 const Tpin = require('../../models/Tpin');
 const { Op } = require("sequelize");
 const db = require("../../config/database");
+const bcrypt = require("bcrypt");
 
 // Login Controller
 router.post('/login', async (req, res) => {
