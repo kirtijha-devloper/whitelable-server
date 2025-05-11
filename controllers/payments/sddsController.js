@@ -279,6 +279,14 @@ router.post('/delete-beneficiary', async (req, res) => {
   }
 });
 
+  function getCurrentDate() {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, '0');
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const year = now.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 router.post('/transfer-imps', async (req, res) => {
   let pending_transaction;
   try {
@@ -343,13 +351,13 @@ router.post('/transfer-imps', async (req, res) => {
       requested_by: beneficiary.id,
       source: "imps"
     });
-
+    const currentDate = getCurrentDate();
 
     const payload= {
       TRANSFER_TYPE_DESC: "IMPS",
       BENE_BANK: beneficiary.bank_name,
       INPUT_DEBIT_AMOUNT: req.body.amount,
-      INPUT_VALUE_DATE: "12/04/2025",
+      INPUT_VALUE_DATE: currentDate,
       TRANSACTION_TYPE: "SINGLE",
       BENE_ACC_NAME: beneficiary.bank_account_holder_name,
       BENE_ACC_NO: beneficiary.bank_account_number,
