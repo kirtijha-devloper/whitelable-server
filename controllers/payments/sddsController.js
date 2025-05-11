@@ -297,31 +297,31 @@ router.post('/transfer-imps', async (req, res) => {
     const externalReferenceId = req.body.external_reference_id
     const remitterNumber = req.body.remitter_number
 
-      // const tpin  = req.body.tpin;
+      const tpin  = req.body.tpin;
 
-      // if (!tpin) {
-      //   res.status(400);
-      //   throw new Error("T-PIN is required");
-      // }
+      if (!tpin) {
+        res.status(400);
+        throw new Error("T-PIN is required");
+      }
 
-      // const savedTpin = await Tpin.findOne({ where: { user_id: userId } });
+      const savedTpin = await Tpin.findOne({ where: { user_id: userId } });
 
-      // if (!savedTpin) {
-      //   res.status(404);
-      //   throw new Error("T-PIN not found. Please generate one.");
-      // }
+      if (!savedTpin) {
+        res.status(404);
+        throw new Error("T-PIN not found. Please generate one.");
+      }
 
-      // if (new Date(savedTpin.expires_at) < new Date()) {
-      //   res.status(400);
-      //   throw new Error("T-PIN has expired. Please generate a new one.");
-      // }
+      if (new Date(savedTpin.expires_at) < new Date()) {
+        res.status(400);
+        throw new Error("T-PIN has expired. Please generate a new one.");
+      }
 
-      // const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
+      const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
 
-      // if (!isMatch) {
-      //   res.status(401);
-      //   throw new Error("Invalid T-PIN");
-      // }
+      if (!isMatch) {
+        res.status(401);
+        throw new Error("Invalid T-PIN");
+      }
 
     const user = await User.findByPk(userId)
     const amount = parseFloat(req.body.amount);
