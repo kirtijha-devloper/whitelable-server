@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const upload = require("../middleware/uploadMiddleware");
 
 const {
   getAllPosMachine,
@@ -13,7 +14,8 @@ const {
   assignPosMachineToUserID,
   assignPosMachineToMerhcant,
   getPosMachineList,
-  updatePosMachine
+  updatePosMachine,
+  bulkCreatePosMachines
 } = require("../controllers/posMachineController");
 
 const validateToken = require("../middleware/validateTokenHandler");
@@ -27,6 +29,7 @@ router.get("/list", getPosMachineList);            // role-based filtered list w
 
 // ➕ Create
 router.post("/", createPosMachine);
+router.post("/bulk-create", upload.single('file'), bulkCreatePosMachines); // Updated route with file upload
 
 // 🔄 Activate/Deactivate
 router.put("/activate/:id", activatePosMachine);
