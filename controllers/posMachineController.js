@@ -5,6 +5,8 @@ const asyncHandler = require("express-async-handler")
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
 const { response } = require("express");
+const csv = require('csv-parse');
+const fs = require('fs');
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
   const { status, tid_number, mid_number, device_serial_number, razorpay_id, is_pos_asigned } = req.query;
@@ -432,6 +434,113 @@ const updatePosMachine = asyncHandler(async (req, res) => {
   }
 });
 
+const bulkCreatePosMachines = asyncHandler(async (req, res) => {
+  try {
+    console.log("Request received:", req.file);
+    
+    if (!req.file) {
+      res.status(400);
+      throw new Error("Please upload a CSV file");
+    }
 
+    const userRole = req.user.role;
+    let franchaiseId = null;
+    if (userRole === "franchaise") {
+      franchaiseId = req.user.id;
+    }
 
-module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerhcant, getPosMachineList, updatePosMachine}
+    const results = [];
+    const errors = [];
+
+    // Read file content
+    const fileContent = fs.readFileSync(req.file.path, 'utf-8');
+    console.log("File content:", fileContent);
+
+    // Parse CSV content
+    const records = fileContent.split('\n').map(line => {
+      const [tid_number, mid_number, device_serial_number, razorpay_id, remarks] = line.split(',').map(field => field.trim());
+      return { tid_number, mid_number, device_serial_number, razorpay_id, remarks };
+    }).filter(record => record.tid_number && record.mid_number && record.device_serial_number); // Filter out empty lines
+
+    console.log("Parsed records:", records);
+
+    for (const record of records) {
+      try {
+        // Validate required fields
+        if (!record.tid_number || !record.mid_number || !record.device_serial_number) {
+          errors.push({
+            row: record,
+            error: "Missing required fields (tid_number, mid_number, device_serial_number)"
+          });
+          continue;
+        }
+
+        // Check if POS machine already exists
+        const existingPos = await PosMachine.findOne({
+          where: {
+            tid_number: record.tid_number,
+            mid_number: record.mid_number,
+            device_serial_number: record.device_serial_number
+          }
+        });
+
+        if (existingPos) {
+          errors.push({
+            row: record,
+            error: "POS machine already exists"
+          });
+          continue;
+        }
+
+        // Create new POS machine
+        const newPosMachine = await PosMachine.create({
+          tid_number: record.tid_number,
+          mid_number: record.mid_number,
+          device_serial_number: record.device_serial_number,
+          razorpay_id: record.razorpay_id || null,
+          remarks: record.remarks || "added",
+          status: "added",
+          franchaise_id: franchaiseId
+        });
+
+        results.push(newPosMachine);
+      } catch (error) {
+        console.error("Error processing record:", error);
+        errors.push({
+          row: record,
+          error: error.message
+        });
+      }
+    }
+
+    // Delete the uploaded file
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (error) {
+      console.error("Error deleting file:", error);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully created ${results.length} POS machines`,
+      created: results,
+      errors: errors
+    });
+  } catch (error) {
+    console.error("Bulk create error:", error);
+    // Clean up file if it exists
+    if (req.file && req.file.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (cleanupError) {
+        console.error("Error cleaning up file:", cleanupError);
+      }
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong"
+    });
+  }
+});
+
+module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerhcant, getPosMachineList, updatePosMachine, bulkCreatePosMachines}
