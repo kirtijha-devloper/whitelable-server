@@ -2,9 +2,9 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    return queryInterface.addColumn('PosMachines', 'razorpay_id', {
-      type: Sequelize.STRING
-    });
+    // return queryInterface.addColumn('PosMachines', 'razorpay_id', {
+    //   type: Sequelize.STRING
+    // });
   },
 
   down: async (queryInterface, Sequelize) => {

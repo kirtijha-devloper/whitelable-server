@@ -49,6 +49,7 @@ app.use('/api/ledger', require('./routes/ledgerRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/complaint', require('./routes/complaintRoutes'));
 app.use('/api/report', require('./routes/reportRoutes'));
+app.use('/api/razorpay', require('./routes/razorpay/webhook/notificationRoutes'));
 
 app.get('/api/ping', (req, res) => res.send('Server is running!'));
 
