@@ -4,13 +4,19 @@ async function handleRzpNotification(req, res) {
     try {
         const body = req.body;
         // Razorpay requires 200 OK IMMEDIATELY (no slow operations)
-        res.status(200).send("OK");
+        // Return XML response as Razorpay expects text/xml format
+        res.status(200)
+           .set('Content-Type', 'text/xml; charset=utf-8')
+           .send('<?xml version="1.0" encoding="UTF-8"?><response><status>OK</status></response>');
         // Process in background (async)
         processRzpNotification(body);
         
     } catch (err) {
         console.error("Webhook error", err);
-        return res.status(200).send("OK"); // still return OK to avoid retries
+        // still return OK to avoid retries, but in XML format
+        return res.status(200)
+                  .set('Content-Type', 'text/xml; charset=utf-8')
+                  .send('<?xml version="1.0" encoding="UTF-8"?><response><status>OK</status></response>');
     }
 }
 
