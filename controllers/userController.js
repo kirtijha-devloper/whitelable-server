@@ -245,6 +245,11 @@ const approveUser = asyncHandler( async (req, res) => {
     const currentUser = asyncHandler( async (req, res) => {
         try {
                 const user = await User.findOne({ where: { mobile_number: req.user.mobile_number } })
+
+                const tpinRecord = await Tpin.findOne({
+                  where: { user_id: user.id }
+                });
+
                 res.json({
                     email: user.email,
                     mobile_number: user.mobile_number, 
@@ -258,6 +263,8 @@ const approveUser = asyncHandler( async (req, res) => {
                     is_pos_asigned: ( user.is_pos_asigned || false),
                     wallet: user.wallet,
                     wallet_hold: user.wallet_hold,
+                    tpin_set: !!tpinRecord,
+
                     id: user.id
             });
         } catch(err) {
