@@ -11,7 +11,7 @@ const WalletTransaction = require('../../models/WalletTransaction');
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
   try {
-    const merchant_id = req.user?.id || 11
+    const merchant_id = req.body.merchant_id
     const {
       beneficiary_id,
       purpose,
