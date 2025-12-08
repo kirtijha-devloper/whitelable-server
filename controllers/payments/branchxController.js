@@ -158,5 +158,64 @@ router.get('/remitter/kyc/verify', asyncHandler(async (req, res) => {
   }
 }));
 
+// Bank Account Validation (Penny Drop)
+router.post('/bank/validation', asyncHandler(async (req, res) => {
+  try {
+    const {
+      mobileNumber,
+      requestId,
+      accountNumber,
+      ifscCode,
+      bankName
+    } = req.body;
+
+    // Validate required fields
+    if (!accountNumber || !ifscCode) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required parameters: accountNumber and ifscCode are required' 
+      });
+    }
+
+    const payload = {
+      accountNumber,
+      ifscCode,
+      ...(mobileNumber && { mobileNumber }),
+      ...(requestId && { requestId }),
+      ...(bankName && { bankName })
+    };
+
+    const data = await branchxService.bankValidation(payload);
+
+    // Check BranchX response status
+    if (data.status === 'FAILED') {
+      return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
+        success: false,
+        message: data.message || 'Bank account validation failed',
+        data
+      });
+    }
+
+    res.json({
+      success: true,
+      message: data.message || 'Bank account validated successfully',
+      data: {
+        utr: data.utr,
+        name: data.name,
+        api_ref: data.api_ref,
+        status: data.status,
+        statuscode: data.statuscode
+      }
+    });
+  } catch (error) {
+    console.error('Bank validation error:', error);
+    res.status(error.status || 500).json({ 
+      success: false, 
+      message: error.message || 'Something went wrong',
+      error: error 
+    });
+  }
+}));
+
 module.exports = router;
 
