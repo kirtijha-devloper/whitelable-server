@@ -3,25 +3,68 @@ const router = express.Router();
 const branchxService = require('../../services/payments/branchxService');
 const asyncHandler = require("express-async-handler");
 const Beneficiary = require('../../models/Beneficiary');
+const Tpin = require('../../models/Tpin');
+const User = require('../../models/User');
+const bcrypt = require('bcrypt');
+const WalletTransaction = require('../../models/WalletTransaction');
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
   try {
+    const merchant_id = req.user?.id || 11
     const {
-      amount,
-      mobileNumber,
-      merchantId,
-      requestId,
-      accountNumber,
-      ifscCode,
-      beneficiaryName,
-      bankName,
-      transferMode,
+      beneficiary_id,
+      purpose,
       latitude,
-      longitude,
-      emailId,
-      purpose
+      longitude
     } = req.body;
+
+      const tpin  = req.body.tpin;
+
+      if (!tpin) {
+        res.status(400);
+        throw new Error("T-PIN is required");
+      }
+
+      const savedTpin = await Tpin.findOne({ where: { user_id: userId } });
+
+      if (!savedTpin) {
+        res.status(404);
+        throw new Error("T-PIN not found. Please generate one.");
+      }
+
+      if (new Date(savedTpin.expires_at) < new Date()) {
+        res.status(400);
+        throw new Error("T-PIN has expired. Please generate a new one.");
+      }
+
+      const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
+
+      if (!isMatch) {
+        res.status(401);
+        throw new Error("Invalid T-PIN");
+      }
+
+    const user = await User.findByPk(merchant_id)
+    const amount = parseFloat(req.body.amount);
+  
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ message: "Invalid transfer amount" });
+    }
+
+    if (parseFloat(user.wallet) < amount) {
+      return res.status(400).json({ message: "Insufficient wallet balance" });
+    }
+
+    const beneficiary = await Beneficiary.findByPk(beneficiary_id)
+     if (!beneficiary) {
+      return res.status(404).json({ message: "Beneficiary not found" });
+    }
+
+    if (beneficiary.status === 0) {
+      return res.status(400).json({ message: "Beneficiary is disabled" });
+    }
+
 
     // Validate required fields
     if (!amount || !mobileNumber || !merchantId || !requestId || !accountNumber || 
@@ -32,19 +75,30 @@ router.post('/payout', asyncHandler(async (req, res) => {
       });
     }
 
+    wallet_transaction = await WalletTransaction.create({
+      type: "request",
+      amount: amount,
+      status: "pending",
+      reason: `${beneficiary.beneficiary_name} payout: ${purpose}`,
+      requested_by: beneficiary.id,
+      source: "branchx"
+    });
+
+    currentDate = getCurrentDate();
+
     const payload = {
       amount,
-      mobileNumber,
-      merchantId,
-      requestId,
-      accountNumber,
-      ifscCode,
-      beneficiaryName,
-      bankName,
-      transferMode,
+      mobileNumber: beneficiary.mobile_number,
+      merchantId: merchant_id,
+      requestId: wallet_transaction.id,
+      accountNumber: beneficiary.account_number,
+      ifscCode: beneficiary.ifsc_code,
+      beneficiaryName: beneficiary.beneficiary_name,
+      bankName: beneficiary.bank_name,
+      transferMode: 'IMPS',
       latitude: latitude || null,
       longitude: longitude || null,
-      emailId: emailId || null,
+      emailId: beneficiary.email || null,
       purpose: purpose || null
     };
 
@@ -220,7 +274,9 @@ router.post('/bank/validation', asyncHandler(async (req, res) => {
 
 router.get('/beneficiaries', asyncHandler(async (req, res) => {
   try {
-    const merchantId = req.user?.id;
+    const merchantId = req.user.id;
+
+    console.log("req.user", req.user);
 
     if (!merchantId) {
       return res.status(401).json({
@@ -350,6 +406,13 @@ router.delete('/beneficiary/:id', asyncHandler(async (req, res) => {
   }
 }));
 
+function getCurrentDate() {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, '0');
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const year = now.getFullYear();
+  return `${day}/${month}/${year}`;
+}
 
 
 
