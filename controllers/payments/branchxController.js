@@ -94,6 +94,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     const data = await branchxService.payout(payload);
 
+   console.log(`branchx data: ${data}`);
+
     // Check BranchX response status
     if (data.status === 'FAILED') {
       return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
