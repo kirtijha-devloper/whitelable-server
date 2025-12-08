@@ -11,7 +11,7 @@ const WalletTransaction = require('../../models/WalletTransaction');
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
   try {
-    const merchant_id = req.user?.id || 11
+    const merchant_id = req.body.merchant_id
     const {
       beneficiary_id,
       purpose,
@@ -26,7 +26,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
         throw new Error("T-PIN is required");
       }
 
-      const savedTpin = await Tpin.findOne({ where: { user_id: userId } });
+      const savedTpin = await Tpin.findOne({ where: { user_id: merchant_id } });
 
       if (!savedTpin) {
         res.status(404);
@@ -63,16 +63,6 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     if (beneficiary.status === 0) {
       return res.status(400).json({ message: "Beneficiary is disabled" });
-    }
-
-
-    // Validate required fields
-    if (!amount || !mobileNumber || !merchantId || !requestId || !accountNumber || 
-        !ifscCode || !beneficiaryName || !bankName || !transferMode) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Missing required parameters' 
-      });
     }
 
     wallet_transaction = await WalletTransaction.create({
@@ -274,7 +264,7 @@ router.post('/bank/validation', asyncHandler(async (req, res) => {
 
 router.get('/beneficiaries', asyncHandler(async (req, res) => {
   try {
-    const merchantId = req.user.id;
+    const merchantId = req.body?.merchant_id;
 
     console.log("req.user", req.user);
 
@@ -310,7 +300,7 @@ router.get('/beneficiaries', asyncHandler(async (req, res) => {
 
 router.post('/add-beneficiary', asyncHandler(async (req, res) => {
   try {
-    const merchantId = req.user?.id || 10;
+    const merchantId = req.user?.id;
     const mobileNumber = req.body.mobile_number;
     const bankName = req.body.bank_name;
     const accountNumber = req.body.account_number;
@@ -358,7 +348,7 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
 router.delete('/beneficiary/:id', asyncHandler(async (req, res) => {
   try {
     const beneficiaryId = req.params.id;
-    const merchantId = req.user?.id;
+    const merchantId = req.body?.id;
 
     if (!merchantId) {
       return res.status(401).json({
