@@ -262,9 +262,9 @@ router.post('/bank/validation', asyncHandler(async (req, res) => {
   }
 }));
 
-router.get('/beneficiaries', asyncHandler(async (req, res) => {
+router.get('/beneficiaries/:merchant_id', asyncHandler(async (req, res) => {
   try {
-    const merchantId = req.body?.merchant_id;
+    const merchantId = req.params.merchant_id;
 
     console.log("req.body", req.body);
 
