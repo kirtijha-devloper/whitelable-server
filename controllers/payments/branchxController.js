@@ -266,7 +266,7 @@ router.get('/beneficiaries', asyncHandler(async (req, res) => {
   try {
     const merchantId = req.body?.merchant_id;
 
-    console.log("req.user", req.user);
+    console.log("req.body", req.body);
 
     if (!merchantId) {
       return res.status(401).json({
@@ -274,6 +274,8 @@ router.get('/beneficiaries', asyncHandler(async (req, res) => {
         message: 'Unauthorized: Merchant ID not found'
       });
     }
+
+console.log("nexxxxt linenne", req.body);
 
     const beneficiaries = await Beneficiary.findAll({
       where: {
@@ -300,7 +302,7 @@ router.get('/beneficiaries', asyncHandler(async (req, res) => {
 
 router.post('/add-beneficiary', asyncHandler(async (req, res) => {
   try {
-    const merchantId = req.user?.id;
+    const merchantId = req.body.merchant_id;
     const mobileNumber = req.body.mobile_number;
     const bankName = req.body.bank_name;
     const accountNumber = req.body.account_number;
