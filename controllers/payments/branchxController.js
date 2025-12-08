@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const branchxService = require('../../services/payments/branchxService');
 const asyncHandler = require("express-async-handler");
+const Beneficiary = require('../../models/Beneficiary');
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
@@ -216,6 +217,143 @@ router.post('/bank/validation', asyncHandler(async (req, res) => {
     });
   }
 }));
+
+router.get('/beneficiaries', asyncHandler(async (req, res) => {
+  try {
+    const merchantId = req.user?.id;
+
+    if (!merchantId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized: Merchant ID not found'
+      });
+    }
+
+    const beneficiaries = await Beneficiary.findAll({
+      where: {
+        merchant_id: merchantId,
+        status: ['active', 'verified'] // Only get active and verified beneficiaries
+      },
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      message: 'Beneficiaries retrieved successfully',
+      count: beneficiaries.length,
+      data: beneficiaries
+    });
+  } catch (error) {
+    console.error('Get beneficiaries error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong'
+    });
+  }
+}));
+
+router.post('/add-beneficiary', asyncHandler(async (req, res) => {
+  try {
+    const merchantId = req.user?.id || 10;
+    const mobileNumber = req.body.mobile_number;
+    const bankName = req.body.bank_name;
+    const accountNumber = req.body.account_number;
+    const ifscCode = req.body.ifsc_code;
+    const beneficiaryName = req.body.beneficiary_name;
+    const emailId = req.body.email;
+    
+    // Validate required fields
+    if (!mobileNumber || !bankName || !accountNumber || !ifscCode || !beneficiaryName || !emailId) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required: mobile_number, bank_name, account_number, ifsc_code, beneficiary_name, email'
+      });
+    }
+
+    // Prepare data payload
+    const data = {
+      merchant_id: merchantId,
+      mobile_number: mobileNumber,
+      bank_name: bankName,
+      account_number: accountNumber,
+      ifsc_code: ifscCode,
+      beneficiary_name: beneficiaryName,
+      email: emailId,
+      status: 'active' // Set as active by default
+    };
+
+    const beneficiary = await Beneficiary.create(data);
+
+    res.json({ 
+      success: true, 
+      message: 'Beneficiary added successfully', 
+      data: beneficiary 
+    });
+  } catch (error) {
+    console.error('Add beneficiary error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Something went wrong' 
+    });
+  }
+}));
+
+// Delete Beneficiary (soft delete - set status to inactive)
+router.delete('/beneficiary/:id', asyncHandler(async (req, res) => {
+  try {
+    const beneficiaryId = req.params.id;
+    const merchantId = req.user?.id;
+
+    if (!merchantId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized: Merchant ID not found'
+      });
+    }
+
+    if (!beneficiaryId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Beneficiary ID is required'
+      });
+    }
+
+    // Find the beneficiary and verify it belongs to the merchant
+    const beneficiary = await Beneficiary.findOne({
+      where: {
+        id: beneficiaryId,
+        merchant_id: merchantId
+      }
+    });
+
+    if (!beneficiary) {
+      return res.status(404).json({
+        success: false,
+        message: 'Beneficiary not found or you do not have permission to delete it'
+      });
+    }
+
+    // Soft delete by setting status to inactive
+    await beneficiary.update({ status: 'inactive' });
+
+    res.json({
+      success: true,
+      message: 'Beneficiary deleted successfully',
+      data: beneficiary
+    });
+  } catch (error) {
+    console.error('Delete beneficiary error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong'
+    });
+  }
+}));
+
+
+
+
+
 
 module.exports = router;
 

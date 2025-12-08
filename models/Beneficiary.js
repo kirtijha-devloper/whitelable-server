@@ -1,56 +1,52 @@
 const Sequelize = require('sequelize');
 const db = require('../config/database');
 
-const Beneficiary = db.define('Beneficiary', {
-  id: {
-    type: Sequelize.INTEGER,
-    autoIncrement: true,
-    primaryKey: true
-  },
-     user_id: {
-        type: Sequelize.INTEGER,
-        allowNull: false
+const Beneficiary = db.define(
+  'Beneficiary',
+  {
+    id: {
+      type: Sequelize.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
     },
-    remitter_id: {type: Sequelize.INTEGER,
-        allowNull: false},
-  mobile: {
-    type: Sequelize.STRING,
-    allowNull: false
+    merchant_id: {
+      type: Sequelize.INTEGER,
+      allowNull: false,
+    },
+    mobile_number: {
+      type: Sequelize.STRING,
+      allowNull: false,
+    },
+    bank_name: {
+      type: Sequelize.STRING,
+      allowNull: false,
+    },
+    account_number: {
+      type: Sequelize.STRING,
+      allowNull: false,
+    },
+    beneficiary_name: {
+      type: Sequelize.STRING,
+      allowNull: false,
+    },
+    ifsc_code: {
+      type: Sequelize.STRING,
+      allowNull: false,
+    },
+    email: {
+      type: Sequelize.STRING,
+      allowNull: false,
+      defaultValue: '',
+    },
+    status: {
+      type: Sequelize.ENUM('active', 'inactive', 'verified'),
+      allowNull: false,
+      defaultValue: 'active',
+    },
   },
-  bank_name: {
-    type: Sequelize.STRING,
-    allowNull: false
-  },
-  bank_account_number: {
-    type: Sequelize.STRING,
-    allowNull: false
-  },
-  bank_account_holder_name: {
-    type: Sequelize.STRING,
-    allowNull: false
-  },
-  bank_ifsc: {
-    type: Sequelize.STRING,
-    allowNull: false
-  },
-  beneficiary_mobile: {
-    type: Sequelize.STRING,
-    allowNull: false
-  },
-  status: {
-    type: Sequelize.INTEGER,
-    defaultValue: 1
-  },
-  external_reference_id: {
-    type: Sequelize.STRING,
-    allowNull: true
-  },
-    bank_branch_name: {
-    type: Sequelize.STRING,
-    allowNull: false
+  {
+    timestamps: true,
   }
-}, {
-  timestamps: true
-});
+);
 
 module.exports = Beneficiary;
