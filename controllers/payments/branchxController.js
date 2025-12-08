@@ -352,7 +352,7 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
 router.delete('/beneficiary/:id', asyncHandler(async (req, res) => {
   try {
     const beneficiaryId = req.params.id;
-    const merchantId = req.body?.id;
+    const merchantId = req.query.merchantId; 
 
     if (!merchantId) {
       return res.status(401).json({
