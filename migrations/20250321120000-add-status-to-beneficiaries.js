@@ -3,6 +3,12 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
+    // Check if status column exists and drop it if it does (it might be INTEGER from previous migration)
+    const tableDescription = await queryInterface.describeTable('Beneficiaries');
+    if (tableDescription.status) {
+      await queryInterface.removeColumn('Beneficiaries', 'status');
+    }
+
     // Create ENUM type first (PostgreSQL requirement)
     await queryInterface.sequelize.query(`
       DO $$ BEGIN
