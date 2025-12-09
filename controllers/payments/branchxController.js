@@ -99,20 +99,34 @@ router.post('/payout', asyncHandler(async (req, res) => {
     const data = await branchxService.payout(payload);
 
     // Save payout transaction with status from response
+    const payoutStatus = data.status || 'PENDING';
     await PayoutTransaction.create({
       merchant_id: merchant_id,
       beneficiary_id: beneficiary_id,
       reference_id: requestId || data.api_ref || wallet_transaction.id.toString(),
       amount: amount,
-      status: data.status || 'PENDING',
-      purpose: purpose || null
+      status: payoutStatus,
+      purpose: purpose || null,
+      data: JSON.stringify(data)
     });
 
-    wallet_transaction.status = "completed"
-    wallet_transaction.reason = `${beneficiary.beneficiary_name} payout purpose: ${purpose} reference id: ${requestId}`
-    await wallet_transaction.save()
+    // Update wallet balance if status is SUCCESS or PENDING
+    if (payoutStatus === 'SUCCESS' || payoutStatus === 'PENDING') {
+      // Deduct amount from user wallet
+      user.wallet = parseFloat(user.wallet) - amount;
+      await user.save();
+      
+      wallet_transaction.status = "completed";
+      wallet_transaction.reason = `${beneficiary.beneficiary_name} payout purpose: ${purpose} reference id: ${requestId}`;
+      await wallet_transaction.save();
+    } else {
+      // If failed, keep wallet transaction as pending or mark as failed
+      wallet_transaction.status = "failed";
+      wallet_transaction.reason = `BranchX payout failed: ${data.message || 'Unknown error'}`;
+      await wallet_transaction.save();
+    }
 
-   console.log(`branchx data: ${data}`);
+    console.log(`branchx data: ${JSON.stringify(data)}`);
 
     // Check BranchX response status
     if (data.status === 'FAILED') {
