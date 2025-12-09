@@ -46,6 +46,7 @@ app.use('/api/payment/v2', require('./routes/payments/branchxRoutes'));
 app.use('/api/credit-bill',require('./routes/cc/billAvenue/creditBillRoutes') )
 app.use('/api/wallet', require('./routes/walletTransactionRoutes'));
 app.use('/api/charge', require('./routes/chargeRoutes'));
+app.use('/api/rental', require('./routes/rentalRoutes'));
 app.use('/api/ledger', require('./routes/ledgerRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/complaint', require('./routes/complaintRoutes'));
