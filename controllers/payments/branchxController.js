@@ -493,6 +493,7 @@ router.get('/payout-transactions', asyncHandler(async (req, res) => {
           amount: transaction.amount,
           status: transaction.status,
           purpose: transaction.purpose,
+          data: transaction.data,
           createdAt: transaction.createdAt,
           updatedAt: transaction.updatedAt
         };
