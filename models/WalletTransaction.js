@@ -18,7 +18,7 @@ const WalletTransaction = db.define('WalletTransaction', {
   },
   status: {
     type: Sequelize.STRING,
-    defaultValue: 'pending'  // pending completed expired
+    defaultValue: 'pending'  // pending completed expired failed
   },
   reason: {
     type: Sequelize.STRING

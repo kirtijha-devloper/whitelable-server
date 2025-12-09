@@ -5,9 +5,9 @@ const router = express.Router();
 
 const validateToken = require("../../middleware/validateTokenHandler");
 
-// router.use(validateToken);
+router.use(validateToken);
 
 // All routes available under /api/branchx
-router.use('/', branchxController);
+router.use('', branchxController);
 
 module.exports = router;

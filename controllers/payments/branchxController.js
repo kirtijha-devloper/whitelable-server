@@ -493,6 +493,7 @@ router.get('/payout-transactions', asyncHandler(async (req, res) => {
           amount: transaction.amount,
           status: transaction.status,
           purpose: transaction.purpose,
+          data: transaction.data,
           createdAt: transaction.createdAt,
           updatedAt: transaction.updatedAt
         };
@@ -547,12 +548,65 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
     // Call BranchX status check API
     const data = await branchxService.statusCheck(referenceId);
 
-    // Update PayoutTransaction status if payout_transaction_id was provided and status changed
-    if (payout_transaction_id && data.status) {
-      const payoutTransaction = await PayoutTransaction.findByPk(payout_transaction_id);
-      if (payoutTransaction && payoutTransaction.status !== data.status) {
-        await payoutTransaction.update({ status: data.status });
-      }
+    // Extract the actual transaction status from nested response
+    // Response structure: { data: { data: { status: "FAILED" }, status: "SUCCESS" } }
+    const transactionStatus = data?.data?.status || data?.status || 'PENDING';
+
+    // Find PayoutTransaction to update
+    let payoutTransaction = null;
+    
+    if (payout_transaction_id) {
+      payoutTransaction = await PayoutTransaction.findByPk(payout_transaction_id);
+    } else if (referenceId) {
+      // If only requestId is provided, find by reference_id
+      payoutTransaction = await PayoutTransaction.findOne({
+        where: { reference_id: referenceId },
+        order: [['createdAt', 'DESC']]
+      });
+    }
+
+    // Update PayoutTransaction status if found
+    if (payoutTransaction) {
+      const previousStatus = payoutTransaction.status;
+      const newStatus = transactionStatus;
+
+        // Update status and data if status changed
+        if (previousStatus !== newStatus) {
+          await payoutTransaction.update({ 
+            status: newStatus,
+            data: JSON.stringify(data)
+          });
+
+          // Handle wallet refund if status changes from SUCCESS/PENDING to FAILED
+          if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && newStatus === 'FAILED') {
+            const user = await User.findByPk(payoutTransaction.merchant_id);
+            if (user) {
+              // Refund the amount back to wallet
+              user.wallet = parseFloat(user.wallet) + parseFloat(payoutTransaction.amount);
+              await user.save();
+              
+              // Update wallet transaction status
+              const walletTransaction = await WalletTransaction.findOne({
+                where: {
+                  source: 'branchx',
+                  reference_id: payoutTransaction.reference_id
+                },
+                order: [['createdAt', 'DESC']]
+              });
+              
+              if (walletTransaction) {
+                walletTransaction.status = 'failed';
+                walletTransaction.reason = `BranchX payout failed: ${data?.data?.message || 'Transaction failed'}`;
+                await walletTransaction.save();
+              }
+            }
+          }
+        } else {
+          // Update data field even if status hasn't changed
+          await payoutTransaction.update({ 
+            data: JSON.stringify(data)
+          });
+        }
     }
 
     res.json({
