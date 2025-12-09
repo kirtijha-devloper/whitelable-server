@@ -4,7 +4,7 @@ const PayoutCharge = require('../models/PayoutCharge');
 // Create Payout Charge
 const createPayoutCharge = asyncHandler(async (req, res) => {
   try {
-    const { merchant_id, min, max, amount, percentage, status } = req.body;
+    const { merchant_id, min, max, amount, percentage, status, is_default } = req.body;
 
     // Validate required fields
     if (!merchant_id) {
@@ -55,7 +55,8 @@ const createPayoutCharge = asyncHandler(async (req, res) => {
       max: max !== undefined ? parseFloat(max) : null,
       amount: amount !== undefined ? parseFloat(amount) : null,
       percentage: percentage !== undefined ? parseFloat(percentage) : null,
-      status: status || 'active'
+      status: status || 'active',
+      is_default: is_default !== undefined ? Boolean(is_default) : false
     });
 
     res.status(201).json({
@@ -111,7 +112,8 @@ const listPayoutCharges = asyncHandler(async (req, res) => {
   try {
     const { 
       merchant_id, 
-      status, 
+      status,
+      is_default,
       page = 1, 
       limit = 10 
     } = req.query;
@@ -126,6 +128,10 @@ const listPayoutCharges = asyncHandler(async (req, res) => {
 
     if (status) {
       where.status = status;
+    }
+
+    if (is_default !== undefined) {
+      where.is_default = is_default === 'true' || is_default === true;
     }
 
     // Get total count and paginated results
@@ -160,7 +166,7 @@ const listPayoutCharges = asyncHandler(async (req, res) => {
 const updatePayoutCharge = asyncHandler(async (req, res) => {
   try {
     const { id } = req.params;
-    const { merchant_id, min, max, amount, percentage, status } = req.body;
+    const { merchant_id, min, max, amount, percentage, status, is_default } = req.body;
 
     if (!id) {
       return res.status(400).json({
@@ -227,6 +233,7 @@ const updatePayoutCharge = asyncHandler(async (req, res) => {
     if (amount !== undefined) updateData.amount = amount !== null ? parseFloat(amount) : null;
     if (percentage !== undefined) updateData.percentage = percentage !== null ? parseFloat(percentage) : null;
     if (status !== undefined) updateData.status = status;
+    if (is_default !== undefined) updateData.is_default = Boolean(is_default);
 
     await payoutCharge.update(updateData);
 

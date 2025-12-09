@@ -5,7 +5,8 @@ const {
   createRental,
   getRental,
   listRentals,
-  updateRental
+  updateRental,
+  deleteRental
 } = require("../controllers/rentalController");
 
 // Protect all routes with token validation
@@ -22,6 +23,9 @@ router.get("/:id", getRental);
 
 // Update Rental
 router.put("/:id", updateRental);
+
+// Delete Rental
+router.delete("/:id", deleteRental);
 
 module.exports = router;
 

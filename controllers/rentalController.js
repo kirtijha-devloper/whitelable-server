@@ -4,7 +4,7 @@ const Rental = require('../models/Rental');
 // Create Rental
 const createRental = asyncHandler(async (req, res) => {
   try {
-    const { merchant_id, franchaise_id, amount, status, type } = req.body;
+    const { merchant_id, franchaise_id, amount, status, type, is_default } = req.body;
 
     // Validate required fields
     if (!merchant_id || !amount) {
@@ -28,7 +28,8 @@ const createRental = asyncHandler(async (req, res) => {
       franchaise_id: franchaise_id || null,
       amount: parseFloat(amount),
       status: status || 'active',
-      type: type || 'pos'
+      type: type || 'pos',
+      is_default: is_default !== undefined ? Boolean(is_default) : false
     });
 
     res.status(201).json({
@@ -86,7 +87,8 @@ const listRentals = asyncHandler(async (req, res) => {
       merchant_id, 
       franchaise_id, 
       status, 
-      type, 
+      type,
+      is_default,
       page = 1, 
       limit = 10 
     } = req.query;
@@ -109,6 +111,10 @@ const listRentals = asyncHandler(async (req, res) => {
 
     if (type) {
       where.type = type;
+    }
+
+    if (is_default !== undefined) {
+      where.is_default = is_default === 'true' || is_default === true;
     }
 
     // Get total count and paginated results
@@ -143,7 +149,7 @@ const listRentals = asyncHandler(async (req, res) => {
 const updateRental = asyncHandler(async (req, res) => {
   try {
     const { id } = req.params;
-    const { merchant_id, franchaise_id, amount, status, type } = req.body;
+    const { merchant_id, franchaise_id, amount, status, type, is_default } = req.body;
 
     if (!id) {
       return res.status(400).json({
@@ -178,6 +184,7 @@ const updateRental = asyncHandler(async (req, res) => {
     if (amount !== undefined) updateData.amount = parseFloat(amount);
     if (status !== undefined) updateData.status = status;
     if (type !== undefined) updateData.type = type;
+    if (is_default !== undefined) updateData.is_default = Boolean(is_default);
 
     await rental.update(updateData);
 
@@ -195,10 +202,47 @@ const updateRental = asyncHandler(async (req, res) => {
   }
 });
 
+// Delete Rental
+const deleteRental = asyncHandler(async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rental ID is required'
+      });
+    }
+
+    const rental = await Rental.findByPk(id);
+
+    if (!rental) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rental not found'
+      });
+    }
+
+    await rental.destroy();
+
+    res.status(200).json({
+      success: true,
+      message: 'Rental deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete rental error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong'
+    });
+  }
+});
+
 module.exports = {
   createRental,
   getRental,
   listRentals,
-  updateRental
+  updateRental,
+  deleteRental
 };
 

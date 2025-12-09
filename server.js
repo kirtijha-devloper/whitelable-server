@@ -48,6 +48,7 @@ app.use('/api/wallet', require('./routes/walletTransactionRoutes'));
 app.use('/api/charge', require('./routes/chargeRoutes'));
 app.use('/api/rental', require('./routes/rentalRoutes'));
 app.use('/api/payout-charge', require('./routes/payoutChargeRoutes'));
+app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
 app.use('/api/ledger', require('./routes/ledgerRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/complaint', require('./routes/complaintRoutes'));
