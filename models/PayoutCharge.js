@@ -33,6 +33,11 @@ const PayoutCharge = db.define('PayoutCharge', {
     allowNull: false,
     defaultValue: 'active'
   },
+  is_default: {
+    type: Sequelize.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
   createdAt: {
     allowNull: false,
     type: Sequelize.DATE,

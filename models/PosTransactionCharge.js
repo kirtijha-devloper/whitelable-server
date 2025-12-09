@@ -1,7 +1,7 @@
 const Sequelize = require('sequelize');
 const db = require('../config/database');
 
-const Rental = db.define('Rental', {
+const PosTransactionCharge = db.define('PosTransactionCharge', {
   id: {
     allowNull: false,
     autoIncrement: true,
@@ -12,23 +12,25 @@ const Rental = db.define('Rental', {
     type: Sequelize.INTEGER,
     allowNull: false
   },
-  franchaise_id: {
-    type: Sequelize.INTEGER,
+  method: {
+    type: Sequelize.STRING,
     allowNull: true
   },
-  amount: {
-    type: Sequelize.DECIMAL(10, 2),
+  network: {
+    type: Sequelize.STRING,
+    allowNull: true
+  },
+  card_type: {
+    type: Sequelize.STRING,
+    allowNull: true
+  },
+  subtype: {
+    type: Sequelize.STRING,
+    allowNull: true
+  },
+  rate_percentage: {
+    type: Sequelize.DECIMAL(5, 2),
     allowNull: false
-  },
-  status: {
-    type: Sequelize.STRING,
-    allowNull: false,
-    defaultValue: 'pending'
-  },
-  type: {
-    type: Sequelize.STRING,
-    allowNull: false,
-    defaultValue: 'pos'
   },
   is_default: {
     type: Sequelize.BOOLEAN,
@@ -47,8 +49,8 @@ const Rental = db.define('Rental', {
   }
 }, {
   timestamps: true,
-  tableName: 'Rentals'
+  tableName: 'PosTransactionCharges'
 });
 
-module.exports = Rental;
+module.exports = PosTransactionCharge;
 
