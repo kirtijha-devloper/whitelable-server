@@ -502,6 +502,60 @@ router.get('/payout-transactions', asyncHandler(async (req, res) => {
   }
 }));
 
+// Check payout transaction status
+router.post('/payout/status-check', asyncHandler(async (req, res) => {
+  try {
+    const { payout_transaction_id, requestId } = req.body;
+
+    let referenceId = requestId;
+
+    // If payout_transaction_id is provided, get the reference_id from PayoutTransaction
+    if (payout_transaction_id && !requestId) {
+      const payoutTransaction = await PayoutTransaction.findByPk(payout_transaction_id);
+      
+      if (!payoutTransaction) {
+        return res.status(404).json({
+          success: false,
+          message: 'Payout transaction not found'
+        });
+      }
+
+      referenceId = payoutTransaction.reference_id;
+    }
+
+    if (!referenceId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Either payout_transaction_id or requestId is required'
+      });
+    }
+
+    // Call BranchX status check API
+    const data = await branchxService.statusCheck(referenceId);
+
+    // Update PayoutTransaction status if payout_transaction_id was provided and status changed
+    if (payout_transaction_id && data.status) {
+      const payoutTransaction = await PayoutTransaction.findByPk(payout_transaction_id);
+      if (payoutTransaction && payoutTransaction.status !== data.status) {
+        await payoutTransaction.update({ status: data.status });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Status check completed successfully',
+      data: data
+    });
+  } catch (error) {
+    console.error('Status check error:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Something went wrong',
+      error: error
+    });
+  }
+}));
+
 function getCurrentDate() {
   const now = new Date();
   const day = String(now.getDate()).padStart(2, '0');

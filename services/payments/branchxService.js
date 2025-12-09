@@ -39,7 +39,7 @@ const request = async ({ method, endpoint, data = {}, params = {} }) => {
 const payout = async (payload) => {
   return await request({ 
     method: 'POST', 
-    endpoint: '/service/payout/v3', 
+    endpoint: '/service/payout/v2', 
     data: payload 
   });
 };
@@ -62,9 +62,29 @@ const remitterKycVerify = async (otp) => {
   });
 };
 
+// Bank Account Validation (Penny Drop)
+const bankValidation = async (payload) => {
+  return await request({ 
+    method: 'POST', 
+    endpoint: '/service/bank/validation/v2', 
+    data: payload 
+  });
+};
+
+// Status Check API
+const statusCheck = async (requestId) => {
+  return await request({ 
+    method: 'POST', 
+    endpoint: '/service/status_check/v2', 
+    data: { requestId } 
+  });
+};
+
 module.exports = {
   payout,
   remitterKycInput,
-  remitterKycVerify
+  remitterKycVerify,
+  bankValidation,
+  statusCheck
 };
 
