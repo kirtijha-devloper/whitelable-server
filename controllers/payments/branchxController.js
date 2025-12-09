@@ -7,6 +7,8 @@ const Tpin = require('../../models/Tpin');
 const User = require('../../models/User');
 const bcrypt = require('bcrypt');
 const WalletTransaction = require('../../models/WalletTransaction');
+const PayoutTransaction = require('../../models/PayoutTransaction');
+const crypto = require('crypto');
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
@@ -75,12 +77,13 @@ router.post('/payout', asyncHandler(async (req, res) => {
     });
 
     currentDate = getCurrentDate();
+    requestId = crypto.randomUUID()
 
     const payload = {
       amount,
       mobileNumber: beneficiary.mobile_number,
       merchantId: merchant_id,
-      requestId: wallet_transaction.id,
+      requestId: requestId,
       accountNumber: beneficiary.account_number,
       ifscCode: beneficiary.ifsc_code,
       beneficiaryName: beneficiary.beneficiary_name,
@@ -92,7 +95,22 @@ router.post('/payout', asyncHandler(async (req, res) => {
       purpose: purpose || null
     };
 
+
     const data = await branchxService.payout(payload);
+
+    // Save payout transaction with status from response
+    await PayoutTransaction.create({
+      merchant_id: merchant_id,
+      beneficiary_id: beneficiary_id,
+      reference_id: requestId || data.api_ref || wallet_transaction.id.toString(),
+      amount: amount,
+      status: data.status || 'PENDING',
+      purpose: purpose || null
+    });
+
+    wallet_transaction.status = "completed"
+    wallet_transaction.reason = `${beneficiary.beneficiary_name} payout purpose: ${purpose} reference id: ${requestId}`
+    await wallet_transaction.save()
 
    console.log(`branchx data: ${data}`);
 
@@ -393,6 +411,90 @@ router.delete('/beneficiary/:id', asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('Delete beneficiary error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong'
+    });
+  }
+}));
+
+// Get all payout transactions
+router.get('/payout-transactions', asyncHandler(async (req, res) => {
+  try {
+    const { merchant_id, beneficiary_id, status, page = 1, limit = 10 } = req.query;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const where = {};
+
+    // Apply filters
+    if (merchant_id) {
+      where.merchant_id = merchant_id;
+    }
+
+    if (beneficiary_id) {
+      where.beneficiary_id = beneficiary_id;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    // Get total count and paginated results
+    const { count, rows: payoutTransactions } = await PayoutTransaction.findAndCountAll({
+      where,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']]
+    });
+
+    // Optionally include related data (beneficiary and merchant info)
+    const formattedTransactions = await Promise.all(
+      payoutTransactions.map(async (transaction) => {
+        const beneficiary = await Beneficiary.findByPk(transaction.beneficiary_id, {
+          attributes: ['id', 'beneficiary_name', 'mobile_number', 'bank_name', 'account_number', 'ifsc_code']
+        });
+
+        const merchant = await User.findByPk(transaction.merchant_id, {
+          attributes: ['id', 'name', 'email']
+        });
+
+        return {
+          id: transaction.id,
+          merchant_id: transaction.merchant_id,
+          merchant: merchant ? {
+            id: merchant.id,
+            name: merchant.name,
+            email: merchant.email
+          } : null,
+          beneficiary_id: transaction.beneficiary_id,
+          beneficiary: beneficiary ? {
+            id: beneficiary.id,
+            beneficiary_name: beneficiary.beneficiary_name,
+            mobile_number: beneficiary.mobile_number,
+            bank_name: beneficiary.bank_name,
+            account_number: beneficiary.account_number,
+            ifsc_code: beneficiary.ifsc_code
+          } : null,
+          reference_id: transaction.reference_id,
+          amount: transaction.amount,
+          status: transaction.status,
+          purpose: transaction.purpose,
+          createdAt: transaction.createdAt,
+          updatedAt: transaction.updatedAt
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      message: 'Payout transactions retrieved successfully',
+      totalItems: count,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(count / parseInt(limit)),
+      data: formattedTransactions
+    });
+  } catch (error) {
+    console.error('Get payout transactions error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Something went wrong'
