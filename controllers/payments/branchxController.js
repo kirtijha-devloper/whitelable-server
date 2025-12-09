@@ -7,6 +7,8 @@ const Tpin = require('../../models/Tpin');
 const User = require('../../models/User');
 const bcrypt = require('bcrypt');
 const WalletTransaction = require('../../models/WalletTransaction');
+const PayoutTransaction = require('../../models/PayoutTransaction');
+const crypto = require('crypto');
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
@@ -75,12 +77,13 @@ router.post('/payout', asyncHandler(async (req, res) => {
     });
 
     currentDate = getCurrentDate();
+    requestId = crypto.randomUUID()
 
     const payload = {
       amount,
       mobileNumber: beneficiary.mobile_number,
       merchantId: merchant_id,
-      requestId: wallet_transaction.id,
+      requestId: requestId,
       accountNumber: beneficiary.account_number,
       ifscCode: beneficiary.ifsc_code,
       beneficiaryName: beneficiary.beneficiary_name,
@@ -92,7 +95,22 @@ router.post('/payout', asyncHandler(async (req, res) => {
       purpose: purpose || null
     };
 
+
     const data = await branchxService.payout(payload);
+
+    // Save payout transaction with status from response
+    await PayoutTransaction.create({
+      merchant_id: merchant_id,
+      beneficiary_id: beneficiary_id,
+      reference_id: requestId || data.api_ref || wallet_transaction.id.toString(),
+      amount: amount,
+      status: data.status || 'PENDING',
+      purpose: purpose || null
+    });
+
+    wallet_transaction.status = "completed"
+    wallet_transaction.reason = `${beneficiary.beneficiary_name} payout purpose: ${purpose} reference id: ${requestId}`
+    await wallet_transaction.save()
 
    console.log(`branchx data: ${data}`);
 
