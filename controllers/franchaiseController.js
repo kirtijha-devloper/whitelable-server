@@ -72,9 +72,9 @@ const onBoardUser = asyncHandler(async(req, res) => {
       country: req.body.country,
       pan_number: req.body.pan_number,
       aadhar_number: req.body.aadhar_number,
-      pan_number_url: panUrl.secure_url || user.pan_number_url,
-      aadhar_number_url: aadharUrl.secure_url || user.aadhar_number_url,
-      shop_with_photo_url: shopUrl.secure_url || user.shop_with_photo_url,
+      pan_number_url: panUrl?.secure_url || user.pan_number_url,
+      aadhar_number_url: aadharUrl?.secure_url || user.aadhar_number_url,
+      shop_with_photo_url: shopUrl?.secure_url || user.shop_with_photo_url,
       status: "active"
     });
 

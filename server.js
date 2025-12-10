@@ -5,6 +5,10 @@ const connectDb = require("./config/dbConnection");
 const db = require('./config/database');
 const fileUpload = require('express-fileupload');
 
+// Import workers to start processing queues
+require("./workers/walletWorker"); // Existing wallet worker
+require("./workers/razorpayWebhookWorker"); // Razorpay webhook worker
+
 const app = express();
 
 const port = process.env.PORT || 5000;
