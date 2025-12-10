@@ -255,6 +255,20 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     // Step 5: Check if transaction already processed (idempotency)
     const WalletTransaction = require("../models/WalletTransaction");
+    const MerchantTransactionCharge = require("../models/MerchantTransactionCharge");
+    
+    // Check if charge record already exists
+    const existingChargeRecord = await MerchantTransactionCharge.findOne({
+      where: {
+        razorpay_transaction_id: txnId
+      }
+    });
+
+    if (existingChargeRecord) {
+      console.log(`[Razorpay Webhook Worker] Transaction charge record already exists for txn: ${txnId}`);
+      return;
+    }
+
     const existingTransaction = await WalletTransaction.findOne({
       where: {
         reason: `Razorpay transaction: ${txnId}`
@@ -286,7 +300,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       customerName ? `Customer: ${customerName}` : ''
     ].filter(Boolean).join(' | ');
     
-    await WalletTransaction.create({
+    const walletTransaction = await WalletTransaction.create({
       type: "razorpay",
       amount: netAmount,
       status: "completed",
@@ -297,6 +311,28 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     });
 
     console.log(`[Razorpay Webhook Worker] ✅ Created wallet transaction for merchant: ${merchant.id}, txn: ${txnId}`);
+
+    // Step 8: Create MerchantTransactionCharge record to track deducted amount
+    await MerchantTransactionCharge.create({
+      merchant_id: merchant.id,
+      pos_machine_id: posMachine.id,
+      razorpay_transaction_id: txnId,
+      transaction_amount: transactionAmount,
+      charge_amount: chargeAmount,
+      net_amount: netAmount,
+      charge_rate: chargeRate,
+      charge_config_id: chargeConfig ? chargeConfig.id : null,
+      payment_method: paymentMethod,
+      payment_card_type: paymentCardType,
+      payment_card_brand: paymentCardBrand,
+      wallet_transaction_id: walletTransaction.id,
+      rr_number: rrNumber,
+      mid_number: merchantId.toString(),
+      tid_number: terminalId.toString(),
+      customer_name: customerName
+    });
+
+    console.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for merchant: ${merchant.id}, txn: ${txnId}, charge: ${chargeAmount}`);
 
   } catch (error) {
     console.error(`[Razorpay Webhook Worker] Error in handleAuthorizedTransaction for txn: ${txnId}`, error);

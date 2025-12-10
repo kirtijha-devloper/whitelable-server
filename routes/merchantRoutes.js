@@ -1,5 +1,5 @@
 const express = require("express");
-const {onBoardUser, getUsers, getUserById, updateUserStatus}  = require("../controllers/merchantController");
+const {onBoardUser, getUsers, getUserById, updateUserStatus, listMerchantTransactionCharges}  = require("../controllers/merchantController");
 const router = express.Router();
 const validateToken = require("../middleware/validateTokenHandler");
 
@@ -15,6 +15,7 @@ router.post("/:id/onboard", onBoardUser)
 //     onBoardUser
 // );
 router.get('/', getUsers); // List users
+router.get('/transaction-charges', listMerchantTransactionCharges); // List merchant transaction charges (deducted amounts)
 router.get('/:id', getUserById); // Get single user
 router.put('/:id/status', updateUserStatus); // Update user status
 
