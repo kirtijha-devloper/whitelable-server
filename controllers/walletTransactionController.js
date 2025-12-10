@@ -5,6 +5,7 @@ const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const PosMachine = require('../models/posMachine');
 const { Op } = require('sequelize');
+const ledgerService = require('../services/ledgerService');
 
 const requestFund = asyncHandler(async (req, res) =>{
   const role = req.user.role
@@ -80,7 +81,7 @@ const transferFund = asyncHandler(async (req, res) =>{
       walletTransaction.approved_by= req.user.id
       await walletTransaction.save()
 
-      await WalletTransaction.create({
+      const transferTransaction = await WalletTransaction.create({
           type: "transfer",
           amount: parseFloat(walletTransaction.amount),
           status: "completed",
@@ -92,6 +93,36 @@ const transferFund = asyncHandler(async (req, res) =>{
       sender.wallet = parseFloat(sender.wallet) - parseFloat(walletTransaction.amount);
       console.log("sender wallet", parseFloat(sender.wallet) - parseFloat(walletTransaction.amount))
       await sender.save();
+
+      // Create ledger entries
+      try {
+        // Debit from sender
+        await ledgerService.createLedgerEntry({
+          userId: sender.id,
+          transactionType: 'wallet_transfer_debit',
+          transactionId: `transfer_${transferTransaction.id}`,
+          referenceId: transferTransaction.id,
+          description: `Fund transfer to user ${walletTransaction.requested_by}`,
+          debit: parseFloat(walletTransaction.amount),
+          status: 'completed',
+          metadata: { receiver_id: walletTransaction.requested_by, original_request_id: walletTransaction.id }
+        });
+
+        // Credit to receiver
+        await ledgerService.createLedgerEntry({
+          userId: walletTransaction.requested_by,
+          transactionType: 'wallet_transfer_credit',
+          transactionId: `transfer_${transferTransaction.id}`,
+          referenceId: transferTransaction.id,
+          description: `Fund transfer from user ${sender.id}`,
+          credit: parseFloat(walletTransaction.amount),
+          status: 'completed',
+          metadata: { sender_id: sender.id, original_request_id: walletTransaction.id }
+        });
+      } catch (ledgerError) {
+        console.error('Error creating ledger entries for transfer:', ledgerError);
+        // Don't throw - transaction is already processed
+      }
 
       // await createLedgerEntry(
       //   "Merchant Wallet Top-up",
@@ -135,7 +166,7 @@ const holdFund = asyncHandler(async (req, res) => {
   walletTransaction.status = "completed"
   await walletTransaction.save()
 
-  await WalletTransaction.create({
+  const holdTransaction = await WalletTransaction.create({
           type: "hold",
           amount: parseFloat(walletTransaction.amount),
           status: "pending",
@@ -144,6 +175,22 @@ const holdFund = asyncHandler(async (req, res) => {
           requested_by: walletTransaction.requested_by,
           reference_id: walletTransaction.id
         });
+  
+  // Create ledger entry for hold
+  try {
+    await ledgerService.createLedgerEntry({
+      userId: user.id,
+      transactionType: 'wallet_hold',
+      transactionId: `hold_${holdTransaction.id}`,
+      referenceId: holdTransaction.id,
+      description: 'Amount held',
+      debit: parseFloat(walletTransaction.amount),
+      status: 'completed',
+      metadata: { original_request_id: walletTransaction.id }
+    });
+  } catch (ledgerError) {
+    console.error('Error creating ledger entry for hold:', ledgerError);
+  }
   
   res.status(200).json({ message: "Amount held", balance: user.wallet, hold: user.wallet_hold });
 });
@@ -186,7 +233,7 @@ const unholdFund = asyncHandler(async (req, res) => {
   walletTransaction.status = "completed"
   await walletTransaction.save()
 
-  await WalletTransaction.create({
+  const unholdTransaction = await WalletTransaction.create({
           type: "unhold",
           amount: parseFloat(walletTransaction.amount),
           status: "completed",
@@ -198,6 +245,35 @@ const unholdFund = asyncHandler(async (req, res) => {
 
   sender.wallet = parseFloat(sender.wallet) - parseFloat(walletTransaction.amount);
   await sender.save();
+
+  // Create ledger entries for unhold
+  try {
+    // Debit from sender (admin)
+    await ledgerService.createLedgerEntry({
+      userId: sender.id,
+      transactionType: 'wallet_unhold_debit',
+      transactionId: `unhold_${unholdTransaction.id}`,
+      referenceId: unholdTransaction.id,
+      description: `Unhold amount for user ${receiver.id}`,
+      debit: parseFloat(walletTransaction.amount),
+      status: 'completed',
+      metadata: { receiver_id: receiver.id, original_hold_id: walletTransaction.id }
+    });
+
+    // Credit to receiver
+    await ledgerService.createLedgerEntry({
+      userId: receiver.id,
+      transactionType: 'wallet_unhold_credit',
+      transactionId: `unhold_${unholdTransaction.id}`,
+      referenceId: unholdTransaction.id,
+      description: 'Amount unheld',
+      credit: parseFloat(walletTransaction.amount),
+      status: 'completed',
+      metadata: { sender_id: sender.id, original_hold_id: walletTransaction.id }
+    });
+  } catch (ledgerError) {
+    console.error('Error creating ledger entries for unhold:', ledgerError);
+  }
   
   res.status(200).json({ message: "Amount held", balance: receiver.wallet, hold: receiver.wallet_hold });
 });
