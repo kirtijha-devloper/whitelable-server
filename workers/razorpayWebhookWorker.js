@@ -313,7 +313,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     console.log(`[Razorpay Webhook Worker] ✅ Created wallet transaction for merchant: ${merchant.id}, txn: ${txnId}`);
 
     // Step 8: Create MerchantTransactionCharge record to track deducted amount
-    await MerchantTransactionCharge.create({
+    const merchantTransactionCharge = await MerchantTransactionCharge.create({
       merchant_id: merchant.id,
       pos_machine_id: posMachine.id,
       razorpay_transaction_id: txnId,
@@ -333,6 +333,46 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     });
 
     console.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for merchant: ${merchant.id}, txn: ${txnId}, charge: ${chargeAmount}`);
+
+    // Step 9: Create ledger entries for transaction tracking
+    const ledgerService = require("../services/ledgerService");
+    try {
+      const ledgerDescription = [
+        `Razorpay Transaction: ${txnId}`,
+        `Amount: ₹${transactionAmount}`,
+        `Charge: ₹${chargeAmount} (${chargeRate}%)`,
+        `Net: ₹${netAmount}`,
+        paymentMethod ? `Payment: ${paymentMethod}` : '',
+        customerName ? `Customer: ${customerName}` : ''
+      ].filter(Boolean).join(' | ');
+
+      await ledgerService.createRazorpayChargeEntry({
+        userId: merchant.id,
+        razorpayTransactionId: txnId,
+        transactionAmount: transactionAmount,
+        chargeAmount: chargeAmount,
+        netAmount: netAmount,
+        merchantTransactionChargeId: merchantTransactionCharge.id,
+        description: ledgerDescription,
+        metadata: {
+          wallet_transaction_id: walletTransaction.id,
+          pos_machine_id: posMachine.id,
+          payment_method: paymentMethod,
+          payment_card_type: paymentCardType,
+          payment_card_brand: paymentCardBrand,
+          rr_number: rrNumber,
+          mid_number: merchantId.toString(),
+          tid_number: terminalId.toString(),
+          customer_name: customerName,
+          charge_rate: chargeRate
+        }
+      });
+
+      console.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for merchant: ${merchant.id}, txn: ${txnId}`);
+    } catch (ledgerError) {
+      console.error(`[Razorpay Webhook Worker] ⚠️ Error creating ledger entry for txn: ${txnId}`, ledgerError);
+      // Don't throw - ledger is for tracking, transaction is already processed
+    }
 
   } catch (error) {
     console.error(`[Razorpay Webhook Worker] Error in handleAuthorizedTransaction for txn: ${txnId}`, error);
