@@ -37,6 +37,11 @@ const PayoutTransaction = db.define('PayoutTransaction', {
     allowNull: true,
     comment: 'JSON stringified response data from BranchX API'
   },
+  service_charge: {
+    type: Sequelize.DECIMAL(10, 2),
+    allowNull: true,
+    comment: 'Service charge for the payout transaction'
+  },
   createdAt: {
     allowNull: false,
     type: Sequelize.DATE,

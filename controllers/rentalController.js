@@ -1,5 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const Rental = require('../models/Rental');
+const User = require('../models/User');
 
 // Create Rental
 const createRental = asyncHandler(async (req, res) => {
@@ -125,10 +126,33 @@ const listRentals = asyncHandler(async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    // Fetch merchant details for each rental
+    const formattedRentals = await Promise.all(rentals.map(async (rental) => {
+      let merchantDetails = null;
+      
+      if (rental.merchant_id) {
+        merchantDetails = await User.findByPk(rental.merchant_id, {
+          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name']
+        });
+      }
+
+      return {
+        ...rental.toJSON(),
+        merchant: merchantDetails ? {
+          id: merchantDetails.id,
+          name: merchantDetails.name,
+          email: merchantDetails.email,
+          mobile_number: merchantDetails.mobile_number,
+          abheepay_id: merchantDetails.abheepay_id,
+          organization_name: merchantDetails.organization_name
+        } : null
+      };
+    }));
+
     res.status(200).json({
       success: true,
       message: 'Rentals retrieved successfully',
-      data: rentals,
+      data: formattedRentals,
       pagination: {
         total: count,
         page: parseInt(page),

@@ -1,5 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const PosTransactionCharge = require('../models/PosTransactionCharge');
+const User = require('../models/User');
 
 // Create POS Transaction Charge
 const createPosTransactionCharge = asyncHandler(async (req, res) => {
@@ -139,10 +140,33 @@ const listPosTransactionCharges = asyncHandler(async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    // Fetch merchant details for each POS transaction charge
+    const formattedPosTransactionCharges = await Promise.all(posTransactionCharges.map(async (posTransactionCharge) => {
+      let merchantDetails = null;
+      
+      if (posTransactionCharge.merchant_id) {
+        merchantDetails = await User.findByPk(posTransactionCharge.merchant_id, {
+          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name']
+        });
+      }
+
+      return {
+        ...posTransactionCharge.toJSON(),
+        merchant: merchantDetails ? {
+          id: merchantDetails.id,
+          name: merchantDetails.name,
+          email: merchantDetails.email,
+          mobile_number: merchantDetails.mobile_number,
+          abheepay_id: merchantDetails.abheepay_id,
+          organization_name: merchantDetails.organization_name
+        } : null
+      };
+    }));
+
     res.status(200).json({
       success: true,
       message: 'POS transaction charges retrieved successfully',
-      data: posTransactionCharges,
+      data: formattedPosTransactionCharges,
       pagination: {
         total: count,
         page: parseInt(page),

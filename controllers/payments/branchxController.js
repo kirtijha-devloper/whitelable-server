@@ -49,13 +49,19 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     const user = await User.findByPk(merchant_id)
     const amount = parseFloat(req.body.amount);
-  
+    
     if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({ message: "Invalid transfer amount" });
     }
+    
+    const service_charge = parseFloat(req.body.service_charge);
+    if (!service_charge || isNaN(service_charge) || service_charge <= 0) {
+      return res.status(400).json({ message: "Invalid service charge" });
+    }
 
-    if (parseFloat(user.wallet) < amount) {
-      return res.status(400).json({ message: "Insufficient wallet balance" });
+    const total_amount = amount + service_charge;
+    if (parseFloat(user.wallet) < total_amount) {
+      return res.status(400).json({ message: "Insufficient wallet balance" });  
     }
 
     const beneficiary = await Beneficiary.findByPk(beneficiary_id)
@@ -69,7 +75,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     wallet_transaction = await WalletTransaction.create({
       type: "request",
-      amount: amount,
+      amount: total_amount,
       status: "pending",
       reason: `${beneficiary.beneficiary_name} payout: ${purpose}`,
       requested_by: beneficiary.id,
@@ -107,7 +113,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
       amount: amount,
       status: payoutStatus,
       purpose: purpose || null,
-      data: JSON.stringify(data)
+      data: JSON.stringify(data),
+      service_charge: service_charge
     });
 
     // Update wallet balance if status is SUCCESS or PENDING
