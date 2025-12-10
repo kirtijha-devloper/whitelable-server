@@ -1,5 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const PayoutCharge = require('../models/PayoutCharge');
+const User = require('../models/User');
 
 // Create Payout Charge
 const createPayoutCharge = asyncHandler(async (req, res) => {
@@ -142,10 +143,33 @@ const listPayoutCharges = asyncHandler(async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    // Fetch merchant details for each payout charge
+    const formattedPayoutCharges = await Promise.all(payoutCharges.map(async (payoutCharge) => {
+      let merchantDetails = null;
+      
+      if (payoutCharge.merchant_id) {
+        merchantDetails = await User.findByPk(payoutCharge.merchant_id, {
+          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name']
+        });
+      }
+
+      return {
+        ...payoutCharge.toJSON(),
+        merchant: merchantDetails ? {
+          id: merchantDetails.id,
+          name: merchantDetails.name,
+          email: merchantDetails.email,
+          mobile_number: merchantDetails.mobile_number,
+          abheepay_id: merchantDetails.abheepay_id,
+          organization_name: merchantDetails.organization_name
+        } : null
+      };
+    }));
+
     res.status(200).json({
       success: true,
       message: 'Payout charges retrieved successfully',
-      data: payoutCharges,
+      data: formattedPayoutCharges,
       pagination: {
         total: count,
         page: parseInt(page),
