@@ -10,7 +10,11 @@ module.exports = {
         DB_USER: "posuser",
         DB_PASS: "pos@_2525",
         DB_HOST: "localhost",
-        DB_DIALECT: "postgres"
+        DB_DIALECT: "postgres",
+        // Redis Configuration for Queue System
+        REDIS_HOST: "localhost",  // or your Redis host (e.g., redis-cloud-host.com)
+        REDIS_PORT: "6379",       // Default Redis port
+        REDIS_PASSWORD: "",       // Leave empty if no password, or set your Redis password
       }
     }
   ]
