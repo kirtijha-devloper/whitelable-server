@@ -359,6 +359,38 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
       });
     }
 
+    // Validate bank account before adding beneficiary
+    try {
+      const bankValidationPayload = {
+        accountNumber,
+        ifscCode,
+        mobileNumber,
+        bankName
+      };
+
+      const bankValidationResult = await branchxService.bankValidation(bankValidationPayload);
+
+      // Check if bank validation failed
+      if (bankValidationResult.status === 'FAILED' || !bankValidationResult.status || 
+          (bankValidationResult.statuscode && parseInt(bankValidationResult.statuscode) >= 400)) {
+        return res.status(400).json({
+          success: false,
+          message: bankValidationResult.message || 'Bank account validation failed. Please check account number and IFSC code.',
+          data: bankValidationResult
+        });
+      }
+
+      // Optional: Verify beneficiary name matches the validated name (if provided)
+
+    } catch (validationError) {
+      console.error('Bank validation error:', validationError);
+      return res.status(validationError.status || 500).json({
+        success: false,
+        message: validationError.message || 'Bank account validation failed. Please check your bank details.',
+        error: validationError
+      });
+    }
+
     // Prepare data payload
     const data = {
       merchant_id: merchantId,
@@ -366,9 +398,9 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
       bank_name: bankName,
       account_number: accountNumber,
       ifsc_code: ifscCode,
-      beneficiary_name: beneficiaryName,
+      beneficiary_name: bankValidationResult.name,
       email: emailId,
-      status: 'active' // Set as active by default
+      status: 'verified' // Set as verified since we validated the bank
     };
 
     const beneficiary = await Beneficiary.create(data);
