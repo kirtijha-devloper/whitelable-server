@@ -190,7 +190,7 @@ const loginUser = asyncHandler( async (req, res) => {
 
     const user = await User.findOne({ where: { mobile_number: mobileNumber } });
 
-    if (user && (await bcrypt.compare(password, password))){
+    if (user && (await bcrypt.compare(password, user.password))){
         try {
         await sendOtpHelper(mobileNumber, "login");
         res.json({ success: true, message: "OTP sent successfully" , });
