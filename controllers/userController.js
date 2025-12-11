@@ -309,20 +309,25 @@ const approveUser = asyncHandler( async (req, res) => {
         const {otp, purpose } = req.body;
         const mobileNumber = req.body.mobile_number;
 
-        // const record = await OTP.findOne({
-        //     where: {
-        //     mobile: mobileNumber,
-        //     otp,
-        //     purpose,
-        //     expires_at: { [Op.gt]: new Date() }
-        //     }
-        // });
+        if (!mobileNumber || !otp || !purpose) {
+            res.status(400);
+            throw new Error("OTP is mandatory");
+        }
 
-        // if (!record) {
-        //     return res.status(400).json({ message: "Invalid or expired OTP" });
-        // }
+        const record = await OTP.findOne({
+            where: {
+            mobile: mobileNumber,
+            otp,
+            purpose,
+            expires_at: { [Op.gt]: new Date() }
+            }
+        });
 
-        // await record.destroy(); // OTP should be one-time use
+        if (!record) {
+            return res.status(400).json({ message: "Invalid or expired OTP" });
+        }
+
+        await record.destroy(); // OTP should be one-time use
 
         if (purpose === "login") {
             // Issue login token
