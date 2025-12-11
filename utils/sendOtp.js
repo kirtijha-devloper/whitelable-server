@@ -1,4 +1,4 @@
-const axios = require("axios");
+const https = require("https");
 const OTP = require("../models/Otp");
 
 const sendOtpHelper = async (mobile, purpose) => {
@@ -8,17 +8,44 @@ const sendOtpHelper = async (mobile, purpose) => {
 
     const otp = Math.floor(100000 + Math.random() * 900000);
 
-    const apikey = "Q5aq9iNxvaiOWS";
+    const apikey = "Q5aq9iNxvaSeiOWS";
     const senderid = "ABHEPY";
-    const label = purpose === "tpin" ? "T-PIN setup" : `${purpose} OTP`;
-    const validity = purpose === "tpin" ? "15 days" : "5 minutes";
-
-    const message = encodeURIComponent(
-    `Dear Customer your ${label} for POS Abheepay is ${otp} and valid for ${validity}. TEAM-POS ABHEEPAY`
-    );
+    
+    let messageText;
+    if (purpose === "tpin") {
+        messageText = `Dear Customer your T-PIN setup for Abheepay will be ${otp} TEAM-ABHEEPAY`;
+    } else if (purpose === "login") {
+        messageText = `Dear Customer your login otp for Abheepay will be ${otp} TEAM-ABHEEPAY`;
+    } else {
+        messageText = `Dear Customer your ${purpose} otp for Abheepay will be ${otp} TEAM-ABHEEPAY`;
+    }
+    
+    const message = encodeURIComponent(messageText);
     const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
 
-    await axios.get(url);
+    // Use native https module instead of axios
+    await new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+            let data = '';
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            res.on('end', () => {
+                try {
+                    const response = JSON.parse(data);
+                    if (response.status === "Success") {
+                        resolve(response);
+                    } else {
+                        reject(new Error(response.description || "Failed to send OTP"));
+                    }
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }).on('error', (error) => {
+            reject(error);
+        });
+    });
 
     await OTP.upsert({
         mobile,
@@ -27,7 +54,7 @@ const sendOtpHelper = async (mobile, purpose) => {
         expires_at: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
     });
 
-    return otp; // You can return for testing/logging, but usually don’t expose in prod
+    return otp; // You can return for testing/logging, but usually don't expose in prod
 };
 
 module.exports = sendOtpHelper;
