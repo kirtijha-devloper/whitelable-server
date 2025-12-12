@@ -360,6 +360,7 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
     }
 
     // Validate bank account before adding beneficiary
+    let bankValidationResult;
     try {
       const bankValidationPayload = {
         accountNumber,
@@ -369,7 +370,7 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
         requestId: accountNumber,
       };
 
-      const bankValidationResult = await branchxService.bankValidation(bankValidationPayload);
+      bankValidationResult = await branchxService.bankValidation(bankValidationPayload);
 
       // Check if bank validation failed
       if (bankValidationResult.status === 'FAILED' || !bankValidationResult.status || 
