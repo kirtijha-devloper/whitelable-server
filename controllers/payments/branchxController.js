@@ -365,7 +365,8 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
         accountNumber,
         ifscCode,
         mobileNumber,
-        bankName
+        bankName,
+        requestId: accountNumber,
       };
 
       const bankValidationResult = await branchxService.bankValidation(bankValidationPayload);
