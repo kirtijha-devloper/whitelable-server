@@ -9,6 +9,7 @@ const { Op } = require('sequelize');
 const PosMachine = require("../models/posMachine");
 const OTP = require("../models/Otp");
 const sendOtpHelper = require("../utils/sendOtp");
+const { sendRegistrationSms } = require("../utils/sendOtp");
 
 const getUsers = asyncHandler(async (req, res) => {
     const { status } = req.query;
@@ -167,6 +168,14 @@ const registerUser = asyncHandler( async (req, res) => {
     console.log("User created", user)
 
     if (user) {
+        // Send SMS with user ID and password
+        try {
+            await sendRegistrationSms(user.mobile_number, user.abheepay_id || user.id, password);
+        } catch (smsError) {
+            console.error("Failed to send registration SMS:", smsError);
+            // Don't fail the registration if SMS fails, just log the error
+        }
+        
         res.status(201).json({id: user.id, email: user.email})
     } else {
         res.status(400);

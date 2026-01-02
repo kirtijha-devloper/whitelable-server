@@ -57,4 +57,43 @@ const sendOtpHelper = async (mobile, purpose) => {
     return otp; // You can return for testing/logging, but usually don't expose in prod
 };
 
+const sendRegistrationSms = async (mobile, userId, password) => {
+    if (!mobile || !userId || !password) {
+        throw new Error("Mobile number, user ID, and password are required.");
+    }
+
+    const apikey = "Q5aq9iNxvaSeiOWS";
+    const senderid = "ABHEPY";
+    
+    const messageText = `Dear Customer, your registration is successful. User ID: ${userId}, Password: ${password} TEAM-ABHEEPAY`;
+    
+    const message = encodeURIComponent(messageText);
+    const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
+
+    // Use native https module instead of axios
+    await new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+            let data = '';
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            res.on('end', () => {
+                try {
+                    const response = JSON.parse(data);
+                    if (response.status === "Success") {
+                        resolve(response);
+                    } else {
+                        reject(new Error(response.description || "Failed to send SMS"));
+                    }
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }).on('error', (error) => {
+            reject(error);
+        });
+    });
+};
+
 module.exports = sendOtpHelper;
+module.exports.sendRegistrationSms = sendRegistrationSms;
