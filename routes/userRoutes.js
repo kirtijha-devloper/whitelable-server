@@ -2,7 +2,7 @@ const express = require("express");
 
 const router = express.Router();
 
-const {registerUser, loginUser, currentUser, getUsers, getUserByID, updatePassword,  sendOtp, verifyOtp, resetPassword,  generateTpin, verifyTpin}  = require("../controllers/userController");
+const {registerUser, loginUser, currentUser, getUsers, getUserByID, updatePassword,  sendOtp, verifyOtp, resetPassword,  generateTpin, verifyTpin, forgotPassword}  = require("../controllers/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 
 // @public access
@@ -17,6 +17,7 @@ router.post("/reset-password", validateToken, resetPassword);
 
 // 📌 User Registration & Info
 router.post("/register", validateToken, registerUser);
+router.post("/forgot-password", validateToken, forgotPassword);
 router.get("/", validateToken, getUsers);
 router.get("/current", validateToken, currentUser);
 router.get("/:id", validateToken, getUserByID);
