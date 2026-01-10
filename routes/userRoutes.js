@@ -17,7 +17,7 @@ router.post("/reset-password", validateToken, resetPassword);
 
 // 📌 User Registration & Info
 router.post("/register", validateToken, registerUser);
-router.post("/forgot-password", validateToken, forgotPassword);
+router.post("/forgot-password", forgotPassword);
 router.get("/", validateToken, getUsers);
 router.get("/current", validateToken, currentUser);
 router.get("/:id", validateToken, getUserByID);
