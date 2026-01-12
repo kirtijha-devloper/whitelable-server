@@ -5,7 +5,7 @@ const asyncHandler = require("express-async-handler")
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
 const { response } = require("express");
-const csv = require('csv-parse');
+const { parse } = require('csv-parse/sync');
 const fs = require('fs');
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
@@ -103,18 +103,52 @@ const createPosMachine = asyncHandler(async (req, res ) => {
       franchaiseId = req.user.id
     }
 
-    const razorpayId = req.body.razorpayid
+    const razorpayId = req.body.razorpayid || req.body.razorpay_id || null;
+    const remarks = req.body.remarks || "added";
 
-    const newPosMachine = await PosMachine.create({
-        tid_number: req.body.tid_number,   
-        mid_number: req.body.mid_number, 
-        device_serial_number: req.body.device_serial_number,
-        razorpay_id: razorpayId,
-        remarks: req.body.remarks || "added",
-        status: "added",
-        franchaise_id: franchaiseId})
+    // Find or create based on required fields (tid_number, mid_number, device_serial_number)
+    const [posMachine, created] = await PosMachine.findOrCreate({
+        where: {
+            tid_number: tid_number,
+            mid_number: mid_number,
+            device_serial_number: device_serial_number
+        },
+        defaults: {
+            tid_number: tid_number,
+            mid_number: mid_number,
+            device_serial_number: device_serial_number,
+            razorpay_id: razorpayId,
+            remarks: remarks,
+            status: "added",
+            franchaise_id: franchaiseId
+        }
+    });
 
-    res.status(201).json(newPosMachine);
+    // If record already exists, update optional fields if provided
+    if (!created) {
+        const updateData = {};
+        if (razorpayId) {
+            updateData.razorpay_id = razorpayId;
+        }
+        if (remarks && remarks !== "added") {
+            updateData.remarks = remarks;
+        }
+        if (franchaiseId && !posMachine.franchaise_id) {
+            updateData.franchaise_id = franchaiseId;
+        }
+        
+        if (Object.keys(updateData).length > 0) {
+            await posMachine.update(updateData);
+        }
+    }
+
+    const statusCode = created ? 201 : 200;
+    res.status(statusCode).json({
+        success: true,
+        created: created,
+        message: created ? "POS machine created successfully" : "POS machine already exists",
+        data: posMachine
+    });
     } catch (error) {
     res.status(500).json({
       success: false,
@@ -456,20 +490,59 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
     const fileContent = fs.readFileSync(req.file.path, 'utf-8');
     console.log("File content:", fileContent);
 
-    // Parse CSV content
-    const records = fileContent.split('\n').map(line => {
-      const [tid_number, mid_number, device_serial_number, razorpay_id, remarks] = line.split(',').map(field => field.trim());
-      return { tid_number, mid_number, device_serial_number, razorpay_id, remarks };
-    }).filter(record => record.tid_number && record.mid_number && record.device_serial_number); // Filter out empty lines
+    // Parse CSV content using csv-parse library
+    // Try parsing with headers first, fallback to column mapping if needed
+    let records;
+    try {
+      records = parse(fileContent, {
+        columns: true, // Use first line as column names
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true, // Allow inconsistent column counts
+        cast: true // Auto-cast values
+      });
+    } catch (parseError) {
+      // If parsing with headers fails, try without headers and map columns
+      records = parse(fileContent, {
+        columns: ['tid_number', 'mid_number', 'device_serial_number', 'razorpay_id', 'remarks'],
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true,
+        cast: true
+      });
+    }
+
+    // Normalize column names (handle case variations and spaces)
+    records = records.map(record => {
+      const normalized = {};
+      // Handle various column name formats - check multiple possible column names
+      normalized.tid_number = (record.tid_number || record['TID Number'] || record['tid number'] || record['TID'] || record.tid || '').toString().trim();
+      normalized.mid_number = (record.mid_number || record['MID Number'] || record['mid number'] || record['MID'] || record.mid || '').toString().trim();
+      normalized.device_serial_number = (record.device_serial_number || record['Device Serial Number'] || record['device serial number'] || record['serial_number'] || record['Serial Number'] || record.serial_number || '').toString().trim();
+      
+      // razorpay_id is optional - convert empty strings to null
+      const razorpayIdValue = (record.razorpay_id || record['Razorpay ID'] || record['razorpay id'] || record['razorpayid'] || record.razorpayid || '').toString().trim();
+      normalized.razorpay_id = razorpayIdValue && razorpayIdValue.length > 0 ? razorpayIdValue : null;
+      
+      // remarks is optional - default to 'added' if empty
+      const remarksValue = (record.remarks || record['Remarks'] || '').toString().trim();
+      normalized.remarks = remarksValue && remarksValue.length > 0 ? remarksValue : 'added';
+      
+      return normalized;
+    }).filter(record => record.tid_number && record.mid_number && record.device_serial_number); // Filter out empty records
 
     console.log("Parsed records:", records);
 
-    for (const record of records) {
+    for (let index = 0; index < records.length; index++) {
+      const record = records[index];
+      const rowNumber = index + 2; // +2 because index is 0-based and we skip header row
+      
       try {
         // Validate required fields
         if (!record.tid_number || !record.mid_number || !record.device_serial_number) {
           errors.push({
-            row: record,
+            row: rowNumber,
+            data: record,
             error: "Missing required fields (tid_number, mid_number, device_serial_number)"
           });
           continue;
@@ -486,8 +559,9 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
 
         if (existingPos) {
           errors.push({
-            row: record,
-            error: "POS machine already exists"
+            row: rowNumber,
+            data: record,
+            error: `POS machine already exists (TID: ${record.tid_number}, MID: ${record.mid_number}, Serial: ${record.device_serial_number})`
           });
           continue;
         }
@@ -505,10 +579,11 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
 
         results.push(newPosMachine);
       } catch (error) {
-        console.error("Error processing record:", error);
+        console.error(`Error processing record at row ${rowNumber}:`, error);
         errors.push({
-          row: record,
-          error: error.message
+          row: rowNumber,
+          data: record,
+          error: error.message || "Unknown error occurred"
         });
       }
     }
