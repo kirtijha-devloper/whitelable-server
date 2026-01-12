@@ -179,7 +179,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const posMachine = await PosMachine.findOne({
       where: {
         mid_number: merchantId.toString(),
-        tid_number: terminalId.toString()
+        tid_number: terminalId.toString(),
+        status: "active"
       }
     });
 

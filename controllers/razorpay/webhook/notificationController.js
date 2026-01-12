@@ -44,6 +44,7 @@ const listNotifications = asyncHandler(async (req, res) => {
             txn_id,
             mid,
             tid,
+            deviceSerial,
             paymentMode,
             startDate,  
             endDate,
@@ -75,7 +76,7 @@ const listNotifications = asyncHandler(async (req, res) => {
         }
 
         // Check if we need to filter by JSON fields (mid, tid, paymentMode)
-        const hasJsonFilters = mid || tid || paymentMode;
+        const hasJsonFilters = mid || tid || paymentMode || deviceSerial;
         
         let formattedNotifications = [];
         let totalCount = 0;
@@ -106,6 +107,9 @@ const listNotifications = asyncHandler(async (req, res) => {
                 if (paymentMode && eventData.paymentMode !== paymentMode) {
                     return null;
                 }
+                if (deviceSerial && eventData.deviceSerial?.toString() !== deviceSerial.toString()) {
+                    return null;
+                }
 
                 // Extract relevant fields from event_json
                 return {
@@ -119,6 +123,7 @@ const listNotifications = asyncHandler(async (req, res) => {
                     currencyCode: eventData.currencyCode || null,
                     mid: eventData.mid || null,
                     tid: eventData.tid || null,
+                    deviceSerial: eventData.deviceSerial || null,
                     paymentMode: eventData.paymentMode || null,
                     paymentCardType: eventData.paymentCardType || null,
                     paymentCardBrand: eventData.paymentCardBrand || null,
@@ -167,6 +172,7 @@ const listNotifications = asyncHandler(async (req, res) => {
                     currencyCode: eventData.currencyCode || null,
                     mid: eventData.mid || null,
                     tid: eventData.tid || null,
+                    deviceSerial: eventData.deviceSerial || null,
                     paymentMode: eventData.paymentMode || null,
                     paymentCardType: eventData.paymentCardType || null,
                     paymentCardBrand: eventData.paymentCardBrand || null,
