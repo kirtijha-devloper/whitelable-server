@@ -21,7 +21,7 @@ const {
 const validateToken = require("../middleware/validateTokenHandler");
 
 // 🛡️ Protect routes below this line (if needed)
-// router.use(validateToken);
+router.use(validateToken);
 
 // 🔍 Get all + paginated list
 router.get("/", getAllPosMachine);                 // admin use
