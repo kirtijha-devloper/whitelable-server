@@ -11,9 +11,19 @@ const storage = multer.diskStorage({
   }
 });
 
-// File filter
+// File filter - Accept multiple CSV MIME types
 const fileFilter = (req, file, cb) => {
-  if (file.mimetype === 'text/csv') {
+  const csvMimeTypes = [
+    'text/csv',
+    'text/comma-separated-values',
+    'application/csv',
+    'application/vnd.ms-excel',
+    'text/plain' // Some systems send CSV as text/plain
+  ];
+  
+  const fileExtension = path.extname(file.originalname).toLowerCase();
+  
+  if (csvMimeTypes.includes(file.mimetype) || fileExtension === '.csv') {
     cb(null, true);
   } else {
     cb(new Error('Only CSV files are allowed!'), false);

@@ -23,15 +23,39 @@ const createRental = asyncHandler(async (req, res) => {
       });
     }
 
-    // Create rental with default type 'pos' if not provided
-    const rental = await Rental.create({
-      merchant_id,
-      franchaise_id: franchaise_id || null,
-      amount: parseFloat(amount),
-      status: status || 'active',
-      type: type || 'pos',
-      is_default: is_default !== undefined ? Boolean(is_default) : false
+    const rentalType = type || 'pos';
+    const finalFranchaiseId = franchaise_id || null;
+
+    // Check for uniqueness - one rental per merchant_id and franchaise_id combination
+    const whereClause = {
+      merchant_id: merchant_id
+    };
+    
+    // Include franchaise_id in uniqueness check (handle null properly)
+    if (finalFranchaiseId) {
+      whereClause.franchaise_id = finalFranchaiseId;
+    } else {
+      whereClause.franchaise_id = null;
+    }
+
+    const [rental, created] = await Rental.findOrCreate({
+      where: whereClause,
+      defaults: {
+        merchant_id,
+        franchaise_id: finalFranchaiseId,
+        amount: parseFloat(amount),
+        status: status || 'active',
+        type: rentalType,
+        is_default: is_default !== undefined ? Boolean(is_default) : false
+      }
     });
+
+    if (!created) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rental already exists for this merchant and franchaise combination'
+      });
+    }
 
     res.status(201).json({
       success: true,

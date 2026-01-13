@@ -28,8 +28,8 @@ router.get("/", getAllPosMachine);                 // admin use
 router.get("/list", getPosMachineList);            // role-based filtered list with pagination
 
 // ➕ Create
-router.post("/", validateToken, createPosMachine);
-router.post("/bulk-create", validateToken, upload.single('file'), bulkCreatePosMachines); // Updated route with file upload
+router.post("/", createPosMachine);
+router.post("/bulk-create", upload.single('file'), bulkCreatePosMachines); // Updated route with file upload
 
 // 🔄 Activate/Deactivate
 router.put("/activate/:id", activatePosMachine);
