@@ -111,29 +111,59 @@ if (user.role !== "franchaise") {
 });
 
 const getUsers = asyncHandler(async (req, res) => {
-  const userRole = req.user.role
-  if (userRole === "merchant") {
-    res.status(400);
-    throw new Error('you are not allowed!');
+  try {
+    const { 
+      status = "active",
+      page = 1,
+      limit = 10
+    } = req.query;
+
+    const userRole = req.user.role;
+    
+    if (userRole === "merchant") {
+      res.status(400);
+      throw new Error('you are not allowed!');
     }
-  let users;
-  if (userRole === "admin") {
-      const role = "franchaise"
-      users = await User.findAll({ 
-        where:{role: role, status: "active" },  
-        order: [['createdAt', 'DESC']]
-      });
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const where = {};
+
+    // Role-based filtering
+    if (userRole === "admin") {
+      where.role = "franchaise";
+      if (status) where.status = status;
+    } else if (userRole === "franchaise") {
+      // Franchise can only see themselves
+      where.id = req.user.id;
+      if (status) where.status = status;
+    }
+
+    // Get total count and paginated results
+    const { count, rows: users } = await User.findAndCountAll({
+      where,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Users retrieved successfully',
+      data: users,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Something went wrong'
+    });
   }
-  if (userRole === "franchaise") {
-      users = await User.findAll({
-        where: {
-          status: "active",
-          id: req.user.id
-        },
-        order: [['createdAt', 'DESC']]
-      });
-  }
-  res.status(200).json(users);
 });
 
 const updateUserStatus = asyncHandler(async (req, res) => {
