@@ -9,11 +9,21 @@ const { parse } = require('csv-parse/sync');
 const fs = require('fs');
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
-  const { status, tid_number, mid_number, device_serial_number, razorpay_id, is_pos_asigned } = req.query;
+  const { 
+    status, 
+    tid_number, 
+    mid_number, 
+    device_serial_number, 
+    razorpay_id, 
+    is_pos_asigned,
+    page = 1,
+    limit = 10
+  } = req.query;
   const userRole = req.user.role;
   const userId = req.user.id;
 
   try {
+    const offset = (parseInt(page) - 1) * parseInt(limit);
     const where = {};
 
     // Filters from query
@@ -25,15 +35,19 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     if (status) where.status = status;
     if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
 
-    // Role-based access
+    // Role-based access - filter by logged-in user
     if (userRole === "franchaise") {
       where.franchaise_id = userId;
     } else if (userRole === "merchant") {
       where.assigned_user_id = userId;
     }
+    // Admin can see all (no additional filter)
 
-    const posMachines = await PosMachine.findAll({
+    // Get total count and paginated results
+    const { count, rows: posMachines } = await PosMachine.findAndCountAll({
       where,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
       order: [['createdAt', 'DESC']],
     });
 
@@ -75,7 +89,18 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
         updatedAt: posMachine.updatedAt,
       };
     }));
-    res.json({ list: formattedPosMachines });
+    
+    res.status(200).json({
+      success: true,
+      message: 'POS machines retrieved successfully',
+      list: formattedPosMachines,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / parseInt(limit))
+      }
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
