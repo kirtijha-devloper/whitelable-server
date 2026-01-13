@@ -31,16 +31,28 @@ const createPosTransactionCharge = asyncHandler(async (req, res) => {
       });
     }
 
-    // Create POS transaction charge
-    const posTransactionCharge = await PosTransactionCharge.create({
-      merchant_id,
-      method: method || null,
-      network: network || null,
-      card_type: card_type || null,
-      subtype: subtype || null,
-      rate_percentage: rate,
-      is_default: is_default !== undefined ? Boolean(is_default) : false
+    // Check for uniqueness - one POS transaction charge per merchant_id
+    const [posTransactionCharge, created] = await PosTransactionCharge.findOrCreate({
+      where: {
+        merchant_id: merchant_id
+      },
+      defaults: {
+        merchant_id,
+        method: method || null,
+        network: network || null,
+        card_type: card_type || null,
+        subtype: subtype || null,
+        rate_percentage: rate,
+        is_default: is_default !== undefined ? Boolean(is_default) : false
+      }
     });
+
+    if (!created) {
+      return res.status(400).json({
+        success: false,
+        message: 'POS transaction charge already exists for this merchant'
+      });
+    }
 
     res.status(201).json({
       success: true,

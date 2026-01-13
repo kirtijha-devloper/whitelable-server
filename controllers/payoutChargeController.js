@@ -49,16 +49,28 @@ const createPayoutCharge = asyncHandler(async (req, res) => {
       }
     }
 
-    // Create payout charge
-    const payoutCharge = await PayoutCharge.create({
-      merchant_id,
-      min: min !== undefined ? parseFloat(min) : null,
-      max: max !== undefined ? parseFloat(max) : null,
-      amount: amount !== undefined ? parseFloat(amount) : null,
-      percentage: percentage !== undefined ? parseFloat(percentage) : null,
-      status: status || 'active',
-      is_default: is_default !== undefined ? Boolean(is_default) : false
+    // Check for uniqueness - one payout charge per merchant_id
+    const [payoutCharge, created] = await PayoutCharge.findOrCreate({
+      where: {
+        merchant_id: merchant_id
+      },
+      defaults: {
+        merchant_id,
+        min: min !== undefined ? parseFloat(min) : null,
+        max: max !== undefined ? parseFloat(max) : null,
+        amount: amount !== undefined ? parseFloat(amount) : null,
+        percentage: percentage !== undefined ? parseFloat(percentage) : null,
+        status: status || 'active',
+        is_default: is_default !== undefined ? Boolean(is_default) : false
+      }
     });
+
+    if (!created) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payout charge already exists for this merchant'
+      });
+    }
 
     res.status(201).json({
       success: true,
