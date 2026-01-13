@@ -65,7 +65,7 @@ const sendRegistrationSms = async (mobile, userId, password) => {
     const apikey = "Q5aq9iNxvaSeiOWS";
     const senderid = "ABHEPY";
     
-    const messageText = `Dear Customer your registration is successful for POS-Abheepay User ID ${userId} Password ${password} TEAM-ABHEEPAY`;
+    const messageText = `Dear Customer your login otp for Abheepay will be User ID ${userId} Password ${password} TEAM-ABHEEPAY`;
     
     const message = encodeURIComponent(messageText);
     const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
