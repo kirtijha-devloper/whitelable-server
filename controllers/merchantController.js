@@ -115,28 +115,52 @@ if (user.role !== "merchant") {
 });
 
 const getUsers = asyncHandler(async (req, res) => {
-  const { status } = req.query;
-  if (!status) {status = "active"}
-  if (req.user.role === "franchaise") {
-    const userId = req.user.id
+  try {
+    const { 
+      status = "active",
+      page = 1,
+      limit = 10
+    } = req.query;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
     const where = {};
-    if (userId) where.franchaise_id = userId;
-    if (status) where.status = status;
-  
-    const users = await User.findAll({ where , order: [['createdAt', 'DESC']] });
 
-    res.status(200).json(users)
-    
-  } else {
-  const role = "merchant"
+    if (req.user.role === "franchaise") {
+      const userId = req.user.id;
+      if (userId) where.franchaise_id = userId;
+      if (status) where.status = status;
+    } else {
+      // For admin or other roles, show all merchants
+      where.role = "merchant";
+      if (status) where.status = status;
+    }
 
-  const where = {};
-  if (role) where.role = role;
-  if (status) where.status = status;
+    // Get total count and paginated results
+    const { count, rows: users } = await User.findAndCountAll({
+      where,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']]
+    });
 
-  const users = await User.findAll({ where,  order: [['createdAt', 'DESC']]  });
-
-  res.status(200).json(users);}
+    res.status(200).json({
+      success: true,
+      message: 'Users retrieved successfully',
+      data: users,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong'
+    });
+  }
 });
 
 const updateUserStatus = asyncHandler(async (req, res) => {
