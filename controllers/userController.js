@@ -14,17 +14,61 @@ const PayoutCharge = require('../models/PayoutCharge');
 const Rental = require('../models/Rental');
 
 const getUsers = asyncHandler(async (req, res) => {
-    const { status } = req.query;
+    try {
+        const { 
+            status, 
+            role,
+            page = 1, 
+            limit = 10 
+        } = req.query;
 
-    const where = {};
-    if (status) where.status = status;
+        const userRole = req.user?.role;
+        const userId = req.user?.id;
 
-    const users = await User.findAll({ 
-        where,
-        limit: 10,
-        order: [['createdAt', 'DESC']]});
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+        const where = {};
 
-    res.status(200).json(users);
+        // Role-based access control
+        if (userRole === 'franchaise') {
+            // Franchise can only see their own merchants
+            where.franchaise_id = userId;
+        }
+
+        // Apply filters
+        if (status) {
+            where.status = status;
+        }
+
+        if (role) {
+            where.role = role;
+        }
+
+        // Get total count and paginated results
+        const { count, rows: users } = await User.findAndCountAll({
+            where,
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            order: [['createdAt', 'DESC']]
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Users retrieved successfully',
+            data: users,
+            pagination: {
+                total: count,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(count / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('Get users error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Something went wrong'
+        });
+    }
 });
 
 const getUserByID = asyncHandler(async (req, res) => {
