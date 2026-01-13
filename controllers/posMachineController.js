@@ -548,36 +548,35 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
           continue;
         }
 
-        // Check if POS machine already exists
-        const existingPos = await PosMachine.findOne({
+        // Use findOrCreate to optimize database queries (single query instead of findOne + create)
+        const [posMachine, created] = await PosMachine.findOrCreate({
           where: {
             tid_number: record.tid_number,
             mid_number: record.mid_number,
             device_serial_number: record.device_serial_number
+          },
+          defaults: {
+            tid_number: record.tid_number,
+            mid_number: record.mid_number,
+            device_serial_number: record.device_serial_number,
+            razorpay_id: record.razorpay_id || null,
+            remarks: record.remarks || "added",
+            status: "added",
+            franchaise_id: franchaiseId
           }
         });
 
-        if (existingPos) {
+        if (created) {
+          // New record was created
+          results.push(posMachine);
+        } else {
+          // Record already exists
           errors.push({
             row: rowNumber,
             data: record,
             error: `POS machine already exists (TID: ${record.tid_number}, MID: ${record.mid_number}, Serial: ${record.device_serial_number})`
           });
-          continue;
         }
-
-        // Create new POS machine
-        const newPosMachine = await PosMachine.create({
-          tid_number: record.tid_number,
-          mid_number: record.mid_number,
-          device_serial_number: record.device_serial_number,
-          razorpay_id: record.razorpay_id || null,
-          remarks: record.remarks || "added",
-          status: "added",
-          franchaise_id: franchaiseId
-        });
-
-        results.push(newPosMachine);
       } catch (error) {
         console.error(`Error processing record at row ${rowNumber}:`, error);
         errors.push({

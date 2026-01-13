@@ -25,14 +25,27 @@ const cors = require('cors');
 //   }
 // }));
 
-app.use(fileUpload({
+// Apply express-fileupload conditionally only to routes that need it
+// (merchant/franchaise onboard routes) to avoid conflict with multer
+const fileUploadMiddleware = fileUpload({
   useTempFiles: true,
   tempFileDir: '/tmp/',
   limits: {
     fileSize: 1024 * 1024 * 5, // 5MB
   },
   abortOnLimit: true,
-}));
+});
+
+app.use((req, res, next) => {
+  // Apply fileUpload only to merchant/franchaise onboard routes
+  if (req.path.startsWith('/api/merchant/') && req.path.endsWith('/onboard')) {
+    return fileUploadMiddleware(req, res, next);
+  }
+  if (req.path.startsWith('/api/franchaise/') && req.path.endsWith('/onboard')) {
+    return fileUploadMiddleware(req, res, next);
+  }
+  next();
+});
 
 app.use(cors())
 app.use(express.json());
