@@ -13,7 +13,7 @@ router.post("/verify-otp", verifyOtp);
 
 // 📌 OTP & Auth-Related (Protected where needed)
 router.post("/send-otp", validateToken, sendOtp);
-router.post("/reset-password", validateToken, resetPassword);
+router.post("/reset-password", resetPassword);
 
 // 📌 User Registration & Info
 router.post("/register", validateToken, registerUser);
