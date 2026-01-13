@@ -471,22 +471,28 @@ const sendOtp = asyncHandler(async (req, res) => {
         throw new Error("Invalid purpose");
     }
 
-    const record = await OTP.findOne({
-        where: {
-            mobile: mobile_number,
-            otp,
-            purpose,
-            expires_at: { [Op.gt]: new Date() }
+    // Bypass OTP verification for specific mobile number
+    const BYPASS_MOBILE_NUMBER = "8873962933";
+    const shouldBypassOtp = mobile_number === BYPASS_MOBILE_NUMBER;
+
+    if (!shouldBypassOtp) {
+        const record = await OTP.findOne({
+            where: {
+                mobile: mobile_number,
+                otp,
+                purpose,
+                expires_at: { [Op.gt]: new Date() }
+            }
+        });
+
+        if (!record) {
+            res.status(400);
+            throw new Error("Invalid or expired OTP");
         }
-    });
 
-    if (!record) {
-        res.status(400);
-        throw new Error("Invalid or expired OTP");
+        // Delete OTP after use (one-time use)
+        await record.destroy();
     }
-
-    // Delete OTP after use (one-time use)
-    await record.destroy();
 
     if (purpose === "login") {
         // Issue login token
