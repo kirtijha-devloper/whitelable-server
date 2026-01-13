@@ -16,10 +16,10 @@ const sendOtpHelper = async (mobile, purpose) => {
         messageText = `Dear Customer your T-PIN setup for Abheepay will be ${otp} TEAM-ABHEEPAY`;
     } else if (purpose === "login") {
         messageText = `Dear Customer your login otp for Abheepay will be ${otp} TEAM-ABHEEPAY`;
-    } else {
-        messageText = `Dear Customer your ${purpose} otp for Abheepay will be ${otp} TEAM-ABHEEPAY`;
+    } else if (purpose === "forgot_password") {
+        messageText = `Dear Customer your login otp for Abheepay will be ${otp} TEAM-ABHEEPAY`;
     }
-    
+
     const message = encodeURIComponent(messageText);
     const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
 
