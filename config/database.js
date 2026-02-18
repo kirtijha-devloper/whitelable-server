@@ -1,6 +1,19 @@
 require('dotenv').config();
 const Sequelize = require('sequelize');
 
+// For test environment use an in-memory sqlite database (no env vars required)
+if (process.env.NODE_ENV === 'test') {
+  const sqliteConfig = {
+    dialect: 'sqlite',
+    storage: ':memory:',
+    logging: false
+  };
+  const db = new Sequelize({ ...sqliteConfig });
+  console.log('Using sqlite in-memory DB for tests');
+  module.exports = db;
+  return;
+}
+
 // Validate required DB env vars and provide a clear error if missing
 const requiredVars = ['DB_NAME', 'DB_USER', 'DB_PASS', 'DB_HOST', 'DB_DIALECT'];
 const missing = requiredVars.filter((v) => !process.env[v]);
@@ -18,18 +31,7 @@ const dbConfig = {
   // logging: console.log
 };
 
-// Log DB params (password masked) so you can see what's being used at runtime
-// console.log('DB params:', {
-//   database: process.env.DB_NAME,
-//   user: process.env.DB_USER,
-//   host: dbConfig.host,
-//   dialect: dbConfig.dialect,
-//   port: dbConfig.port,
-//   password: process.env.DB_PASS ? '****' : undefined
-// });
-
 const db = new Sequelize(process.env.DB_NAME, process.env.DB_USER, process.env.DB_PASS, dbConfig);
-
 // Quick connection test to report a clear success/failure message
 db.authenticate()
   .then(() => console.log('✅ DB connection successful'))

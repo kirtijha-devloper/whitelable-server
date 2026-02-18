@@ -1,0 +1,179 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Commission API",
+    "version": "1.1.0",
+    "description": "Manage global commission slabs and user-specific commission links. Use `/calculate` to resolve the effective commission (user-specific first, then global)."
+  },
+  "servers": [
+    { "url": "{{BASE_URL}}", "description": "Development server (use BASE_URL var)" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "CommissionDefault": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "payment_card_brand": { "type": "string", "nullable": true },
+          "payment_card_type": { "type": "string", "nullable": true },
+          "payment_mode": { "type": "string", "nullable": true },
+          "min_amount": { "type": "number", "nullable": true, "format": "decimal" },
+          "max_amount": { "type": "number", "nullable": true, "format": "decimal" },
+          "flat_fee": { "type": "number", "format": "decimal" },
+          "percent_fee": { "type": "number", "format": "decimal" },
+          "is_active": { "type": "boolean" },
+          "created_by": { "type": "integer", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "UserCommission": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "user_id": { "type": "integer" },
+          "commission_default_id": { "type": "integer" },
+          "is_active": { "type": "boolean" },
+          "defaultCommission": { "$ref": "#/components/schemas/CommissionDefault" }
+        }
+      },
+      "Fee": {
+        "type": "object",
+        "properties": {
+          "flat_fee": { "type": "number", "format": "decimal" },
+          "percent_fee": { "type": "number", "format": "decimal" },
+          "charge": { "type": "number", "format": "decimal" }
+        }
+      },
+      "CreateCommissionRequest": {
+        "type": "object",
+        "properties": {
+          "paymentCardBrand": { "type": "string" },
+          "paymentCardType": { "type": "string" },
+          "paymentMode": { "type": "string" },
+          "min_amount": { "type": "number" },
+          "max_amount": { "type": "number" },
+          "flat_fee": { "type": "number" },
+          "percent_fee": { "type": "number" },
+          "is_active": { "type": "boolean" }
+        },
+        "anyOf": [
+          { "required": ["flat_fee"] },
+          { "required": ["percent_fee"] }
+        ],
+        "description": "At least one of `flat_fee` or `percent_fee` must be provided. Backend enforces `min_amount <= max_amount` and prevents overlapping slabs for the same brand/type/mode."
+      },
+      "CreateUserCommissionRequest": {
+        "type": "object",
+        "properties": {
+          "user_id": { "type": "integer" },
+          "commission_default_id": { "type": "integer" },
+          "paymentCardBrand": { "type": "string" },
+          "paymentCardType": { "type": "string" },
+          "paymentMode": { "type": "string" },
+          "min_amount": { "type": "number" },
+          "max_amount": { "type": "number" },
+          "flat_fee": { "type": "number" },
+          "percent_fee": { "type": "number" }
+        },
+        "required": ["user_id"],
+        "oneOf": [
+          { "required": ["commission_default_id"] },
+          { "required": ["flat_fee"] },
+          { "required": ["percent_fee"] }
+        ],
+        "description": "Either `commission_default_id` OR commission details (flat_fee/percent_fee + optional slab) must be provided."
+      },
+      "CalculateRequest": {
+        "type": "object",
+        "properties": {
+          "paymentCardBrand": { "type": "string" },
+          "paymentCardType": { "type": "string" },
+          "paymentMode": { "type": "string" },
+          "amount": { "type": "number" },
+          "user_id": { "type": "integer" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/commission/default": {
+      "post": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "Create a global commission slab (admin)",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCommissionRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" }, "record": { "$ref": "#/components/schemas/CommissionDefault" } } } } } },
+          "400": { "description": "Validation error" },
+          "403": { "description": "Forbidden (admin only)" }
+        }
+      },
+      "get": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "List global commission slabs (admin)",
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/CommissionDefault" } } } } }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/commission/default/{id}": {
+      "put": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "Update a global commission slab (admin)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCommissionRequest" } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" }, "record": { "$ref": "#/components/schemas/CommissionDefault" } } } } } }, "400": { "description": "Validation error" }, "404": { "description": "Not found" }, "403": { "description": "Forbidden" } }
+      },
+      "delete": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "Delete a global commission slab (admin)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" } } } } } }, "404": { "description": "Not found" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/commission/user": {
+      "post": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "Link or create a commission for a user (admin)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateUserCommissionRequest" } } } },
+        "responses": { "201": { "description": "Linked/created", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" }, "link": { "$ref": "#/components/schemas/UserCommission" }, "commission": { "$ref": "#/components/schemas/CommissionDefault" } } } } } }, "400": { "description": "Validation" }, "404": { "description": "User or CommissionDefault not found" }, "403": { "description": "Forbidden" } }
+      },
+      "get": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "List user-linked commissions (admin may pass other user's id)",
+        "parameters": [{ "name": "user_id", "in": "query", "required": false, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/UserCommission" } } } } } }
+      }
+    },
+    "/api/commission/user/{id}": {
+      "put": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "Update user commission link (admin)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "commission_default_id": { "type": "integer" }, "is_active": { "type": "boolean" } } } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" }, "record": { "$ref": "#/components/schemas/UserCommission" } } } } } }, "404": { "description": "Not found" }, "403": { "description": "Forbidden" } }
+      },
+      "delete": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "Delete user commission link (admin)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" } } } } } }, "404": { "description": "Not found" }, "403": { "description": "Forbidden" } }
+      }
+    },
+    "/api/commission/calculate": {
+      "post": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "Resolve effective commission and optionally compute fee for given amount",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CalculateRequest" }, "examples": { "percent": { "value": { "paymentCardBrand": "VISA", "paymentCardType": "CREDIT", "paymentMode": "POS", "amount": 1250 } }, "flat": { "value": { "paymentCardBrand": "RUPAY", "paymentCardType": "DEBIT", "paymentMode": "CARD", "amount": 75 } } } } } },
+        "responses": {
+          "200": { "description": "Found", "content": { "application/json": { "schema": { "type": "object", "properties": { "source": { "type": "string", "enum": ["user","default"] }, "commission": { "$ref": "#/components/schemas/CommissionDefault" }, "fee": { "$ref": "#/components/schemas/Fee", "nullable": true } } } } } },
+          "404": { "description": "No commission configuration found" }
+        }
+      }
+    }
+  }
+}

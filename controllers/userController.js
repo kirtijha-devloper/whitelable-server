@@ -314,15 +314,14 @@ const loginUser = asyncHandler( async (req, res) => {
     }
 
     const user = await User.findOne({ where: { mobile_number: mobileNumber } });
-
     if (user && (await bcrypt.compare(password, user.password))){
         try {
-        await sendOtpHelper(mobileNumber, "login");
-        res.json({ success: true, message: "OTP sent successfully" , });
-    } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to send OTP" });
-  }
+            await sendOtpHelper(mobileNumber, "login");
+            res.json({ success: true, message: "OTP sent successfully" , });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ message: "Failed to send OTP" });
+        }
     }else {
         res.status(401);
         throw new Error("Mobile Number or Password are not valid !.")

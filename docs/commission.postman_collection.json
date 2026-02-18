@@ -1,0 +1,144 @@
+{
+  "info": {
+    "name": "Commission API",
+    "_postman_id": "commission-collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "BASE_URL", "value": "http://localhost:5000" },
+    { "key": "ADMIN_TOKEN", "value": "<admin-jwt>" },
+    { "key": "TOKEN", "value": "<user-jwt>" }
+  ],
+  "item": [
+    {
+      "name": "Default slabs",
+      "item": [
+        {
+          "name": "Create default slab (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ADMIN_TOKEN}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"paymentCardBrand\": \"VISA\",\n  \"paymentCardType\": \"CREDIT\",\n  \"paymentMode\": \"POS\",\n  \"min_amount\": 0,\n  \"max_amount\": 1000,\n  \"percent_fee\": 1.5\n}" },
+            "url": { "raw": "{{BASE_URL}}/api/commission/default", "host": ["{{BASE_URL}}"], "path": ["api","commission","default"] },
+            "description": "Creates a global commission slab. Only admin may call. Provide either `flat_fee` or `percent_fee`."
+          }
+        },
+        {
+          "name": "List default slabs (admin)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ADMIN_TOKEN}}" } ],
+            "url": { "raw": "{{BASE_URL}}/api/commission/default", "host": ["{{BASE_URL}}"], "path": ["api","commission","default"] },
+            "description": "Returns array of global commission slabs."
+          }
+        },
+        {
+          "name": "Update default slab (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ADMIN_TOKEN}}" }, { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{ \"percent_fee\": 2.0 }" },
+            "url": { "raw": "{{BASE_URL}}/api/commission/default/1", "host": ["{{BASE_URL}}"], "path": ["api","commission","default","1"] },
+            "description": "Partial update of a slab; backend enforces overlap and validation rules."
+          }
+        },
+        {
+          "name": "Delete default slab (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ADMIN_TOKEN}}" } ],
+            "url": { "raw": "{{BASE_URL}}/api/commission/default/1", "host": ["{{BASE_URL}}"], "path": ["api","commission","default","1"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User commissions",
+      "item": [
+        {
+          "name": "Link existing slab to user (admin)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ADMIN_TOKEN}}" }, { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{ \"user_id\": 42, \"commission_default_id\": 1 }" },
+            "url": { "raw": "{{BASE_URL}}/api/commission/user", "host": ["{{BASE_URL}}"], "path": ["api","commission","user"] },
+            "description": "Link an existing CommissionDefault to a user."
+          }
+        },
+        {
+          "name": "Create slab + link to user (admin)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ADMIN_TOKEN}}" }, { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{ \"user_id\": 42, \"paymentCardBrand\": \"RUPAY\", \"paymentMode\": \"CARD\", \"min_amount\": 0, \"max_amount\": 200, \"flat_fee\": 10 }" },
+            "url": { "raw": "{{BASE_URL}}/api/commission/user", "host": ["{{BASE_URL}}"], "path": ["api","commission","user"] },
+            "description": "Create a new default slab and link it to a user (backend prevents overlapping slabs)."
+          }
+        },
+        {
+          "name": "List user commissions (self or admin)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{TOKEN}}" } ],
+            "url": { "raw": "{{BASE_URL}}/api/commission/user?user_id=42", "host": ["{{BASE_URL}}"], "path": ["api","commission","user"], "query": [ { "key": "user_id", "value": "42" } ] },
+            "description": "If not admin, omitting `user_id` returns commissions for the authenticated user."
+          }
+        },
+        {
+          "name": "Update user commission link (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ADMIN_TOKEN}}" }, { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{ \"is_active\": false }" },
+            "url": { "raw": "{{BASE_URL}}/api/commission/user/1", "host": ["{{BASE_URL}}"], "path": ["api","commission","user","1"] }
+          }
+        },
+        {
+          "name": "Delete user commission link (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ADMIN_TOKEN}}" } ],
+            "url": { "raw": "{{BASE_URL}}/api/commission/user/1", "host": ["{{BASE_URL}}"], "path": ["api","commission","user","1"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Calculate / lookup",
+      "item": [
+        {
+          "name": "Calculate commission (percent example)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{ \"paymentCardBrand\": \"VISA\", \"paymentCardType\": \"CREDIT\", \"paymentMode\": \"POS\", \"amount\": 1250 }" },
+            "url": { "raw": "{{BASE_URL}}/api/commission/calculate", "host": ["{{BASE_URL}}"], "path": ["api","commission","calculate"] },
+            "description": "Returns best match (user-specific preferred). Response includes computed `fee.charge` when `amount` provided."
+          },
+          "response": [
+            {
+              "name": "percent example",
+              "originalRequest": {},
+              "status": "200 OK",
+              "code": 200,
+              "_body": "{ \"source\": \"default\", \"commission\": { \"percent_fee\": 1.5 }, \"fee\": { \"flat_fee\":0, \"percent_fee\":1.5, \"charge\":18.75 } }"
+            }
+          ]
+        },
+        {
+          "name": "Calculate commission (flat example)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Authorization", "value": "Bearer {{TOKEN}}" }, { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{ \"paymentCardBrand\": \"RUPAY\", \"paymentCardType\": \"DEBIT\", \"paymentMode\": \"CARD\", \"amount\": 75 }" },
+            "url": { "raw": "{{BASE_URL}}/api/commission/calculate", "host": ["{{BASE_URL}}"], "path": ["api","commission","calculate"] },
+            "response": [ { "name": "flat example", "originalRequest": {}, "status": "200 OK", "code": 200, "_body": "{ \"source\": \"user\", \"commission\": { \"flat_fee\": 10 }, \"fee\": { \"flat_fee\":10, \"percent_fee\":0, \"charge\":10.00 } }" } ]
+          }
+        }
+      ]
+    }
+  ]
+}

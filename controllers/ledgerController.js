@@ -5,7 +5,7 @@ const ledgerService = require("../services/ledgerService");
 const PosMachine = require("../models/posMachine");
 const { Op } = require("sequelize");
 
-    const listStatement = asyncHandler(async (req, res) => {
+const listStatement = asyncHandler(async (req, res) => {
   try {
     const status = req.query.status;
     const searchedRole = req.query.searched_role || null;
