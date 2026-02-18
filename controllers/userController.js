@@ -410,7 +410,10 @@ const approveUser = asyncHandler( async (req, res) => {
 
     const updateFranchaiseID = asyncHandler(async (req, res) => {});
 
-const sendOtp = asyncHandler(async (req, res) => {
+
+
+// --- backup: original sendOtp preserved as sendOtp_bck ---
+const sendOtp_bck = asyncHandler(async (req, res) => {
     try {
         const { mobile_number, purpose } = req.body;
 
@@ -457,7 +460,42 @@ const sendOtp = asyncHandler(async (req, res) => {
     }
 });
 
-  const verifyOtp = asyncHandler(async (req, res) => {
+
+// --- new: mock sendOtp (only mimics sending SMS) ---
+const sendOtp = asyncHandler(async (req, res) => {
+  try {
+    const { mobile_number, purpose } = req.body;
+
+    if (!mobile_number || !purpose) {
+      res.status(400);
+      throw new Error("Mobile number and purpose are required");
+    }
+
+    if (!["login", "forgot_password", "tpin", "registration"].includes(purpose)) {
+      res.status(400);
+      throw new Error("Invalid purpose. Must be 'login', 'forgot_password', 'tpin' or 'registration'");
+    }
+
+    // For forgot_password / tpin do not reveal whether user exists
+    if (purpose === "forgot_password" || purpose === "tpin") {
+      const user = await User.findOne({ where: { mobile_number: mobile_number, status: 'active' } });
+      if (!user) {
+        res.status(200).json({ success: true, message: "If the mobile number exists, an OTP has been sent (mock)" });
+        return;
+      }
+    }
+
+    // Mimic sending SMS — do NOT call sendOtpHelper here
+    console.log(`Mock: send OTP to ${mobile_number} for purpose=${purpose}`);
+    res.status(200).json({ success: true, message: "OTP sent successfully (mock)" });
+  } catch (err) {
+    console.error("Failed to send OTP (mock):", err);
+    res.status(500).json({ success: false, message: err.message || "Failed to send OTP (mock)" });
+  }
+});
+
+  // --- backup: original verifyOtp preserved as verifyOtp_bck ---
+  const verifyOtp_bck = asyncHandler(async (req, res) => {
     const { mobile_number, otp, purpose } = req.body;
 
     if (!mobile_number || !otp || !purpose) {
@@ -541,6 +579,100 @@ const sendOtp = asyncHandler(async (req, res) => {
             message: "OTP verified successfully. You can now reset your password.", 
             reset_token: resetToken 
         });
+    }
+});
+
+
+  // --- new: verifyOtp accepts magic OTP 112233 (plus original mobile bypass) ---
+  const verifyOtp = asyncHandler(async (req, res) => {
+    const { mobile_number, otp, purpose } = req.body;
+
+    if (!mobile_number || !otp || !purpose) {
+        res.status(400);
+        throw new Error("Mobile number, OTP, and purpose are required");
+    }
+
+    if (!["login", "forgot_password", "registration", "tpin"].includes(purpose)) {
+        res.status(400);
+        throw new Error("Invalid purpose");
+    }
+
+    const MAGIC_OTP = "112233";
+    const BYPASS_MOBILE_NUMBER = "8873962933";
+    const shouldBypassOtp = mobile_number === BYPASS_MOBILE_NUMBER || otp === MAGIC_OTP;
+
+    if (!shouldBypassOtp) {
+        const record = await OTP.findOne({
+            where: {
+                mobile: mobile_number,
+                otp,
+                purpose,
+                expires_at: { [Op.gt]: new Date() }
+            }
+        });
+
+        if (!record) {
+            res.status(400);
+            throw new Error("Invalid or expired OTP");
+        }
+
+        // Delete OTP after use (one-time use)
+        await record.destroy();
+    } else {
+        console.log(`OTP bypass accepted for ${mobile_number} (magic OTP or bypass number)`);
+    }
+
+    if (purpose === "login") {
+        // Issue login token
+        const user = await User.findOne({ 
+            where: { 
+                mobile_number: mobile_number,
+                status: 'active'
+            } 
+        });
+
+        if (!user) {
+            res.status(404);
+            throw new Error("User not found");
+        }
+
+        const accessToken = jwt.sign(
+            { 
+                user: { 
+                    id: user.id,  
+                    name: user.name, 
+                    mobile_number: user.mobile_number, 
+                    role: user.role 
+                } 
+            },
+            process.env.ACCESS_TOKEN_SECRET,
+            { expiresIn: "5h" }
+        );
+
+        res.status(200).json({ 
+            success: true,
+            message: "OTP verified successfully", 
+            token: accessToken 
+        });
+    } else if (purpose === "forgot_password") {
+        // Return a temporary token to allow password reset
+        const resetToken = jwt.sign(
+            { 
+                mobile_number: mobile_number, 
+                purpose: "forgot_password" 
+            },
+            process.env.ACCESS_TOKEN_SECRET,
+            { expiresIn: "10m" } // 10 minutes expiry
+        );
+
+        res.status(200).json({ 
+            success: true,
+            message: "OTP verified successfully. You can now reset your password.", 
+            reset_token: resetToken 
+        });
+    } else {
+        // For other purposes (registration/tpin) return a generic success
+        res.status(200).json({ success: true, message: "OTP verified successfully" });
     }
 });
 
@@ -688,4 +820,4 @@ const forgotPassword = asyncHandler(async (req, res) => {
 });
 
 
-module.exports = {registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateFranchaiseID, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword}
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
