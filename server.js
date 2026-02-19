@@ -3,6 +3,8 @@ const { errorHandler } = require("./middleware/errorHandler");
 const dotenv = require("dotenv").config();
 const connectDb = require("./config/dbConnection");
 const db = require('./config/database');
+// initialize model associations (models export .associate but need to be invoked)
+require('./models/initAssociations');
 const fileUpload = require('express-fileupload');
 
 // Import workers to start processing queues

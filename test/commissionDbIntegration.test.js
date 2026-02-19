@@ -55,6 +55,22 @@ describe('commission DB-backed integration', function () {
     expect(res.body.fee.charge).to.equal(2.00);
   });
 
+  it('applies user-specific override when present in UserCommission', async () => {
+    const slab = await CommissionDefault.findOne({ where: { min_amount: 0 } });
+    // ensure deterministic test state (remove any existing user links created by other tests)
+    await UserCommission.destroy({ where: { user_id: 2 } });
+    await UserCommission.create({ user_id: 2, commission_default_id: slab.id, is_active: true, flat_fee: 1.25 });
+
+    const res = await request(app)
+      .post('/api/commission/calculate')
+      .set('Authorization', `Bearer ${merchantToken}`)
+      .send({ user_id: 2, paymentCardBrand: 'RUPAY', paymentCardType: 'CREDIT', paymentMode: 'CARD', amount: 50 });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.source).to.equal('user');
+    expect(res.body.fee.charge).to.equal(1.25);
+  });
+
   it('falls back to default when no user link present', async () => {
     const res = await request(app)
       .post('/api/commission/calculate')

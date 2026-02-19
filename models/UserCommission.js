@@ -16,6 +16,17 @@ const UserCommission = db.define('UserCommission', {
     type: Sequelize.INTEGER,
     allowNull: false
   },
+  // user-specific optional overrides; NULL means "no override — use CommissionDefault"
+  flat_fee: {
+    type: Sequelize.DECIMAL(10, 2),
+    allowNull: true,
+    defaultValue: null
+  },
+  percent_fee: {
+    type: Sequelize.DECIMAL(5, 2),
+    allowNull: true,
+    defaultValue: null
+  },
   is_active: {
     type: Sequelize.BOOLEAN,
     allowNull: false,

@@ -243,9 +243,19 @@ const createUserCommission = asyncHandler(async (req, res) => {
     throw new Error('User already has this commission configuration linked');
   }
 
+  // validate user-specific override (if provided)
+  const userFlat = flat_fee !== undefined && flat_fee !== null ? parseFloat(flat_fee) : null;
+  const userPercent = percent_fee !== undefined && percent_fee !== null ? parseFloat(percent_fee) : null;
+  if (userFlat > 0 && userPercent > 0) {
+    res.status(400);
+    throw new Error('Only one of flat_fee or percent_fee can be non-zero for a user commission');
+  }
+
   const link = await UserCommission.create({
     user_id,
     commission_default_id: defaultRecord.id,
+    flat_fee: userFlat,
+    percent_fee: userPercent,
     is_active: true,
     created_by: req.user.id
   });
@@ -265,20 +275,69 @@ const getDefaultCommissions = asyncHandler(async (req, res) => {
 
 // List user commissions (admin or for the user) — returns the linked CommissionDefault with each link
 const getUserCommissions = asyncHandler(async (req, res) => {
+  console.log('getUserCommissions called', { query: req.query, authUserId: req.user && req.user.id });
+
   const { user_id } = req.query;
 
   if (!user_id && req.user.role !== 'admin') {
     req.query.user_id = req.user.id;
   }
-
   const targetUserId = user_id || req.user.id;
-  const records = await UserCommission.findAll({
-    where: { user_id: targetUserId },
-    include: [{ model: CommissionDefault, as: 'defaultCommission' }],
-    order: [['createdAt', 'DESC']]
-  });
 
-  res.status(200).json(records);
+  // keep result lightweight and avoid Sequelize instance/circular serialization overhead
+  // include user-specific override columns so we can prefer them over defaults when present
+  const userCommissionAttrs = ['id', 'user_id', 'commission_default_id', 'flat_fee', 'percent_fee', 'is_active', 'created_by', 'createdAt', 'updatedAt'];
+  const commissionDefaultAttrs = ['id', 'payment_card_brand', 'payment_card_type', 'payment_mode', 'min_amount', 'max_amount', 'flat_fee', 'percent_fee', 'is_active'];
+
+  try {
+    // quick DB health check — fast and should always return immediately
+    const cnt = await UserCommission.count({ where: { user_id: targetUserId } });
+    // allow quick test without the association (use ?_noInclude=1)
+    if (req.query._noInclude === '1') {
+      console.time('UserCommission.findAll.noInclude');
+      const rows = await UserCommission.findAll({
+        where: { user_id: targetUserId },
+        attributes: userCommissionAttrs,
+        order: [['createdAt', 'DESC']],
+        raw: true,
+        nest: true
+      });
+      console.timeEnd('UserCommission.findAll.noInclude');
+      return res.status(200).json(rows);
+    }
+
+    console.time('UserCommission.findAll.withInclude');
+    const records = await UserCommission.findAll({
+      where: { user_id: targetUserId },
+      attributes: userCommissionAttrs,
+      include: [{ model: CommissionDefault, as: 'defaultCommission', attributes: commissionDefaultAttrs }],
+      order: [['createdAt', 'DESC']],
+      raw: true,
+      nest: true
+    });
+    console.timeEnd('UserCommission.findAll.withInclude');
+
+    // Flatten the included `defaultCommission` into the top-level result object.
+    // Do NOT overwrite UserCommission fields if a name collision occurs.
+    const flattened = records.map((row) => {
+      const { defaultCommission, ...base } = row;
+      if (!defaultCommission) return base;
+
+      // merge fields from defaultCommission but prefer `base` values on collision
+      const merged = { ...base };
+      Object.entries(defaultCommission).forEach(([k, v]) => {
+        if (k === 'id') return; // skip nested model id (we already have commission_default_id)
+        // prefer explicit user-specified values (non-null); if user value is missing/null, fallback to default
+        if (merged[k] === undefined || merged[k] === null) merged[k] = v;
+      });
+      return merged;
+    });
+
+    return res.status(200).json(flattened);
+  } catch (err) {
+    console.error('getUserCommissions error:', err);
+    res.status(500).json({ message: 'Internal server error', error: err.message });
+  }
 });
 
 // Get effective commission for given criteria — checks user-specific (linked defaults) first then global defaults
@@ -294,7 +353,16 @@ const getCommission = asyncHandler(async (req, res) => {
       include: [{ model: CommissionDefault, as: 'defaultCommission' }]
     });
 
-    const userDefaults = userLinks.map(l => l.defaultCommission).filter(Boolean);
+    // merge user-specific overrides (flat_fee/percent_fee) into the defaultCommission object
+    const userDefaults = userLinks.map(l => {
+      const dd = l.defaultCommission;
+      if (!dd) return null;
+      const base = dd.get ? dd.get({ plain: true }) : (typeof dd === 'object' ? { ...dd } : dd);
+      if (l.flat_fee !== undefined && l.flat_fee !== null) base.flat_fee = l.flat_fee;
+      if (l.percent_fee !== undefined && l.percent_fee !== null) base.percent_fee = l.percent_fee;
+      return base;
+    }).filter(Boolean);
+
     const bestUser = pickMostSpecific(userDefaults, search, req.body.amount);
     if (bestUser && bestUser.is_active) {
       const amount = req.body.amount;
@@ -410,6 +478,18 @@ const updateUserCommission = asyncHandler(async (req, res) => {
 
   if (typeof req.body.is_active === 'boolean') {
     rec.is_active = req.body.is_active;
+  }
+
+  // handle optional user-specific override updates
+  if (req.body.flat_fee !== undefined || req.body.percent_fee !== undefined) {
+    const newFlat = req.body.flat_fee !== undefined ? (req.body.flat_fee !== null ? parseFloat(req.body.flat_fee) : null) : (rec.flat_fee !== null && rec.flat_fee !== undefined ? parseFloat(rec.flat_fee) : null);
+    const newPercent = req.body.percent_fee !== undefined ? (req.body.percent_fee !== null ? parseFloat(req.body.percent_fee) : null) : (rec.percent_fee !== null && rec.percent_fee !== undefined ? parseFloat(rec.percent_fee) : null);
+    if (newFlat > 0 && newPercent > 0) {
+      res.status(400);
+      throw new Error('Only one of flat_fee or percent_fee can be non-zero for a user commission');
+    }
+    if (req.body.flat_fee !== undefined) rec.flat_fee = req.body.flat_fee;
+    if (req.body.percent_fee !== undefined) rec.percent_fee = req.body.percent_fee;
   }
 
   await rec.save();

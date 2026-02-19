@@ -88,6 +88,22 @@ describe('commissionRoutes (integration - controller + routes)', () => {
     expect(res.body.fee).to.exist;
   });
 
+  it('POST /api/commission/calculate - respects user-specific override in UserCommission', async () => {
+    // stub a UserCommission that overrides the flat_fee for this user
+    UserCommission.findAll = async () => [
+      { flat_fee: 1.5, defaultCommission: { payment_card_brand: 'RUPAY', payment_card_type: 'CREDIT', payment_mode: 'CARD', percent_fee: 0, flat_fee: 2, min_amount: 0, max_amount: 99999, is_active: true } }
+    ];
+
+    const res = await request(app)
+      .post('/api/commission/calculate')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ user_id: 2, paymentCardBrand: 'RUPAY', paymentCardType: 'CREDIT', paymentMode: 'CARD', amount: 200 });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.source).to.equal('user');
+    expect(res.body.fee.charge).to.equal(1.5);
+  });
+
   it('POST /api/commission/calculate - falls back to default when no user link', async () => {
     UserCommission.findAll = async () => [];
     CommissionDefault.findAll = async () => [
