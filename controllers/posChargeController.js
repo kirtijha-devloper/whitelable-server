@@ -326,14 +326,17 @@ const getUserPosCharges = asyncHandler(async (req, res) => {
 
   const records = await UserPosCharge.findAll({
     where,
+    attributes: ['id', 'user_id', 'pos_charge_default_id', 'percent_fee', 'is_active', 'created_by', 'createdAt', 'updatedAt'],
     include: [
       {
         model: PosChargeDefault,
         as: 'defaultPosCharge',
-        attributes: ['id', 'payment_mode', 'payment_card_type', 'payment_card_brand', 'flat_fee', 'percent_fee', 'is_active']
+        attributes: ['id', 'payment_mode', 'payment_card_type', 'payment_card_brand', 'percent_fee', 'is_active']
       }
     ],
-    order: [['createdAt', 'DESC']]
+    order: [['createdAt', 'DESC']],
+    raw: true,
+    nest: true
   });
 
   res.status(200).json(records);
