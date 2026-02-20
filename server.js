@@ -84,7 +84,9 @@ app.use(errorHandler)
 const startServer = async () => {
   try {
     await connectDb(); // Connect to DB
-    await db.sync({ alter: true }); // Sync models in dev
+    if (process.env.NODE_ENV !== 'production') {
+      await db.sync({ alter: true }); // Sync models in dev only — use migrations in production
+    }
 
     app.listen(port, () => {
       console.log(`🚀 Server running on port ${port}`);

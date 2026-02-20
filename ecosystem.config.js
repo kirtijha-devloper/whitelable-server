@@ -5,6 +5,7 @@ module.exports = {
       script: "server.js",
       cwd: "/var/www/pos.abheepay.com/pos-server", // ensure PM2 uses the correct directory
       env: {
+        NODE_ENV: "production",
         PORT: "5003",
         DB_NAME: "posdb",
         DB_USER: "posuser",
