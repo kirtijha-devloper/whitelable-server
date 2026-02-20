@@ -252,10 +252,45 @@ async function getLedgerEntries({
   };
 }
 
+/**
+ * Create a ledger credit entry for a commission earned on a Razorpay transaction.
+ * Handles both merchant commissions and franchise commissions (distinguished by transactionType).
+ *
+ * @param {Object} params
+ * @param {number}  params.userId                   - ID of the user being credited (merchant or franchise)
+ * @param {string}  params.razorpayTransactionId     - Razorpay txnId for reference
+ * @param {number}  params.commissionAmount          - Commission amount to credit
+ * @param {string}  [params.transactionType]         - Ledger transaction type (default: 'razorpay_commission')
+ * @param {string}  [params.description]             - Human-readable description
+ * @param {Object}  [params.metadata]                - Extra context (rate, payment method, etc.)
+ * @returns {Promise<Object>} Created ledger entry
+ */
+async function createCommissionEntry({
+  userId,
+  razorpayTransactionId,
+  commissionAmount,
+  transactionType = 'razorpay_commission',
+  description = null,
+  metadata = null,
+}) {
+  return await createLedgerEntry({
+    userId,
+    transactionType,
+    transactionId: razorpayTransactionId,
+    description:
+      description ||
+      `Commission earned on Razorpay txn: ${razorpayTransactionId} — ₹${commissionAmount}`,
+    credit: commissionAmount,
+    status: 'completed',
+    metadata,
+  });
+}
+
 module.exports = {
   createLedgerEntry,
   createRazorpayChargeEntry,
   createWalletTransactionEntry,
+  createCommissionEntry,
   getLedgerEntries,
   getLatestBalance
 };

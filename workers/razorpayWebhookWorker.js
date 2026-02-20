@@ -375,6 +375,143 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       // Don't throw - ledger is for tracking, transaction is already processed
     }
 
+    // ── Step 10: Calculate and credit commission for the merchant ─────────────
+    // Looks up UserCommission → CommissionDefault for the merchant based on
+    // paymentMode / paymentCardBrand / paymentCardType and the transaction amount.
+    // Falls back to the global CommissionDefault if no user-specific slab is found.
+    try {
+      const commissionService = require("../services/commissionService");
+      const merchantCommResult = await commissionService.resolveCommission(
+        merchant.id,
+        {
+          paymentMode: paymentMethod,
+          paymentCardBrand: paymentCardBrand || null,
+          paymentCardType: paymentCardType || null,
+        },
+        transactionAmount
+      );
+
+      if (merchantCommResult && merchantCommResult.fee && merchantCommResult.fee.charge > 0) {
+        const commAmount = merchantCommResult.fee.charge;
+        const rateLabel = merchantCommResult.fee.percent_fee > 0
+          ? `${merchantCommResult.fee.percent_fee}%`
+          : `₹${merchantCommResult.fee.flat_fee} flat`;
+
+        console.log(`[Razorpay Webhook Worker] Merchant commission (${merchantCommResult.source}): ₹${commAmount} (${rateLabel}) for txn: ${txnId}`);
+
+        // Create WalletTransaction for the commission credit
+        await WalletTransaction.create({
+          type: "commission",
+          amount: commAmount,
+          status: "completed",
+          reason: `Commission (${rateLabel}) on Razorpay txn: ${txnId} | Txn amt: ₹${transactionAmount}${paymentMethod ? ' | ' + paymentMethod : ''}`,
+          requested_by: merchant.id,
+          source: "razorpay",
+          reference_id: null,
+        });
+
+        // Ledger entry (also syncs merchant.wallet via ledgerService)
+        await ledgerService.createCommissionEntry({
+          userId: merchant.id,
+          razorpayTransactionId: txnId,
+          commissionAmount: commAmount,
+          transactionType: "razorpay_commission",
+          description: `Commission earned (${rateLabel}) | Razorpay txn: ${txnId} | Amt: ₹${transactionAmount}`,
+          metadata: {
+            commission_source: merchantCommResult.source,
+            payment_method: paymentMethod,
+            payment_card_brand: paymentCardBrand || null,
+            payment_card_type: paymentCardType || null,
+            transaction_amount: transactionAmount,
+            commission_rate_percent: merchantCommResult.fee.percent_fee || 0,
+            commission_flat_fee: merchantCommResult.fee.flat_fee || 0,
+            pos_machine_id: posMachine.id,
+          },
+        });
+
+        console.log(`[Razorpay Webhook Worker] ✅ Merchant commission ₹${commAmount} credited to merchant: ${merchant.id}`);
+      } else {
+        console.log(`[Razorpay Webhook Worker] No commission slab found for merchant: ${merchant.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
+      }
+    } catch (merchantCommError) {
+      console.error(`[Razorpay Webhook Worker] ⚠️ Error processing merchant commission for txn: ${txnId}`, merchantCommError);
+      // Non-fatal — core transaction already processed
+    }
+
+    // ── Step 11: Calculate and credit commission for the franchisee ───────────
+    // The merchant's franchaise_id points to the franchise user.
+    // The franchise earns commission when their merchant processes a transaction.
+    // Commission slab lookup follows the same UserCommission → CommissionDefault chain.
+    if (merchant.franchaise_id) {
+      try {
+        const commissionService = require("../services/commissionService");
+        const franchise = await User.findByPk(merchant.franchaise_id);
+
+        if (!franchise) {
+          console.warn(`[Razorpay Webhook Worker] Franchise user not found: ${merchant.franchaise_id} for txn: ${txnId}`);
+        } else {
+          const franchiseCommResult = await commissionService.resolveCommission(
+            franchise.id,
+            {
+              paymentMode: paymentMethod,
+              paymentCardBrand: paymentCardBrand || null,
+              paymentCardType: paymentCardType || null,
+            },
+            transactionAmount
+          );
+
+          if (franchiseCommResult && franchiseCommResult.fee && franchiseCommResult.fee.charge > 0) {
+            const franchCommAmount = franchiseCommResult.fee.charge;
+            const franchRateLabel = franchiseCommResult.fee.percent_fee > 0
+              ? `${franchiseCommResult.fee.percent_fee}%`
+              : `₹${franchiseCommResult.fee.flat_fee} flat`;
+
+            console.log(`[Razorpay Webhook Worker] Franchise commission (${franchiseCommResult.source}): ₹${franchCommAmount} (${franchRateLabel}) for franchise: ${franchise.id}, txn: ${txnId}`);
+
+            // Create WalletTransaction for the franchise commission credit
+            await WalletTransaction.create({
+              type: "commission",
+              amount: franchCommAmount,
+              status: "completed",
+              reason: `Franchise commission (${franchRateLabel}) | Merchant: ${merchant.id} | Razorpay txn: ${txnId} | Txn amt: ₹${transactionAmount}`,
+              requested_by: franchise.id,
+              source: "razorpay",
+              reference_id: null,
+            });
+
+            // Ledger entry for franchise commission (also syncs franchise.wallet)
+            await ledgerService.createCommissionEntry({
+              userId: franchise.id,
+              razorpayTransactionId: txnId,
+              commissionAmount: franchCommAmount,
+              transactionType: "razorpay_franchise_commission",
+              description: `Franchise commission (${franchRateLabel}) | Merchant: ${merchant.id} | Razorpay txn: ${txnId} | Amt: ₹${transactionAmount}`,
+              metadata: {
+                merchant_id: merchant.id,
+                commission_source: franchiseCommResult.source,
+                payment_method: paymentMethod,
+                payment_card_brand: paymentCardBrand || null,
+                payment_card_type: paymentCardType || null,
+                transaction_amount: transactionAmount,
+                commission_rate_percent: franchiseCommResult.fee.percent_fee || 0,
+                commission_flat_fee: franchiseCommResult.fee.flat_fee || 0,
+                pos_machine_id: posMachine.id,
+              },
+            });
+
+            console.log(`[Razorpay Webhook Worker] ✅ Franchise commission ₹${franchCommAmount} credited to franchise: ${franchise.id}`);
+          } else {
+            console.log(`[Razorpay Webhook Worker] No commission slab for franchise: ${franchise.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
+          }
+        }
+      } catch (franchCommError) {
+        console.error(`[Razorpay Webhook Worker] ⚠️ Error processing franchise commission for txn: ${txnId}`, franchCommError);
+        // Non-fatal — core transaction already processed
+      }
+    } else {
+      console.log(`[Razorpay Webhook Worker] No franchise linked for merchant: ${merchant.id}, skipping franchise commission for txn: ${txnId}`);
+    }
+
   } catch (error) {
     console.error(`[Razorpay Webhook Worker] Error in handleAuthorizedTransaction for txn: ${txnId}`, error);
     throw error; // Re-throw to trigger retry mechanism
