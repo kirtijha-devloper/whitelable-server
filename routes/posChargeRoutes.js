@@ -10,7 +10,9 @@ const {
   getUserPosCharges,
   updateUserPosCharge,
   deleteUserPosCharge,
-  calculatePosCharge
+  calculatePosCharge,
+  setGlobalPosRate,
+  getGlobalPosRate
 } = require('../controllers/posChargeController');
 
 // All routes require authentication
@@ -30,5 +32,9 @@ router.delete('/user/:id', deleteUserPosCharge);        // remove link
 
 // ── Calculate effective POS charge ──────────────────────────────────────────
 router.post('/calculate', calculatePosCharge);          // resolve effective charge + fee
+
+// ── Global fallback POS rate (admin write; all read) ─────────────────────────
+router.post('/global-rate', setGlobalPosRate);          // set / update (upsert)
+router.get('/global-rate', getGlobalPosRate);           // get current global rate
 
 module.exports = router;

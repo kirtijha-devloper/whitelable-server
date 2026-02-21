@@ -208,6 +208,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const { Op } = require("sequelize");
     const PosChargeDefault = require("../models/PosChargeDefault");
     const UserPosCharge = require("../models/UserPosCharge");
+    const PosGlobalRate = require("../models/PosGlobalRate");
     const { computeFee, pickMostSpecific } = require("../controllers/posChargeController");
 
     const paymentMethod = paymentMode ? paymentMode.toUpperCase() : null;
@@ -240,7 +241,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       chargeSource = 'user';
     }
 
-    // 3b: Global default fallback
+    // 3b: Global default fallback (combination-based)
     if (!resolvedCharge) {
       const defaultRecords = await PosChargeDefault.findAll({
         where: {
@@ -256,6 +257,15 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       if (bestDefault) {
         resolvedCharge = bestDefault;
         chargeSource = 'default';
+      }
+    }
+
+    // 3c: Global rate fallback — used when no combination-based entry matched
+    if (!resolvedCharge) {
+      const globalRate = await PosGlobalRate.findOne({ where: { id: 1, is_active: true } });
+      if (globalRate) {
+        resolvedCharge = { percent_fee: globalRate.percent_fee, is_active: true };
+        chargeSource = 'global_rate';
       }
     }
 

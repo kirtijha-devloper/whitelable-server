@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const PosChargeDefault = require('../models/PosChargeDefault');
 const UserPosCharge = require('../models/UserPosCharge');
 const User = require('../models/User');
+const PosGlobalRate = require('../models/PosGlobalRate');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -489,6 +490,63 @@ const calculatePosCharge = asyncHandler(async (req, res) => {
   res.status(404).json({ message: 'No POS charge configuration found for the given combination' });
 });
 
+// ─── Global POS Rate (single fallback row, admin write) ──────────────────────
+
+/**
+ * POST /api/pos-charge/global-rate
+ * Upserts the single global fallback POS rate.
+ * Admin only.
+ */
+const setGlobalPosRate = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'admin') {
+    res.status(403);
+    throw new Error('Access denied');
+  }
+
+  const { percent_fee, is_active } = req.body;
+
+  if (percent_fee === undefined || percent_fee === null) {
+    res.status(400);
+    throw new Error('percent_fee is required');
+  }
+
+  const percentVal = parseFloat(percent_fee);
+  if (isNaN(percentVal) || percentVal < 0) {
+    res.status(400);
+    throw new Error('percent_fee must be a non-negative number');
+  }
+
+  // Always operate on the single row (id = 1)
+  const [record, created] = await PosGlobalRate.upsert(
+    {
+      id: 1,
+      percent_fee: percentVal,
+      is_active: typeof is_active === 'boolean' ? is_active : true,
+      updated_by: req.user.id
+    },
+    { returning: true }
+  );
+
+  const statusCode = created ? 201 : 200;
+  res.status(statusCode).json({
+    message: created ? 'Global POS rate created' : 'Global POS rate updated',
+    record: record || (await PosGlobalRate.findByPk(1))
+  });
+});
+
+/**
+ * GET /api/pos-charge/global-rate
+ * Returns the current global fallback POS rate.
+ * All authenticated roles.
+ */
+const getGlobalPosRate = asyncHandler(async (req, res) => {
+  const record = await PosGlobalRate.findByPk(1);
+  if (!record) {
+    return res.status(404).json({ message: 'Global POS rate not configured yet' });
+  }
+  res.status(200).json(record);
+});
+
 module.exports = {
   createDefaultPosCharge,
   getDefaultPosCharges,
@@ -499,7 +557,9 @@ module.exports = {
   updateUserPosCharge,
   deleteUserPosCharge,
   calculatePosCharge,
-  // exported for testing
+  setGlobalPosRate,
+  getGlobalPosRate,
+  // exported for testing / worker
   computeFee,
   pickMostSpecific
 };
