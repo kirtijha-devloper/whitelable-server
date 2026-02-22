@@ -10,6 +10,8 @@
  * index seek, which is far faster than intersecting two single-column indexes.
  *
  * We also add (status, posting_date) for status-filtered admin reports.
+ *
+ * NOTE: This migration must run AFTER 20260222120000 which adds the posting_date column.
  */
 module.exports = {
   async up(queryInterface, Sequelize) {
