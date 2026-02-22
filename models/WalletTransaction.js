@@ -39,6 +39,14 @@ const WalletTransaction = db.define('WalletTransaction', {
   type: Sequelize.INTEGER,
   allowNull: true
 },
+  user_id: {
+  type: Sequelize.INTEGER,
+  allowNull: true,
+  references: {
+    model: 'Users',
+    key: 'id'
+  }
+},
   createdAt: {
     allowNull: false,
     type: Sequelize.DATE,
