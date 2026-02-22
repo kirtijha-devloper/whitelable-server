@@ -38,9 +38,13 @@ module.exports = {
         rr_number = (event_json->>'rrNumber'),
         device_serial = (event_json->>'deviceSerial'),
         posting_date = CASE
-                          WHEN (event_json->>'postingDate') IS NOT NULL THEN 
+                          WHEN (event_json->>'postingDate') IS NULL THEN NULL
+                          -- numeric string → treat as Unix epoch milliseconds
+                          WHEN (event_json->>'postingDate') ~ '^\d+$' THEN
+                            to_timestamp(((event_json->>'postingDate')::bigint) / 1000.0)
+                          -- ISO / other date string → cast directly
+                          ELSE
                             ((event_json->>'postingDate')::timestamptz)
-                          ELSE NULL
                         END
     `);
   },
