@@ -42,20 +42,54 @@ async function processRzpNotification(event) {
          * Razorpay retries up to 3 times, so we use findOrCreate
          * This MUST complete before enqueueing to ensure data persistence
          */
+        // extract fields we'll store directly on the row for reporting
+        const midVal = event.mid || event.mid_number || null;
+        const tidVal = event.tid || event.tid_number || null;
+        const amountVal = event.amount || event.amountOriginal || null;
+        const currencyVal = event.currencyCode || null;
+        const paymentModeVal = event.paymentMode || null;
+        const cardTypeVal = event.paymentCardType || null;
+        const cardBrandVal = event.paymentCardBrand || null;
+        const rrVal = event.rrNumber || null;
+        const deviceSerialVal = event.deviceSerial || null;
+        const postingDateVal = event.postingDate ? new Date(event.postingDate) : null;
+
+        const defaults = {
+            txn_id: txnId,
+            event_json: event,
+            status: status || null,
+            mid: midVal,
+            tid: tidVal,
+            amount: amountVal,
+            currency_code: currencyVal,
+            payment_mode: paymentModeVal,
+            payment_card_type: cardTypeVal,
+            payment_card_brand: cardBrandVal,
+            rr_number: rrVal,
+            device_serial: deviceSerialVal,
+            posting_date: postingDateVal
+        };
+
         const [notification, created] = await RazorpayNotification.findOrCreate({
             where: { txn_id: txnId },
-            defaults: {
-                txn_id: txnId,
-                event_json: event,
-                status: status || null
-            }
+            defaults
         });
 
         // If notification already exists, update it (in case of retry with updated data)
         if (!created) {
             await notification.update({
                 event_json: event,
-                status: status || notification.status
+                status: status || notification.status,
+                mid: midVal,
+                tid: tidVal,
+                amount: amountVal,
+                currency_code: currencyVal,
+                payment_mode: paymentModeVal,
+                payment_card_type: cardTypeVal,
+                payment_card_brand: cardBrandVal,
+                rr_number: rrVal,
+                device_serial: deviceSerialVal,
+                posting_date: postingDateVal
             });
         }
 

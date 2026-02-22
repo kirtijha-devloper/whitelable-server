@@ -68,17 +68,14 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
   console.log(`[Razorpay Webhook Worker] Processing authorized transaction: ${txnId}`);
   
   try {
-    // Parse event data from notification
+    // Parse event data from notification (keep full object if needed)
     const data = typeof notification.event_json === 'string' 
       ? JSON.parse(notification.event_json) 
       : notification.event_json;
     
-    // Extract all relevant fields from the event data
-    // Note: Some fields like customerEmail may not be available if entered after transaction approval
+    // extract fields from both JSON and new columns in case of backfilled data
     const {
-      // Required/Core fields
-      mid,
-      tid,
+      // Required/Core fields (fallback to JSON when column not populated)
       amount,
       amountOriginal,
       amountAdditional,
@@ -146,11 +143,12 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       userAgreement
     } = data;
 
-    // Use mid/tid directly, or try mid_number/tid_number if available
-    const merchantId = mid || mid_number;
-    const terminalId = tid || tid_number;
-    const transactionAmount = amount || amountOriginal;
-    
+    // derive merchant, terminal, and amount using the notification columns when available
+    // fall back to JSON payload values if the column was not back‑filled yet
+    const merchantId = notification.mid || mid || mid_number;
+    const terminalId = notification.tid || tid || tid_number;
+    const transactionAmount = notification.amount || amount || amountOriginal;
+
     console.log(`[Razorpay Webhook Worker] Transaction details:`, {
       txnId,
       merchantId,

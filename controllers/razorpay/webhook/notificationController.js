@@ -75,118 +75,62 @@ const listNotifications = asyncHandler(async (req, res) => {
             }
         }
 
-        // Check if we need to filter by JSON fields (mid, tid, paymentMode)
-        const hasJsonFilters = mid || tid || paymentMode || deviceSerial;
-        
+        // apply filters directly to columns where possible
+        if (mid) {
+            where.mid = { [Op.like]: `%${mid}%` };
+        }
+        if (tid) {
+            where.tid = { [Op.like]: `%${tid}%` };
+        }
+        if (paymentMode) {
+            where.payment_mode = paymentMode;
+        }
+        if (deviceSerial) {
+            where.device_serial = { [Op.like]: `%${deviceSerial}%` };
+        }
+
         let formattedNotifications = [];
         let totalCount = 0;
 
-        if (hasJsonFilters) {
-            // For JSON filters, fetch a larger batch, filter in memory, then paginate
-            // Note: For production with large datasets, consider adding indexed columns
-            const { count, rows: allNotifications } = await RazorpayNotification.findAndCountAll({
-                where,
-                limit: 1000, // Fetch up to 1000 records for filtering
-                offset: 0,
-                order: [['createdAt', 'DESC']]
-            });
+        const { count, rows: notifications } = await RazorpayNotification.findAndCountAll({
+            where,
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            order: [['createdAt', 'DESC']]
+        });
 
-            // Format and filter notifications
-            const filtered = allNotifications.map((notification) => {
-                const eventData = typeof notification.event_json === 'string' 
-                    ? JSON.parse(notification.event_json) 
-                    : notification.event_json;
+        totalCount = count;
 
-                // Apply JSON field filters
-                if (mid && eventData.mid?.toString() !== mid.toString()) {
-                    return null;
-                }
-                if (tid && eventData.tid?.toString() !== tid.toString()) {
-                    return null;
-                }
-                if (paymentMode && eventData.paymentMode !== paymentMode) {
-                    return null;
-                }
-                if (deviceSerial && eventData.deviceSerial?.toString() !== deviceSerial.toString()) {
-                    return null;
-                }
+        formattedNotifications = notifications.map((notification) => {
+            const eventData = typeof notification.event_json === 'string' 
+                ? JSON.parse(notification.event_json) 
+                : notification.event_json;
 
-                // Extract relevant fields from event_json
-                return {
-                    id: notification.id,
-                    txn_id: notification.txn_id,
-                    status: notification.status,
-                    createdAt: notification.createdAt,
-                    updatedAt: notification.updatedAt,
-                    amount: eventData.amount || null,
-                    amountOriginal: eventData.amountOriginal || null,
-                    currencyCode: eventData.currencyCode || null,
-                    mid: eventData.mid || null,
-                    tid: eventData.tid || null,
-                    deviceSerial: eventData.deviceSerial || null,
-                    paymentMode: eventData.paymentMode || null,
-                    paymentCardType: eventData.paymentCardType || null,
-                    paymentCardBrand: eventData.paymentCardBrand || null,
-                    customerName: eventData.customerName || null,
-                    payerName: eventData.payerName || null,
-                    settlementStatus: eventData.settlementStatus || null,
-                    postingDate: eventData.postingDate || null,
-                    rrNumber: eventData.rrNumber || null,
-                    txnType: eventData.txnType || null,
-                    orderId: eventData.orderId || null,
-                    event_json: eventData,
-                };
-            }).filter(item => item !== null);
-
-            totalCount = filtered.length;
-            
-            // Apply pagination
-            const startIndex = parseInt(offset);
-            const endIndex = startIndex + parseInt(limit);
-            formattedNotifications = filtered.slice(startIndex, endIndex);
-        } else {
-            // Normal pagination without JSON filters
-            const { count, rows: notifications } = await RazorpayNotification.findAndCountAll({
-                where,
-                limit: parseInt(limit),
-                offset: parseInt(offset),
-                order: [['createdAt', 'DESC']]
-            });
-
-            totalCount = count;
-
-            // Format notifications
-            formattedNotifications = notifications.map((notification) => {
-                const eventData = typeof notification.event_json === 'string' 
-                    ? JSON.parse(notification.event_json) 
-                    : notification.event_json;
-
-                return {
-                    id: notification.id,
-                    txn_id: notification.txn_id,
-                    status: notification.status,
-                    createdAt: notification.createdAt,
-                    updatedAt: notification.updatedAt,
-                    amount: eventData.amount || null,
-                    amountOriginal: eventData.amountOriginal || null,
-                    currencyCode: eventData.currencyCode || null,
-                    mid: eventData.mid || null,
-                    tid: eventData.tid || null,
-                    deviceSerial: eventData.deviceSerial || null,
-                    paymentMode: eventData.paymentMode || null,
-                    paymentCardType: eventData.paymentCardType || null,
-                    paymentCardBrand: eventData.paymentCardBrand || null,
-                    customerName: eventData.customerName || null,
-                    payerName: eventData.payerName || null,
-                    settlementStatus: eventData.settlementStatus || null,
-                    postingDate: eventData.postingDate || null,
-                    rrNumber: eventData.rrNumber || null,
-                    txnType: eventData.txnType || null,
-                    orderId: eventData.orderId || null,
-                    event_json: eventData
-                };
-            });
-        }
+            return {
+                id: notification.id,
+                txn_id: notification.txn_id,
+                status: notification.status,
+                createdAt: notification.createdAt,
+                updatedAt: notification.updatedAt,
+                amount: notification.amount || eventData.amount || null,
+                amountOriginal: eventData.amountOriginal || null,
+                currencyCode: notification.currency_code || eventData.currencyCode || null,
+                mid: notification.mid || eventData.mid || null,
+                tid: notification.tid || eventData.tid || null,
+                deviceSerial: notification.device_serial || eventData.deviceSerial || null,
+                paymentMode: notification.payment_mode || eventData.paymentMode || null,
+                paymentCardType: notification.payment_card_type || eventData.paymentCardType || null,
+                paymentCardBrand: notification.payment_card_brand || eventData.paymentCardBrand || null,
+                customerName: eventData.customerName || null,
+                payerName: eventData.payerName || null,
+                settlementStatus: eventData.settlementStatus || null,
+                postingDate: notification.posting_date || eventData.postingDate || null,
+                rrNumber: notification.rr_number || eventData.rrNumber || null,
+                txnType: eventData.txnType || null,
+                orderId: eventData.orderId || null,
+                event_json: eventData
+            };
+        });
 
         res.status(200).json({
             success: true,
