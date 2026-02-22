@@ -36,16 +36,10 @@ module.exports = {
         payment_card_type = (event_json->>'paymentCardType'),
         payment_card_brand = (event_json->>'paymentCardBrand'),
         rr_number = (event_json->>'rrNumber'),
-        device_serial = (event_json->>'deviceSerial'),
-        posting_date = CASE
-                          WHEN (event_json->>'postingDate') IS NULL THEN NULL
-                          -- numeric string → treat as Unix epoch milliseconds
-                          WHEN (event_json->>'postingDate') ~ '^\d+$' THEN
-                            to_timestamp(((event_json->>'postingDate')::bigint) / 1000.0)
-                          -- ISO / other date string → cast directly
-                          ELSE
-                            ((event_json->>'postingDate')::timestamptz)
-                        END
+        device_serial = (event_json->>'deviceSerial')
+        -- posting_date intentionally not backfilled: existing rows contain epoch-ms
+        -- values that vary in format. The webhook worker sets posting_date correctly
+        -- on all new events going forward; old rows will retain NULL.
     `);
   },
 
