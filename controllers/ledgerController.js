@@ -160,15 +160,25 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
         }
       }
 
+      const debit = parseFloat(entry.debit) || 0;
+      const credit = parseFloat(entry.credit) || 0;
+      const balanceBefore = parseFloat(entry.balance_before) || 0;
+      const balanceAfter = parseFloat(entry.balance) || 0;
+
       return {
         id: entry.id,
         transaction_type: entry.transaction_type,
         transaction_id: entry.transaction_id,
         reference_id: entry.reference_id,
+        reference_table: entry.reference_table,
         description: entry.description,
-        debit: parseFloat(entry.debit) || 0,
-        credit: parseFloat(entry.credit) || 0,
-        balance: parseFloat(entry.balance) || 0, // Running balance (remaining amount)
+        // Passbook display columns
+        balance_before: balanceBefore,            // Balance Before Transaction
+        debit: debit,                             // Debit  (money out)
+        credit: credit,                           // Credit (money in)
+        transaction_amount: debit || credit,      // Absolute transaction amount
+        balance_after: balanceAfter,              // Balance After Transaction (same as "balance")
+        balance: balanceAfter,                    // Alias kept for backward compatibility
         status: entry.status,
         metadata: metadata,
         created_at: entry.createdAt,
@@ -205,4 +215,90 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { listStatement, getLedgerEntries }
+/**
+ * GET /ledger/entries/:id
+ * Fetch a single ledger entry with full passbook row data plus the linked
+ * source record from reference_table (WalletTransaction, MerchantTransactionCharge, etc.)
+ */
+const getLedgerEntryDetails = asyncHandler(async (req, res) => {
+  try {
+    const ledgerId = parseInt(req.params.id);
+    if (!ledgerId || isNaN(ledgerId)) {
+      return res.status(400).json({ success: false, message: 'Valid ledger entry id is required' });
+    }
+
+    const { entry, linkedRecord } = await ledgerService.getLedgerEntryWithLinkedRecord(ledgerId);
+
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Ledger entry not found' });
+    }
+
+    // Role-based access: non-admin users can only read their own entries
+    const userRole = req.user?.role;
+    const userId = req.user?.id;
+
+    if (userRole !== 'admin' && entry.user_id !== userId) {
+      if (userRole === 'franchaise') {
+        // Franchise may view their merchants' entries
+        const machine = await PosMachine.findOne({
+          where: { franchaise_id: userId, assigned_user_id: entry.user_id }
+        });
+        if (!machine) {
+          return res.status(403).json({ success: false, message: 'Access denied' });
+        }
+      } else {
+        return res.status(403).json({ success: false, message: 'Access denied' });
+      }
+    }
+
+    // Parse metadata
+    let metadata = null;
+    if (entry.metadata) {
+      try {
+        metadata = typeof entry.metadata === 'string' ? JSON.parse(entry.metadata) : entry.metadata;
+      } catch (e) {
+        metadata = entry.metadata;
+      }
+    }
+
+    const debit = parseFloat(entry.debit) || 0;
+    const credit = parseFloat(entry.credit) || 0;
+    const balanceBefore = parseFloat(entry.balance_before) || 0;
+    const balanceAfter = parseFloat(entry.balance) || 0;
+
+    res.status(200).json({
+      success: true,
+      message: 'Ledger entry retrieved successfully',
+      data: {
+        id: entry.id,
+        user: entry.user || null,
+        transaction_type: entry.transaction_type,
+        transaction_id: entry.transaction_id,
+        reference_id: entry.reference_id,
+        reference_table: entry.reference_table,
+        description: entry.description,
+        // Passbook / statement columns
+        balance_before: balanceBefore,
+        debit: debit,
+        credit: credit,
+        transaction_amount: debit || credit,
+        balance_after: balanceAfter,
+        balance: balanceAfter,
+        status: entry.status,
+        metadata: metadata,
+        created_at: entry.createdAt,
+        updated_at: entry.updatedAt,
+        // Full source record for drill-down
+        linked_record: linkedRecord || null
+      }
+    });
+  } catch (error) {
+    console.error('Get ledger entry details error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong'
+    });
+  }
+});
+
+module.exports = { listStatement, getLedgerEntries, getLedgerEntryDetails };

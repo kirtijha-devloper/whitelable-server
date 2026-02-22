@@ -183,11 +183,18 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     });
 
     if (!posMachine) {
-      throw new Error(`POS Machine not found for mid: ${merchantId}, tid: ${terminalId}`);
+      console.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine not found for mid: ${merchantId}, tid: ${terminalId}. Notification stored without user link.`);
+      return;
     }
 
+    // Stamp the POS machine link on the notification immediately so the record
+    // is traceable even when no user is assigned yet.
+    await notification.update({ pos_machine_id: posMachine.id });
+
     if (!posMachine.assigned_user_id) {
-      throw new Error(`POS Machine not assigned to any merchant for mid: ${merchantId}, tid: ${terminalId}`);
+      console.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine (id: ${posMachine.id}) mid: ${merchantId}, tid: ${terminalId} has no assigned user. Financial processing skipped. Notification stored with pos_machine_id only.`);
+      // pos_machine_id is already stamped above; user_id stays null.
+      return;
     }
 
     // Step 2: Get merchant
@@ -195,8 +202,12 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const merchant = await User.findByPk(posMachine.assigned_user_id);
 
     if (!merchant) {
-      throw new Error(`Merchant not found with id: ${posMachine.assigned_user_id}`);
+      console.warn(`[Razorpay Webhook Worker] ⚠️ Merchant not found with id: ${posMachine.assigned_user_id} for txn: ${txnId}. Financial processing skipped.`);
+      return;
     }
+
+    // Stamp the merchant (user) link on the notification.
+    await notification.update({ user_id: merchant.id });
 
     console.log(`[Razorpay Webhook Worker] Found merchant: ${merchant.id} (${merchant.name || merchant.email})`);
 

@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { getPosTransactionReport, getWalletReport
+const { getPosTransactionReport, getWalletReport, getRazorpayNotificationReport
 } = require("../controllers/reportController");
 
 const validateToken = require("../middleware/validateTokenHandler");
@@ -10,6 +10,6 @@ router.use(validateToken);
 
 router.get("/pos-txn", getPosTransactionReport);
 router.get("/wallet", getWalletReport);
-
+router.get("/razorpay", getRazorpayNotificationReport); // User-wise Razorpay notification report
 
 module.exports = router;

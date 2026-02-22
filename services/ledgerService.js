@@ -2,6 +2,17 @@ const Ledger = require('../models/Ledger');
 const User = require('../models/User');
 const { Op } = require('sequelize');
 
+// ---------------------------------------------------------------------------
+// Map reference_table values to their Sequelize model files.
+// Loaded lazily to avoid circular-dependency issues at startup.
+// ---------------------------------------------------------------------------
+const REFERENCE_TABLE_MODEL_MAP = {
+  WalletTransactions: () => require('../models/WalletTransaction'),
+  MerchantTransactionCharges: () => require('../models/MerchantTransactionCharge'),
+  PayoutTransactions: () => require('../models/PayoutTransaction'),
+  Rentals: () => require('../models/Rental')
+};
+
 /**
  * Get the latest balance for a user from ledger
  * @param {number} userId - User ID
@@ -23,17 +34,27 @@ async function getLatestBalance(userId) {
 }
 
 /**
- * Create a ledger entry
- * @param {Object} params - Ledger entry parameters
- * @param {number} params.userId - User ID
- * @param {string} params.transactionType - Type of transaction
- * @param {string} params.transactionId - Transaction ID (optional)
- * @param {number} params.referenceId - Reference ID (optional)
- * @param {string} params.description - Description
- * @param {number} params.debit - Debit amount (default: 0)
- * @param {number} params.credit - Credit amount (default: 0)
- * @param {string} params.status - Status (default: 'completed')
- * @param {Object} params.metadata - Additional metadata (optional)
+ * Create a ledger entry.
+ *
+ * balance_before is computed automatically from the latest ledger row so callers
+ * never have to pass it manually. The resulting entry exposes:
+ *   balance_before  – wallet balance before this transaction
+ *   debit / credit  – transaction amount and direction
+ *   balance         – wallet balance after this transaction  (= balance_before + credit - debit)
+ *
+ * @param {Object}  params
+ * @param {number}  params.userId            – Owner's user ID
+ * @param {string}  params.transactionType   – Ledger category key
+ * @param {string}  [params.transactionId]   – External/Razorpay transaction ID
+ * @param {number}  [params.referenceId]     – PK of the related DB record
+ * @param {string}  [params.referenceTable]  – Table that referenceId belongs to
+ *                                             (WalletTransactions | MerchantTransactionCharges |
+ *                                              PayoutTransactions | Rentals)
+ * @param {string}  [params.description]     – Human-readable label
+ * @param {number}  [params.debit]           – Amount going OUT  (default 0)
+ * @param {number}  [params.credit]          – Amount coming IN  (default 0)
+ * @param {string}  [params.status]          – completed | pending | failed | cancelled
+ * @param {Object}  [params.metadata]        – Extra JSON context
  * @returns {Promise<Object>} Created ledger entry
  */
 async function createLedgerEntry({
@@ -41,51 +62,53 @@ async function createLedgerEntry({
   transactionType,
   transactionId = null,
   referenceId = null,
+  referenceTable = null,
   description = null,
   debit = 0,
   credit = 0,
   status = 'completed',
   metadata = null
 }) {
-  // Validate that either debit or credit is provided, but not both
+  // Validate amounts
   if (debit > 0 && credit > 0) {
     throw new Error('Cannot have both debit and credit in the same ledger entry');
   }
-
   if (debit === 0 && credit === 0) {
     throw new Error('Either debit or credit must be greater than 0');
   }
 
-  // Get current balance
-  const currentBalance = await getLatestBalance(userId);
+  // Capture current balance BEFORE applying this transaction
+  const balanceBefore = await getLatestBalance(userId);
 
-  // Calculate new balance
-  const newBalance = currentBalance + credit - debit;
+  // Calculate balance AFTER
+  const balanceAfter = balanceBefore + credit - debit;
 
-  // Prepare metadata
+  // Serialise metadata
   let metadataString = null;
   if (metadata) {
     metadataString = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
   }
 
-  // Create ledger entry
+  // Persist ledger entry
   const ledgerEntry = await Ledger.create({
     user_id: userId,
     transaction_type: transactionType,
     transaction_id: transactionId,
     reference_id: referenceId,
+    reference_table: referenceTable,
     description: description,
+    balance_before: parseFloat(balanceBefore) || 0,
     debit: parseFloat(debit) || 0,
     credit: parseFloat(credit) || 0,
-    balance: newBalance,
+    balance: balanceAfter,
     status: status,
     metadata: metadataString
   });
 
-  // Update user wallet balance to match ledger (for consistency)
+  // Keep user.wallet in sync with the ledger
   const user = await User.findByPk(userId);
   if (user) {
-    user.wallet = newBalance;
+    user.wallet = balanceAfter;
     await user.save();
   }
 
@@ -113,6 +136,7 @@ async function createRazorpayChargeEntry({
     transactionType: 'razorpay_credit',
     transactionId: razorpayTransactionId,
     referenceId: merchantTransactionChargeId,
+    referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description: description || `Razorpay transaction: ${razorpayTransactionId} - Amount: ₹${transactionAmount}`,
     credit: transactionAmount,
     status: 'completed',
@@ -128,6 +152,7 @@ async function createRazorpayChargeEntry({
     transactionType: 'razorpay_charge',
     transactionId: razorpayTransactionId,
     referenceId: merchantTransactionChargeId,
+    referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description: description || `Transaction charge deducted: ${razorpayTransactionId} - Charge: ₹${chargeAmount}`,
     debit: chargeAmount,
     status: 'completed',
@@ -189,6 +214,7 @@ async function createWalletTransactionEntry({
     transactionType: ledgerTransactionType,
     transactionId: `wallet_${walletTransactionId}`,
     referenceId: walletTransactionId,
+    referenceTable: 'WalletTransactions',
     description: description || `Wallet transaction: ${transactionType}`,
     debit,
     credit,
@@ -260,6 +286,7 @@ async function getLedgerEntries({
  * @param {number}  params.userId                   - ID of the user being credited (merchant or franchise)
  * @param {string}  params.razorpayTransactionId     - Razorpay txnId for reference
  * @param {number}  params.commissionAmount          - Commission amount to credit
+ * @param {number}  [params.merchantTransactionChargeId] - FK to MerchantTransactionCharges (optional)
  * @param {string}  [params.transactionType]         - Ledger transaction type (default: 'razorpay_commission')
  * @param {string}  [params.description]             - Human-readable description
  * @param {Object}  [params.metadata]                - Extra context (rate, payment method, etc.)
@@ -269,6 +296,7 @@ async function createCommissionEntry({
   userId,
   razorpayTransactionId,
   commissionAmount,
+  merchantTransactionChargeId = null,
   transactionType = 'razorpay_commission',
   description = null,
   metadata = null,
@@ -277,6 +305,8 @@ async function createCommissionEntry({
     userId,
     transactionType,
     transactionId: razorpayTransactionId,
+    referenceId: merchantTransactionChargeId,
+    referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description:
       description ||
       `Commission earned on Razorpay txn: ${razorpayTransactionId} — ₹${commissionAmount}`,
@@ -286,12 +316,120 @@ async function createCommissionEntry({
   });
 }
 
+/**
+ * Create a ledger debit entry for a rental charge.
+ *
+ * @param {Object} params
+ * @param {number}  params.userId       - ID of the user being debited
+ * @param {number}  params.rentalId     - FK to Rentals table
+ * @param {number}  params.amount       - Rental charge amount
+ * @param {string}  [params.description]
+ * @param {Object}  [params.metadata]
+ * @returns {Promise<Object>} Created ledger entry
+ */
+async function createRentalChargeEntry({
+  userId,
+  rentalId,
+  amount,
+  description = null,
+  metadata = null,
+}) {
+  return await createLedgerEntry({
+    userId,
+    transactionType: 'rental_charge',
+    referenceId: rentalId,
+    referenceTable: 'Rentals',
+    description: description || `Rental charge: ₹${amount}`,
+    debit: amount,
+    status: 'completed',
+    metadata,
+  });
+}
+
+/**
+ * Create a ledger debit entry for a payout transaction.
+ *
+ * @param {Object} params
+ * @param {number}  params.userId             - ID of the user being debited
+ * @param {number}  params.payoutTransactionId - FK to PayoutTransactions table
+ * @param {number}  params.amount             - Payout amount (including service charge)
+ * @param {string}  [params.description]
+ * @param {string}  [params.status]
+ * @param {Object}  [params.metadata]
+ * @returns {Promise<Object>} Created ledger entry
+ */
+async function createPayoutEntry({
+  userId,
+  payoutTransactionId,
+  amount,
+  description = null,
+  status = 'completed',
+  metadata = null,
+}) {
+  return await createLedgerEntry({
+    userId,
+    transactionType: 'payout',
+    referenceId: payoutTransactionId,
+    referenceTable: 'PayoutTransactions',
+    description: description || `Payout: ₹${amount}`,
+    debit: amount,
+    status,
+    metadata,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Passbook / statement helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a single ledger entry plus the full linked record from reference_table.
+ *
+ * @param {number} ledgerId - Ledger entry PK
+ * @returns {Promise<Object>} { entry, linkedRecord }
+ */
+async function getLedgerEntryWithLinkedRecord(ledgerId) {
+  const entry = await Ledger.findByPk(ledgerId, {
+    include: [
+      {
+        model: User,
+        as: 'user',
+        attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name']
+      }
+    ]
+  });
+
+  if (!entry) {
+    return { entry: null, linkedRecord: null };
+  }
+
+  let linkedRecord = null;
+
+  if (entry.reference_table && entry.reference_id) {
+    const modelFactory = REFERENCE_TABLE_MODEL_MAP[entry.reference_table];
+    if (modelFactory) {
+      try {
+        const Model = modelFactory();
+        linkedRecord = await Model.findByPk(entry.reference_id);
+      } catch (err) {
+        // Non-fatal – return entry without linked record
+        console.warn(`Could not fetch linked record from ${entry.reference_table}:`, err.message);
+      }
+    }
+  }
+
+  return { entry, linkedRecord };
+}
+
 module.exports = {
   createLedgerEntry,
   createRazorpayChargeEntry,
   createWalletTransactionEntry,
   createCommissionEntry,
+  createRentalChargeEntry,
+  createPayoutEntry,
   getLedgerEntries,
+  getLedgerEntryWithLinkedRecord,
   getLatestBalance
 };
 
