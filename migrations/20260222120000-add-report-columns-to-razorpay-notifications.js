@@ -71,7 +71,7 @@ module.exports = {
       SET
         mid = (event_json->>'mid'),
         tid = (event_json->>'tid'),
-        amount = ((event_json->>'amount')::bigint),
+        amount = CASE WHEN (event_json->>'amount') IS NOT NULL AND (event_json->>'amount') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN ((event_json->>'amount')::numeric::bigint) ELSE NULL END,
         currency_code = (event_json->>'currencyCode'),
         payment_mode = (event_json->>'paymentMode'),
         payment_card_type = (event_json->>'paymentCardType'),

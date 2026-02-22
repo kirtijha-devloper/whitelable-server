@@ -15,23 +15,22 @@
  */
 module.exports = {
   async up(queryInterface, Sequelize) {
+    // Use raw SQL with IF NOT EXISTS so this is safe to run on environments
+    // where the old 20260222000003 migration already created these indexes.
+
     // Primary report index: user + date range
-    await queryInterface.addIndex(
-      'razorpay_notifications',
-      ['user_id', 'posting_date'],
-      { name: 'idx_razorpay_user_posting_date' }
+    await queryInterface.sequelize.query(
+      'CREATE INDEX IF NOT EXISTS idx_razorpay_user_posting_date ON razorpay_notifications (user_id, posting_date)'
     );
 
     // Admin / unlinked reports filtered by status + date
-    await queryInterface.addIndex(
-      'razorpay_notifications',
-      ['status', 'posting_date'],
-      { name: 'idx_razorpay_status_posting_date' }
+    await queryInterface.sequelize.query(
+      'CREATE INDEX IF NOT EXISTS idx_razorpay_status_posting_date ON razorpay_notifications (status, posting_date)'
     );
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.removeIndex('razorpay_notifications', 'idx_razorpay_status_posting_date');
-    await queryInterface.removeIndex('razorpay_notifications', 'idx_razorpay_user_posting_date');
+    await queryInterface.sequelize.query('DROP INDEX IF EXISTS idx_razorpay_status_posting_date');
+    await queryInterface.sequelize.query('DROP INDEX IF EXISTS idx_razorpay_user_posting_date');
   }
 };
