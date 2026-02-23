@@ -1,6 +1,8 @@
+// load environment variables from project root .env regardless of cwd
+require('dotenv').config({ path: __dirname + '/.env' });
+
 const express = require("express");
 const { errorHandler } = require("./middleware/errorHandler");
-const dotenv = require("dotenv").config();
 const connectDb = require("./config/dbConnection");
 const db = require('./config/database');
 // initialize model associations (models export .associate but need to be invoked)
