@@ -62,7 +62,8 @@ app.use("/api/franchaise", require("./routes/franchaiseRoutes"));
 app.use("/api/merchant", require("./routes/merchantRoutes"));
 app.use('/api/payment/v1', require('./routes/payments/sddsRoutes'));
 app.use('/api/payment/v2', require('./routes/payments/branchxRoutes'));
-app.use('/api/credit-bill',require('./routes/cc/billAvenue/creditBillRoutes') )
+app.use('/api/credit-bill', require('./routes/cc/billAvenue/creditBillRoutes'));
+app.use('/api/bbps-cc', require('./routes/cc/bbps/bbpsCCBillRoutes'));
 app.use('/api/wallet', require('./routes/walletTransactionRoutes'));
 app.use('/api/charge', require('./routes/chargeRoutes'));
 app.use('/api/pos-charge', require('./routes/posChargeRoutes'));
