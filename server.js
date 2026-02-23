@@ -81,8 +81,8 @@ app.use('/api/razorpay', require('./routes/razorpay/webhook/notificationRoutes')
 
 app.get('/api/ping', (req, res) => res.send('Server is running!'));
 
-// debug helper – exposes current IPAY_CLIENT_ID (remove in production)
-app.get('/debug/ipay', (req, res) => {
+// debug helper – exposes current IPAY env vars (remove in production)
+app.get('/api/debug/ipay', (req, res) => {
   const id = process.env.IPAY_OUTLET_ID || null;
   console.log('[debug/ipay] IPAY_CLIENT_ID=', id);
   if (id) {
