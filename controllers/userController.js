@@ -13,6 +13,13 @@ const PosTransactionCharge = require('../models/PosTransactionCharge');
 const PayoutCharge = require('../models/PayoutCharge');
 const Rental = require('../models/Rental');
 
+const cloudinary = require("cloudinary").v2;
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 const getUsers = asyncHandler(async (req, res) => {
     try {
         const { 
@@ -204,17 +211,17 @@ const registerUser = asyncHandler(async (req, res) => {
     try {
         const { email, password, role } = req.body;
         const mobileNumber = req.body.mobile_number;
-        
+
         if (!mobileNumber || !password || !role || !email) {
             res.status(400);
             throw new Error("All fields are mandatory!");
         }
 
-        const userAvailable = await User.findOne({ 
-            where: { 
-                mobile_number: mobileNumber, 
-                status: "active" 
-            } 
+        const userAvailable = await User.findOne({
+            where: {
+                mobile_number: mobileNumber,
+                status: "active"
+            }
         });
 
         if (userAvailable) {
@@ -224,83 +231,149 @@ const registerUser = asyncHandler(async (req, res) => {
 
         const hashPassword = await bcrypt.hash(password, 10);
 
+        // Normalise role: frontend sends "franchise", DB stores "franchaise"
+        const normalizedRole = role === 'franchise' ? 'franchaise' : role;
+
         let abheepay_id = '';
         let abheepayPrefix = '';
         let count = 0;
-        
-        if (role == 'merchant') {
+
+        if (normalizedRole === 'merchant') {
             abheepayPrefix = 'APM';
             count = await User.count({ where: { role: 'merchant' } });
             abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        } else if (role == 'franchaise') {
+        } else if (normalizedRole === 'franchaise') {
             abheepayPrefix = 'APF';
             count = await User.count({ where: { role: 'franchaise' } });
             abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        } else if (role == 'admin') {
+        } else if (normalizedRole === 'admin') {
             abheepayPrefix = 'APA';
             count = await User.count({ where: { role: 'admin' } });
-            if (count == 0) { count = 1; }
+            if (count === 0) { count = 1; }
             abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
         }
 
+        // Handle file uploads to Cloudinary
+        const panFile      = req.files?.pan_photo;
+        const aadharFile   = req.files?.aadhar_photo;
+        const aadharBkFile = req.files?.aadhar_back_photo;
+        const shopFile     = req.files?.shop_photo;
+
+        const [panUrl, aadharUrl, aadharBkUrl, shopUrl] = await Promise.all([
+            panFile      ? cloudinary.uploader.upload(panFile.tempFilePath,      { folder: 'users' }) : null,
+            aadharFile   ? cloudinary.uploader.upload(aadharFile.tempFilePath,   { folder: 'users' }) : null,
+            aadharBkFile ? cloudinary.uploader.upload(aadharBkFile.tempFilePath, { folder: 'users' }) : null,
+            shopFile     ? cloudinary.uploader.upload(shopFile.tempFilePath,     { folder: 'users' }) : null,
+        ]);
+
         const user = await User.create({
-            email: email,
+            email,
             password: hashPassword,
-            role: role,
+            role: normalizedRole,
             mobile_number: mobileNumber,
-            mobile_number_country_code: (req.body.mobile_number_country_code || "+91"),
-            abheepay_id: abheepay_id,
+            mobile_number_country_code: req.body.mobile_number_country_code || '+91',
+            abheepay_id,
             name: req.body.name,
+            gender: req.body.gender,
+            dob: req.body.dob || null,
+            address1: req.body.address1,
+            address2: req.body.address2,
+            city: req.body.city,
+            district: req.body.district,
+            pincode: req.body.pincode,
+            state: req.body.state,
+            aadhar_number: req.body.aadhar_number,
+            pan_number: req.body.pan_number,
+            pan_number_url:        panUrl?.secure_url    || null,
+            aadhar_number_url:     aadharUrl?.secure_url || null,
+            aadhar_back_number_url: aadharBkUrl?.secure_url || null,
+            shop_with_photo_url:   shopUrl?.secure_url   || null,
+            settlement_type: req.body.settlement_type || 'today_settlement',
             is_approved: false,
-            status: "active",
-            ...(req.user && req.user.role === "franchaise" && role === "merchant" && { franchaise_id: req.user.id })
+            status: 'active',
+            ...(req.user && req.user.role === 'franchaise' && normalizedRole === 'merchant' && { franchaise_id: req.user.id }),
         });
 
-        console.log("User created", user);
+        console.log('User created', user);
 
         if (!user) {
             res.status(400);
-            throw new Error("User is not valid!");
+            throw new Error('User is not valid!');
+        }
+
+        // Assign POS machines if provided
+        let posAssigned = false;
+        let posAssignError = null;
+        if (req.body.pos_machine_ids) {
+            try {
+                const posMachineIds = JSON.parse(req.body.pos_machine_ids);
+                if (Array.isArray(posMachineIds) && posMachineIds.length > 0) {
+                    await PosMachine.update(
+                        {
+                            status: 'active',
+                            ...(normalizedRole === 'franchaise' && { franchaise_id: user.id }),
+                            ...(normalizedRole === 'merchant'   && { assigned_user_id: user.id }),
+                        },
+                        { where: { id: posMachineIds } }
+                    );
+                    if (normalizedRole === 'merchant') {
+                        user.is_pos_asigned = true;
+                        await user.save();
+                    }
+                    posAssigned = true;
+                }
+            } catch (posErr) {
+                posAssignError = posErr.message;
+                console.error('Failed to assign POS machines:', posErr);
+            }
         }
 
         // Send SMS with user ID and password after successful registration
         let smsSent = false;
         let smsError = null;
-        
         try {
             await sendRegistrationSms(user.mobile_number, user.abheepay_id || user.id, password);
             smsSent = true;
             console.log(`Registration SMS sent successfully to ${user.mobile_number}`);
         } catch (smsErr) {
-            smsError = smsErr.message || "Failed to send SMS";
-            console.error("Failed to send registration SMS:", smsErr);
-            // Note: Registration is still successful even if SMS fails
-            // This is intentional to not block user registration due to SMS service issues
+            smsError = smsErr.message || 'Failed to send SMS';
+            console.error('Failed to send registration SMS:', smsErr);
         }
+
+        const userPayload = {
+            id: user.id,
+            email: user.email,
+            mobile_number: user.mobile_number,
+            abheepay_id: user.abheepay_id,
+            role: user.role,
+        };
 
         res.status(201).json({
             success: true,
-            message: "User registered successfully",
-            data: {
-                id: user.id,
-                email: user.email,
-                mobile_number: user.mobile_number,
-                abheepay_id: user.abheepay_id,
-                role: user.role
+            message: 'User registered successfully',
+            // "user" key: matches frontend usage of resp.user.id
+            user: userPayload,
+            // "data" key: kept for backwards compatibility
+            data: userPayload,
+            pos: {
+                assigned: posAssigned,
+                message: posAssigned
+                    ? 'POS machines assigned successfully'
+                    : posAssignError || 'No POS machines assigned',
             },
             sms: {
                 sent: smsSent,
-                message: smsSent 
-                    ? "Registration details sent via SMS" 
-                    : `Registration successful, but SMS could not be sent: ${smsError || 'Unknown error'}`
-            }
+                message: smsSent
+                    ? 'Registration details sent via SMS'
+                    : `Registration successful, but SMS could not be sent: ${smsError || 'Unknown error'}`,
+            },
         });
-        
+
     } catch (error) {
-        console.error("Registration error:", error);
+        console.error('Registration error:', error);
         res.status(500).json({
             success: false,
-            message: error.message || "Something went wrong",
+            message: error.message || 'Something went wrong',
         });
     }
 });

@@ -41,11 +41,14 @@ const fileUploadMiddleware = fileUpload({
 });
 
 app.use((req, res, next) => {
-  // Apply fileUpload only to merchant/franchaise onboard routes
+  // Apply fileUpload only to routes that handle file uploads
   if (req.path.startsWith('/api/merchant/') && req.path.endsWith('/onboard')) {
     return fileUploadMiddleware(req, res, next);
   }
   if (req.path.startsWith('/api/franchaise/') && req.path.endsWith('/onboard')) {
+    return fileUploadMiddleware(req, res, next);
+  }
+  if (req.path === '/api/user/register') {
     return fileUploadMiddleware(req, res, next);
   }
   next();
