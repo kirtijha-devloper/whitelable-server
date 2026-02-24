@@ -1,5 +1,5 @@
 const express = require("express");
-const {onBoardUser, getUsers, getUserById, updateUserStatus, listMerchantTransactionCharges}  = require("../controllers/merchantController");
+const {onBoardUser, getUsers, getUserById, updateUserStatus, listMerchantTransactionCharges, setIpayOutletId}  = require("../controllers/merchantController");
 const router = express.Router();
 const validateToken = require("../middleware/validateTokenHandler");
 
@@ -18,6 +18,7 @@ router.get('/', getUsers); // List users
 router.get('/transaction-charges', listMerchantTransactionCharges); // List merchant transaction charges (deducted amounts)
 router.get('/:id', getUserById); // Get single user
 router.put('/:id/status', updateUserStatus); // Update user status
+router.put('/:id/ipay-outlet', setIpayOutletId); // Set InstantPay outlet ID for merchant
 
 
 module.exports = router;

@@ -551,7 +551,8 @@ const sendOtp = asyncHandler(async (req, res) => {
                     id: user.id,  
                     name: user.name, 
                     mobile_number: user.mobile_number, 
-                    role: user.role 
+                    role: user.role,
+                    ipay_outlet_id: user.ipay_outlet_id || null
                 } 
             },
             process.env.ACCESS_TOKEN_SECRET,
@@ -642,7 +643,8 @@ const sendOtp = asyncHandler(async (req, res) => {
                     id: user.id,  
                     name: user.name, 
                     mobile_number: user.mobile_number, 
-                    role: user.role 
+                    role: user.role,
+                    ipay_outlet_id: user.ipay_outlet_id || null
                 } 
             },
             process.env.ACCESS_TOKEN_SECRET,

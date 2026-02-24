@@ -104,6 +104,11 @@ const User = db.define('User', {
         //   key: 'id'
         // }
       },
+      ipay_outlet_id: {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+        comment: 'InstantPay outlet ID assigned to this merchant (PHP: session outlet)'
+      },
       createdAt: {
           allowNull: false,
           type: Sequelize.DATE,

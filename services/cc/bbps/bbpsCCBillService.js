@@ -17,8 +17,11 @@ const axios = require('axios');
 const BASE_URL = 'https://api.instantpay.in/marketplace/utilityPayments';
 const CC_CATEGORY_KEY = 'C15';
 
-/** Build InstantPay request headers. outletId can be per-user or fall back to env. */
+/** Build InstantPay request headers. outletId can be per-user or fall back to env.
+ *  PHP uses intval(session('outlet')), so we always send a number, never a string.
+ */
 function buildHeaders(outletId) {
+  const resolvedOutlet = parseInt(outletId || process.env.IPAY_OUTLET_ID, 10);
   return {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
@@ -26,7 +29,7 @@ function buildHeaders(outletId) {
     'X-Ipay-Client-Id': process.env.IPAY_CLIENT_ID,
     'X-Ipay-Client-Secret': process.env.IPAY_CLIENT_SECRET,
     'X-Ipay-Endpoint-Ip': process.env.IPAY_ENDPOINT_IP,
-    'X-Ipay-Outlet-Id': outletId || process.env.IPAY_OUTLET_ID,
+    'X-Ipay-Outlet-Id': isNaN(resolvedOutlet) ? undefined : resolvedOutlet,
   };
 }
 

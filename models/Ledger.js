@@ -101,10 +101,14 @@ const Ledger = db.define('Ledger', {
  * integer FK cannot be constrained to multiple tables simultaneously.
  */
 Ledger.associate = function (models) {
-  // Every ledger entry belongs to a wallet owner
+  // Every ledger entry belongs to a wallet owner.
+  // constraints: false — the FK is managed via migrations, not db.sync.
+  // Without this flag, db.sync({ alter: true }) would try to ADD CONSTRAINT in
+  // PostgreSQL, which fails when orphaned rows exist ('Ledgers_user_id_fkey').
   Ledger.belongsTo(models.User, {
     foreignKey: 'user_id',
-    as: 'user'
+    as: 'user',
+    constraints: false
   });
 };
 

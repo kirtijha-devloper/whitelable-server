@@ -4,9 +4,15 @@ const bbpsCCBillService = require('../../../services/cc/bbps/bbpsCCBillService')
 /**
  * Helper: resolve outlet ID from JWT user payload or header fallback.
  * PHP equivalent: intval(session('outlet'))
+ * Returns an integer, as InstantPay requires a valid numeric outletId.
  */
-const getOutletId = (req) =>
-  req.user?.outlet_id || req.headers['x-outlet-id'] || process.env.IPAY_OUTLET_ID;
+const getOutletId = (req) => {
+  const raw = req.user?.ipay_outlet_id
+    || req.headers['x-outlet-id']
+    || process.env.IPAY_OUTLET_ID;
+  const parsed = parseInt(raw, 10);
+  return isNaN(parsed) ? null : parsed;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/bbps-cc/categories

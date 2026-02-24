@@ -367,4 +367,41 @@ const listMerchantTransactionCharges = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = {onBoardUser, getUserById, getUsers, updateUserStatus, listMerchantTransactionCharges}
+/**
+ * PUT /api/merchant/:id/ipay-outlet
+ * Set (or update) the InstantPay outlet ID for a merchant.
+ * PHP equivalent: the outlet stored in session('outlet') per user.
+ * Admin / franchaise only.
+ */
+const setIpayOutletId = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { ipay_outlet_id } = req.body;
+
+  if (!ipay_outlet_id && ipay_outlet_id !== 0) {
+    res.status(400);
+    throw new Error('ipay_outlet_id is required');
+  }
+
+  const parsed = parseInt(ipay_outlet_id, 10);
+  if (isNaN(parsed)) {
+    res.status(400);
+    throw new Error('ipay_outlet_id must be a valid integer');
+  }
+
+  const user = await User.findByPk(id);
+  if (!user || user.role !== 'merchant') {
+    res.status(404);
+    throw new Error('Merchant not found');
+  }
+
+  user.ipay_outlet_id = parsed;
+  await user.save();
+
+  return res.status(200).json({
+    success: true,
+    message: 'InstantPay outlet ID updated',
+    data: { id: user.id, ipay_outlet_id: user.ipay_outlet_id }
+  });
+});
+
+module.exports = {onBoardUser, getUserById, getUsers, updateUserStatus, listMerchantTransactionCharges, setIpayOutletId}
