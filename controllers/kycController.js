@@ -60,7 +60,11 @@ function ipayHeaders() {
  *   latitude, longitude, consent
  */
 const initiateKyc = asyncHandler(async (req, res) => {
-  const {
+  // allow frontend to omit fields that already exist on the user record
+  const userId = req.user?.id;
+
+  // destructure as lets so we can reassign from user if needed
+  let {
     mobile,
     email,
     aadhaar,
@@ -71,6 +75,22 @@ const initiateKyc = asyncHandler(async (req, res) => {
     longitude,
     consent,
   } = req.body;
+
+  let existingUser;
+  if (userId) {
+    existingUser = await User.findByPk(userId);
+    if (existingUser) {
+      // if an outlet ID already exists, we consider KYC done and block re-initiation
+      if (existingUser.ipay_outlet_id) {
+        res.status(400);
+        throw new Error('KYC is already completed for this user.');
+      }
+      mobile = mobile || existingUser.mobile_number;
+      email = email || existingUser.email;
+      aadhaar = aadhaar || existingUser.aadhar_number;
+      pan = pan || existingUser.pan_number;
+    }
+  }
 
   // Basic presence validation
   const required = { mobile, email, aadhaar, pan, bankAccountNo, bankIfsc, consent };
@@ -186,4 +206,45 @@ const validateKycOtp = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { initiateKyc, validateKycOtp };
+/**
+ * GET /api/kyc/info
+ *
+ * Returns the basic attributes that the frontend should show on the form
+ * so the merchant/franchisee doesn't have to re‑enter them.  Also includes
+ * the ipay_outlet_id value which can be used as a boolean KYC-complete flag.
+ */
+const getKycInfo = asyncHandler(async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401);
+    throw new Error('Unauthorized');
+  }
+
+  const user = await User.findByPk(userId, {
+    attributes: [
+      'mobile_number',
+      'email',
+      'pan_number',
+      'aadhar_number',
+      'ipay_outlet_id',
+    ],
+  });
+
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  res.status(200).json({
+    success: true,
+    data: {
+      mobile: user.mobile_number,
+      email: user.email,
+      pan: user.pan_number,
+      aadhaar: user.aadhar_number,
+      kycDone: !!user.ipay_outlet_id,
+    },
+  });
+});
+
+module.exports = { initiateKyc, validateKycOtp, getKycInfo };

@@ -337,4 +337,73 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getPosTransactionReport, getWalletReport, getRazorpayNotificationReport };
+
+/**
+ * GET /report/users
+ *
+ * Returns a filtered list of users for reporting purposes. This mirrors the
+ * behaviour of `userController.getUsers` but lives under the `report` namespace
+ * so that frontends can treat it as part of the reporting suite.
+ *
+ * Query params:
+ *   status, role, page, limit
+ *
+ * Access rules:
+ *   - admin: can see everyone and apply arbitrary filters
+ *   - franchise: can only see users where franchaise_id === their own id
+ *   - others: see only themselves (not terribly useful but included for safety)
+ */
+const getUserReport = asyncHandler(async (req, res) => {
+  try {
+    const { status, role, page = 1, limit = 10 } = req.query;
+    const userRole = req.user?.role;
+    const userId = req.user?.id;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const where = {};
+
+    if (userRole === 'franchaise') {
+      where.franchaise_id = userId;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (role) {
+      where.role = role;
+    }
+
+    // If non-admin and non-franchise, restrict to self for extra safety
+    if (userRole !== 'admin' && userRole !== 'franchaise') {
+      where.id = userId;
+    }
+
+    const { count, rows: users } = await User.findAndCountAll({
+      where,
+      limit: parseInt(limit),
+      offset,
+      order: [['createdAt', 'DESC']],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'User report fetched successfully',
+      data: users,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching user report:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong',
+    });
+  }
+});
+
+module.exports = { getPosTransactionReport, getWalletReport, getRazorpayNotificationReport, getUserReport };

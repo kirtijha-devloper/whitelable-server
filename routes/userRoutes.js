@@ -21,6 +21,9 @@ router.post("/forgot-password", forgotPassword);
 router.get("/", validateToken, getUsers);
 router.get("/current", validateToken, currentUser);
 router.get("/:id", validateToken, getUserByID);
+// change password
+//  - admin users may reset any account by sending { id, newPassword }
+//  - non-admins must supply their own id plus { currentPassword, newPassword }
 router.put("/update-password", validateToken, updatePassword);
 
 // 📌 TPIN Routes

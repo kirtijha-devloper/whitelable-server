@@ -455,25 +455,47 @@ const approveUser = asyncHandler( async (req, res) => {
         });
 
     const updatePassword = asyncHandler(async (req, res) => {
-        const { id, password } = req.body;
+        // Support two modes:
+        // 1. Admin may reset any user's password by supplying { id, newPassword }.
+        // 2. Non-admin users may change their own password by supplying
+        //    { id, currentPassword, newPassword }.
+        const { id, currentPassword, newPassword } = req.body;
 
-        if (!id || !password) {
+        if (!id || !newPassword) {
             res.status(400);
-            throw new Error("All fields are mandatory!");
+            throw new Error("User ID and newPassword are required");
         }
 
-        if (req.user.id !== Number(id)) {
-            res.status(401);
-            throw new Error("You are not authorized.");
-        }
+        const targetId = Number(id);
+        const requester = req.user;
 
-        const user = await User.findByPk(id);
+        // load target user record
+        const user = await User.findByPk(targetId);
         if (!user) {
             res.status(404);
             throw new Error("User not found.");
         }
 
-        const hashPassword = await bcrypt.hash(password, 10);
+        if (requester.role === 'admin') {
+            // Admin may change anyone's password without further checks
+        } else {
+            // Non-admins can only change their own password
+            if (requester.id !== targetId) {
+                res.status(401);
+                throw new Error("You are not authorized to change this password.");
+            }
+            if (!currentPassword) {
+                res.status(400);
+                throw new Error("currentPassword is required to change your password");
+            }
+            const match = await bcrypt.compare(currentPassword, user.password);
+            if (!match) {
+                res.status(401);
+                throw new Error("Current password is incorrect.");
+            }
+        }
+
+        const hashPassword = await bcrypt.hash(newPassword, 10);
         user.password = hashPassword;
         await user.save();
 

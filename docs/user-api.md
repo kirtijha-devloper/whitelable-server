@@ -171,4 +171,110 @@ const response = await fetch('/api/user/register', {
 
 ---
 
-Refer to the other endpoints in this document for login, password reset, OTP handling, etc. (to be added as needed).
+## Authentication & OTP
+
+These routes live under `/api/user` and are used to obtain and verify credentials.
+
+### POST `/login`
+Public. Body: `{ mobile_number, password }`.
+
+- Validates credentials and, if correct, sends an OTP to the provided number.
+- Response: `{ success: true, message: "OTP sent successfully" }` or `401` when invalid.
+
+### POST `/verify-otp`
+Public. Body: `{ mobile_number, otp, purpose }` where `purpose` is one of
+`login`, `forgot_password`, `registration`, or `tpin`.
+
+- If `purpose === "login"`, a JWT token is issued in the response along with
+  `success: true`.
+- Supports a hardcoded magic OTP (`112233`) and bypass mobile (`8873962933`) for
+  development.
+
+### POST `/send-otp`
+Protected. Token required.
+Body: `{ mobile_number, purpose }` (`login`, `forgot_password`, `tpin`, or
+`registration`).
+
+- Sends an OTP to the specified number. Use when the frontend needs to request
+  an OTP explicitly (e.g. during registration or password recovery).
+
+
+## Retrieving Users
+
+### GET `/`
+Protected. Returns a paginated list of users.
+
+Query parameters:
+- `status` (optional) – filter by user status (`active`, etc.)
+- `role` (optional) – filter by role (`merchant`, `franchaise`, `admin`)
+- `page`, `limit` – pagination controls (default `1` and `10`).
+
+Access is role-based:
+- `franchaise` users only see merchants linked to them (`where.franchaise_id`).
+- Admins see everything.
+
+Response structure includes `data`, `pagination` metadata.
+
+### GET `/current`
+Protected. Returns the profile of the authenticated user along with wallet
+balances and a flag indicating whether a T‑PIN is set.
+
+### GET `/:id`
+Protected. Retrieves a specific user by ID.
+
+Query option `is_pos_detail_required=true` will also return active POS machine
+assignments (for merchants/franchisees). Pricing/charge information is included
+for `merchant` or when the requester is an `admin`.
+
+Role-based access:
+- Merchants may only fetch their own record.
+- Franchisees may not fetch other franchisees and can only view their own
+  merchants.
+- Admins have unrestricted access.
+
+
+## Password Endpoints
+
+### PUT `/update-password`
+Protected. Dual-mode endpoint:
+
+1. **Admin reset** – JWT role must be `admin`. Body `{ id, newPassword }`.
+   Admin may reset any account without supplying the current password.
+2. **Self change** – Non-admins must supply `{ id, currentPassword, newPassword }`.
+   The `id` must equal the ID encoded in the JWT. The current password is
+   verified before updating.
+
+Returns `200` with message on success.
+
+### POST `/forgot-password`
+Public. Body `{ mobile_number }`.
+
+Sends an OTP for password recovery; response always reports success to avoid
+enumerating valid numbers.
+
+### POST `/reset-password`
+Public. Body `{ new_password, reset_token }`.
+
+The `reset_token` comes from the `/verify-otp` response when purpose was
+`forgot_password`. Token is verified and used to look up the user. Password is
+updated with bcrypt hash.
+
+
+## T-PIN Endpoints
+
+### POST `/tpin`
+Protected. Body `{ tpin? }` (optional 6-digit PIN). Generates or updates a
+T-PIN stored in the `tpin` table for the logged-in user. Returns the PIN.
+
+### POST `/tpin/verify`
+Protected. Body `{ tpin }`. Validates the submitted PIN against the stored
+hash; checks expiration (15 days). Returns success or appropriate error.
+
+
+---
+
+*All responses are JSON. Error conditions use standard HTTP status codes and
+contain an `message` field describing the problem.*
+
+Refer back to this document whenever the frontend needs to integrate with the
+user-management API.

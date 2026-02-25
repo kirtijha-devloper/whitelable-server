@@ -8,11 +8,17 @@ All endpoints require a valid JWT access token in the `Authorization` header.
 
 ## Overview
 
-KYC (Know Your Customer) verification is a two-step flow:
+KYC (Know Your Customer) verification is a three-step flow:
 
 ```
+Step 0 – GET /api/kyc/info
+  └─ Retrieve basic user details (mobile, email, PAN, Aadhaar) and a flag
+     indicating if KYC is already done.  Use these values to pre‑fill the
+     form on the frontend.
+
 Step 1 – POST /api/kyc/initiate
-  └─ Submit merchant details → InstantPay sends an OTP to the registered mobile
+  └─ Submit merchant details (missing fields are filled from the user record) →
+     InstantPay sends an OTP to the registered mobile
 
 Step 2 – POST /api/kyc/validate-otp
   └─ Submit the OTP → InstantPay verifies it → outletId is saved on the user record
@@ -27,6 +33,10 @@ Every request must include a Bearer token:
 ```
 Authorization: Bearer <access_token>
 ```
+
+> 💡 *Note:* the new `GET /api/kyc/info` also requires authentication and can
+> be called immediately after login to determine whether the user needs to
+> complete KYC and to populate the form fields.
 
 ---
 
