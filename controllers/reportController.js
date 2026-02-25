@@ -6,6 +6,53 @@ const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 const RazorpayNotification = require("../models/RazorpayNotification");
 
+// Admin-only full notifications list
+const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
+  const userRole = req.user?.role;
+  if (userRole !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+
+  const { page = 1, limit = 50 } = req.query;
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const limitNum = Math.min(50, Math.max(1, parseInt(limit) || 50));
+  const offset = (pageNum - 1) * limitNum;
+
+  const { count, rows } = await RazorpayNotification.findAndCountAll({
+    order: [['id', 'DESC']],
+    limit: limitNum,
+    offset,
+    include: [
+      {
+        model: User,
+        as: 'user',
+        required: false,
+        attributes: ['id', 'name', 'email', 'mobile_number']
+      },
+      {
+        model: PosMachine,
+        as: 'posMachine',
+        required: false,
+        attributes: ['id', 'mid_number', 'tid_number']
+      }
+    ],
+    subQuery: false
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'All Razorpay notifications fetched',
+    count,
+    pagination: {
+      total: count,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(count / limitNum)
+    },
+    data: rows
+  });
+});
+
 const getDateRange = (startDate, endDate) => {
   const start = new Date(startDate);
   start.setHours(0, 0, 0, 0);
@@ -406,4 +453,4 @@ const getUserReport = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getPosTransactionReport, getWalletReport, getRazorpayNotificationReport, getUserReport };
+module.exports = { getPosTransactionReport, getWalletReport, getRazorpayNotificationReport, getUserReport, getAllRazorpayNotifications };
