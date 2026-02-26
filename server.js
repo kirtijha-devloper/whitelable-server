@@ -82,6 +82,8 @@ app.use('/api/complaint', require('./routes/complaintRoutes'));
 app.use('/api/report', require('./routes/reportRoutes'));
 app.use('/api/kyc', require('./routes/kycRoutes'));
 app.use('/api/razorpay', require('./routes/razorpay/webhook/notificationRoutes'));
+// Direct-login feature: DL token management (admin-protected) + exchange endpoint (uses dl_token as credential)
+app.use('/api/admin',   require('./routes/directLoginRoutes'));
 
 app.get('/api/ping', (req, res) => res.send('Server is running!'));
 
