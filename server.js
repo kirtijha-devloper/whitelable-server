@@ -17,17 +17,25 @@ const app = express();
 
 const port = process.env.PORT || 5000;
 const cors = require('cors');
-// For Production
-// const allowedOrigins = [process.env.DOMAIN_NAME, process.env.STAGING_DOMAIN_NAME];
-// app.use(cors({
-//   origin: function(origin, callback){
-//     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-//       callback(null, true);
-//     } else {
-//       callback(new Error('Not allowed by CORS'));
-//     }
-//   }
-// }));
+
+// ── CORS — must be registered FIRST, before any other middleware ─────────────
+// Without this, the browser's OPTIONS preflight (triggered by the Authorization
+// header) never gets a valid response, causing the request to hang / time-out
+// in the browser even though Postman (which skips preflight) works fine.
+const corsOptions = {
+  // For Production, replace '*' with your actual frontend origin(s):
+  //   origin: [process.env.DOMAIN_NAME, process.env.STAGING_DOMAIN_NAME],
+  origin: '*',
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200, // IE11 chokes on 204
+};
+
+app.use(cors(corsOptions));
+
+// Explicitly handle every OPTIONS preflight before it reaches any route or
+// authentication middleware (validateToken would reject it with 401 otherwise).
+app.options('*', cors(corsOptions));
 
 // Apply express-fileupload conditionally only to routes that need it
 // (merchant/franchaise onboard routes) to avoid conflict with multer
@@ -54,7 +62,6 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(cors())
 app.use(express.json());
 
 app.use('/uploads', express.static('uploads'));
