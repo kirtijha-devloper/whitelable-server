@@ -12,4 +12,3 @@ router.get("/entries", getLedgerEntries);         // Passbook list: debit, credi
 router.get("/entries/:id", getLedgerEntryDetails); // Single entry with full linked source record
 
 module.exports = router;
-module.exports = router;
