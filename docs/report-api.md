@@ -5,7 +5,28 @@ administrators and franchisees for auditing, reconciliation and monitoring.
 All routes require a valid JWT (`Authorization: Bearer <token>`).
 
 ---
+### GET `/api/report/ledger`
+Returns ledger entries stored in the `Ledgers` table. Results are scoped by
+role and may be limited to a particular user. Supports optional query param
+`user_id` (admin may specify any user; franchisees may only request their own
+or merchants under them; merchants may omit or set to their own id).
+`start_date` and `end_date` default to today when omitted and are inclusive.
 
+### Query Parameters
+
+| Name | Description |
+|------|-------------|
+| `user_id` | Optional numeric user id to filter entries (see access rules) |
+| `start_date` | ISO date string (YYYY-MM-DD), defaults to today |
+| `end_date` | ISO date string (YYYY-MM-DD), defaults to today |
+
+### Access Rules
+
+- **Admin**: may query any user's ledger entries; omit `user_id` for all.
+- **Franchise**: may see their own ledger plus merchants belonging to them;
+  supplying `user_id` restricts to that merchant (must belong to the
+  franchise).
+- **Merchant**: only their own ledger entries.
 ## GET `/api/report/users`
 
 Returns a list of users that can be filtered and paginated. This endpoint is

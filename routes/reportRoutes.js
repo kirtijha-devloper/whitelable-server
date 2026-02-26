@@ -4,6 +4,7 @@ const {
   getPosTransactionReport,
   getWalletReport,
   getRazorpayNotificationReport,
+  getLedgerReport,
   getAllRazorpayNotifications,
   getUserReport
 } = require("../controllers/reportController");
@@ -18,6 +19,9 @@ router.get("/wallet", getWalletReport);
 router.get("/razorpay", getRazorpayNotificationReport); // User-wise Razorpay notification report
 // Admin investigation: unfiltered list ordered by id desc
 router.get("/razorpay/all", getAllRazorpayNotifications);
+
+// ledger report: date range and role‑scoped
+router.get("/ledger", getLedgerReport);
 
 // ── User listing/reporting ───────────────────────────────────────────────
 // Admins may filter across all users; franchisees only see their own merchants.

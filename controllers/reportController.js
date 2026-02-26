@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 const RazorpayNotification = require("../models/RazorpayNotification");
+const Ledger = require('../models/Ledger');
 
 // Admin-only full notifications list
 const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
@@ -400,6 +401,87 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
  *   - franchise: can only see users where franchaise_id === their own id
  *   - others: see only themselves (not terribly useful but included for safety)
  */
+
+const getLedgerReport = asyncHandler(async (req, res) => {
+  try {
+    const userRole = req.user?.role;
+    const currentUserId = req.user?.id;
+    const { start_date, end_date, user_id } = req.query;
+
+    // default date range = today
+    const today = new Date();
+    const fromDate = start_date ? new Date(start_date) : new Date(today);
+    fromDate.setHours(0, 0, 0, 0);
+
+    const toDate = end_date ? new Date(end_date) : new Date(today);
+    toDate.setHours(23, 59, 59, 999);
+
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid date format. Use YYYY-MM-DD.'
+      });
+    }
+
+    if (fromDate > toDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'start_date must not be after end_date'
+      });
+    }
+
+    const where = {
+      createdAt: { [Op.between]: [fromDate, toDate] }
+    };
+
+    // scope by role
+    if (userRole === 'merchant') {
+      where.user_id = currentUserId;
+    } else if (userRole === 'franchaise') {
+      if (user_id) {
+        const targetUser = await User.findOne({
+          where: { id: user_id, franchaise_id: currentUserId, status: 'active' }
+        });
+        if (!targetUser) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied: user does not belong to your franchise'
+          });
+        }
+        where.user_id = parseInt(user_id);
+      } else {
+        const merchantIds = await User.findAll({
+          where: { franchaise_id: currentUserId, status: 'active' },
+          attributes: ['id']
+        }).then(rows => rows.map(r => r.id));
+        where.user_id = { [Op.in]: [currentUserId, ...merchantIds] };
+      }
+    } else if (userRole === 'admin') {
+      if (user_id) {
+        where.user_id = parseInt(user_id);
+      }
+      // admin without user_id sees all entries
+    } else {
+      where.user_id = currentUserId;
+    }
+
+    const entries = await Ledger.findAll({ where, order: [['createdAt', 'DESC']] });
+
+    res.status(200).json({
+      success: true,
+      message: 'Ledger report fetched successfully',
+      count: entries.length,
+      data: entries
+    });
+  } catch (error) {
+    console.error('Error fetching ledger report:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong'
+    });
+  }
+});
+
 const getUserReport = asyncHandler(async (req, res) => {
   try {
     const { status, role, page = 1, limit = 10 } = req.query;
@@ -453,4 +535,4 @@ const getUserReport = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getPosTransactionReport, getWalletReport, getRazorpayNotificationReport, getUserReport, getAllRazorpayNotifications };
+module.exports = { getPosTransactionReport, getWalletReport, getRazorpayNotificationReport, getLedgerReport, getUserReport, getAllRazorpayNotifications };

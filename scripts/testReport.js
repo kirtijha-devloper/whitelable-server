@@ -33,6 +33,17 @@ async function test() {
     const req3 = makeMockReq({ start_date: today, end_date: today }, { role:'admin', id:1 });
     const res3 = makeMockRes();
     await reportCtrl.getRazorpayNotificationReport(req3, res3);
+
+    // ledger tests
+    console.log('Testing getLedgerReport default dates as admin');
+    const reqL1 = makeMockReq({}, { role: 'admin', id: 1 });
+    const resL1 = makeMockRes();
+    await reportCtrl.getLedgerReport(reqL1, resL1);
+
+    console.log('Testing getLedgerReport with date range and user filter');
+    const reqL2 = makeMockReq({ start_date: today, end_date: today, user_id: 1 }, { role: 'admin', id: 1 });
+    const resL2 = makeMockRes();
+    await reportCtrl.getLedgerReport(reqL2, resL2);
 }
 
 test().catch(e=>console.error('ERR',e));
