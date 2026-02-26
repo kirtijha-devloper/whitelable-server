@@ -2,7 +2,7 @@ const express = require("express");
 
 const router = express.Router();
 
-const {registerUser, loginUser, currentUser, getUsers, getUserByID, updatePassword,  sendOtp, verifyOtp, resetPassword,  generateTpin, verifyTpin, forgotPassword}  = require("../controllers/userController");
+const {registerUser, loginUser, currentUser, getUsers, getUserByID, updatePassword, updateUser, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword}  = require("../controllers/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 
 // @public access
@@ -25,6 +25,13 @@ router.get("/:id", validateToken, getUserByID);
 //  - admin users may reset any account by sending { id, newPassword }
 //  - non-admins must supply their own id plus { currentPassword, newPassword }
 router.put("/update-password", validateToken, updatePassword);
+
+// ── Edit user profile ────────────────────────────────────────────────────────
+// Admin   → can update any user (including admin-only fields)
+// Franchise → can update self or own merchants
+// Merchant  → can only update self
+// Supports multipart/form-data for KYC file uploads
+router.put("/:id", validateToken, updateUser);
 
 // 📌 TPIN Routes
 router.post("/tpin", validateToken, generateTpin);

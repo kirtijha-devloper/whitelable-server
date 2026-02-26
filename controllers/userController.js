@@ -917,4 +917,144 @@ const forgotPassword = asyncHandler(async (req, res) => {
 });
 
 
-module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
+// ---------------------------------------------------------------------------
+// PUT /api/user/:id  –  Update user profile
+// ---------------------------------------------------------------------------
+// Access rules:
+//   admin     → can edit any user; may also set admin-only fields
+//   franchaise → can edit their own profile OR any merchant whose franchaise_id matches
+//   merchant  → can only edit their own profile
+//
+// Admin-only fields: status, is_approved, settlement_type, franchaise_id, ipay_outlet_id, role
+// File fields (multipart): pan_photo, aadhar_photo, aadhar_back_photo, shop_photo
+// ---------------------------------------------------------------------------
+const updateUser = asyncHandler(async (req, res) => {
+  try {
+    const requesterId = req.user.id;
+    const requesterRole = req.user.role;
+    const targetId = parseInt(req.params.id);
+
+    if (!targetId || isNaN(targetId)) {
+      return res.status(400).json({ success: false, message: 'Valid user id is required.' });
+    }
+
+    const targetUser = await User.findByPk(targetId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    // ── Access control ────────────────────────────────────────────────────
+    if (requesterRole === 'merchant') {
+      if (requesterId !== targetId) {
+        return res.status(403).json({ success: false, message: 'You can only edit your own profile.' });
+      }
+    }
+
+    if (requesterRole === 'franchaise') {
+      const isSelf = requesterId === targetId;
+      const isOwnMerchant =
+        targetUser.role === 'merchant' && targetUser.franchaise_id === requesterId;
+      if (!isSelf && !isOwnMerchant) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only edit your own profile or your own merchants.',
+        });
+      }
+    }
+
+    // ── Build update payload ──────────────────────────────────────────────
+    // Fields any authenticated role may update on an allowed target:
+    const commonFields = [
+      'name', 'email', 'gender', 'dob', 'mobile_number',
+      'mobile_number_country_code', 'address1', 'address2',
+      'city', 'district', 'pincode', 'state', 'country',
+      'aadhar_number', 'pan_number', 'organization_name',
+    ];
+
+    // Fields only admin may touch:
+    const adminOnlyFields = [
+      'status', 'is_approved', 'settlement_type',
+      'franchaise_id', 'ipay_outlet_id', 'role',
+    ];
+
+    const updates = {};
+
+    for (const field of commonFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    if (requesterRole === 'admin') {
+      for (const field of adminOnlyFields) {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field];
+        }
+      }
+    }
+
+    // ── File uploads (Cloudinary) ─────────────────────────────────────────
+    const panFile      = req.files?.pan_photo;
+    const aadharFile   = req.files?.aadhar_photo;
+    const aadharBkFile = req.files?.aadhar_back_photo;
+    const shopFile     = req.files?.shop_photo;
+
+    if (panFile || aadharFile || aadharBkFile || shopFile) {
+      const [panUrl, aadharUrl, aadharBkUrl, shopUrl] = await Promise.all([
+        panFile      ? cloudinary.uploader.upload(panFile.tempFilePath,      { folder: 'users' }) : null,
+        aadharFile   ? cloudinary.uploader.upload(aadharFile.tempFilePath,   { folder: 'users' }) : null,
+        aadharBkFile ? cloudinary.uploader.upload(aadharBkFile.tempFilePath, { folder: 'users' }) : null,
+        shopFile     ? cloudinary.uploader.upload(shopFile.tempFilePath,     { folder: 'users' }) : null,
+      ]);
+
+      if (panUrl)      updates.pan_number_url          = panUrl.secure_url;
+      if (aadharUrl)   updates.aadhar_number_url       = aadharUrl.secure_url;
+      if (aadharBkUrl) updates.aadhar_back_number_url  = aadharBkUrl.secure_url;
+      if (shopUrl)     updates.shop_with_photo_url     = shopUrl.secure_url;
+    }
+
+    // ── Email / mobile uniqueness check ───────────────────────────────────
+    if (updates.email && updates.email !== targetUser.email) {
+      const emailTaken = await User.findOne({
+        where: { email: updates.email, id: { [Op.ne]: targetId } },
+      });
+      if (emailTaken) {
+        return res.status(409).json({ success: false, message: 'Email is already in use by another account.' });
+      }
+    }
+
+    if (updates.mobile_number && updates.mobile_number !== targetUser.mobile_number) {
+      const mobileTaken = await User.findOne({
+        where: { mobile_number: updates.mobile_number, id: { [Op.ne]: targetId } },
+      });
+      if (mobileTaken) {
+        return res.status(409).json({ success: false, message: 'Mobile number is already in use by another account.' });
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: 'No updatable fields provided.' });
+    }
+
+    // ── Persist ───────────────────────────────────────────────────────────
+    await targetUser.update(updates);
+    await targetUser.reload();
+
+    // Strip sensitive fields before responding
+    const { password: _pw, ...safeUser } = targetUser.toJSON();
+
+    return res.status(200).json({
+      success: true,
+      message: 'User updated successfully.',
+      data: safeUser,
+    });
+  } catch (error) {
+    console.error('updateUser error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong.',
+    });
+  }
+});
+
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateUser, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
