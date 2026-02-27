@@ -6,6 +6,7 @@ const Remitter = require("../../models/Remitter")
 const WalletTransaction = require("../../models/WalletTransaction")
 const User = require("../../models/User")
 const Beneficiary = require("../../models/Beneficiary");
+const ledgerService = require('../../services/ledgerService');
 const ChargeSlab = require('../../models/ChargeSlab');
 const Tpin = require('../../models/Tpin');
 const { Op } = require("sequelize");
@@ -368,13 +369,11 @@ router.post('/transfer-imps', async (req, res) => {
       REMITTER_NUMBER: remitterNumber
     }
     const data = await sddsService.transferIMPS({payload, token});
-    // Deduct balance from user wallet
-    user.wallet = parseFloat(user.wallet) - amount;
-    await user.save();
+    // NOTE: createLedgerEntry() below syncs user.wallet as its last step — no manual update needed here.
     pending_transaction.status = "completed"
     await pending_transaction.save()
 
-    await WalletTransaction.create({
+    const completedWalletTx = await WalletTransaction.create({
       type: "transfer",
       amount: amount,
       status: "completed",
@@ -383,6 +382,25 @@ router.post('/transfer-imps', async (req, res) => {
       approved_by: beneficiary.remitter_id,
       source: "imps",
       reference_id: data.data.paymentrefno // need to think what shuold be passed
+    });
+
+    // Write ledger entry for direct IMPS transfer debit
+    await ledgerService.createLedgerEntry({
+      userId,
+      transactionType: 'direct_transfer',
+      transactionId: data.data?.paymentrefno || null,
+      referenceId: completedWalletTx.id,
+      referenceTable: 'WalletTransactions',
+      description: `IMPS transfer to ${payload.BENE_ACC_NAME} (A/C: ${payload.BENE_ACC_NO})`,
+      debit: amount,
+      status: 'completed',
+      metadata: {
+        beneficiary_name: payload.BENE_ACC_NAME,
+        account_number: payload.BENE_ACC_NO,
+        ifsc: payload.BENE_IDN_CODE,
+        bank: payload.BENE_BANK,
+        payment_ref: data.data?.paymentrefno
+      }
     });
 
     res.json({ message: 'IMPS transfer successful', data });

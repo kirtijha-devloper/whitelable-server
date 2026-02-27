@@ -421,6 +421,96 @@ async function getLedgerEntryWithLinkedRecord(ledgerId) {
   return { entry, linkedRecord };
 }
 
+/**
+ * Rebuild the balance chain for every Ledger row belonging to a user.
+ *
+ * A single window-function UPDATE rewrites `balance_before` and `balance` on
+ * every row in chronological order so the chain is self-consistent, then
+ * syncs user.wallet to the true SUM(credit) - SUM(debit) of completed rows.
+ *
+ * This must be called after any manual INSERT, UPDATE, or DELETE on the
+ * Ledgers table, because the application-written `balance` columns used by
+ * getLatestBalance() will otherwise point at stale values.
+ *
+ * @param {number} userId
+ * @returns {Promise<number>} The corrected true balance
+ */
+async function rebuildBalanceChain(userId) {
+  const user = await User.findByPk(userId);
+  if (!user) throw new Error(`User ${userId} not found`);
+
+  // One-pass window function: rewrite balance_before and balance on every row
+  await Ledger.sequelize.query(
+    `UPDATE "Ledgers" AS l
+     SET
+       balance_before = sub.running_before,
+       balance        = sub.running_after
+     FROM (
+       SELECT
+         id,
+         COALESCE(SUM(credit - debit) OVER (
+           PARTITION BY user_id
+           ORDER BY "createdAt" ASC, id ASC
+           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+         ), 0) AS running_before,
+         COALESCE(SUM(credit - debit) OVER (
+           PARTITION BY user_id
+           ORDER BY "createdAt" ASC, id ASC
+           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+         ), 0) AS running_after
+       FROM "Ledgers"
+       WHERE user_id = :userId
+     ) sub
+     WHERE l.id = sub.id`,
+    { replacements: { userId }, type: Ledger.sequelize.QueryTypes.UPDATE }
+  );
+
+  // True balance = only completed entries count toward the spendable wallet
+  const rows = await Ledger.sequelize.query(
+    `SELECT COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0) AS true_balance
+     FROM "Ledgers"
+     WHERE user_id = :userId AND status = 'completed'`,
+    { replacements: { userId }, type: Ledger.sequelize.QueryTypes.SELECT }
+  );
+
+  const trueBalance = parseFloat(rows[0].true_balance) || 0;
+  user.wallet = trueBalance;
+  await user.save();
+
+  return trueBalance;
+}
+
+/**
+ * Recompute a user's wallet balance by rebuilding the full Ledger chain and
+ * syncing user.wallet.  Returns a diff report useful for the reconcile endpoint.
+ *
+ * Fixes both:
+ *   1. user.wallet drift (was: SUM approach only)
+ *   2. balance_before / balance column drift on every Ledger row
+ *
+ * @param {number} userId
+ * @returns {Promise<{user_id, true_balance, previous_wallet, drifted, corrected}>}
+ */
+async function recalculateBalance(userId) {
+  const user = await User.findByPk(userId);
+  if (!user) throw new Error(`User ${userId} not found`);
+
+  const previousWallet = parseFloat(user.wallet) || 0;
+
+  // rebuildBalanceChain fixes ALL row-level balance fields AND syncs user.wallet
+  const trueBalance = await rebuildBalanceChain(userId);
+
+  const drifted = Math.abs(trueBalance - previousWallet) >= 0.01;
+
+  return {
+    user_id:         userId,
+    true_balance:    trueBalance,
+    previous_wallet: previousWallet,
+    drifted,
+    corrected:       drifted,
+  };
+}
+
 module.exports = {
   createLedgerEntry,
   createRazorpayChargeEntry,
@@ -430,6 +520,8 @@ module.exports = {
   createPayoutEntry,
   getLedgerEntries,
   getLedgerEntryWithLinkedRecord,
-  getLatestBalance
+  getLatestBalance,
+  rebuildBalanceChain,
+  recalculateBalance
 };
 

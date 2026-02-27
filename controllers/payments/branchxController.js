@@ -9,6 +9,7 @@ const bcrypt = require('bcrypt');
 const WalletTransaction = require('../../models/WalletTransaction');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const crypto = require('crypto');
+const ledgerService = require('../../services/ledgerService');
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
@@ -106,7 +107,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     // Save payout transaction with status from response
     const payoutStatus = data.status || 'PENDING';
-    await PayoutTransaction.create({
+    const payoutTx = await PayoutTransaction.create({
       merchant_id: merchant_id,
       beneficiary_id: beneficiary_id,
       reference_id: requestId || data.api_ref || wallet_transaction.id.toString(),
@@ -119,10 +120,26 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     // Update wallet balance if status is SUCCESS or PENDING
     if (payoutStatus === 'SUCCESS' || payoutStatus === 'PENDING') {
-      // Deduct amount from user wallet
-      user.wallet = parseFloat(user.wallet) - amount;
-      await user.save();
-      
+      // Write ledger entry for payout debit
+      // NOTE: createPayoutEntry() calls createLedgerEntry() which syncs user.wallet as its last step.
+      await ledgerService.createPayoutEntry({
+        userId: merchant_id,
+        payoutTransactionId: payoutTx.id,
+        amount: total_amount,
+        description: `Payout to ${beneficiary.beneficiary_name} (${purpose || 'N/A'}) — ref: ${requestId}`,
+        status: payoutStatus === 'SUCCESS' ? 'completed' : 'pending',
+        metadata: {
+          beneficiary_name: beneficiary.beneficiary_name,
+          account_number: beneficiary.account_number,
+          ifsc_code: beneficiary.ifsc_code,
+          bank_name: beneficiary.bank_name,
+          payout_amount: amount,
+          service_charge: service_charge,
+          reference_id: requestId,
+          branchx_status: payoutStatus
+        }
+      });
+
       wallet_transaction.status = "completed";
       wallet_transaction.reason = `${beneficiary.beneficiary_name} payout purpose: ${purpose} reference id: ${requestId}`;
       await wallet_transaction.save();

@@ -27,6 +27,7 @@ const { Op } = require("sequelize");
 const db     = require("../config/database");
 const User   = require("../models/User");
 const Ledger = require("../models/Ledger");
+const ledgerService = require("../services/ledgerService");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -372,4 +373,51 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { adminDirectCredit, adminDirectDebit };
+// ---------------------------------------------------------------------------
+// POST /api/admin/wallet/reconcile/:userId
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-derives a user's wallet balance from the Ledger table
+ * (SUM of completed credits − SUM of completed debits) and corrects
+ * user.wallet when it has drifted — e.g. after a manual DB row insert or delete.
+ *
+ * Admin-only.  Returns a diff report whether or not a correction was needed.
+ */
+const reconcileWallet = asyncHandler(async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Admin access required." });
+  }
+
+  const userId = parseInt(req.params.userId);
+  if (!userId || isNaN(userId)) {
+    return res.status(400).json({ success: false, message: "userId must be a valid integer." });
+  }
+
+  const user = await User.findByPk(userId, { attributes: ["id", "name", "role", "status"] });
+  if (!user) {
+    return res.status(404).json({ success: false, message: `User ${userId} not found.` });
+  }
+
+  const result = await ledgerService.recalculateBalance(userId);
+
+  return res.status(200).json({
+    success: true,
+    message: result.drifted
+      ? `Wallet corrected from ₹${result.previous_wallet.toFixed(2)} → ₹${result.true_balance.toFixed(2)}`
+      : "Wallet balance is already consistent with the ledger. No change made.",
+    data: {
+      user_id:         result.user_id,
+      user_name:       user.name,
+      user_role:       user.role,
+      true_balance:    result.true_balance,
+      previous_wallet: result.previous_wallet,
+      drift:           parseFloat((result.true_balance - result.previous_wallet).toFixed(2)),
+      drifted:         result.drifted,
+      corrected:       result.corrected,
+      reconciled_at:   new Date().toISOString(),
+    },
+  });
+});
+
+module.exports = { adminDirectCredit, adminDirectDebit, reconcileWallet };

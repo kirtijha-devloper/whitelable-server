@@ -5,6 +5,9 @@ const {
   getWalletReport,
   getRazorpayNotificationReport,
   getLedgerReport,
+  getPayoutReport,
+  getBbpsReport,
+  getAllTransactionsReport,
   getAllRazorpayNotifications,
   getUserReport
 } = require("../controllers/reportController");
@@ -22,6 +25,15 @@ router.get("/razorpay/all", getAllRazorpayNotifications);
 
 // ledger report: date range and role‑scoped
 router.get("/ledger", getLedgerReport);
+
+// payout report: balance_before / amount / balance_after per payout
+router.get("/payout", getPayoutReport);
+
+// BBPS CC bill payment report
+router.get("/bbps", getBbpsReport);
+
+// combined: Razorpay + Payout + BBPS + Direct Transfer, ordered by date
+router.get("/all-transactions", getAllTransactionsReport);
 
 // ── User listing/reporting ───────────────────────────────────────────────
 // Admins may filter across all users; franchisees only see their own merchants.

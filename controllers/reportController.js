@@ -6,6 +6,7 @@ const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 const RazorpayNotification = require("../models/RazorpayNotification");
 const Ledger = require('../models/Ledger');
+const PayoutTransaction = require('../models/PayoutTransaction');
 
 // Admin-only full notifications list
 const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
@@ -64,25 +65,74 @@ const getDateRange = (startDate, endDate) => {
   return { start, end };
 };
 
+/**
+ * Build a WHERE-scope object for the given user-id field based on the
+ * caller's role.  Throws with .statusCode = 403 on franchise access denial.
+ *
+ * @param {Object} req            - Express request (req.user must be populated)
+ * @param {string|null} qUserId   - user_id query param (may be undefined)
+ * @param {string} fieldName      - Column to scope on (default 'user_id')
+ * @returns {Promise<Object>}     - Partial WHERE clause object
+ */
+const buildUserScope = async (req, qUserId = null, fieldName = 'user_id') => {
+  const userRole     = req.user?.role;
+  const currentUserId = req.user?.id;
+  const scope = {};
+
+  if (userRole === 'merchant') {
+    scope[fieldName] = currentUserId;
+  } else if (userRole === 'franchaise') {
+    if (qUserId) {
+      const targetUser = await User.findOne({
+        where: { id: qUserId, franchaise_id: currentUserId, status: 'active' }
+      });
+      if (!targetUser) {
+        const err = new Error('Access denied: user does not belong to your franchise');
+        err.statusCode = 403;
+        throw err;
+      }
+      scope[fieldName] = parseInt(qUserId);
+    } else {
+      const merchantIds = await User.findAll({
+        where: { franchaise_id: currentUserId, status: 'active' },
+        attributes: ['id']
+      }).then(rows => rows.map(r => r.id));
+      scope[fieldName] = { [Op.in]: [currentUserId, ...merchantIds] };
+    }
+  } else if (userRole === 'admin') {
+    if (qUserId) scope[fieldName] = parseInt(qUserId);
+    // admin without user_id → no restriction
+  } else {
+    scope[fieldName] = currentUserId;
+  }
+
+  return scope;
+};
+
 const getPosTransactionReport = asyncHandler(async (req, res) => {
      try {
     const {
-      startDate,
-      endDate,
+      from_date,
+      to_date,
       status,
       cardHolderName,
       posTxnNo,
       deviceNo,
     } = req.query;
 
-    const whereClause = {};
+    const today = new Date();
+    const fromDate = from_date ? new Date(from_date) : new Date(today);
+    fromDate.setHours(0, 0, 0, 0);
+    const toDate = to_date ? new Date(to_date) : new Date(today);
+    toDate.setHours(23, 59, 59, 999);
 
-    if (startDate && endDate) {
-      const { start, end } = getDateRange(startDate, endDate);
-      whereClause.Date = {
-        [Op.between]: [start, end],
-      };
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
     }
+
+    const whereClause = {
+      Date: { [Op.between]: [fromDate, toDate] }
+    };
 
     if (status) {
       whereClause.Status = status;
@@ -110,6 +160,7 @@ const getPosTransactionReport = asyncHandler(async (req, res) => {
     res.status(200).json({
       message: "Transaction Report Fetched Successfully",
       count: transactions.length,
+      date_range: { from: fromDate.toISOString(), to: toDate.toISOString() },
       data: transactions,
     });
   } catch (error) {
@@ -123,7 +174,7 @@ const getPosTransactionReport = asyncHandler(async (req, res) => {
 
 const getWalletReport = asyncHandler(async (req, res) => {
   try {
-    const { userId, startDate, endDate } = req.query;
+    const { userId, from_date, to_date } = req.query;
 
     if (!userId) {
       return res.status(400).json({ message: "userId is required" });
@@ -135,20 +186,25 @@ const getWalletReport = asyncHandler(async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    
-    let whereClause = {}
-      if (user.role !== "admin") {
-        whereClause = {
-          requested_by: userId,
-          // status: "completed",
-        };
-      }
+    const today = new Date();
+    const fromDate = from_date ? new Date(from_date) : new Date(today);
+    fromDate.setHours(0, 0, 0, 0);
+    const toDate = to_date ? new Date(to_date) : new Date(today);
+    toDate.setHours(23, 59, 59, 999);
 
-      if (startDate && endDate) {
-        whereClause.createdAt = {
-          [Op.between]: [new Date(startDate), new Date(endDate)],
-        };
-      }
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
+    }
+
+    let whereClause = {};
+    if (user.role !== "admin") {
+      whereClause = {
+        requested_by: userId,
+        // status: "completed",
+      };
+    }
+
+    whereClause.createdAt = { [Op.between]: [fromDate, toDate] };
 
     const transactions = await WalletTransaction.findAll({
       where: whereClause,
@@ -188,6 +244,7 @@ const getWalletReport = asyncHandler(async (req, res) => {
       message: "Wallet transaction report fetched successfully",
       wallet_balance: user.wallet,
       count: report.length,
+      date_range: { from: fromDate.toISOString(), to: toDate.toISOString() },
       data: report,
     });
   } catch (error) {
@@ -207,8 +264,8 @@ const getWalletReport = asyncHandler(async (req, res) => {
  *
  * Query params:
  *  user_id        – target user (required for admin, ignored for merchant)
- *  start_date     – ISO date string (inclusive)
- *  end_date       – ISO date string (inclusive, extended to 23:59:59)
+ *  from_date      – ISO date string (inclusive, default: today)
+ *  to_date        – ISO date string (inclusive, extended to 23:59:59, default: today)
  *  status         – e.g. AUTHORIZED, FAILED, VOIDED, CAPTURED
  *  payment_mode   – e.g. CARD, UPI
  *  include_unlinked – 'true' (admin only) to also include rows where user_id IS NULL
@@ -221,8 +278,8 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
     const currentUserId = req.user?.id;
     const {
       user_id,
-      start_date,
-      end_date,
+      from_date,
+      to_date,
       status,
       payment_mode,
       include_unlinked = 'false',
@@ -233,10 +290,10 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
     // ── Date range — defaults to today when not supplied ─────────────────────
     const today = new Date();
 
-    const fromDate = start_date ? new Date(start_date) : new Date(today);
+    const fromDate = from_date ? new Date(from_date) : new Date(today);
     fromDate.setHours(0, 0, 0, 0);
 
-    const toDate = end_date ? new Date(end_date) : new Date(today);
+    const toDate = to_date ? new Date(to_date) : new Date(today);
     toDate.setHours(23, 59, 59, 999);
 
     if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
@@ -249,7 +306,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
     if (fromDate > toDate) {
       return res.status(400).json({
         success: false,
-        message: 'start_date must not be after end_date'
+        message: 'from_date must not be after to_date'
       });
     }
 
@@ -339,26 +396,45 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       subQuery: false
     });
 
-    const data = rows.map(n => ({
-      id:                n.id,
-      txn_id:            n.txn_id,
-      mid:               n.mid,
-      tid:               n.tid,
-      amount:            n.amount,
-      currency_code:     n.currency_code,
-      payment_mode:      n.payment_mode,
-      payment_card_type: n.payment_card_type,
-      payment_card_brand:n.payment_card_brand,
-      rr_number:         n.rr_number,
-      device_serial:     n.device_serial,
-      posting_date:      n.posting_date,
-      status:            n.status,
-      user_id:           n.user_id,
-      pos_machine_id:    n.pos_machine_id,
-      user:              n.user     || null,
-      pos_machine:       n.posMachine || null,
-      created_at:        n.createdAt
-    }));
+    // Bulk-fetch Ledger entries for balance figures (razorpay_charge = final debit row)
+    const txnIds = rows.map(n => n.txn_id).filter(Boolean);
+    const razorpayLedgerRows = txnIds.length
+      ? await Ledger.findAll({
+          where: {
+            transaction_id: { [Op.in]: txnIds },
+            transaction_type: 'razorpay_charge'
+          },
+          attributes: ['transaction_id', 'balance_before', 'balance', 'debit']
+        })
+      : [];
+    const razorpayLedgerMap = {};
+    razorpayLedgerRows.forEach(l => { razorpayLedgerMap[l.transaction_id] = l; });
+
+    const data = rows.map(n => {
+      const ledger = razorpayLedgerMap[n.txn_id] || null;
+      return {
+        id:                n.id,
+        txn_id:            n.txn_id,
+        mid:               n.mid,
+        tid:               n.tid,
+        amount:            n.amount,
+        currency_code:     n.currency_code,
+        payment_mode:      n.payment_mode,
+        payment_card_type: n.payment_card_type,
+        payment_card_brand:n.payment_card_brand,
+        rr_number:         n.rr_number,
+        device_serial:     n.device_serial,
+        posting_date:      n.posting_date,
+        status:            n.status,
+        user_id:           n.user_id,
+        pos_machine_id:    n.pos_machine_id,
+        user:              n.user        || null,
+        pos_machine:       n.posMachine  || null,
+        created_at:        n.createdAt,
+        balance_before:    ledger ? parseFloat(ledger.balance_before) : null,
+        balance_after:     ledger ? parseFloat(ledger.balance)        : null
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -406,14 +482,14 @@ const getLedgerReport = asyncHandler(async (req, res) => {
   try {
     const userRole = req.user?.role;
     const currentUserId = req.user?.id;
-    const { start_date, end_date, user_id } = req.query;
+    const { from_date, to_date, user_id } = req.query;
 
     // default date range = today
     const today = new Date();
-    const fromDate = start_date ? new Date(start_date) : new Date(today);
+    const fromDate = from_date ? new Date(from_date) : new Date(today);
     fromDate.setHours(0, 0, 0, 0);
 
-    const toDate = end_date ? new Date(end_date) : new Date(today);
+    const toDate = to_date ? new Date(to_date) : new Date(today);
     toDate.setHours(23, 59, 59, 999);
 
     if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
@@ -426,7 +502,7 @@ const getLedgerReport = asyncHandler(async (req, res) => {
     if (fromDate > toDate) {
       return res.status(400).json({
         success: false,
-        message: 'start_date must not be after end_date'
+        message: 'from_date must not be after to_date'
       });
     }
 
@@ -465,13 +541,43 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       where.user_id = currentUserId;
     }
 
-    const entries = await Ledger.findAll({ where, order: [['createdAt', 'DESC']] });
+    const entries = await Ledger.findAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: 'user',
+          required: false,
+          attributes: ['id', 'name', 'mobile_number', 'abheepay_id', 'organization_name']
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
+    const data = entries.map(e => ({
+      id:              e.id,
+      date:            e.createdAt,
+      user_id:         e.user_id,
+      user:            e.user || null,
+      transaction_type:e.transaction_type,
+      description:     e.description,
+      debit:           parseFloat(e.debit)  || 0,
+      credit:          parseFloat(e.credit) || 0,
+      amount:          parseFloat(e.debit) > 0 ? parseFloat(e.debit) : parseFloat(e.credit),
+      balance_before:  parseFloat(e.balance_before) || 0,
+      balance_after:   parseFloat(e.balance)        || 0,
+      transaction_id:  e.transaction_id,
+      reference_id:    e.reference_id,
+      reference_table: e.reference_table,
+      status:          e.status,
+      metadata:        e.metadata ? (() => { try { return JSON.parse(e.metadata); } catch (_) { return e.metadata; } })() : null
+    }));
 
     res.status(200).json({
       success: true,
       message: 'Ledger report fetched successfully',
       count: entries.length,
-      data: entries
+      data
     });
   } catch (error) {
     console.error('Error fetching ledger report:', error);
@@ -479,6 +585,278 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       success: false,
       message: error.message || 'Something went wrong'
     });
+  }
+});
+
+/**
+ * GET /report/payout
+ * Payout transaction report with balance_before / balance_after from Ledger.
+ * Query: from_date, to_date, user_id, status, page, limit
+ */
+const getPayoutReport = asyncHandler(async (req, res) => {
+  try {
+    const { from_date, to_date, user_id, status, page = 1, limit = 50 } = req.query;
+
+    const today = new Date();
+    const fromDate = from_date ? new Date(from_date) : new Date(today);
+    fromDate.setHours(0, 0, 0, 0);
+    const toDate = to_date ? new Date(to_date) : new Date(today);
+    toDate.setHours(23, 59, 59, 999);
+
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
+    }
+
+    const where = { createdAt: { [Op.between]: [fromDate, toDate] } };
+
+    // PayoutTransaction uses merchant_id, not user_id
+    try {
+      const scope = await buildUserScope(req, user_id, 'merchant_id');
+      Object.assign(where, scope);
+    } catch (scopeErr) {
+      return res.status(scopeErr.statusCode || 403).json({ success: false, message: scopeErr.message });
+    }
+
+    if (status) where.status = status.toUpperCase();
+
+    const pageNum  = Math.max(1, parseInt(page)  || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50));
+    const offset   = (pageNum - 1) * limitNum;
+
+    const { count, rows: payouts } = await PayoutTransaction.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit: limitNum,
+      offset
+    });
+
+    // Bulk-fetch matching Ledger entries for balance figures
+    const payoutIds = payouts.map(p => p.id);
+    const payoutLedgerRows = payoutIds.length
+      ? await Ledger.findAll({
+          where: {
+            reference_table: 'PayoutTransactions',
+            reference_id: { [Op.in]: payoutIds },
+            transaction_type: 'payout'
+          },
+          attributes: ['reference_id', 'balance_before', 'balance', 'debit']
+        })
+      : [];
+    const payoutLedgerMap = {};
+    payoutLedgerRows.forEach(l => { payoutLedgerMap[l.reference_id] = l; });
+
+    const data = payouts.map(p => {
+      const ledger = payoutLedgerMap[p.id] || null;
+      return {
+        id:             p.id,
+        date:           p.createdAt,
+        merchant_id:    p.merchant_id,
+        beneficiary_id: p.beneficiary_id,
+        reference_id:   p.reference_id,
+        amount:         parseFloat(p.amount),
+        service_charge: parseFloat(p.service_charge) || 0,
+        total_deducted: parseFloat(p.amount) + (parseFloat(p.service_charge) || 0),
+        purpose:        p.purpose,
+        status:         p.status,
+        balance_before: ledger ? parseFloat(ledger.balance_before) : null,
+        balance_after:  ledger ? parseFloat(ledger.balance)        : null
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Payout report fetched successfully',
+      count,
+      pagination: { total: count, page: pageNum, limit: limitNum, totalPages: Math.ceil(count / limitNum) },
+      date_range: { from: fromDate.toISOString(), to: toDate.toISOString() },
+      data
+    });
+  } catch (error) {
+    console.error('Error fetching payout report:', error);
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+/**
+ * GET /report/bbps
+ * BBPS CC bill payment report sourced from Ledger (transaction_type='bbps_payment').
+ * Query: from_date, to_date, user_id, page, limit
+ */
+const getBbpsReport = asyncHandler(async (req, res) => {
+  try {
+    const { from_date, to_date, user_id, page = 1, limit = 50 } = req.query;
+
+    const today = new Date();
+    const fromDate = from_date ? new Date(from_date) : new Date(today);
+    fromDate.setHours(0, 0, 0, 0);
+    const toDate = to_date ? new Date(to_date) : new Date(today);
+    toDate.setHours(23, 59, 59, 999);
+
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
+    }
+
+    const where = {
+      transaction_type: 'bbps_payment',
+      createdAt: { [Op.between]: [fromDate, toDate] }
+    };
+
+    try {
+      const scope = await buildUserScope(req, user_id, 'user_id');
+      Object.assign(where, scope);
+    } catch (scopeErr) {
+      return res.status(scopeErr.statusCode || 403).json({ success: false, message: scopeErr.message });
+    }
+
+    const pageNum  = Math.max(1, parseInt(page)  || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50));
+    const offset   = (pageNum - 1) * limitNum;
+
+    const { count, rows: entries } = await Ledger.findAndCountAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: 'user',
+          required: false,
+          attributes: ['id', 'name', 'mobile_number', 'abheepay_id', 'organization_name']
+        }
+      ],
+      order:  [['createdAt', 'DESC']],
+      limit:  limitNum,
+      offset,
+      subQuery: false
+    });
+
+    const data = entries.map(e => {
+      let meta = {};
+      try { meta = e.metadata ? JSON.parse(e.metadata) : {}; } catch (_) {}
+      return {
+        id:              e.id,
+        date:            e.createdAt,
+        user_id:         e.user_id,
+        user:            e.user || null,
+        biller_id:       meta.biller_id       || null,
+        customer_mobile: meta.customer_mobile  || null,
+        payment_mode:    meta.payment_mode     || null,
+        statuscode:      meta.statuscode       || null,
+        external_ref:    e.transaction_id,
+        description:     e.description,
+        amount:          parseFloat(e.debit)          || 0,
+        balance_before:  parseFloat(e.balance_before) || 0,
+        balance_after:   parseFloat(e.balance)        || 0,
+        status:          e.status
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'BBPS report fetched successfully',
+      count,
+      pagination: { total: count, page: pageNum, limit: limitNum, totalPages: Math.ceil(count / limitNum) },
+      date_range: { from: fromDate.toISOString(), to: toDate.toISOString() },
+      data
+    });
+  } catch (error) {
+    console.error('Error fetching BBPS report:', error);
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+/**
+ * GET /report/all-transactions
+ * Combined Razorpay + Payout + BBPS + Direct Transfer report sourced entirely
+ * from the Ledger table, ordered by createdAt DESC.
+ * Every row contains: balance_before, amount (debit or credit), balance_after.
+ *
+ * Query: from_date, to_date, user_id, transaction_type, page, limit
+ */
+const getAllTransactionsReport = asyncHandler(async (req, res) => {
+  try {
+    const { from_date, to_date, user_id, transaction_type, page = 1, limit = 50 } = req.query;
+
+    const today = new Date();
+    const fromDate = from_date ? new Date(from_date) : new Date(today);
+    fromDate.setHours(0, 0, 0, 0);
+    const toDate = to_date ? new Date(to_date) : new Date(today);
+    toDate.setHours(23, 59, 59, 999);
+
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
+    }
+
+    const MONEY_TYPES = [
+      'razorpay_credit', 'razorpay_charge', 'razorpay_commission',
+      'payout', 'bbps_payment', 'direct_transfer',
+      'wallet_credit', 'wallet_debit'
+    ];
+
+    const where = {
+      transaction_type: transaction_type
+        ? { [Op.in]: [transaction_type] }
+        : { [Op.in]: MONEY_TYPES },
+      createdAt: { [Op.between]: [fromDate, toDate] }
+    };
+
+    try {
+      const scope = await buildUserScope(req, user_id, 'user_id');
+      Object.assign(where, scope);
+    } catch (scopeErr) {
+      return res.status(scopeErr.statusCode || 403).json({ success: false, message: scopeErr.message });
+    }
+
+    const pageNum  = Math.max(1, parseInt(page)  || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50));
+    const offset   = (pageNum - 1) * limitNum;
+
+    const { count, rows: entries } = await Ledger.findAndCountAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: 'user',
+          required: false,
+          attributes: ['id', 'name', 'mobile_number', 'abheepay_id', 'organization_name']
+        }
+      ],
+      order:  [['createdAt', 'DESC']],
+      limit:  limitNum,
+      offset,
+      subQuery: false
+    });
+
+    const data = entries.map(e => ({
+      id:               e.id,
+      date:             e.createdAt,
+      user_id:          e.user_id,
+      user:             e.user || null,
+      transaction_type: e.transaction_type,
+      description:      e.description,
+      debit:            parseFloat(e.debit)           || 0,
+      credit:           parseFloat(e.credit)          || 0,
+      amount:           parseFloat(e.debit) > 0
+                          ? parseFloat(e.debit)
+                          : parseFloat(e.credit),
+      balance_before:   parseFloat(e.balance_before)  || 0,
+      balance_after:    parseFloat(e.balance)          || 0,
+      transaction_id:   e.transaction_id,
+      reference_id:     e.reference_id,
+      reference_table:  e.reference_table,
+      status:           e.status
+    }));
+
+    res.status(200).json({
+      success: true,
+      message: 'All transactions report fetched successfully',
+      count,
+      pagination: { total: count, page: pageNum, limit: limitNum, totalPages: Math.ceil(count / limitNum) },
+      date_range: { from: fromDate.toISOString(), to: toDate.toISOString() },
+      supported_types: MONEY_TYPES,
+      data
+    });
+  } catch (error) {
+    console.error('Error fetching all transactions report:', error);
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
@@ -535,4 +913,14 @@ const getUserReport = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getPosTransactionReport, getWalletReport, getRazorpayNotificationReport, getLedgerReport, getUserReport, getAllRazorpayNotifications };
+module.exports = {
+  getPosTransactionReport,
+  getWalletReport,
+  getRazorpayNotificationReport,
+  getLedgerReport,
+  getPayoutReport,
+  getBbpsReport,
+  getAllTransactionsReport,
+  getUserReport,
+  getAllRazorpayNotifications
+};

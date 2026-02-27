@@ -1,5 +1,8 @@
 const asyncHandler = require('express-async-handler');
 const bbpsCCBillService = require('../../../services/cc/bbps/bbpsCCBillService');
+const User = require('../../../models/User');
+const WalletTransaction = require('../../../models/WalletTransaction');
+const ledgerService = require('../../../services/ledgerService');
 
 /**
  * Helper: resolve outlet ID from JWT user payload or header fallback.
@@ -174,6 +177,43 @@ const payCCBill = asyncHandler(async (req, res) => {
     });
 
     const isSuccess = ['TXN', 'TUP'].includes(result.data?.statuscode);
+
+    // ── Wallet debit + ledger entry on successful payment ────────────────────
+    if (isSuccess) {
+      const userId = req.user?.id;
+      const txnAmount = parseFloat(transactionAmount);
+
+      if (userId && txnAmount > 0) {
+        // NOTE: createLedgerEntry() below syncs user.wallet as its last step — no manual update needed here.
+        const walletTx = await WalletTransaction.create({
+          type: 'bbps',
+          amount: txnAmount,
+          status: 'completed',
+          reason: `BBPS CC bill payment — biller: ${billerId}, mobile: ${customerMobile}`,
+          source: 'bbps_cc',
+          reference_id: result.externalRef || null
+        });
+
+        await ledgerService.createLedgerEntry({
+          userId,
+          transactionType: 'bbps_payment',
+          transactionId: result.externalRef || null,
+          referenceId: walletTx.id,
+          referenceTable: 'WalletTransactions',
+          description: `BBPS CC bill payment — biller: ${billerId}, mobile: ${customerMobile}`,
+          debit: txnAmount,
+          status: 'completed',
+          metadata: {
+            biller_id: billerId,
+            customer_mobile: customerMobile,
+            payment_mode: paymentMode || 'Cash',
+            statuscode: result.data?.statuscode,
+            external_ref: result.externalRef
+          }
+        });
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     return res.status(200).json({
       success:     isSuccess,
