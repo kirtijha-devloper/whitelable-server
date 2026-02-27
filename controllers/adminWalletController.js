@@ -74,6 +74,16 @@ async function getBalanceInTxn(userId, dbTxn) {
 
 /** Validate and extract the common fields shared by credit and debit actions. */
 function extractPayload(req) {
+  if (!req.body || typeof req.body !== "object") {
+    return {
+      errors: [
+        "Request body is missing or not JSON. " +
+        "Make sure Content-Type: application/json header is sent.",
+      ],
+      userId: null, amount: null, reason: "", idempotencyKey: null,
+    };
+  }
+
   const {
     user_id,
     amount,
