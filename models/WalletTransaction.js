@@ -36,7 +36,7 @@ const WalletTransaction = db.define('WalletTransaction', {
   allowNull: true // optional, set to false if always required
 },
   reference_id: {
-  type: Sequelize.INTEGER,
+  type: Sequelize.BIGINT,
   allowNull: true
 },
   user_id: {

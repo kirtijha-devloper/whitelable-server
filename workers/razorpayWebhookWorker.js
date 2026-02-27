@@ -62,7 +62,7 @@ razorpayWebhookQueue.process(async (job) => {
 
 /**
  * Handle authorized transactions
- * Find merchant by mid/tid, calculate POS transaction charges, and add net amount to merchant wallet
+ * Find POS operator (merchant or franchise owner) by mid/tid, calculate charges, and credit via ledger
  */
 async function handleAuthorizedTransaction(txnId, event, notification) {
   console.log(`[Razorpay Webhook Worker] Processing authorized transaction: ${txnId}`);
@@ -197,19 +197,20 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       return;
     }
 
-    // Step 2: Get merchant
+    // Step 2: Get POS operator (can be a merchant or franchise owner)
+    // Note: This user operates the POS machine and may belong to a franchise (user.franchaise_id)
     const User = require("../models/User");
-    const merchant = await User.findByPk(posMachine.assigned_user_id);
+    const posOperator = await User.findByPk(posMachine.assigned_user_id);
 
-    if (!merchant) {
-      console.warn(`[Razorpay Webhook Worker] ⚠️ Merchant not found with id: ${posMachine.assigned_user_id} for txn: ${txnId}. Financial processing skipped.`);
+    if (!posOperator) {
+      console.warn(`[Razorpay Webhook Worker] ⚠️ POS operator not found with id: ${posMachine.assigned_user_id} for txn: ${txnId}. Financial processing skipped.`);
       return;
     }
 
-    // Stamp the merchant (user) link on the notification.
-    await notification.update({ user_id: merchant.id });
+    // Stamp the POS operator link on the notification
+    await notification.update({ user_id: posOperator.id });
 
-    console.log(`[Razorpay Webhook Worker] Found merchant: ${merchant.id} (${merchant.name || merchant.email})`);
+    console.log(`[Razorpay Webhook Worker] Found POS operator: ${posOperator.id} (${posOperator.name || posOperator.email})`);
 
     // Step 3: Resolve POS charge using the PosCharge system
     // Resolution order: user-specific (UserPosCharge) → global default (PosChargeDefault)
@@ -232,7 +233,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     // 3a: User-specific lookup
     const userLinks = await UserPosCharge.findAll({
-      where: { user_id: merchant.id, is_active: true },
+      where: { user_id: posOperator.id, is_active: true },
       include: [{ model: PosChargeDefault, as: 'defaultPosCharge' }]
     });
 
@@ -281,7 +282,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const chargeRate = resolvedCharge ? parseFloat(resolvedCharge.percent_fee) : 0;
     const feeInfo = resolvedCharge ? computeFee(resolvedCharge, transactionAmount) : { percent_fee: 0, fee: 0 };
 
-    console.log(`[Razorpay Webhook Worker] POS charge resolved (${chargeSource}): ${chargeRate}% for merchant: ${merchant.id}, paymentMode: ${paymentMethod}`);
+    console.log(`[Razorpay Webhook Worker] POS charge resolved (${chargeSource}): ${chargeRate}% for user: ${posOperator.id}, paymentMode: ${paymentMethod}`);
 
     // Step 4: Calculate charge and net amount
     const chargeAmount = feeInfo ? parseFloat(feeInfo.fee) : 0;
@@ -316,14 +317,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       return;
     }
 
-    // Step 6: Update merchant wallet
-    const currentWallet = parseFloat(merchant.wallet) || 0;
-    merchant.wallet = currentWallet + netAmount;
-    await merchant.save();
-
-    console.log(`[Razorpay Webhook Worker] Updated merchant wallet: ${currentWallet} -> ${merchant.wallet}`);
-
-    // Step 7: Create WalletTransaction record with comprehensive details
+    // Step 6: Create WalletTransaction record with comprehensive details
     const walletReason = [
       `Razorpay transaction: ${txnId}`,
       `Amount: ${transactionAmount}`,
@@ -341,16 +335,16 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       amount: netAmount,
       status: "completed",
       reason: walletReason,
-      requested_by: merchant.id,
+      requested_by: posOperator.id,
       source: "razorpay",
-      reference_id: parseInt(rrNumber) || null // Store RR number as reference if available
+      reference_id: rrNumber || null // Store RR number as reference
     });
 
-    console.log(`[Razorpay Webhook Worker] ✅ Created wallet transaction for merchant: ${merchant.id}, txn: ${txnId}`);
+    console.log(`[Razorpay Webhook Worker] ✅ Created wallet transaction for user: ${posOperator.id}, txn: ${txnId}`);
 
-    // Step 8: Create MerchantTransactionCharge record to track deducted amount
+    // Step 7: Create MerchantTransactionCharge record to track deducted amount
     const merchantTransactionCharge = await MerchantTransactionCharge.create({
-      merchant_id: merchant.id,
+      merchant_id: posOperator.id,
       pos_machine_id: posMachine.id,
       razorpay_transaction_id: txnId,
       transaction_amount: transactionAmount,
@@ -368,9 +362,9 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       customer_name: customerName
     });
 
-    console.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for merchant: ${merchant.id}, txn: ${txnId}, charge: ${chargeAmount}`);
+    console.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for user: ${posOperator.id}, txn: ${txnId}, charge: ${chargeAmount}`);
 
-    // Step 9: Create ledger entries for transaction tracking
+    // Step 8: Create ledger entries for transaction tracking (ledger service syncs wallet automatically)
     const ledgerService = require("../services/ledgerService");
     try {
       const ledgerDescription = [
@@ -383,7 +377,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       ].filter(Boolean).join(' | ');
 
       await ledgerService.createRazorpayChargeEntry({
-        userId: merchant.id,
+        userId: posOperator.id,
         razorpayTransactionId: txnId,
         transactionAmount: transactionAmount,
         chargeAmount: chargeAmount,
@@ -391,6 +385,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         merchantTransactionChargeId: merchantTransactionCharge.id,
         description: ledgerDescription,
         metadata: {
+          razorpay_notification_id: notification.id,
           wallet_transaction_id: walletTransaction.id,
           pos_machine_id: posMachine.id,
           payment_method: paymentMethod,
@@ -404,20 +399,20 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         }
       });
 
-      console.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for merchant: ${merchant.id}, txn: ${txnId}`);
+      console.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for user: ${posOperator.id}, txn: ${txnId}`);
     } catch (ledgerError) {
       console.error(`[Razorpay Webhook Worker] ⚠️ Error creating ledger entry for txn: ${txnId}`, ledgerError);
       // Don't throw - ledger is for tracking, transaction is already processed
     }
 
-    // ── Step 10: Calculate and credit commission for the merchant ─────────────
-    // Looks up UserCommission → CommissionDefault for the merchant based on
+    // ── Step 9: Calculate and credit commission for the POS operator ─────────────
+    // Looks up UserCommission → CommissionDefault for the POS operator based on
     // paymentMode / paymentCardBrand / paymentCardType and the transaction amount.
     // Falls back to the global CommissionDefault if no user-specific slab is found.
     try {
       const commissionService = require("../services/commissionService");
-      const merchantCommResult = await commissionService.resolveCommission(
-        merchant.id,
+      const operatorCommResult = await commissionService.resolveCommission(
+        posOperator.id,
         {
           paymentMode: paymentMethod,
           paymentCardBrand: paymentCardBrand || null,
@@ -426,13 +421,13 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         transactionAmount
       );
 
-      if (merchantCommResult && merchantCommResult.fee && merchantCommResult.fee.charge > 0) {
-        const commAmount = merchantCommResult.fee.charge;
-        const rateLabel = merchantCommResult.fee.percent_fee > 0
-          ? `${merchantCommResult.fee.percent_fee}%`
-          : `₹${merchantCommResult.fee.flat_fee} flat`;
+      if (operatorCommResult && operatorCommResult.fee && operatorCommResult.fee.charge > 0) {
+        const commAmount = operatorCommResult.fee.charge;
+        const rateLabel = operatorCommResult.fee.percent_fee > 0
+          ? `${operatorCommResult.fee.percent_fee}%`
+          : `₹${operatorCommResult.fee.flat_fee} flat`;
 
-        console.log(`[Razorpay Webhook Worker] Merchant commission (${merchantCommResult.source}): ₹${commAmount} (${rateLabel}) for txn: ${txnId}`);
+        console.log(`[Razorpay Webhook Worker] POS operator commission (${operatorCommResult.source}): ₹${commAmount} (${rateLabel}) for txn: ${txnId}`);
 
         // Create WalletTransaction for the commission credit
         await WalletTransaction.create({
@@ -440,53 +435,54 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           amount: commAmount,
           status: "completed",
           reason: `Commission (${rateLabel}) on Razorpay txn: ${txnId} | Txn amt: ₹${transactionAmount}${paymentMethod ? ' | ' + paymentMethod : ''}`,
-          requested_by: merchant.id,
+          requested_by: posOperator.id,
           source: "razorpay",
           reference_id: null,
         });
 
-        // Ledger entry (also syncs merchant.wallet via ledgerService)
+        // Ledger entry (also syncs wallet via ledgerService)
         await ledgerService.createCommissionEntry({
-          userId: merchant.id,
+          userId: posOperator.id,
           razorpayTransactionId: txnId,
           commissionAmount: commAmount,
           transactionType: "razorpay_commission",
           description: `Commission earned (${rateLabel}) | Razorpay txn: ${txnId} | Amt: ₹${transactionAmount}`,
           metadata: {
-            commission_source: merchantCommResult.source,
+            razorpay_notification_id: notification.id,
+            commission_source: operatorCommResult.source,
             payment_method: paymentMethod,
             payment_card_brand: paymentCardBrand || null,
             payment_card_type: paymentCardType || null,
             transaction_amount: transactionAmount,
-            commission_rate_percent: merchantCommResult.fee.percent_fee || 0,
-            commission_flat_fee: merchantCommResult.fee.flat_fee || 0,
+            commission_rate_percent: operatorCommResult.fee.percent_fee || 0,
+            commission_flat_fee: operatorCommResult.fee.flat_fee || 0,
             pos_machine_id: posMachine.id,
           },
         });
 
-        console.log(`[Razorpay Webhook Worker] ✅ Merchant commission ₹${commAmount} credited to merchant: ${merchant.id}`);
+        console.log(`[Razorpay Webhook Worker] ✅ POS operator commission ₹${commAmount} credited to user: ${posOperator.id}`);
       } else {
-        console.log(`[Razorpay Webhook Worker] No commission slab found for merchant: ${merchant.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
+        console.log(`[Razorpay Webhook Worker] No commission slab found for user: ${posOperator.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
       }
-    } catch (merchantCommError) {
-      console.error(`[Razorpay Webhook Worker] ⚠️ Error processing merchant commission for txn: ${txnId}`, merchantCommError);
+    } catch (operatorCommError) {
+      console.error(`[Razorpay Webhook Worker] ⚠️ Error processing POS operator commission for txn: ${txnId}`, operatorCommError);
       // Non-fatal — core transaction already processed
     }
 
-    // ── Step 11: Calculate and credit commission for the franchisee ───────────
-    // The merchant's franchaise_id points to the franchise user.
-    // The franchise earns commission when their merchant processes a transaction.
+    // ── Step 10: Calculate and credit commission for the franchise owner ──────────
+    // If the POS operator belongs to a franchise (posOperator.franchaise_id is set),
+    // the franchise owner earns commission when their operator processes a transaction.
     // Commission slab lookup follows the same UserCommission → CommissionDefault chain.
-    if (merchant.franchaise_id) {
+    if (posOperator.franchaise_id) {
       try {
         const commissionService = require("../services/commissionService");
-        const franchise = await User.findByPk(merchant.franchaise_id);
+        const franchiseOwner = await User.findByPk(posOperator.franchaise_id);
 
-        if (!franchise) {
-          console.warn(`[Razorpay Webhook Worker] Franchise user not found: ${merchant.franchaise_id} for txn: ${txnId}`);
+        if (!franchiseOwner) {
+          console.warn(`[Razorpay Webhook Worker] Franchise owner not found: ${posOperator.franchaise_id} for txn: ${txnId}`);
         } else {
           const franchiseCommResult = await commissionService.resolveCommission(
-            franchise.id,
+            franchiseOwner.id,
             {
               paymentMode: paymentMethod,
               paymentCardBrand: paymentCardBrand || null,
@@ -501,28 +497,29 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
               ? `${franchiseCommResult.fee.percent_fee}%`
               : `₹${franchiseCommResult.fee.flat_fee} flat`;
 
-            console.log(`[Razorpay Webhook Worker] Franchise commission (${franchiseCommResult.source}): ₹${franchCommAmount} (${franchRateLabel}) for franchise: ${franchise.id}, txn: ${txnId}`);
+            console.log(`[Razorpay Webhook Worker] Franchise commission (${franchiseCommResult.source}): ₹${franchCommAmount} (${franchRateLabel}) for franchise owner: ${franchiseOwner.id}, txn: ${txnId}`);
 
-            // Create WalletTransaction for the franchise commission credit
+            // Create WalletTransaction for the franchise owner's commission credit
             await WalletTransaction.create({
               type: "commission",
               amount: franchCommAmount,
               status: "completed",
-              reason: `Franchise commission (${franchRateLabel}) | Merchant: ${merchant.id} | Razorpay txn: ${txnId} | Txn amt: ₹${transactionAmount}`,
-              requested_by: franchise.id,
+              reason: `Franchise commission (${franchRateLabel}) | Operator: ${posOperator.id} | Razorpay txn: ${txnId} | Txn amt: ₹${transactionAmount}`,
+              requested_by: franchiseOwner.id,
               source: "razorpay",
               reference_id: null,
             });
 
-            // Ledger entry for franchise commission (also syncs franchise.wallet)
+            // Ledger entry for franchise owner's commission (also syncs wallet)
             await ledgerService.createCommissionEntry({
-              userId: franchise.id,
+              userId: franchiseOwner.id,
               razorpayTransactionId: txnId,
               commissionAmount: franchCommAmount,
               transactionType: "razorpay_franchise_commission",
-              description: `Franchise commission (${franchRateLabel}) | Merchant: ${merchant.id} | Razorpay txn: ${txnId} | Amt: ₹${transactionAmount}`,
+              description: `Franchise commission (${franchRateLabel}) | Operator: ${posOperator.id} | Razorpay txn: ${txnId} | Amt: ₹${transactionAmount}`,
               metadata: {
-                merchant_id: merchant.id,
+                razorpay_notification_id: notification.id,
+                merchant_id: posOperator.id,
                 commission_source: franchiseCommResult.source,
                 payment_method: paymentMethod,
                 payment_card_brand: paymentCardBrand || null,
@@ -534,9 +531,9 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
               },
             });
 
-            console.log(`[Razorpay Webhook Worker] ✅ Franchise commission ₹${franchCommAmount} credited to franchise: ${franchise.id}`);
+            console.log(`[Razorpay Webhook Worker] ✅ Franchise commission ₹${franchCommAmount} credited to franchise owner: ${franchiseOwner.id}`);
           } else {
-            console.log(`[Razorpay Webhook Worker] No commission slab for franchise: ${franchise.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
+            console.log(`[Razorpay Webhook Worker] No commission slab for franchise owner: ${franchiseOwner.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
           }
         }
       } catch (franchCommError) {
@@ -544,7 +541,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         // Non-fatal — core transaction already processed
       }
     } else {
-      console.log(`[Razorpay Webhook Worker] No franchise linked for merchant: ${merchant.id}, skipping franchise commission for txn: ${txnId}`);
+      console.log(`[Razorpay Webhook Worker] No franchise linked for user: ${posOperator.id}, skipping franchise commission for txn: ${txnId}`);
     }
 
   } catch (error) {
