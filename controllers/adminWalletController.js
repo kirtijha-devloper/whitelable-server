@@ -33,12 +33,33 @@ const ledgerService = require("../services/ledgerService");
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Resolve the most recent ledger balance for a user (within a transaction). */
+/**
+ * Resolve the most recent ledger balance for a user (within a transaction).
+ *
+ * Strategy: lock the User row first (SELECT FOR UPDATE) to act as a mutex
+ * for concurrent wallet operations on the same user, then read the latest
+ * Ledger balance.  This avoids locking the entire Ledgers table with gap/
+ * next-key locks that SERIALIZABLE isolation would otherwise require.
+ */
 async function getBalanceInTxn(userId, dbTxn) {
+  // Acquire an exclusive lock on the user row.  Any concurrent credit/debit
+  // for the same user will block here until this transaction commits or
+  // rolls back – serialising wallet mutations without touching the Ledgers
+  // table lock.
+  const user = await User.findByPk(userId, {
+    lock: dbTxn.LOCK.UPDATE,
+    transaction: dbTxn,
+  });
+
+  if (!user) return 0;
+
+  // Read the running balance from the most recent ledger entry.
+  // No row lock is needed here: we already hold the user-row lock, so no
+  // other transaction can insert a new committed ledger row for this user
+  // until we release it.
   const latest = await Ledger.findOne({
     where: { user_id: userId },
-    order: [["createdAt", "DESC"], ["id", "DESC"]],
-    lock: dbTxn.LOCK.UPDATE,
+    order: [["id", "DESC"]], // autoincrement id ≡ insert order; faster than sorting on createdAt
     transaction: dbTxn,
   });
 
@@ -46,12 +67,9 @@ async function getBalanceInTxn(userId, dbTxn) {
     return parseFloat(latest.balance) || 0;
   }
 
-  // Fall back to the wallet column if no ledger entry yet (row-lock the user)
-  const user = await User.findByPk(userId, {
-    lock: dbTxn.LOCK.UPDATE,
-    transaction: dbTxn,
-  });
-  return user ? parseFloat(user.wallet) || 0 : 0;
+  // No ledger rows yet – fall back to the wallet column that is still locked
+  // via the user row acquired above.
+  return parseFloat(user.wallet) || 0;
 }
 
 /** Validate and extract the common fields shared by credit and debit actions. */
@@ -178,12 +196,15 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
   }
 
   // ── 5. Atomic DB transaction ─────────────────────────────────────────────
+  // READ_COMMITTED + SELECT FOR UPDATE on the User row (inside getBalanceInTxn)
+  // serialises concurrent wallet ops for the same user without acquiring the
+  // broad InnoDB gap/next-key locks that SERIALIZABLE causes on Ledgers.
   const dbTxn = await db.transaction({
-    isolationLevel: db.Transaction.ISOLATION_LEVELS.SERIALIZABLE,
+    isolationLevel: db.Transaction.ISOLATION_LEVELS.READ_COMMITTED,
   });
 
   try {
-    // Read current balance with a row lock to prevent concurrent modifications
+    // Lock the user row and read balance atomically (see getBalanceInTxn)
     const balanceBefore = await getBalanceInTxn(userId, dbTxn);
     const balanceAfter  = parseFloat((balanceBefore + amount).toFixed(2));
 
@@ -304,12 +325,15 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
   }
 
   // ── 5. Atomic DB transaction ─────────────────────────────────────────────
+  // READ_COMMITTED + SELECT FOR UPDATE on the User row (inside getBalanceInTxn)
+  // serialises concurrent wallet ops for the same user without acquiring the
+  // broad InnoDB gap/next-key locks that SERIALIZABLE causes on Ledgers.
   const dbTxn = await db.transaction({
-    isolationLevel: db.Transaction.ISOLATION_LEVELS.SERIALIZABLE,
+    isolationLevel: db.Transaction.ISOLATION_LEVELS.READ_COMMITTED,
   });
 
   try {
-    // Read current balance with a row lock to prevent concurrent modifications
+    // Lock the user row and read balance atomically (see getBalanceInTxn)
     const balanceBefore = await getBalanceInTxn(userId, dbTxn);
 
     // Insufficient-balance guard (inside the lock so the check is race-free)

@@ -1,10 +1,15 @@
 const express = require("express");
 const router = express.Router();
-const { getAdminDashboard } = require("../controllers/adminController");
+const { getAdminDashboard, getUnassignedMerchants } = require("../controllers/adminController");
 const { adminDirectCredit, adminDirectDebit, reconcileWallet } = require("../controllers/adminWalletController");
 const validateToken = require("../middleware/validateTokenHandler");
 
 router.route("/").get(getAdminDashboard);
+
+// GET /api/admin/merchants/unassigned
+//   Returns merchants with no franchise (franchaise_id IS NULL)
+//   Query: page, limit, status, search
+router.get("/merchants/unassigned", validateToken, getUnassignedMerchants);
 
 // ── Admin wallet adjustments (admin-only, protected) ─────────────────────────
 // POST /api/admin/wallet/credit
