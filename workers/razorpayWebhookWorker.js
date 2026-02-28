@@ -1,5 +1,40 @@
 const razorpayWebhookQueue = require("../queues/razorpayWebhookQueue");
 const RazorpayNotification = require("../models/RazorpayNotification");
+const fs = require("fs");
+const path = require("path");
+
+// ── File-based logger for diagnostics ────────────────────────────────────────
+const LOG_DIR = path.join(__dirname, "../logs");
+const LOG_FILE = path.join(LOG_DIR, "razorpayWebhookWorker.log");
+
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function _ts() {
+  return new Date().toISOString();
+}
+
+function _fileLog(level, args) {
+  const parts = args.map((a) =>
+    a instanceof Error
+      ? `${a.message}\n${a.stack}`
+      : typeof a === "object" && a !== null
+      ? JSON.stringify(a, null, 2)
+      : String(a)
+  );
+  const line = `[${_ts()}] [${level}] ${parts.join(" ")}\n`;
+  try {
+    fs.appendFileSync(LOG_FILE, line);
+  } catch (_) { /* ignore write errors so worker never crashes on logging */ }
+}
+
+const logger = {
+  log:   (...args) => { console.log(...args);   _fileLog("INFO",  args); },
+  warn:  (...args) => { console.warn(...args);  _fileLog("WARN",  args); },
+  error: (...args) => { console.error(...args); _fileLog("ERROR", args); },
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Worker to process Razorpay webhook business logic
@@ -13,7 +48,7 @@ const RazorpayNotification = require("../models/RazorpayNotification");
 razorpayWebhookQueue.process(async (job) => {
   const { txnId, status, event } = job.data;
 
-  console.log(`[Razorpay Webhook Worker] Processing business logic for txn: ${txnId}, status: ${status}`);
+  logger.log(`[Razorpay Webhook Worker] Processing business logic for txn: ${txnId}, status: ${status}`);
 
   try {
     // Verify the notification exists in DB (safety check)
@@ -25,7 +60,7 @@ razorpayWebhookQueue.process(async (job) => {
       throw new Error(`Notification not found in database for txn: ${txnId}`);
     }
 
-    console.log(`[Razorpay Webhook Worker] Notification found in database for txn: ${txnId}`);
+    logger.log(`[Razorpay Webhook Worker] Notification found in database for txn: ${txnId}`);
 
     // Business logic based on transaction status
     switch (status) {
@@ -46,15 +81,15 @@ razorpayWebhookQueue.process(async (job) => {
         break;
 
       default:
-        console.log(`[Razorpay Webhook Worker] Unhandled status: ${status} for txn: ${txnId}`);
+        logger.log(`[Razorpay Webhook Worker] Unhandled status: ${status} for txn: ${txnId}`);
         // You can add more status handlers here as needed
     }
 
-    console.log(`[Razorpay Webhook Worker] ✅ Successfully processed txn: ${txnId}`);
+    logger.log(`[Razorpay Webhook Worker] ✅ Successfully processed txn: ${txnId}`);
     return { success: true, txnId, status };
 
   } catch (error) {
-    console.error(`[Razorpay Webhook Worker] ❌ Error processing txn: ${txnId}`, error);
+    logger.error(`[Razorpay Webhook Worker] ❌ Error processing txn: ${txnId}`, error);
     // Re-throw to trigger Bull's retry mechanism
     throw error;
   }
@@ -65,7 +100,7 @@ razorpayWebhookQueue.process(async (job) => {
  * Find POS operator (merchant or franchise owner) by mid/tid, calculate charges, and credit via ledger
  */
 async function handleAuthorizedTransaction(txnId, event, notification) {
-  console.log(`[Razorpay Webhook Worker] Processing authorized transaction: ${txnId}`);
+  logger.log(`[Razorpay Webhook Worker] Processing authorized transaction: ${txnId}`);
   
   try {
     // Parse event data from notification (keep full object if needed)
@@ -149,7 +184,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const terminalId = notification.tid || tid || tid_number;
     const transactionAmount = notification.amount || amount || amountOriginal;
 
-    console.log(`[Razorpay Webhook Worker] Transaction details:`, {
+    logger.log(`[Razorpay Webhook Worker] Transaction details:`, {
       txnId,
       merchantId,
       terminalId,
@@ -183,7 +218,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     });
 
     if (!posMachine) {
-      console.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine not found for mid: ${merchantId}, tid: ${terminalId}. Notification stored without user link.`);
+      logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine not found for mid: ${merchantId}, tid: ${terminalId}. Notification stored without user link.`);
       return;
     }
 
@@ -192,7 +227,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     await notification.update({ pos_machine_id: posMachine.id });
 
     if (!posMachine.assigned_user_id) {
-      console.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine (id: ${posMachine.id}) mid: ${merchantId}, tid: ${terminalId} has no assigned user. Financial processing skipped. Notification stored with pos_machine_id only.`);
+      logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine (id: ${posMachine.id}) mid: ${merchantId}, tid: ${terminalId} has no assigned user. Financial processing skipped. Notification stored with pos_machine_id only.`);
       // pos_machine_id is already stamped above; user_id stays null.
       return;
     }
@@ -203,14 +238,14 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const posOperator = await User.findByPk(posMachine.assigned_user_id);
 
     if (!posOperator) {
-      console.warn(`[Razorpay Webhook Worker] ⚠️ POS operator not found with id: ${posMachine.assigned_user_id} for txn: ${txnId}. Financial processing skipped.`);
+      logger.warn(`[Razorpay Webhook Worker] ⚠️ POS operator not found with id: ${posMachine.assigned_user_id} for txn: ${txnId}. Financial processing skipped.`);
       return;
     }
 
     // Stamp the POS operator link on the notification
     await notification.update({ user_id: posOperator.id });
 
-    console.log(`[Razorpay Webhook Worker] Found POS operator: ${posOperator.id} (${posOperator.name || posOperator.email})`);
+    logger.log(`[Razorpay Webhook Worker] Found POS operator: ${posOperator.id} (${posOperator.name || posOperator.email})`);
 
     // Step 3: Resolve POS charge using the PosCharge system
     // Resolution order: user-specific (UserPosCharge) → global default (PosChargeDefault)
@@ -282,13 +317,13 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const chargeRate = resolvedCharge ? parseFloat(resolvedCharge.percent_fee) : 0;
     const feeInfo = resolvedCharge ? computeFee(resolvedCharge, transactionAmount) : { percent_fee: 0, fee: 0 };
 
-    console.log(`[Razorpay Webhook Worker] POS charge resolved (${chargeSource}): ${chargeRate}% for user: ${posOperator.id}, paymentMode: ${paymentMethod}`);
+    logger.log(`[Razorpay Webhook Worker] POS charge resolved (${chargeSource}): ${chargeRate}% for user: ${posOperator.id}, paymentMode: ${paymentMethod}`);
 
     // Step 4: Calculate charge and net amount
     const chargeAmount = feeInfo ? parseFloat(feeInfo.fee) : 0;
     const netAmount = transactionAmount - chargeAmount;
 
-    console.log(`[Razorpay Webhook Worker] Transaction Amount: ${transactionAmount}, Charge: ${chargeAmount}, Net Amount: ${netAmount}`);
+    logger.log(`[Razorpay Webhook Worker] Transaction Amount: ${transactionAmount}, Charge: ${chargeAmount}, Net Amount: ${netAmount}`);
 
     // Step 5: Check if transaction already processed (idempotency)
     const WalletTransaction = require("../models/WalletTransaction");
@@ -302,7 +337,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     });
 
     if (existingChargeRecord) {
-      console.log(`[Razorpay Webhook Worker] Transaction charge record already exists for txn: ${txnId}`);
+      logger.log(`[Razorpay Webhook Worker] Transaction charge record already exists for txn: ${txnId}`);
       return;
     }
 
@@ -313,7 +348,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     });
 
     if (existingTransaction) {
-      console.log(`[Razorpay Webhook Worker] Transaction already processed for txn: ${txnId}`);
+      logger.log(`[Razorpay Webhook Worker] Transaction already processed for txn: ${txnId}`);
       return;
     }
 
@@ -340,7 +375,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       reference_id: rrNumber || null // Store RR number as reference
     });
 
-    console.log(`[Razorpay Webhook Worker] ✅ Created wallet transaction for user: ${posOperator.id}, txn: ${txnId}`);
+    logger.log(`[Razorpay Webhook Worker] ✅ Created wallet transaction for user: ${posOperator.id}, txn: ${txnId}`);
 
     // Step 7: Create MerchantTransactionCharge record to track deducted amount
     const merchantTransactionCharge = await MerchantTransactionCharge.create({
@@ -362,7 +397,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       customer_name: customerName
     });
 
-    console.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for user: ${posOperator.id}, txn: ${txnId}, charge: ${chargeAmount}`);
+    logger.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for user: ${posOperator.id}, txn: ${txnId}, charge: ${chargeAmount}`);
 
     // Step 8: Create ledger entries for transaction tracking (ledger service syncs wallet automatically)
     const ledgerService = require("../services/ledgerService");
@@ -399,9 +434,9 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         }
       });
 
-      console.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for user: ${posOperator.id}, txn: ${txnId}`);
+      logger.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for user: ${posOperator.id}, txn: ${txnId}`);
     } catch (ledgerError) {
-      console.error(`[Razorpay Webhook Worker] ⚠️ Error creating ledger entry for txn: ${txnId}`, ledgerError);
+      logger.error(`[Razorpay Webhook Worker] ⚠️ Error creating ledger entry for txn: ${txnId}`, ledgerError);
       // Don't throw - ledger is for tracking, transaction is already processed
     }
 
@@ -427,7 +462,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           ? `${operatorCommResult.fee.percent_fee}%`
           : `₹${operatorCommResult.fee.flat_fee} flat`;
 
-        console.log(`[Razorpay Webhook Worker] POS operator commission (${operatorCommResult.source}): ₹${commAmount} (${rateLabel}) for txn: ${txnId}`);
+        logger.log(`[Razorpay Webhook Worker] POS operator commission (${operatorCommResult.source}): ₹${commAmount} (${rateLabel}) for txn: ${txnId}`);
 
         // Create WalletTransaction for the commission credit
         await WalletTransaction.create({
@@ -460,12 +495,12 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           },
         });
 
-        console.log(`[Razorpay Webhook Worker] ✅ POS operator commission ₹${commAmount} credited to user: ${posOperator.id}`);
+        logger.log(`[Razorpay Webhook Worker] ✅ POS operator commission ₹${commAmount} credited to user: ${posOperator.id}`);
       } else {
-        console.log(`[Razorpay Webhook Worker] No commission slab found for user: ${posOperator.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
+        logger.log(`[Razorpay Webhook Worker] No commission slab found for user: ${posOperator.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
       }
     } catch (operatorCommError) {
-      console.error(`[Razorpay Webhook Worker] ⚠️ Error processing POS operator commission for txn: ${txnId}`, operatorCommError);
+      logger.error(`[Razorpay Webhook Worker] ⚠️ Error processing POS operator commission for txn: ${txnId}`, operatorCommError);
       // Non-fatal — core transaction already processed
     }
 
@@ -479,7 +514,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         const franchiseOwner = await User.findByPk(posOperator.franchaise_id);
 
         if (!franchiseOwner) {
-          console.warn(`[Razorpay Webhook Worker] Franchise owner not found: ${posOperator.franchaise_id} for txn: ${txnId}`);
+          logger.warn(`[Razorpay Webhook Worker] Franchise owner not found: ${posOperator.franchaise_id} for txn: ${txnId}`);
         } else {
           const franchiseCommResult = await commissionService.resolveCommission(
             franchiseOwner.id,
@@ -497,7 +532,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
               ? `${franchiseCommResult.fee.percent_fee}%`
               : `₹${franchiseCommResult.fee.flat_fee} flat`;
 
-            console.log(`[Razorpay Webhook Worker] Franchise commission (${franchiseCommResult.source}): ₹${franchCommAmount} (${franchRateLabel}) for franchise owner: ${franchiseOwner.id}, txn: ${txnId}`);
+            logger.log(`[Razorpay Webhook Worker] Franchise commission (${franchiseCommResult.source}): ₹${franchCommAmount} (${franchRateLabel}) for franchise owner: ${franchiseOwner.id}, txn: ${txnId}`);
 
             // Create WalletTransaction for the franchise owner's commission credit
             await WalletTransaction.create({
@@ -531,21 +566,21 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
               },
             });
 
-            console.log(`[Razorpay Webhook Worker] ✅ Franchise commission ₹${franchCommAmount} credited to franchise owner: ${franchiseOwner.id}`);
+            logger.log(`[Razorpay Webhook Worker] ✅ Franchise commission ₹${franchCommAmount} credited to franchise owner: ${franchiseOwner.id}`);
           } else {
-            console.log(`[Razorpay Webhook Worker] No commission slab for franchise owner: ${franchiseOwner.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
+            logger.log(`[Razorpay Webhook Worker] No commission slab for franchise owner: ${franchiseOwner.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
           }
         }
       } catch (franchCommError) {
-        console.error(`[Razorpay Webhook Worker] ⚠️ Error processing franchise commission for txn: ${txnId}`, franchCommError);
+        logger.error(`[Razorpay Webhook Worker] ⚠️ Error processing franchise commission for txn: ${txnId}`, franchCommError);
         // Non-fatal — core transaction already processed
       }
     } else {
-      console.log(`[Razorpay Webhook Worker] No franchise linked for user: ${posOperator.id}, skipping franchise commission for txn: ${txnId}`);
+      logger.log(`[Razorpay Webhook Worker] No franchise linked for user: ${posOperator.id}, skipping franchise commission for txn: ${txnId}`);
     }
 
   } catch (error) {
-    console.error(`[Razorpay Webhook Worker] Error in handleAuthorizedTransaction for txn: ${txnId}`, error);
+    logger.error(`[Razorpay Webhook Worker] Error in handleAuthorizedTransaction for txn: ${txnId}`, error);
     throw error; // Re-throw to trigger retry mechanism
   }
 }
@@ -554,7 +589,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
  * Handle failed transactions
  */
 async function handleFailedTransaction(txnId, event, notification) {
-  console.log(`[Razorpay Webhook Worker] Processing failed transaction: ${txnId}`);
+  logger.log(`[Razorpay Webhook Worker] Processing failed transaction: ${txnId}`);
   
   // TODO: Add your business logic here
   // Example:
@@ -574,7 +609,7 @@ async function handleFailedTransaction(txnId, event, notification) {
  * Handle voided transactions
  */
 async function handleVoidedTransaction(txnId, event, notification) {
-  console.log(`[Razorpay Webhook Worker] Processing voided transaction: ${txnId}`);
+  logger.log(`[Razorpay Webhook Worker] Processing voided transaction: ${txnId}`);
   
   // TODO: Add your business logic here
   // Example:
@@ -587,7 +622,7 @@ async function handleVoidedTransaction(txnId, event, notification) {
  * Handle captured transactions
  */
 async function handleCapturedTransaction(txnId, event, notification) {
-  console.log(`[Razorpay Webhook Worker] Processing captured transaction: ${txnId}`);
+  logger.log(`[Razorpay Webhook Worker] Processing captured transaction: ${txnId}`);
   
   // TODO: Add your business logic here
   // Example:
