@@ -217,6 +217,13 @@ const registerUser = asyncHandler(async (req, res) => {
             throw new Error("All fields are mandatory!");
         }
 
+        // bank passbook must be uploaded by requirement
+        const bankPassbookFile = req.files?.bank_passbook;
+        if (!bankPassbookFile) {
+            res.status(400);
+            throw new Error("Bank passbook file is required for registration");
+        }
+
         const userAvailable = await User.findOne({
             where: {
                 mobile_number: mobileNumber,
@@ -254,16 +261,18 @@ const registerUser = asyncHandler(async (req, res) => {
         }
 
         // Handle file uploads to Cloudinary
-        const panFile      = req.files?.pan_photo;
-        const aadharFile   = req.files?.aadhar_photo;
-        const aadharBkFile = req.files?.aadhar_back_photo;
-        const shopFile     = req.files?.shop_photo;
+        const panFile          = req.files?.pan_photo;
+        const aadharFile       = req.files?.aadhar_photo;
+        const aadharBkFile     = req.files?.aadhar_back_photo;
+        const shopFile         = req.files?.shop_photo;
+        const bankPassbookFile = req.files?.bank_passbook;
 
-        const [panUrl, aadharUrl, aadharBkUrl, shopUrl] = await Promise.all([
-            panFile      ? cloudinary.uploader.upload(panFile.tempFilePath,      { folder: 'users' }) : null,
-            aadharFile   ? cloudinary.uploader.upload(aadharFile.tempFilePath,   { folder: 'users' }) : null,
-            aadharBkFile ? cloudinary.uploader.upload(aadharBkFile.tempFilePath, { folder: 'users' }) : null,
-            shopFile     ? cloudinary.uploader.upload(shopFile.tempFilePath,     { folder: 'users' }) : null,
+        const [panUrl, aadharUrl, aadharBkUrl, shopUrl, bankPassbookUrl] = await Promise.all([
+            panFile          ? cloudinary.uploader.upload(panFile.tempFilePath,          { folder: 'users' }) : null,
+            aadharFile       ? cloudinary.uploader.upload(aadharFile.tempFilePath,       { folder: 'users' }) : null,
+            aadharBkFile     ? cloudinary.uploader.upload(aadharBkFile.tempFilePath,     { folder: 'users' }) : null,
+            shopFile         ? cloudinary.uploader.upload(shopFile.tempFilePath,         { folder: 'users' }) : null,
+            bankPassbookFile ? cloudinary.uploader.upload(bankPassbookFile.tempFilePath, { folder: 'users' }) : null,
         ]);
 
         const user = await User.create({
@@ -288,6 +297,7 @@ const registerUser = asyncHandler(async (req, res) => {
             aadhar_number_url:     aadharUrl?.secure_url || null,
             aadhar_back_number_url: aadharBkUrl?.secure_url || null,
             shop_with_photo_url:   shopUrl?.secure_url   || null,
+            bank_passbook_url:      bankPassbookUrl?.secure_url || null,
             settlement_type: req.body.settlement_type || 'today_settlement',
             is_approved: false,
             status: 'active',
@@ -994,23 +1004,26 @@ const updateUser = asyncHandler(async (req, res) => {
     }
 
     // ── File uploads (Cloudinary) ─────────────────────────────────────────
-    const panFile      = req.files?.pan_photo;
-    const aadharFile   = req.files?.aadhar_photo;
-    const aadharBkFile = req.files?.aadhar_back_photo;
-    const shopFile     = req.files?.shop_photo;
+    const panFile          = req.files?.pan_photo;
+    const aadharFile       = req.files?.aadhar_photo;
+    const aadharBkFile     = req.files?.aadhar_back_photo;
+    const shopFile         = req.files?.shop_photo;
+    const bankPassbookFile = req.files?.bank_passbook;
 
-    if (panFile || aadharFile || aadharBkFile || shopFile) {
-      const [panUrl, aadharUrl, aadharBkUrl, shopUrl] = await Promise.all([
-        panFile      ? cloudinary.uploader.upload(panFile.tempFilePath,      { folder: 'users' }) : null,
-        aadharFile   ? cloudinary.uploader.upload(aadharFile.tempFilePath,   { folder: 'users' }) : null,
-        aadharBkFile ? cloudinary.uploader.upload(aadharBkFile.tempFilePath, { folder: 'users' }) : null,
-        shopFile     ? cloudinary.uploader.upload(shopFile.tempFilePath,     { folder: 'users' }) : null,
+    if (panFile || aadharFile || aadharBkFile || shopFile || bankPassbookFile) {
+      const [panUrl, aadharUrl, aadharBkUrl, shopUrl, bankPassbookUrl] = await Promise.all([
+        panFile          ? cloudinary.uploader.upload(panFile.tempFilePath,          { folder: 'users' }) : null,
+        aadharFile       ? cloudinary.uploader.upload(aadharFile.tempFilePath,       { folder: 'users' }) : null,
+        aadharBkFile     ? cloudinary.uploader.upload(aadharBkFile.tempFilePath,     { folder: 'users' }) : null,
+        shopFile         ? cloudinary.uploader.upload(shopFile.tempFilePath,         { folder: 'users' }) : null,
+        bankPassbookFile ? cloudinary.uploader.upload(bankPassbookFile.tempFilePath, { folder: 'users' }) : null,
       ]);
 
-      if (panUrl)      updates.pan_number_url          = panUrl.secure_url;
-      if (aadharUrl)   updates.aadhar_number_url       = aadharUrl.secure_url;
-      if (aadharBkUrl) updates.aadhar_back_number_url  = aadharBkUrl.secure_url;
-      if (shopUrl)     updates.shop_with_photo_url     = shopUrl.secure_url;
+      if (panUrl)           updates.pan_number_url          = panUrl.secure_url;
+      if (aadharUrl)        updates.aadhar_number_url       = aadharUrl.secure_url;
+      if (aadharBkUrl)      updates.aadhar_back_number_url  = aadharBkUrl.secure_url;
+      if (shopUrl)          updates.shop_with_photo_url     = shopUrl.secure_url;
+      if (bankPassbookUrl)  updates.bank_passbook_url       = bankPassbookUrl.secure_url;
     }
 
     // ── Email / mobile uniqueness check ───────────────────────────────────

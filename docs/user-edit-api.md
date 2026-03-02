@@ -70,6 +70,7 @@ Send only the fields you want to change. All fields are optional.
 | `aadhar_photo` | file | Aadhaar card front image |
 | `aadhar_back_photo` | file | Aadhaar card back image |
 | `shop_photo` | file | Shop / business photo |
+| `bank_passbook` | file | Bank passbook front page (image/pdf). Will update `bank_passbook_url` field. |
 
 Files are uploaded to Cloudinary. The returned `data` object will contain updated `*_url` fields.
 

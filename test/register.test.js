@@ -73,6 +73,19 @@ async function runTests() {
     assert(body.success === false || body.message, 'Expected error message');
   });
 
+  // ── 3. Missing bank passbook file → 400 ─────────────────────────────────
+  await test('Returns 400 when bank_passbook is not provided', async () => {
+    const form = new FormData();
+    form.append('role', 'merchant');
+    form.append('name', 'NoPassbook');
+    form.append('email', `nopass_${Date.now()}@example.com`);
+    form.append('mobile_number', `${process.env.TEST_MOBILE_PREFIX || '7'}${Date.now().toString().slice(-9)}`);
+    form.append('password', 'Test@1234');
+    const { status, body } = await post(form, `Bearer ${token}`);
+    assert(status === 400, `Expected 400 when passbook missing, got ${status}`);
+    assert(body.message && body.message.toLowerCase().includes('passbook'), 'Error should mention passbook');
+  });
+
   // ── 3. Successful merchant registration ───────────────────────────────────
   let createdUserId = null;
   await test('Creates a merchant and returns 201 with user + data keys', async () => {

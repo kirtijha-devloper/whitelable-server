@@ -61,6 +61,7 @@ const User = db.define('User', {
       aadhar_number_url: {type: Sequelize.STRING},
       aadhar_back_number_url: {type: Sequelize.STRING},
       shop_with_photo_url: {type: Sequelize.STRING},
+      bank_passbook_url: { type: Sequelize.STRING },
       is_approved: {  
         type: Sequelize.BOOLEAN,
         defaultValue: false },

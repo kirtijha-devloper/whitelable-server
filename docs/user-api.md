@@ -66,6 +66,7 @@ The form is divided into five logical sections.
 | `aadhar_back_photo` | file | no       | Aadhaar card back image (any image MIME type). Uploaded to Cloudinary. |
 | `pan_photo`       | file   | no       | PAN card image (any image MIME type). Uploaded to Cloudinary. |
 | `shop_photo`      | file   | no       | Shop/premises photo (any image MIME type). Uploaded to Cloudinary. |
+| `bank_passbook`   | file   | **yes**  | Front page of bank passbook (image/pdf). **Required for registration**. Uploaded to Cloudinary and stored as `bank_passbook_url`. |
 
 #### 5. POS Machine Assignment
 
@@ -104,6 +105,7 @@ formData.append('aadhar_number', '123456789012');
 formData.append('pan_number', 'ABCDE1234F');
 formData.append('aadhar_photo', aadharFile);     // File object
 formData.append('pan_photo', panFile);           // File object
+formData.append('bank_passbook', passbookFile);  // File object (required)
 
 // POS
 formData.append('settlement_type', 'today_settlement');
