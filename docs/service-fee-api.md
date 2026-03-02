@@ -61,6 +61,11 @@ Create a new service fee (admin only).
 
 **Body parameters** (JSON):
 - `serviceName` (string, required) – **must** equal one of the values exported in `constants.serviceNames` (e.g. `serviceNames.BANK_VERIFICATION`).
+
+> **Note:** when a bank account is successfully validated via
+> `/api/payment/v2/bank/validation`, the system automatically applies the
+> configured `bank_verification` service fee (if any) and debits it from the
+> merchant's ledger.  The front end does not need to handle this separately.
 - `flat_fee` (number, optional)
 - `percent_fee` (number, optional)
 - `is_active` (boolean, optional)

@@ -10,6 +10,10 @@ const WalletTransaction = require('../../models/WalletTransaction');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const crypto = require('crypto');
 const ledgerService = require('../../services/ledgerService');
+const ServiceFee = require('../../models/ServiceFee');
+const ChargeSlab = require('../../models/ChargeSlab');
+const { serviceNames } = require('../../constants');
+const { Op } = require('sequelize');
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
@@ -54,9 +58,31 @@ router.post('/payout', asyncHandler(async (req, res) => {
     if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({ message: "Invalid transfer amount" });
     }
-    
-    const service_charge = parseFloat(req.body.service_charge);
+
+    // service_charge may be sent by client, but if not provided (or zero) we
+    // calculate it from slabs defined by the admin.  Slabs use the existing
+    // ChargeSlab model; category 'branchx_payout' is used so administrators
+    // can create/update them via /api/charge routes.
+    let service_charge = parseFloat(req.body.service_charge || 0);
     if (!service_charge || isNaN(service_charge) || service_charge <= 0) {
+      // find applicable slab for the amount
+      const slab = await ChargeSlab.findOne({
+        where: {
+          charge_type_category: 'branchx_payout',
+          is_active: true,
+          min_amount: { [Op.lte]: amount },
+          max_amount: { [Op.gte]: amount }
+        },
+        order: [['min_amount', 'DESC']]
+      });
+      if (slab) {
+        const flat = parseFloat(slab.flat_fee || 0);
+        const pct = parseFloat(slab.percent_fee || 0);
+        service_charge = pct > 0 ? parseFloat(((pct/100) * amount).toFixed(2)) : flat;
+      }
+    }
+
+    if (!service_charge || isNaN(service_charge) || service_charge < 0) {
       return res.status(400).json({ message: "Invalid service charge" });
     }
 
@@ -297,6 +323,32 @@ router.post('/bank/validation', asyncHandler(async (req, res) => {
         message: data.message || 'Bank account validation failed',
         data
       });
+    }
+
+    // successful validation – apply service fee if configured
+    const feeRec = await ServiceFee.findOne({
+      where: { service_name: serviceNames.BANK_VERIFICATION, is_active: true }
+    });
+    if (feeRec) {
+      let charge = 0;
+      const flat = parseFloat(feeRec.flat_fee || 0);
+      const pct = parseFloat(feeRec.percent_fee || 0);
+      if (pct > 0) {
+        // no amount context – treat percent as flat on 1 unit or ignore
+        // for now we ignore percent fees in validation since there is no amount
+        charge = flat;
+      } else {
+        charge = flat;
+      }
+      if (charge > 0) {
+        await ledgerService.createLedgerEntry({
+          userId: req.user.id,
+          transactionType: 'service_fee',
+          description: `Bank validation fee`,
+          debit: charge,
+          metadata: { service_name: serviceNames.BANK_VERIFICATION }
+        });
+      }
     }
 
     res.json({
