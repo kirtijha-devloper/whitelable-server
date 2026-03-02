@@ -265,7 +265,7 @@ const registerUser = asyncHandler(async (req, res) => {
         const aadharFile       = req.files?.aadhar_photo;
         const aadharBkFile     = req.files?.aadhar_back_photo;
         const shopFile         = req.files?.shop_photo;
-        const bankPassbookFile = req.files?.bank_passbook;
+        // bankPassbookFile already validated above
 
         const [panUrl, aadharUrl, aadharBkUrl, shopUrl, bankPassbookUrl] = await Promise.all([
             panFile          ? cloudinary.uploader.upload(panFile.tempFilePath,          { folder: 'users' }) : null,
