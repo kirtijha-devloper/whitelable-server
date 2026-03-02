@@ -12,7 +12,8 @@ const {
   deleteUserPosCharge,
   calculatePosCharge,
   setGlobalPosRate,
-  getGlobalPosRate
+  getGlobalPosRate,
+  getRazorpayOptions
 } = require('../controllers/posChargeController');
 
 // All routes require authentication
@@ -32,6 +33,9 @@ router.delete('/user/:id', deleteUserPosCharge);        // remove link
 
 // ── Calculate effective POS charge ──────────────────────────────────────────
 router.post('/calculate', calculatePosCharge);          // resolve effective charge + fee
+
+// ── Razorpay notification value helpers (all authenticated roles)
+router.get('/razorpay-options', getRazorpayOptions);    // distinct field values
 
 // ── Global fallback POS rate (admin write; all read) ─────────────────────────
 router.post('/global-rate', setGlobalPosRate);          // set / update (upsert)

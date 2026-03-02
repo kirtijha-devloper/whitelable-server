@@ -4,6 +4,8 @@ const PosChargeDefault = require('../models/PosChargeDefault');
 const UserPosCharge = require('../models/UserPosCharge');
 const User = require('../models/User');
 const PosGlobalRate = require('../models/PosGlobalRate');
+const RazorpayNotification = require('../models/RazorpayNotification');
+const Sequelize = require('sequelize');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -490,6 +492,42 @@ const calculatePosCharge = asyncHandler(async (req, res) => {
   res.status(404).json({ message: 'No POS charge configuration found for the given combination' });
 });
 
+// ─── Razorpay notification value helpers ─────────────────────────────────────
+
+/**
+ * GET /api/pos-charge/razorpay-options
+ * Returns distinct values for payment_mode, payment_card_type and
+ * payment_card_brand present in razorpay_notifications.  Useful for
+ * populating admin filters or dropdowns on the front end.
+ * All authenticated roles may access this.
+ */
+const getRazorpayOptions = asyncHandler(async (req, res) => {
+  // perform three independent distinct queries and dedupe nulls
+  const [modes, types, brands] = await Promise.all([
+    RazorpayNotification.findAll({
+      attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('payment_mode')), 'payment_mode']],
+      where: { payment_mode: { [Op.ne]: null } },
+      raw: true
+    }),
+    RazorpayNotification.findAll({
+      attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('payment_card_type')), 'payment_card_type']],
+      where: { payment_card_type: { [Op.ne]: null } },
+      raw: true
+    }),
+    RazorpayNotification.findAll({
+      attributes: [[Sequelize.fn('DISTINCT', Sequelize.col('payment_card_brand')), 'payment_card_brand']],
+      where: { payment_card_brand: { [Op.ne]: null } },
+      raw: true
+    })
+  ]);
+
+  res.status(200).json({
+    payment_modes: modes.map(m => m.payment_mode),
+    payment_card_types: types.map(t => t.payment_card_type),
+    payment_card_brands: brands.map(b => b.payment_card_brand)
+  });
+});
+
 // ─── Global POS Rate (single fallback row, admin write) ──────────────────────
 
 /**
@@ -559,6 +597,7 @@ module.exports = {
   calculatePosCharge,
   setGlobalPosRate,
   getGlobalPosRate,
+  getRazorpayOptions,
   // exported for testing / worker
   computeFee,
   pickMostSpecific

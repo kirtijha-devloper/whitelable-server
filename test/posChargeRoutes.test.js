@@ -9,6 +9,7 @@ const posChargeRoutes = require('../routes/posChargeRoutes');
 const PosChargeDefault = require('../models/PosChargeDefault');
 const UserPosCharge = require('../models/UserPosCharge');
 const User = require('../models/User');
+const RazorpayNotification = require('../models/RazorpayNotification');
 
 // ── Mini express app ─────────────────────────────────────────────────────────
 const app = express();
@@ -579,5 +580,60 @@ describe('POST /api/pos-charge/calculate', () => {
       .send({ user_id: 9, paymentMode: 'CARD' });
 
     expect(res.status).to.equal(403);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RAZORPAY OPTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('GET /api/pos-charge/razorpay-options', () => {
+  it('requires authentication', async () => {
+    const res = await request(app).get('/api/pos-charge/razorpay-options');
+    expect(res.status).to.equal(401);
+  });
+
+  it('returns distinct non-null values', async () => {
+    const sampleNotifications = [
+      { payment_mode: 'CARD', payment_card_type: 'CREDIT', payment_card_brand: 'VISA' },
+      { payment_mode: 'CARD', payment_card_type: 'DEBIT',  payment_card_brand: 'MASTER' },
+      { payment_mode: null, payment_card_type: 'CREDIT', payment_card_brand: 'VISA' }
+    ];
+
+    RazorpayNotification.findAll = async (opts) => {
+      // return based on which attribute is requested
+      const attr = opts.attributes[0][1];
+      const field = attr === 'payment_mode' ? 'payment_mode'
+                  : attr === 'payment_card_type' ? 'payment_card_type'
+                  : 'payment_card_brand';
+      // gather distinct non-null values
+      const set = new Set();
+      for (const r of sampleNotifications) {
+        if (r[field] !== null && r[field] !== undefined) set.add(r[field]);
+      }
+      return Array.from(set).map(v => ({ [field]: v }));
+    };
+
+    const res = await request(app)
+      .get('/api/pos-charge/razorpay-options')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.payment_modes).to.include('CARD');
+    expect(res.body.payment_card_types).to.have.members(['CREDIT', 'DEBIT']);
+    expect(res.body.payment_card_brands).to.have.members(['VISA', 'MASTER']);
+  });
+
+  it('handles empty result sets gracefully', async () => {
+    RazorpayNotification.findAll = async () => [];
+
+    const res = await request(app)
+      .get('/api/pos-charge/razorpay-options')
+      .set('Authorization', `Bearer ${merchantToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.payment_modes).to.be.an('array').that.is.empty;
+    expect(res.body.payment_card_types).to.be.an('array').that.is.empty;
+    expect(res.body.payment_card_brands).to.be.an('array').that.is.empty;
   });
 });
