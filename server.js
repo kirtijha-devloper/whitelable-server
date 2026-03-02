@@ -85,6 +85,7 @@ app.use('/api/charge', require('./routes/chargeRoutes'));
 app.use('/api/pos-charge', require('./routes/posChargeRoutes'));
 app.use('/api/commission', require('./routes/commissionRoutes'));
 app.use('/api/rental', require('./routes/rentalRoutes'));
+app.use('/api/service-fee', require('./routes/serviceFeeRoutes'));
 app.use('/api/payout-charge', require('./routes/payoutChargeRoutes'));
 app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
 app.use('/api/ledger', require('./routes/ledgerRoutes'));
