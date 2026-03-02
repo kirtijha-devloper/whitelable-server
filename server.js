@@ -59,6 +59,10 @@ app.use((req, res, next) => {
   if (req.path === '/api/user/register') {
     return fileUploadMiddleware(req, res, next);
   }
+  // allow file uploads when updating a user profile as well
+  if (req.method === 'PUT' && req.path.match(/^\/api\/user\/\d+$/)) {
+    return fileUploadMiddleware(req, res, next);
+  }
   next();
 });
 

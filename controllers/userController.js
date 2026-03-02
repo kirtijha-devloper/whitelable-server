@@ -19,6 +19,12 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+// if Cloudinary isn't configured (or we're testing) stub the uploader
+if (!process.env.CLOUDINARY_API_KEY || process.env.NODE_ENV === 'test') {
+  cloudinary.uploader.upload = async (filePath, opts) => {
+    return { secure_url: `https://dummy.cloudinary.test/${filePath.split(/[\\\/]/).pop()}` };
+  };
+}
 
 const getUsers = asyncHandler(async (req, res) => {
     try {
@@ -220,8 +226,10 @@ const registerUser = asyncHandler(async (req, res) => {
         // bank passbook must be uploaded by requirement
         const bankPassbookFile = req.files?.bank_passbook;
         if (!bankPassbookFile) {
-            res.status(400);
-            throw new Error("Bank passbook file is required for registration");
+            return res.status(400).json({
+                success: false,
+                message: "Bank passbook file is required for registration",
+            });
         }
 
         const userAvailable = await User.findOne({

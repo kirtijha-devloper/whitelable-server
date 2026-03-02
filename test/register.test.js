@@ -7,6 +7,10 @@ require('dotenv').config();
 const jwt      = require('jsonwebtoken');
 const FormData = require('form-data');
 const axios    = require('axios');
+// avoid hitting real Cloudinary in integration tests
+const cloudinary = require('cloudinary').v2;
+cloudinary.uploader.upload = async (filePath, opts) => ({ secure_url: 'https://dummy.cloudinary.test/' + path.basename(filePath) });
+const path = require('path');
 
 const BASE_URL = `http://localhost:${process.env.PORT || 5000}`;
 
@@ -25,6 +29,17 @@ async function post(form, authHeader) {
   const headers = { ...form.getHeaders() };
   if (authHeader) headers.Authorization = authHeader;
   const res = await axios.post(`${BASE_URL}/api/user/register`, form, {
+    headers,
+    validateStatus: () => true,
+  });
+  return { status: res.status, body: res.data };
+}
+
+// helper for PUT with formdata
+async function putForm(path, form, authHeader) {
+  const headers = { ...form.getHeaders() };
+  if (authHeader) headers.Authorization = authHeader;
+  const res = await axios.put(`${BASE_URL}${path}`, form, {
     headers,
     validateStatus: () => true,
   });
@@ -82,6 +97,9 @@ async function runTests() {
     form.append('mobile_number', `${process.env.TEST_MOBILE_PREFIX || '7'}${Date.now().toString().slice(-9)}`);
     form.append('password', 'Test@1234');
     const { status, body } = await post(form, `Bearer ${token}`);
+    if (status !== 400) {
+      console.log('  ❗ Response body for missing passbook case:', JSON.stringify(body));
+    }
     assert(status === 400, `Expected 400 when passbook missing, got ${status}`);
     assert(body.message && body.message.toLowerCase().includes('passbook'), 'Error should mention passbook');
   });
@@ -106,6 +124,13 @@ async function runTests() {
     form.append('pan_number',      'ABCDE1234F');
     form.append('settlement_type', 'today_settlement');
     form.append('pos_machine_ids', '[]');
+
+    // attach bank_passbook file (required)
+    const fs = require('fs');
+    const path = require('path');
+    const dummyPath = path.join(__dirname, 'dummy_passbook.txt');
+    fs.writeFileSync(dummyPath, 'this simulates a bank passbook image');
+    form.append('bank_passbook', fs.createReadStream(dummyPath));
 
     const { status, body } = await post(form, `Bearer ${token}`);
     console.log('\n  📦  Response body:');
@@ -132,6 +157,11 @@ async function runTests() {
     form.append('email',         `dup_${Date.now()}@example.com`);
     form.append('mobile_number', mobile); // same mobile as test 3
     form.append('password',      'Test@1234');
+    // add required passbook
+    const fs = require('fs'); const path = require('path');
+    const dummy = path.join(__dirname, 'dummy_passbook.txt');
+    fs.writeFileSync(dummy, 'pass');
+    form.append('bank_passbook', fs.createReadStream(dummy));
 
     const { status, body } = await post(form, `Bearer ${token}`);
     assert(status === 400 || status === 500, `Expected 400/500, got ${status}`);
@@ -148,6 +178,10 @@ async function runTests() {
     form.append('mobile_number', mob2);
     form.append('password',      'Test@1234');
     // settlement_type intentionally omitted
+    const fs = require('fs'); const path = require('path');
+    const dummy = path.join(__dirname, 'dummy_passbook.txt');
+    fs.writeFileSync(dummy, 'pass');
+    form.append('bank_passbook', fs.createReadStream(dummy));
 
     const { status, body } = await post(form, `Bearer ${token}`);
     assert(status === 201, `Expected 201, got ${status}: ${body.message}`);
@@ -163,10 +197,32 @@ async function runTests() {
     form.append('email',         `frn_${Date.now()}@example.com`);
     form.append('mobile_number', mob3);
     form.append('password',      'Test@1234');
+    const fs = require('fs'); const path = require('path');
+    const dummy = path.join(__dirname, 'dummy_passbook.txt');
+    fs.writeFileSync(dummy, 'pass');
+    form.append('bank_passbook', fs.createReadStream(dummy));
 
     const { status, body } = await post(form, `Bearer ${token}`);
     assert(status === 201, `Expected 201, got ${status}: ${body.message}`);
     assert(body.user?.abheepay_id?.startsWith('APF'), `Expected APF prefix, got ${body.user?.abheepay_id}`);
+  });
+
+  // ── 7. Updating user with file upload should work ───────────────────────
+  await test('Updating merchant profile with attachment succeeds', async () => {
+    assert(createdUserId, 'createdUserId must be set by registration test');
+    const form = new FormData();
+    form.append('name', 'Updated Merchant');
+    const fs = require('fs');
+    const path = require('path');
+    const dummyPath = path.join(__dirname, 'dummy_update.txt');
+    fs.writeFileSync(dummyPath, 'dummy content');
+    form.append('pan_photo', fs.createReadStream(dummyPath));
+
+    const { status, body } = await putForm(`/api/user/${createdUserId}`, form, `Bearer ${token}`);
+    assert(status === 200, `Expected 200, got ${status}`);
+    assert(body.success === true, 'Response success must be true');
+    // either URL present or unchanged
+    assert('pan_number_url' in body.data, 'Response should include pan_number_url');
   });
 
   // ── Summary ───────────────────────────────────────────────────────────────
