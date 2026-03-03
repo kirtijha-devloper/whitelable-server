@@ -12,7 +12,7 @@ const {
   markAsDelivered,
   markAsReturnInitiated,
   assignPosMachineToUserID,
-  assignPosMachineToMerhcant,
+  assignPosMachineToMerchant,
   getPosMachineList,
   updatePosMachine,
   bulkCreatePosMachines
@@ -43,7 +43,7 @@ router.put("/returned-initiated/:id", markAsReturnInitiated);
 
 // 🎯 Assignments
 router.post("/assign", assignPosMachineToUserID);
-router.post("/assign-to-merchant", assignPosMachineToMerhcant); // Not in use
+router.post("/assign-to-merchant", assignPosMachineToMerchant); // route to assign single machine to merchant
 
 // 🧍 Get single, Delete
 router.get("/:id", getPosMachine);

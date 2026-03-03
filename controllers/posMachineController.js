@@ -332,53 +332,58 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
     });
 });
 
-const assignPosMachineToMerhcant = asyncHandler ( async (req, res) => {
-    const id = req.body.id
-    const userId = req.body.user_id
-    if (!id || !userId) {
+const assignPosMachineToMerchant = asyncHandler(async (req, res) => {
+    // body should contain pos machine id and merchant user id
+    const posMachineId = req.body.id;
+    const merchantId = req.body.user_id;
+
+    if (!posMachineId || !merchantId) {
         res.status(400);
-        throw new Error ("All fields are mandatory !")
+        throw new Error("All fields are mandatory !");
     }
-    if (req.user.role == "merchant") {
-        res.status(400);
+
+    // only admin or franchisee can perform this
+    if (req.user.role === "merchant") {
+        res.status(403);
         throw new Error("You are not allowed to assign.");
     }
-    const user = await User.findByPk(userId)
-    if (user.role !== "merchant") {
+
+    const merchantUser = await User.findByPk(merchantId);
+    if (!merchantUser) {
+        res.status(404);
+        throw new Error("Merchant not found.");
+    }
+
+    if (merchantUser.role !== "merchant") {
         res.status(400);
         throw new Error("Please select correct merchant.");
     }
 
-    if (req.user.role == "franchaise") {
-        if (user.franchaise_id) {
-            if (user.franchaise_id !== req.user.id) {
-                res.status(400);
-                throw new Error("Please select correct merchant.");
-            }
-        } else {
+    if (req.user.role === "franchaise") {
+        if (!merchantUser.franchaise_id || merchantUser.franchaise_id !== req.user.id) {
             res.status(400);
-                throw new Error("Please select correct merchant.");
-}
-
-
+            throw new Error("Please select correct merchant.");
+        }
     }
 
-    
-    merchant
-    await PosMachine.update(
-        { assigned_user_id: merchantId },
-        {
-        where: {
-            id: id
-        }
-        }
+    // assign the POS machine
+    const [updatedCount] = await PosMachine.update(
+        { assigned_user_id: merchantId, status: "active" },
+        { where: { id: posMachineId } }
     );
 
-    const merchant = await User.findByPk(id)
-    await merchant.update({is_pos_asigned: true});
+    if (updatedCount === 0) {
+        res.status(404);
+        throw new Error("POS machine not found or could not be updated.");
+    }
+
+    // mark merchant as having a POS assigned
+    merchantUser.is_pos_asigned = true;
+    await merchantUser.save();
 
     res.status(200).json({
-        message: `POS Machines assigned to merchant ${merchantId}`
+        message: `POS Machine ${posMachineId} assigned to merchant ${merchantId}`,
+        updatedCount
     });
 });
 
@@ -642,4 +647,4 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerhcant, getPosMachineList, updatePosMachine, bulkCreatePosMachines}
+module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerchant, getPosMachineList, updatePosMachine, bulkCreatePosMachines}
