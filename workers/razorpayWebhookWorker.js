@@ -440,75 +440,13 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       // Don't throw - ledger is for tracking, transaction is already processed
     }
 
-    // ── Step 9: Calculate and credit commission for the POS operator ─────────────
-    // Looks up UserCommission → CommissionDefault for the POS operator based on
-    // paymentMode / paymentCardBrand / paymentCardType and the transaction amount.
-    // Falls back to the global CommissionDefault if no user-specific slab is found.
-    try {
-      const commissionService = require("../services/commissionService");
-      const operatorCommResult = await commissionService.resolveCommission(
-        posOperator.id,
-        {
-          paymentMode: paymentMethod,
-          paymentCardBrand: paymentCardBrand || null,
-          paymentCardType: paymentCardType || null,
-        },
-        transactionAmount
-      );
-
-      if (operatorCommResult && operatorCommResult.fee && operatorCommResult.fee.charge > 0) {
-        const commAmount = operatorCommResult.fee.charge;
-        const rateLabel = operatorCommResult.fee.percent_fee > 0
-          ? `${operatorCommResult.fee.percent_fee}%`
-          : `₹${operatorCommResult.fee.flat_fee} flat`;
-
-        logger.log(`[Razorpay Webhook Worker] POS operator commission (${operatorCommResult.source}): ₹${commAmount} (${rateLabel}) for txn: ${txnId}`);
-
-        // Create WalletTransaction for the commission credit
-        await WalletTransaction.create({
-          type: "commission",
-          amount: commAmount,
-          status: "completed",
-          reason: `Commission (${rateLabel}) on Razorpay txn: ${txnId} | Txn amt: ₹${transactionAmount}${paymentMethod ? ' | ' + paymentMethod : ''}`,
-          requested_by: posOperator.id,
-          source: "razorpay",
-          reference_id: null,
-        });
-
-        // Ledger entry (also syncs wallet via ledgerService)
-        await ledgerService.createCommissionEntry({
-          userId: posOperator.id,
-          razorpayTransactionId: txnId,
-          commissionAmount: commAmount,
-          transactionType: "razorpay_commission",
-          description: `Commission earned (${rateLabel}) | Razorpay txn: ${txnId} | Amt: ₹${transactionAmount}`,
-          metadata: {
-            razorpay_notification_id: notification.id,
-            commission_source: operatorCommResult.source,
-            payment_method: paymentMethod,
-            payment_card_brand: paymentCardBrand || null,
-            payment_card_type: paymentCardType || null,
-            transaction_amount: transactionAmount,
-            commission_rate_percent: operatorCommResult.fee.percent_fee || 0,
-            commission_flat_fee: operatorCommResult.fee.flat_fee || 0,
-            pos_machine_id: posMachine.id,
-          },
-        });
-
-        logger.log(`[Razorpay Webhook Worker] ✅ POS operator commission ₹${commAmount} credited to user: ${posOperator.id}`);
-      } else {
-        logger.log(`[Razorpay Webhook Worker] No commission slab found for user: ${posOperator.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
-      }
-    } catch (operatorCommError) {
-      logger.error(`[Razorpay Webhook Worker] ⚠️ Error processing POS operator commission for txn: ${txnId}`, operatorCommError);
-      // Non-fatal — core transaction already processed
-    }
-
-    // ── Step 10: Calculate and credit commission for the franchise owner ──────────
-    // If the POS operator belongs to a franchise (posOperator.franchaise_id is set),
-    // the franchise owner earns commission when their operator processes a transaction.
-    // Commission slab lookup follows the same UserCommission → CommissionDefault chain.
-    if (posOperator.franchaise_id) {
+    // ── Step 9: Commission ────────────────────────────────────────────────────────
+    // Rule: commission is only applicable when the POS operator is a merchant AND
+    // belongs to a franchise. In that case the franchise owner earns the commission.
+    // - Operator role = merchant + franchaise_id set  → franchise owner gets commission
+    // - Operator role = merchant + no franchaise_id   → no commission
+    // - Operator role = franchise                     → no commission
+    if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
       try {
         const commissionService = require("../services/commissionService");
         const franchiseOwner = await User.findByPk(posOperator.franchaise_id);
@@ -576,7 +514,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         // Non-fatal — core transaction already processed
       }
     } else {
-      logger.log(`[Razorpay Webhook Worker] No franchise linked for user: ${posOperator.id}, skipping franchise commission for txn: ${txnId}`);
+      logger.log(`[Razorpay Webhook Worker] No commission applicable — operator role: ${posOperator.role}, franchaise_id: ${posOperator.franchaise_id || 'none'}, txn: ${txnId}`);
     }
 
   } catch (error) {
