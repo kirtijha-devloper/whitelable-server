@@ -439,30 +439,60 @@ const registerUser = asyncHandler(async (req, res) => {
     }
 });
 
-const loginUser = asyncHandler( async (req, res) => {
-    authLogger.log('loginUser invoked', { body: req.body });
-    const { password } = req.body
-    const mobileNumber = req.body.mobile_number
+const loginUser = asyncHandler(async (req, res) => {
+
+    authLogger.info('STEP 1: loginUser invoked', { body: req.body });
+
+    const { password } = req.body;
+    const mobileNumber = req.body.mobile_number;
+
     if (!mobileNumber || !password) {
+        authLogger.warn('STEP 2: Missing fields');
         res.status(400);
-        throw new Error("All fields are mandatory. !") ;
+        throw new Error("All fields are mandatory!");
     }
 
-    const user = await User.findOne({ where: { mobile_number: mobileNumber } });
-    if (user && (await bcrypt.compare(password, user.password))){
-        try {
-           // await sendOtpHelper(mobileNumber, "login");
-            res.json({ success: true, message: "OTP sent successfully" , });
-        } catch (err) {
-            authLogger.error('loginUser sms error', err);
-            res.status(500).json({ message: "Failed to send OTP" });
-        }
-    }else {
-        res.status(401);
-        authLogger.warn('loginUser failed', { mobileNumber });
-        throw new Error("Mobile Number or Password are not valid !.")
+    authLogger.info('STEP 3: Before DB query');
+
+    const user = await User.findOne({
+        where: { mobile_number: mobileNumber }
+    });
+
+    authLogger.info('STEP 4: After DB query', {
+        userFound: !!user
+    });
+
+    if (!user) {
+        authLogger.warn('STEP 5: User not found', { mobileNumber });
+        return res.status(401).json({
+            message: "Mobile Number or Password are not valid!"
+        });
     }
-    
+
+    authLogger.info('STEP 6: Before bcrypt compare');
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+
+    authLogger.info('STEP 7: After bcrypt compare', {
+        passwordMatch
+    });
+
+    if (!passwordMatch) {
+        authLogger.warn('STEP 8: Password mismatch');
+        return res.status(401).json({
+            message: "Mobile Number or Password are not valid!"
+        });
+    }
+
+    authLogger.info('STEP 9: Login successful - sending OTP response');
+
+    // await sendOtpHelper(mobileNumber, "login");
+
+    return res.json({
+        success: true,
+        message: "OTP sent successfully"
+    });
+
 });
 
 
