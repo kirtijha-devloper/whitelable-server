@@ -1,6 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const User = require('../models/User');
-const { Op } = require("sequelize");
+const { Op, Sequelize } = require("sequelize");
 const bcrypt = require("bcrypt");
 const cloudinary = require("cloudinary").v2;
 
@@ -146,10 +146,43 @@ const getUsers = asyncHandler(async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    let resultUsers = users;
+
+    // if admin, include number of merchants under each franchise
+    if (userRole === 'admin' && users.length) {
+      // fetch merchant counts grouped by franchise id
+      const merchantCounts = await User.findAll({
+        where: { role: 'merchant' },
+        attributes: [
+          'franchaise_id',
+          [Sequelize.fn('COUNT', Sequelize.col('*')), 'merchantCount'],
+        ],
+        group: ['franchaise_id'],
+      });
+
+      // convert to lookup map
+      const countMap = {};
+      merchantCounts.forEach(obj => {
+        const id = obj.get('franchaise_id');
+        countMap[id] = parseInt(obj.get('merchantCount'), 10);
+      });
+
+      // attach to user JSON
+      resultUsers = users.map(u => {
+        const json = u.toJSON();
+        if (json.id && countMap[json.id] != null) {
+          json.merchantCount = countMap[json.id];
+        } else {
+          json.merchantCount = 0;
+        }
+        return json;
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Users retrieved successfully',
-      data: users,
+      data: resultUsers,
       pagination: {
         total: count,
         page: parseInt(page),
