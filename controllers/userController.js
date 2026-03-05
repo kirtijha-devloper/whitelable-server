@@ -84,6 +84,18 @@ const getUsers = asyncHandler(async (req, res) => {
     }
 });
 
+// simple public endpoint used for testing authentication issues in prod
+// returns total number of users in the database
+const userCount = asyncHandler(async (req, res) => {
+    try {
+        const count = await User.count();
+        res.status(200).json({ success: true, count });
+    } catch (err) {
+        console.error('Count users error:', err);
+        res.status(500).json({ success: false, message: err.message || 'Something went wrong' });
+    }
+});
+
 const getUserByID = asyncHandler(async (req, res) => {
   try {
     const role = req.user.role;
@@ -1078,4 +1090,4 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, updatePassword, updateUser, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID,/* newly added */ userCount, updatePassword, updateUser, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }

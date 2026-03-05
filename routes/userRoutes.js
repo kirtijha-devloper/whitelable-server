@@ -2,7 +2,7 @@ const express = require("express");
 
 const router = express.Router();
 
-const {registerUser, loginUser, currentUser, getUsers, getUserByID, updatePassword, updateUser, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword}  = require("../controllers/userController");
+const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, updatePassword, updateUser, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword}  = require("../controllers/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 
 // @public access
@@ -18,6 +18,10 @@ router.post("/reset-password", resetPassword);
 // 📌 User Registration & Info
 router.post("/register", validateToken, registerUser);
 router.post("/forgot-password", forgotPassword);
+
+// test-only public endpoint; no authentication required
+router.get("/count", userCount);
+
 router.get("/", validateToken, getUsers);
 router.get("/current", validateToken, currentUser);
 router.get("/:id", validateToken, getUserByID);
