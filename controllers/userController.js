@@ -425,7 +425,7 @@ const approveUser = asyncHandler( async (req, res) => {
     const role = req.user.role
     if (role !== "admin")
         throw new Error ("You are not allowed!")
-    end
+
     const id = req.params.id
     const user = await User.findOne({ where: { id } });
 
