@@ -110,7 +110,8 @@ app.get('/api/debug/ipay', (req, res) => {
   // send simple text when not configured
   res.type('text').send('IPAY_CLIENT_ID not set');
 });
-
+// testing helpers
+app.use('/api/test', require('./routes/testRoutes'));
 
 app.use(errorHandler)
 
