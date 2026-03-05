@@ -441,7 +441,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
 const loginUser = asyncHandler(async (req, res) => {
 
-    authLogger.info('STEP 1: loginUser invoked', { body: req.body });
+    authLogger.log('STEP 1: loginUser invoked', { body: req.body });
 
     const { password } = req.body;
     const mobileNumber = req.body.mobile_number;
@@ -452,13 +452,13 @@ const loginUser = asyncHandler(async (req, res) => {
         throw new Error("All fields are mandatory!");
     }
 
-    authLogger.info('STEP 3: Before DB query');
+authLogger.log('STEP 3: Before DB query');
 
     const user = await User.findOne({
         where: { mobile_number: mobileNumber }
     });
 
-    authLogger.info('STEP 4: After DB query', {
+    authLogger.log('STEP 4: After DB query', {
         userFound: !!user
     });
 
@@ -469,11 +469,11 @@ const loginUser = asyncHandler(async (req, res) => {
         });
     }
 
-    authLogger.info('STEP 6: Before bcrypt compare');
+    authLogger.log('STEP 6: Before bcrypt compare');
 
     const passwordMatch = await bcrypt.compare(password, user.password);
 
-    authLogger.info('STEP 7: After bcrypt compare', {
+    authLogger.log('STEP 7: After bcrypt compare', {
         passwordMatch
     });
 
@@ -484,7 +484,7 @@ const loginUser = asyncHandler(async (req, res) => {
         });
     }
 
-    authLogger.info('STEP 9: Login successful - sending OTP response');
+    authLogger.log('STEP 9: Login successful - sending OTP response');
 
     // await sendOtpHelper(mobileNumber, "login");
 
