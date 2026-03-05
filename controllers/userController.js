@@ -454,13 +454,27 @@ const loginUser = asyncHandler(async (req, res) => {
 
 authLogger.log('STEP 3: Before DB query');
 
-    const user = await User.findOne({
-        where: { mobile_number: mobileNumber }
-    });
-
+    // measure query time and catch DB errors
+    let user;
+    const queryStart = Date.now();
+    try {
+        user = await User.findOne({
+            where: { mobile_number: mobileNumber }
+        });
+    } catch (dbErr) {
+        authLogger.error('STEP 3a: DB query error', dbErr);
+        // return 500 to caller, bail out
+        res.status(500).json({ success: false, message: 'Database error' });
+        return;
+    }
+    const queryDuration = Date.now() - queryStart;
     authLogger.log('STEP 4: After DB query', {
-        userFound: !!user
+        userFound: !!user,
+        durationMs: queryDuration
     });
+    if (queryDuration > 1000) {
+        authLogger.warn('STEP 4a: DB query unusually slow', { durationMs: queryDuration });
+    }
 
     if (!user) {
         authLogger.warn('STEP 5: User not found', { mobileNumber });
