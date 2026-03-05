@@ -2,6 +2,37 @@ const asyncHandler = require("express-async-handler");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const  User = require('../models/User');
+
+const fs = require("fs");
+const path = require("path");
+
+// file-based logger for authentication diagnosis
+const AUTH_LOG_DIR = path.join(__dirname, "../logs");
+const AUTH_LOG_FILE = path.join(AUTH_LOG_DIR, "auth.log");
+if (!fs.existsSync(AUTH_LOG_DIR)) {
+  fs.mkdirSync(AUTH_LOG_DIR, { recursive: true });
+}
+function _authTs() {
+  return new Date().toISOString();
+}
+function _authFileLog(level, args) {
+  const parts = args.map((a) =>
+    a instanceof Error
+      ? `${a.message}\n${a.stack}`
+      : typeof a === "object" && a !== null
+      ? JSON.stringify(a, null, 2)
+      : String(a)
+  );
+  const line = `[${_authTs()}] [${level}] ${parts.join(" ")}\n`;
+  try {
+    fs.appendFileSync(AUTH_LOG_FILE, line);
+  } catch (_) { /* ignore */ }
+}
+const authLogger = {
+  log:   (...args) => { console.log(...args);   _authFileLog("INFO",  args); },
+  warn:  (...args) => { console.warn(...args);  _authFileLog("WARN",  args); },
+  error: (...args) => { console.error(...args); _authFileLog("ERROR", args); },
+};
 const Tpin = require('../models/Tpin');
 const { Op } = require('sequelize');
 const PosMachine = require("../models/posMachine");
@@ -409,6 +440,7 @@ const registerUser = asyncHandler(async (req, res) => {
 });
 
 const loginUser = asyncHandler( async (req, res) => {
+    authLogger.log('loginUser invoked', { body: req.body });
     const { password } = req.body
     const mobileNumber = req.body.mobile_number
     if (!mobileNumber || !password) {
@@ -422,11 +454,12 @@ const loginUser = asyncHandler( async (req, res) => {
            // await sendOtpHelper(mobileNumber, "login");
             res.json({ success: true, message: "OTP sent successfully" , });
         } catch (err) {
-            console.error(err);
+            authLogger.error('loginUser sms error', err);
             res.status(500).json({ message: "Failed to send OTP" });
         }
     }else {
         res.status(401);
+        authLogger.warn('loginUser failed', { mobileNumber });
         throw new Error("Mobile Number or Password are not valid !.")
     }
     
@@ -711,6 +744,7 @@ const sendOtp = asyncHandler(async (req, res) => {
 
   // --- new: verifyOtp accepts magic OTP 112233 (plus original mobile bypass) ---
   const verifyOtp = asyncHandler(async (req, res) => {
+    authLogger.log('verifyOtp invoked', { mobile_number: req.body.mobile_number, purpose: req.body.purpose });
     const { mobile_number, otp, purpose } = req.body;
 
     if (!mobile_number || !otp || !purpose) {
