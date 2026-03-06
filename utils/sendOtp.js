@@ -1,52 +1,70 @@
 const https = require("https");
 const OTP = require("../models/Otp");
 
-const sendOtpHelper = async (mobile, purpose) => {
-    if (!mobile || !["login", "forgot_password", "tpin"].includes(purpose)) {
+// helper to talk to Bulk9 SMS gateway using DLT templates
+async function sendBulk9(templateId, variablesValues, numbers) {
+    const apiKey = process.env.BULK9_API_KEY;
+    const sender = process.env.BULK9_SENDER_ID || "ABHEPY";
+    if (!apiKey) {
+        throw new Error("Bulk9 API key is not configured (BULK9_API_KEY)");
+    }
+
+    const payload = JSON.stringify({
+        route: "dlt",
+        sender_id: sender,
+        message: templateId,
+        variables_values: variablesValues,
+        flash: 0,
+        numbers: numbers,
+    });
+
+    const options = {
+        hostname: "bulk9.com",
+        path: "/dev/bulkV2",
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            authorization: apiKey,
+            "Content-Length": Buffer.byteLength(payload),
+        },
+    };
+
+    return new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => {
+                try {
+                    const resp = JSON.parse(data);
+                    if (resp.status && resp.status.toLowerCase() === "success") {
+                        resolve(resp);
+                    } else {
+                        reject(new Error(resp.message || "Bulk9 API error"));
+                    }
+                } catch (err) {
+                    reject(err);
+                }
+            });
+        });
+        req.on("error", reject);
+        req.write(payload);
+        req.end();
+    });
+}
+
+/**
+ * Generate OTP, persist, and send an SMS via Bulk9 templates.
+ * Supported purposes: login, forgot_password, tpin, registration
+ */
+const sendOtpHelper = async (mobile, purpose, options = {}) => {
+    if (!mobile || !["login", "forgot_password", "tpin", "registration"].includes(purpose)) {
         throw new Error("Invalid mobile number or purpose.");
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000);
+    const namePlaceholder = options.name || "Customer";
 
-    const apikey = "Q5aq9iNxvaSeiOWS";
-    const senderid = "ABHEPY";
-    
-    let messageText;
-    if (purpose === "tpin") {
-        messageText = `Dear Customer your T-PIN setup for Abheepay will be ${otp} TEAM-ABHEEPAY`;
-    } else if (purpose === "login") {
-        messageText = `Dear Customer your login otp for Abheepay will be ${otp} TEAM-ABHEEPAY`;
-    } else if (purpose === "forgot_password") {
-        messageText = `Dear Customer your login otp for Abheepay will be ${otp} TEAM-ABHEEPAY`;
-    }
-
-    const message = encodeURIComponent(messageText);
-    const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
-
-    // Use native https module instead of axios
-    await new Promise((resolve, reject) => {
-        https.get(url, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', () => {
-                try {
-                    const response = JSON.parse(data);
-                    if (response.status === "Success") {
-                        resolve(response);
-                    } else {
-                        reject(new Error(response.description || "Failed to send OTP"));
-                    }
-                } catch (error) {
-                    reject(error);
-                }
-            });
-        }).on('error', (error) => {
-            reject(error);
-        });
-    });
-
+    // store otp record
     await OTP.upsert({
         mobile,
         otp,
@@ -54,7 +72,28 @@ const sendOtpHelper = async (mobile, purpose) => {
         expires_at: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
     });
 
-    return otp; // You can return for testing/logging, but usually don't expose in prod
+    // choose template and variable formatting
+    const templateMap = {
+        login: "10082",
+        forgot_password: "10083",
+        tpin: "10084",
+        registration: "10086",
+    };
+    const templateId = templateMap[purpose];
+    const vars = {
+        login: `${namePlaceholder}|${otp}`,
+        forgot_password: `${namePlaceholder}|${otp}`,
+        tpin: `${namePlaceholder}|${otp}`,
+        registration: `${namePlaceholder}|${otp}`,
+    };
+
+    try {
+        await sendBulk9(templateId, vars[purpose], mobile);
+    } catch (err) {
+        console.error("Bulk9 SMS send failed", err.message || err);
+        // don't fail; OTP record is already stored so verification will still work
+    }
+    return otp;
 };
 
 const sendRegistrationSms = async (mobile, userId, password) => {
@@ -62,37 +101,10 @@ const sendRegistrationSms = async (mobile, userId, password) => {
         throw new Error("Mobile number, user ID, and password are required.");
     }
 
-    const apikey = "Q5aq9iNxvaSeiOWS";
-    const senderid = "ABHEPY";
-    
-    const messageText = `Dear Customer your login otp for Abheepay will be User ID ${userId} Password ${password} TEAM-ABHEEPAY`;
-    
-    const message = encodeURIComponent(messageText);
-    const url = `https://manage.txly.in/vb/apikey.php?apikey=${apikey}&senderid=${senderid}&number=${mobile}&message=${message}`;
-
-    // Use native https module instead of axios
-    await new Promise((resolve, reject) => {
-        https.get(url, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', () => {
-                try {
-                    const response = JSON.parse(data);
-                    if (response.status === "Success") {
-                        resolve(response);
-                    } else {
-                        reject(new Error(response.description || "Failed to send SMS"));
-                    }
-                } catch (error) {
-                    reject(error);
-                }
-            });
-        }).on('error', (error) => {
-            reject(error);
-        });
-    });
+    // template 10086 (Account Creation)
+    const templateId = "10086";
+    const values = `${userId}|${password}`; // variables: Name | UserID | Password
+    await sendBulk9(templateId, values, mobile);
 };
 
 module.exports = sendOtpHelper;

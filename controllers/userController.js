@@ -501,17 +501,27 @@ authLogger.log('STEP 3: Before DB query');
 
     authLogger.log('STEP 9: Login successful - sending OTP response');
 
-    if (!user.email) {
-        authLogger.error('user has no email address, cannot send OTP');
-        return res.status(500).json({ success: false, message: 'Email address not configured for user' });
+    // generate and dispatch OTP via SMS using Bulk9
+    try {
+        await sendOtpHelper(mobileNumber, 'login', { name: user.name || 'Customer' });
+        authLogger.log('STEP 9a: SMS OTP sent');
+    } catch (smsErr) {
+        authLogger.error('STEP 9a: SMS send failed', smsErr);
     }
 
-    // send OTP via email only (SMS disabled for now)
-    await sendEmailOtp(mobileNumber, user.email, "login");
+    // if we still have an email address, also send email copy for backward compatibility
+    if (user.email) {
+        try {
+            await sendEmailOtp(mobileNumber, user.email, "login");
+            authLogger.log('STEP 9b: Email OTP sent');
+        } catch (emailErr) {
+            authLogger.error('STEP 9b: Email send failed', emailErr);
+        }
+    }
 
     return res.json({
         success: true,
-        message: "OTP sent successfully to your email address"
+        message: "OTP sent successfully to your mobile number" + (user.email ? " and email address" : ""),
     });
 
 });
@@ -702,13 +712,27 @@ const sendOtp = asyncHandler(async (req, res) => {
       emailAddr = user.email;
     }
 
-    // dispatch OTP over email if we have an address; otherwise still generate record so verify works
+    // always send SMS via Bulk9 helper (which also persists the OTP)
+    try {
+      // try to supply name when we have a resolved user record
+      let nameOpt = undefined;
+      if (emailAddr) {
+        const u = await User.findOne({ where: { mobile_number } });
+        if (u && u.name) nameOpt = { name: u.name };
+      }
+      await sendOtpHelper(mobile_number, purpose, nameOpt);
+      console.log(`SMS OTP generated and sent for ${mobile_number}`);
+    } catch (smsErr) {
+      console.error("SMS dispatch failed", smsErr);
+    }
+
+    // additionally send an email copy if we have an address
     if (emailAddr) {
-      await sendEmailOtp(mobile_number, emailAddr, purpose);
-    } else {
-      const otp = Math.floor(100000 + Math.random() * 900000);
-      await OTP.upsert({ mobile: mobile_number, otp, purpose, expires_at: new Date(Date.now() + 5 * 60 * 1000) });
-      console.log(`Generated OTP for ${mobile_number} without email delivery`);
+      try {
+        await sendEmailOtp(mobile_number, emailAddr, purpose);
+      } catch (emailErr) {
+        console.error("Email OTP failed", emailErr);
+      }
     }
 
     res.status(200).json({ success: true, message: "OTP sent successfully" });
