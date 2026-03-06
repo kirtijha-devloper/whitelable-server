@@ -42,6 +42,11 @@ function initTransporter() {
   const authUser = process.env.MAIL_USER || process.env.GMAIL_USER;
   const authPass = process.env.MAIL_PASS || process.env.GMAIL_APP_PASSWORD;
 
+  if (!authUser || !authPass) {
+    mailLogger.error("Mail credentials missing - please set MAIL_USER/MAIL_PASS or GMAIL_USER/GMAIL_APP_PASSWORD");
+    // createTransport will still be called so that errors surface later, but we log early
+  }
+
   transporter = nodemailer.createTransport({
     host,
     port,
@@ -77,8 +82,10 @@ async function sendMail(options) {
 
 // convenience OTP sender
 async function sendOTP(email, otp) {
+  const fallbackFrom = "noreply@abheepay.com";
+  const fromAddr = process.env.MAIL_FROM || process.env.GMAIL_USER || fallbackFrom;
   const mailOptions = {
-    from: `"Abheepay POS" <${process.env.MAIL_FROM || process.env.GMAIL_USER}>`,
+    from: `"Abheepay POS" <${fromAddr}>`,
     to: email,
     subject: "Your OTP for Abheepay POS",
     html: `
