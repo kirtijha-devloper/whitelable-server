@@ -82,6 +82,7 @@ app.use('/api/credit-bill', require('./routes/cc/billAvenue/creditBillRoutes'));
 app.use('/api/bbps-cc', require('./routes/cc/bbps/bbpsCCBillRoutes'));
 app.use('/api/wallet', require('./routes/walletTransactionRoutes'));
 app.use('/api/charge', require('./routes/chargeRoutes'));
+app.use('/api/company-name', require('./routes/companyNameRoutes'));
 app.use('/api/pos-charge', require('./routes/posChargeRoutes'));
 app.use('/api/commission', require('./routes/commissionRoutes'));
 app.use('/api/rental', require('./routes/rentalRoutes'));
