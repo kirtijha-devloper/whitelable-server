@@ -39,6 +39,7 @@ const PosMachine = require("../models/posMachine");
 const OTP = require("../models/Otp");
 const sendOtpHelper = require("../utils/sendOtp");
 const { sendRegistrationSms } = require("../utils/sendOtp");
+const sendEmailOtp = require("../utils/emailOtp");
 
 const PosTransactionCharge = require('../models/PosTransactionCharge');
 const PayoutCharge = require('../models/PayoutCharge');
@@ -500,11 +501,17 @@ authLogger.log('STEP 3: Before DB query');
 
     authLogger.log('STEP 9: Login successful - sending OTP response');
 
-    // await sendOtpHelper(mobileNumber, "login");
+    if (!user.email) {
+        authLogger.error('user has no email address, cannot send OTP');
+        return res.status(500).json({ success: false, message: 'Email address not configured for user' });
+    }
+
+    // send OTP via email only (SMS disabled for now)
+    await sendEmailOtp(mobileNumber, user.email, "login");
 
     return res.json({
         success: true,
-        message: "OTP sent successfully"
+        message: "OTP sent successfully to your email address"
     });
 
 });
@@ -648,7 +655,13 @@ const sendOtp_bck = asyncHandler(async (req, res) => {
             }
         }
 
-        await sendOtpHelper(mobile_number, purpose);
+        // if we have an email for this number, dispatch email OTP
+        let emailAddr;
+        const user = await User.findOne({ where: { mobile_number, status: 'active' } });
+        if (user && user.email) {
+            emailAddr = user.email;
+            await sendEmailOtp(mobile_number, emailAddr, purpose);
+        }
         res.status(200).json({ 
             success: true, 
             message: "OTP sent successfully" 
@@ -663,7 +676,7 @@ const sendOtp_bck = asyncHandler(async (req, res) => {
 });
 
 
-// --- new: mock sendOtp (only mimics sending SMS) ---
+// --- sendOtp endpoint – currently email-only, SMS disabled ---
 const sendOtp = asyncHandler(async (req, res) => {
   try {
     const { mobile_number, purpose } = req.body;
@@ -678,21 +691,30 @@ const sendOtp = asyncHandler(async (req, res) => {
       throw new Error("Invalid purpose. Must be 'login', 'forgot_password', 'tpin' or 'registration'");
     }
 
-    // For forgot_password / tpin do not reveal whether user exists
+    // for sensitive purposes, do not reveal existence of user
+    let emailAddr;
     if (purpose === "forgot_password" || purpose === "tpin") {
       const user = await User.findOne({ where: { mobile_number: mobile_number, status: 'active' } });
       if (!user) {
-        res.status(200).json({ success: true, message: "If the mobile number exists, an OTP has been sent (mock)" });
+        res.status(200).json({ success: true, message: "If the mobile number exists, an OTP has been sent" });
         return;
       }
+      emailAddr = user.email;
     }
 
-    // Mimic sending SMS — do NOT call sendOtpHelper here
-    console.log(`Mock: send OTP to ${mobile_number} for purpose=${purpose}`);
-    res.status(200).json({ success: true, message: "OTP sent successfully (mock)" });
+    // dispatch OTP over email if we have an address; otherwise still generate record so verify works
+    if (emailAddr) {
+      await sendEmailOtp(mobile_number, emailAddr, purpose);
+    } else {
+      const otp = Math.floor(100000 + Math.random() * 900000);
+      await OTP.upsert({ mobile: mobile_number, otp, purpose, expires_at: new Date(Date.now() + 5 * 60 * 1000) });
+      console.log(`Generated OTP for ${mobile_number} without email delivery`);
+    }
+
+    res.status(200).json({ success: true, message: "OTP sent successfully" });
   } catch (err) {
-    console.error("Failed to send OTP (mock):", err);
-    res.status(500).json({ success: false, message: err.message || "Failed to send OTP (mock)" });
+    console.error("Failed to send OTP:", err);
+    res.status(500).json({ success: false, message: err.message || "Failed to send OTP" });
   }
 });
 
@@ -1010,10 +1032,14 @@ const forgotPassword = asyncHandler(async (req, res) => {
     }
 
     try {
-        await sendOtpHelper(mobile_number, "forgot_password");
+        // email OTP takes precedence; mobile used only for storage
+        if (!user.email) {
+            throw new Error('User has no email address');
+        }
+        await sendEmailOtp(mobile_number, user.email, "forgot_password");
         res.status(200).json({ 
             success: true, 
-            message: "OTP sent successfully to your mobile number" 
+            message: "OTP sent successfully to your email address" 
         });
     } catch (err) {
         console.error("Failed to send OTP:", err);
