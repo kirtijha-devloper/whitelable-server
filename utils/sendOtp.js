@@ -109,3 +109,5 @@ const sendRegistrationSms = async (mobile, userId, password) => {
 
 module.exports = sendOtpHelper;
 module.exports.sendRegistrationSms = sendRegistrationSms;
+// export helper used internally so tests can stub it
+module.exports.sendBulk9 = sendBulk9;

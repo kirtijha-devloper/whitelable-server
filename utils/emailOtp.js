@@ -9,7 +9,7 @@ const { sendOTP } = require("./mail");
  * @param {"login"|"forgot_password"|"tpin"|"registration"} purpose
  * @returns {number} the generated OTP (mainly for testing/logging)
  */
-async function sendEmailOtp(mobile, email, purpose) {
+async function sendEmailOtp(mobile, email, purpose, providedOtp) {
     if (!email || !mobile) {
         throw new Error("Both mobile and email are required to send OTP via email");
     }
@@ -17,7 +17,7 @@ async function sendEmailOtp(mobile, email, purpose) {
         throw new Error("Invalid purpose for email OTP");
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000);
+    const otp = providedOtp || Math.floor(100000 + Math.random() * 900000);
 
     // persist the OTP using existing model; mobile is required by schema
     await OTP.upsert({

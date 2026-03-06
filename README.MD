@@ -35,3 +35,7 @@ BULK9_SENDER_ID=ABHEPY
 
 If the API key is not configured the SMS helper will throw an error; the
 system will fall back to email-only OTP delivery where appropriate.
+
+When both SMS and email delivery are possible (e.g. login OTP), the same
+random code is used for both channels so the user sees identical values in
+their message and email.
