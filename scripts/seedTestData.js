@@ -143,6 +143,7 @@ async function seed() {
       { mid_number: 'TESTDUMMY01', tid_number: 'TESTDUMMY01' },
       {
         device_serial_number: 'TESTINGSERIALNO',
+        company_name: 'Test Company',
         razorpay_id: 'TESTDUMMY01',
         status: 'active',
         remarks: 'Test POS for webhook',

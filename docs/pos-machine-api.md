@@ -49,8 +49,10 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "serialNumber": "POS001",
-  "model": "SmartPOS",
+  "tid_number": "POS001",
+  "mid_number": "MID001",
+  "device_serial_number": "SERIAL001",
+  "company_name": "Acme Corp",        # optional, nullable
   "status": "active"
 }
 ```
@@ -93,8 +95,10 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "serialNumber": "POS001",
-  "model": "SmartPOS",
+  "tid_number": "POS001",
+  "mid_number": "MID001",
+  "device_serial_number": "SERIAL001",
+  "company_name": "Acme Corp",        # optional, nullable
   "status": "active"
 }
 ```

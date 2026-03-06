@@ -26,6 +26,10 @@ const PosMachine = db.define('PosMachine', {
       },
 
       remarks: { type: Sequelize.STRING },
+      company_name: {           // new nullable field to store company name
+        type: Sequelize.STRING,
+        allowNull: true
+      },
       abheepay_id: { type: Sequelize.INTEGER },
       assigned_user_id: { type: Sequelize.INTEGER },
       franchaise_id: { type: Sequelize.INTEGER },
