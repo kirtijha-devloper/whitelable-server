@@ -89,6 +89,8 @@ app.use('/api/rental', require('./routes/rentalRoutes'));
 app.use('/api/service-fee', require('./routes/serviceFeeRoutes'));
 app.use('/api/payout-charge', require('./routes/payoutChargeRoutes'));
 app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
+// new charge rule engine (see posChargeRuleRoutes)
+app.use('/api/pos-charge-rules', require('./routes/posChargeRuleRoutes'));
 app.use('/api/ledger', require('./routes/ledgerRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/complaint', require('./routes/complaintRoutes'));
