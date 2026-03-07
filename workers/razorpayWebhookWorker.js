@@ -152,6 +152,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       
       // Settlement and transaction info
       settlementStatus,
+      settlement_type,
       postingDate,
       txnType,
       orderId,
@@ -177,6 +178,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       // Additional payment info
       userAgreement
     } = data;
+    // card classification might be supplied in JSON in future
+    const classificationFromJson = data.card_classification || null;
 
     // derive merchant, terminal, and amount using the notification columns when available
     // fall back to JSON payload values if the column was not back‑filled yet
@@ -192,6 +195,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       paymentMode,
       paymentCardType,
       paymentCardBrand,
+      cardClassification: classificationFromJson,
+      settlementType: posOperator ? posOperator.settlement_type : 'N/A',
       status: transactionStatus,
       settlementStatus,
       customerName,
@@ -247,80 +252,40 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     logger.log(`[Razorpay Webhook Worker] Found POS operator: ${posOperator.id} (${posOperator.name || posOperator.email})`);
 
-    // Step 3: Resolve POS charge using the PosCharge system
-    // Resolution order: user-specific (UserPosCharge) → global default (PosChargeDefault)
-    // Matching by payment_mode / payment_card_type / payment_card_brand with specificity scoring
-    const { Op } = require("sequelize");
-    const PosChargeDefault = require("../models/PosChargeDefault");
-    const UserPosCharge = require("../models/UserPosCharge");
-    const PosGlobalRate = require("../models/PosGlobalRate");
-    const { computeFee, pickMostSpecific } = require("../controllers/posChargeController");
+    // Step 3: Resolve POS charge using the new rule engine
+    // The service takes all relevant parameters and returns the most specific rule.
+    const ChargeService = require("../services/chargeService");
 
     const paymentMethod = paymentMode ? paymentMode.toUpperCase() : null;
-    const search = {
+
+// settlement_type is stored on the user record rather than in the notification
+      const rule = await ChargeService.getTransactionChargeRule({
+      userId: posOperator.id,
       paymentMode: paymentMethod,
-      paymentCardType: paymentCardType || null,
-      paymentCardBrand: paymentCardBrand || null,
-    };
-
-    let resolvedCharge = null;
-    let chargeSource = 'none';
-
-    // 3a: User-specific lookup
-    const userLinks = await UserPosCharge.findAll({
-      where: { user_id: posOperator.id, is_active: true },
-      include: [{ model: PosChargeDefault, as: 'defaultPosCharge' }]
+      cardType: paymentCardType || null,
+      cardBrand: paymentCardBrand || null,
+      classification: classificationFromJson, // currently typically null
+      settlement: posOperator.settlement_type || null,
+      amount: parseFloat(transactionAmount)
     });
 
-    const userCandidates = userLinks.map(link => {
-      const def = link.defaultPosCharge;
-      if (!def) return null;
-      const base = def.get ? def.get({ plain: true }) : { ...def.dataValues };
-      if (link.percent_fee !== null && link.percent_fee !== undefined) base.percent_fee = link.percent_fee;
-      return base;
-    }).filter(Boolean);
+    logger.log('[Razorpay Webhook Worker] Using card classification from JSON:', classificationFromJson);
 
-    const bestUser = pickMostSpecific(userCandidates, search);
-    if (bestUser && bestUser.is_active) {
-      resolvedCharge = bestUser;
-      chargeSource = 'user';
+    let chargeRate = 0;
+    let chargeSource = 'fallback';
+    if (rule) {
+      chargeRate = parseFloat(rule.charge_percent);
+      chargeSource = 'rule';
+    } else {
+      // if no rule found, apply default MDR
+      chargeRate = 2.5;
     }
 
-    // 3b: Global default fallback (combination-based)
-    if (!resolvedCharge) {
-      const defaultRecords = await PosChargeDefault.findAll({
-        where: {
-          is_active: true,
-          [Op.and]: [
-            { [Op.or]: [{ payment_mode: paymentMethod || null }, { payment_mode: null }] },
-            { [Op.or]: [{ payment_card_type: paymentCardType || null }, { payment_card_type: null }] },
-            { [Op.or]: [{ payment_card_brand: paymentCardBrand || null }, { payment_card_brand: null }] },
-          ]
-        }
-      });
-      const bestDefault = pickMostSpecific(defaultRecords, search);
-      if (bestDefault) {
-        resolvedCharge = bestDefault;
-        chargeSource = 'default';
-      }
-    }
-
-    // 3c: Global rate fallback — used when no combination-based entry matched
-    if (!resolvedCharge) {
-      const globalRate = await PosGlobalRate.findOne({ where: { id: 1, is_active: true } });
-      if (globalRate) {
-        resolvedCharge = { percent_fee: globalRate.percent_fee, is_active: true };
-        chargeSource = 'global_rate';
-      }
-    }
-
-    const chargeRate = resolvedCharge ? parseFloat(resolvedCharge.percent_fee) : 0;
-    const feeInfo = resolvedCharge ? computeFee(resolvedCharge, transactionAmount) : { percent_fee: 0, fee: 0 };
+    const chargeAmount = ChargeService.calculateCharge(parseFloat(transactionAmount), rule || { charge_percent: chargeRate, charge_flat: 0 });
 
     logger.log(`[Razorpay Webhook Worker] POS charge resolved (${chargeSource}): ${chargeRate}% for user: ${posOperator.id}, paymentMode: ${paymentMethod}`);
 
-    // Step 4: Calculate charge and net amount
-    const chargeAmount = feeInfo ? parseFloat(feeInfo.fee) : 0;
+    // Step 4: Calculate net amount
     const netAmount = transactionAmount - chargeAmount;
 
     logger.log(`[Razorpay Webhook Worker] Transaction Amount: ${transactionAmount}, Charge: ${chargeAmount}, Net Amount: ${netAmount}`);

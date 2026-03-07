@@ -30,7 +30,7 @@ POST /api/pos-charge-rules
   "payment_mode": "CARD",         // required
   "card_type": "CREDIT",          // optional
   "card_brand": "VISA",           // optional
-  "card_classification": "PLATINUM", // optional
+  "card_classification": "PLATINUM", // optional; currently not supplied by Razorpay webhook so often null
   "settlement_type": "TODAY",     // optional
   "min_amount": 0,                 // required (default 0)
   "max_amount": null,              // optional (null = open-ended)
@@ -107,7 +107,11 @@ POST /api/pos-charge-rules/calculate
 }
 ```
 
-The service looks up the most specific active rule, falling back to a global MDR of **2.5 %** if nothing matches.  It returns both the matched rule row and calculated numbers.
+The service looks up the most specific active rule, using the `settlement_type` stored on the merchant’s user record rather than the webhook payload.  (Any `settlement_type` included in the request body is ignored.)
+
+Card classification is currently not provided by Razorpay notifications and will usually be null; you may include it manually if available but most lookups omit it.
+
+The engine falls back to a global MDR of **2.5 %** if nothing matches.  It returns both the matched rule row and calculated numbers.
 
 **Response**:
 
