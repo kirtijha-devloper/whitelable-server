@@ -1,7 +1,18 @@
 const asyncHandler = require('express-async-handler');
 const { Op } = require('sequelize');
+const fs = require('fs');
+const path = require('path');
 const PosChargeRule = require('../models/PosChargeRule');
 const ChargeService = require('../services/chargeService');
+
+// simple file logger for debugging
+const logFile = path.join(__dirname, '../logs/posChargeRule.log');
+function fileLog(message) {
+  const timestamp = new Date().toISOString();
+  fs.appendFile(logFile, `[${timestamp}] ${message}\n`, (err) => {
+    if (err) console.error('log write failed', err);
+  });
+}
 
 // helper: parse decimal input (string or number) to float or null
 function parseDecimal(value) {
@@ -44,6 +55,7 @@ function validateRuleInput(body) {
 
 // create rule
 const createPosChargeRule = asyncHandler(async (req, res) => {
+  fileLog(`CREATE request body: ${JSON.stringify(req.body)}`);
   const {
     user_id,
     payment_mode,
@@ -55,6 +67,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     max_amount,
     charge_percent,
     charge_flat,
+    gst_required,
+    gst_percent,
     is_active
   } = req.body;
 
@@ -111,22 +125,29 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     });
   }
 
-  const rec = await PosChargeRule.create({
-    user_id: user_id || null,
-    payment_mode: payment_mode || null,
-    card_type: card_type || null,
-    card_brand: card_brand || null,
-    card_classification: card_classification || null,
-    settlement_type: settlement_type || null,
-    min_amount: min_amount !== undefined ? min_amount : 0,
-    max_amount: max_amount || null,
-    charge_percent,
-    charge_flat: charge_flat || 0,
-    gst_required: Boolean(gst_required),
-    gst_percent: gst_percent !== undefined && gst_percent !== null ? gst_percent : 0,
-    is_active: typeof is_active === 'boolean' ? is_active : true
-  });
+  let rec;
+  try {
+    rec = await PosChargeRule.create({
+      user_id: user_id || null,
+      payment_mode: payment_mode || null,
+      card_type: card_type || null,
+      card_brand: card_brand || null,
+      card_classification: card_classification || null,
+      settlement_type: settlement_type || null,
+      min_amount: min_amount !== undefined ? min_amount : 0,
+      max_amount: max_amount || null,
+      charge_percent,
+      charge_flat: charge_flat || 0,
+      gst_required: Boolean(gst_required),
+      gst_percent: gst_percent !== undefined && gst_percent !== null ? gst_percent : 0,
+      is_active: typeof is_active === 'boolean' ? is_active : true
+    });
+  } catch (err) {
+    fileLog(`CREATE error: ${err.message}`);
+    throw err;
+  }
 
+  fileLog(`CREATE response id=${rec.id}`);
   res.status(201).json({ success: true, message: 'Charge rule created', record: rec });
 });
 
@@ -295,6 +316,7 @@ const deletePosChargeRule = asyncHandler(async (req, res) => {
 
 // calculate charge
 const calculateCharge = asyncHandler(async (req, res) => {
+  fileLog(`CALCULATE request body: ${JSON.stringify(req.body)}`);
   const {
     user_id,
     payment_mode,
@@ -306,11 +328,13 @@ const calculateCharge = asyncHandler(async (req, res) => {
   } = req.body;
 
   if (amount === undefined || amount === null) {
+    fileLog('CALCULATE missing amount');
     return res.status(400).json({ success: false, message: 'amount is required' });
   }
 
   const amt = parseFloat(amount);
   if (isNaN(amt) || amt < 0) {
+    fileLog(`CALCULATE invalid amount: ${amt}`);
     return res.status(400).json({ success: false, message: 'amount must be a non-negative number' });
   }
 
@@ -332,6 +356,8 @@ const calculateCharge = asyncHandler(async (req, res) => {
 
   const { charge: chargeAmt, gstAmount } = ChargeService.calculateCharge(amt, rule);
   const merchantSettlement = parseFloat((amt - chargeAmt - gstAmount).toFixed(2));
+
+  fileLog(`CALCULATE result ruleId=${rule && rule.id ? rule.id : 'fallback'} charge=${chargeAmt} gst=${gstAmount}`);
 
   res.status(200).json({
     success: true,

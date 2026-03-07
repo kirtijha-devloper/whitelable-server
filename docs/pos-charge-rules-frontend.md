@@ -42,6 +42,19 @@ POST /api/pos-charge-rules
 }
 ```
 
+> **Important:** the comments above are for documentation only. `// …`
+> lines are **not valid JSON** and will cause the request body parser to hang.
+> Copy the snippet below when you need a ready‑to‑paste example:
+
+```json
+{
+  "user_id": 45,
+  "payment_mode": "CARD",
+  "charge_percent": 1.7,
+  "min_amount": 0
+}
+```
+
 > The backend enforces:
 > * `charge_percent` ≥ 0
 > * `min_amount <= max_amount`
