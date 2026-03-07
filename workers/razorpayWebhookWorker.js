@@ -281,12 +281,14 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       chargeRate = 2.5;
     }
 
-    const chargeAmount = ChargeService.calculateCharge(parseFloat(transactionAmount), rule || { charge_percent: chargeRate, charge_flat: 0 });
+    const chargeResult = ChargeService.calculateCharge(parseFloat(transactionAmount), rule || { charge_percent: chargeRate, charge_flat: 0, gst_required: false, gst_percent:0 });
+    const chargeAmount = chargeResult.charge;
+    const gstAmount = chargeResult.gstAmount;
 
-    logger.log(`[Razorpay Webhook Worker] POS charge resolved (${chargeSource}): ${chargeRate}% for user: ${posOperator.id}, paymentMode: ${paymentMethod}`);
+    logger.log(`[Razorpay Webhook Worker] POS charge resolved (${chargeSource}): ${chargeRate}% for user: ${posOperator.id}, paymentMode: ${paymentMethod}`, { chargeAmount, gstAmount });
 
-    // Step 4: Calculate net amount
-    const netAmount = transactionAmount - chargeAmount;
+    // Step 4: Calculate net amount (deduct both charge and GST)
+    const netAmount = transactionAmount - chargeAmount - gstAmount;
 
     logger.log(`[Razorpay Webhook Worker] Transaction Amount: ${transactionAmount}, Charge: ${chargeAmount}, Net Amount: ${netAmount}`);
 
@@ -349,6 +351,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       razorpay_transaction_id: txnId,
       transaction_amount: transactionAmount,
       charge_amount: chargeAmount,
+      gst_amount: gstAmount,
+      gst_percent: rule && rule.gst_required ? rule.gst_percent : null,
       net_amount: netAmount,
       charge_rate: chargeRate,
       charge_config_id: resolvedCharge ? resolvedCharge.id : null,
@@ -371,6 +375,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         `Razorpay Transaction: ${txnId}`,
         `Amount: ₹${transactionAmount}`,
         `Charge: ₹${chargeAmount} (${chargeRate}%)`,
+        gstAmount ? `GST: ₹${gstAmount}` : '',
         `Net: ₹${netAmount}`,
         paymentMethod ? `Payment: ${paymentMethod}` : '',
         customerName ? `Customer: ${customerName}` : ''
@@ -395,7 +400,9 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           mid_number: merchantId.toString(),
           tid_number: terminalId.toString(),
           customer_name: customerName,
-          charge_rate: chargeRate
+          charge_rate: chargeRate,
+          gst_amount: gstAmount,
+          gst_percent: rule && rule.gst_required ? rule.gst_percent : null
         }
       });
 

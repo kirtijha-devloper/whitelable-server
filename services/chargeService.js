@@ -67,10 +67,16 @@ async function getTransactionChargeRule({
  * @returns {number}
  */
 function calculateCharge(amount, rule) {
-  if (!rule) return 0;
+  // returns object { charge, gstAmount }
+  if (!rule) return { charge: 0, gstAmount: 0 };
   const percentCharge = parseFloat(amount) * (parseFloat(rule.charge_percent) / 100);
   const flatCharge = rule.charge_flat ? parseFloat(rule.charge_flat) : 0;
-  return parseFloat((percentCharge + flatCharge).toFixed(2));
+  const charge = parseFloat((percentCharge + flatCharge).toFixed(2));
+  let gstAmount = 0;
+  if (rule.gst_required && rule.gst_percent && parseFloat(rule.gst_percent) > 0) {
+    gstAmount = parseFloat((charge * (parseFloat(rule.gst_percent) / 100)).toFixed(2));
+  }
+  return { charge, gstAmount };
 }
 
 module.exports = { getTransactionChargeRule, calculateCharge };

@@ -36,6 +36,8 @@ POST /api/pos-charge-rules
   "max_amount": null,              // optional (null = open-ended)
   "charge_percent": 1.7,           // required, ≥0
   "charge_flat": 0,                // optional
+  "gst_required": false,           // optional, whether GST applies to the charge
+  "gst_percent": 18,               // optional percentage if gst_required is true
   "is_active": true                // optional
 }
 ```
@@ -43,6 +45,7 @@ POST /api/pos-charge-rules
 > The backend enforces:
 > * `charge_percent` ≥ 0
 > * `min_amount <= max_amount`
+> * If `gst_required=true` then `gst_percent` must be ≥ 0
 > * No overlapping slabs for the same parameter combination
 > * No exact duplicate records
 
@@ -107,7 +110,14 @@ POST /api/pos-charge-rules/calculate
 }
 ```
 
-The service looks up the most specific active rule, using the `settlement_type` stored on the merchant’s user record rather than the webhook payload.  (Any `settlement_type` included in the request body is ignored.)
+The service looks up the most specific active rule, using the `settlement_type` stored on the merchant’s user record rather than the webhook payload.  (Any `settlement_type` included in the request body is ignored.)  When the frontend creates or edits a user it must supply one of the two supported values:
+
+```
+'today_settlement'   // default
+'next_day_settlement'
+```
+
+The user model enforces this with a Sequelize `isIn` validation, so invalid strings will be rejected by the API.
 
 Card classification is currently not provided by Razorpay notifications and will usually be null; you may include it manually if available but most lookups omit it.
 

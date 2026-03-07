@@ -51,6 +51,16 @@ const PosChargeRule = db.define('PosChargeRule', {
     allowNull: true,
     defaultValue: 0
   },
+  gst_required: {
+    type: Sequelize.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  gst_percent: {
+    type: Sequelize.DECIMAL(5, 2),
+    allowNull: true,
+    defaultValue: 0
+  },
   is_active: {
     type: Sequelize.BOOLEAN,
     allowNull: false,

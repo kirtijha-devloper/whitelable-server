@@ -64,7 +64,8 @@ Response:
   "rule": { /* matching database row or fallback */ },
   "charge_percent": 1.7,
   "charge_amount": 85,
-  "merchant_settlement": 4915
+  "gst_amount": 15.3,       // if gst_required=true and gst_percent specified
+  "merchant_settlement": 4899.7
 }
 ```
 

@@ -34,6 +34,15 @@ const MerchantTransactionCharge = db.define('MerchantTransactionCharge', {
     type: Sequelize.DECIMAL(10, 2),
     allowNull: false
   },
+  gst_amount: {
+    type: Sequelize.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0.00
+  },
+  gst_percent: {
+    type: Sequelize.DECIMAL(5, 2),
+    allowNull: true
+  },
   charge_rate: {
     type: Sequelize.DECIMAL(5, 2),
     allowNull: false,

@@ -22,6 +22,17 @@ function validateRuleInput(body) {
     errors.push('charge_percent must be a non-negative number');
   }
 
+  const gstReq = body.gst_required;
+  const gstPct = parseDecimal(body.gst_percent);
+  if (gstReq) {
+    if (gstPct === null || gstPct < 0) {
+      errors.push('gst_percent must be a non-negative number when gst_required is true');
+    }
+  }
+  if (gstPct !== null && gstPct < 0) {
+    errors.push('gst_percent must be a non-negative number');
+  }
+
   const min = parseDecimal(body.min_amount) || 0;
   const max = parseDecimal(body.max_amount);
   if (max !== null && min > max) {
@@ -111,6 +122,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     max_amount: max_amount || null,
     charge_percent,
     charge_flat: charge_flat || 0,
+    gst_required: Boolean(gst_required),
+    gst_percent: gst_percent !== undefined && gst_percent !== null ? gst_percent : 0,
     is_active: typeof is_active === 'boolean' ? is_active : true
   });
 
@@ -206,7 +219,9 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     card_classification !== undefined ||
     settlement_type !== undefined ||
     min_amount !== undefined ||
-    max_amount !== undefined
+    max_amount !== undefined ||
+    gst_required !== undefined ||
+    gst_percent !== undefined
   ) {
     const dup = await PosChargeRule.findOne({
       where: {
@@ -258,7 +273,11 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     }
   }
 
-  await rec.update(req.body);
+  // explicitly pick gst fields for safety
+  const updateData = { ...req.body };
+  if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
+  if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
+  await rec.update(updateData);
   res.status(200).json({ success: true, message: 'Rule updated', record: rec });
 });
 
@@ -311,14 +330,15 @@ const calculateCharge = asyncHandler(async (req, res) => {
     rule = { charge_percent: DEFAULT_MDR, charge_flat: 0 };
   }
 
-  const chargeAmt = ChargeService.calculateCharge(amt, rule);
-  const merchantSettlement = parseFloat((amt - chargeAmt).toFixed(2));
+  const { charge: chargeAmt, gstAmount } = ChargeService.calculateCharge(amt, rule);
+  const merchantSettlement = parseFloat((amt - chargeAmt - gstAmount).toFixed(2));
 
   res.status(200).json({
     success: true,
     rule,
     charge_percent: parseFloat(rule.charge_percent),
     charge_amount: chargeAmt,
+    gst_amount: gstAmount,
     merchant_settlement: merchantSettlement
   });
 });
