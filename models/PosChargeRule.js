@@ -13,6 +13,11 @@ const PosChargeRule = db.define('PosChargeRule', {
     allowNull: true,
     comment: 'merchant-specific rule; null means global'
   },
+  franchaise_id: {
+    type: Sequelize.INTEGER,
+    allowNull: true,
+    comment: 'franchise-specific rule; null for none'
+  },
   payment_mode: {
     type: Sequelize.STRING,
     allowNull: false

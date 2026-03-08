@@ -3,6 +3,14 @@ const { Op } = require('sequelize');
 const fs = require('fs');
 const path = require('path');
 const PosChargeRule = require('../models/PosChargeRule');
+const User = require('../models/User');
+
+// helper to cope with inconsistent spelling of the franchise role.
+// historically the DB stored "franchaise" (typo) while front‑end sends
+// "franchise"; we accept either until all rows are normalised.
+function isFranchiseRole(role) {
+  return role === 'franchaise' || role === 'franchise';
+}
 const ChargeService = require('../services/chargeService');
 
 // simple file logger for debugging
@@ -58,6 +66,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   fileLog(`CREATE request body: ${JSON.stringify(req.body)}`);
   const {
     user_id,
+    franchaise_id,
     payment_mode,
     card_type,
     card_brand,
@@ -72,16 +81,50 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     is_active
   } = req.body;
 
-  // basic validation
+  // basic validation (franchaise_id is optional and numeric)
   const errs = validateRuleInput(req.body);
+  if (franchaise_id !== undefined && franchaise_id !== null && isNaN(parseInt(franchaise_id, 10))) {
+    errs.push('franchaise_id must be an integer');
+  }
   if (errs.length) {
     return res.status(400).json({ success: false, errors: errs });
   }
 
-  // duplicate check: exact same combination
+  // determine the effective franchise id for this request
+  let effectiveFranchise = franchaise_id || null;
+  if (req.user.role === 'franchaise') {
+    // franchise may only create rules for their own franchise or their merchants
+    if (effectiveFranchise && parseInt(effectiveFranchise) !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Cannot set rule for another franchise' });
+    }
+    // force the franchise id to caller's id when creating defaults (no user_id)
+    effectiveFranchise = req.user.id;
+  }
+
+  // if caller is a franchise and specifying a merchant, ensure ownership
+  if (req.user.role === 'franchaise' && user_id) {
+    // franchise users are not allowed to create rules for themselves
+    if (parseInt(user_id) === req.user.id) {
+      return res.status(400).json({ success: false, message: 'Franchise cannot create a rule for themselves' });
+    }
+    const target = await User.findByPk(user_id);
+    if (!target || String(target.franchaise_id) !== String(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Merchant does not belong to your franchise' });
+    }
+  }
+  // admin should not create merchant-specific rule for a merchant that belongs to a franchise
+  if (req.user.role === 'admin' && user_id) {
+    const target = await User.findByPk(user_id);
+    if (target && target.franchaise_id) {
+      return res.status(400).json({ success: false, message: 'Cannot create merchant-specific rule for a franchised merchant; use franchise-level rule instead' });
+    }
+  }
+
+  // duplicate check: exact same combination including franchise
   const duplicate = await PosChargeRule.findOne({
     where: {
       user_id: user_id || null,
+      franchaise_id: effectiveFranchise,
       payment_mode: payment_mode || null,
       card_type: card_type || null,
       card_brand: card_brand || null,
@@ -104,6 +147,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   const newMax = parseDecimal(max_amount);
   const overlapCondition = {
     user_id: user_id || null,
+    franchaise_id: effectiveFranchise,
     payment_mode: payment_mode || null,
     card_type: card_type || null,
     card_brand: card_brand || null,
@@ -129,6 +173,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   try {
     rec = await PosChargeRule.create({
       user_id: user_id || null,
+      franchaise_id: effectiveFranchise,
       payment_mode: payment_mode || null,
       card_type: card_type || null,
       card_brand: card_brand || null,
@@ -168,6 +213,7 @@ const getPosChargeRule = asyncHandler(async (req, res) => {
 const listPosChargeRules = asyncHandler(async (req, res) => {
   const {
     user_id,
+    franchaise_id,
     payment_mode,
     card_type,
     card_brand,
@@ -181,12 +227,70 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   const offset = (parseInt(page) - 1) * parseInt(limit);
   const where = {};
   if (user_id !== undefined) where.user_id = user_id || null;
+  if (franchaise_id !== undefined) where.franchaise_id = franchaise_id || null;
   if (payment_mode) where.payment_mode = payment_mode;
   if (card_type) where.card_type = card_type;
   if (card_brand) where.card_brand = card_brand;
   if (card_classification) where.card_classification = card_classification;
   if (settlement_type) where.settlement_type = settlement_type;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
+
+  // role-specific validation of incoming filters - prevents a franchise
+  // from supplying a `user_id` or `franchaise_id` outside their scope and thus
+  // leaking other merchants' rules.
+  if (req.user.role === 'franchise') {
+    // collect the set of IDs we're allowed to query for
+    const merchantRows = await User.findAll({
+      where: { role: 'merchant', franchaise_id: req.user.id },
+      attributes: ['id']
+    });
+    const merchantIds = merchantRows.map(m => m.id);
+    const allowedUserIds = [req.user.id, ...merchantIds];
+
+    if ('user_id' in where && where.user_id !== null) {
+      const uid = parseInt(where.user_id, 10);
+      if (!allowedUserIds.includes(uid)) {
+        return res.status(403).json({ success: false, message: 'Cannot filter by a user outside your franchise' });
+      }
+    }
+    if ('franchaise_id' in where && where.franchaise_id !== null) {
+      const fid = parseInt(where.franchaise_id, 10);
+      if (fid !== req.user.id) {
+        return res.status(403).json({ success: false, message: 'Cannot filter by another franchise' });
+      }
+    }
+  }
+
+  // apply role-based restrictions
+  if (req.user.role === 'franchise') {
+    // franchise users should see:
+    //  * global defaults created by admin (franchaise_id === null)
+    //  * any rule targeting their own franchise (admin or their own)
+    //  * any rule they created for themselves or their merchants
+    const merchantRows = await User.findAll({
+      where: { role: 'merchant', franchaise_id: req.user.id },
+      attributes: ['id']
+    });
+    const merchantIds = merchantRows.map(m => m.id);
+    const userIdCondition = merchantIds.length > 0
+      ? { user_id: { [Op.in]: [req.user.id, ...merchantIds] } }
+      : { user_id: req.user.id };
+
+    where[Op.or] = [
+      { franchaise_id: null, user_id: null }, // global default (admin only)
+      { franchaise_id: req.user.id },         // rule for the franchise itself
+      userIdCondition                         // rules for this user or their merchants
+    ];
+  } else if (req.user.role === 'merchant') {
+    // merchants only see their own rules and applicable defaults (global + their franchise)
+    const orConditions = [ { user_id: req.user.id } ];
+    // only include true global defaults (no specific user attached)
+    orConditions.push({ franchaise_id: null, user_id: null });
+    if (req.user.franchaise_id) {
+      orConditions.push({ franchaise_id: req.user.franchaise_id });
+    }
+    where[Op.or] = orConditions;
+  }
 
   const { count, rows } = await PosChargeRule.findAndCountAll({
     where,
@@ -216,6 +320,9 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
 
   const errs = validateRuleInput(req.body);
+  if (franchaise_id !== undefined && franchaise_id !== null && isNaN(parseInt(franchaise_id, 10))) {
+    errs.push('franchaise_id must be an integer');
+  }
   if (errs.length) {
     return res.status(400).json({ success: false, errors: errs });
   }
@@ -223,6 +330,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   // if slab or identifiers changed, ensure not creating duplicate
   const {
     user_id,
+    franchaise_id,
     payment_mode,
     card_type,
     card_brand,
@@ -232,8 +340,30 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     max_amount
   } = req.body;
 
+  // determine effective franchise for update
+  let effectiveFranchise = franchaise_id !== undefined ? franchaise_id : rec.franchaise_id;
+  // admin update restriction: cannot target a merchant who has a franchise
+  if (req.user.role === 'admin' && user_id) {
+    const target = await User.findByPk(user_id);
+    if (target && target.franchaise_id) {
+      return res.status(400).json({ success: false, message: 'Cannot modify merchant-specific rule for a franchised merchant; use franchise rule' });
+    }
+  }
+  if (req.user.role === 'franchaise') {
+    // franchise cannot edit a rule that targets themselves as a merchant
+    if (user_id && parseInt(user_id) === req.user.id) {
+      return res.status(400).json({ success: false, message: 'Franchise cannot modify a rule for themselves' });
+    }
+    if (effectiveFranchise && parseInt(effectiveFranchise) !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Cannot edit rule for another franchise' });
+    }
+    // if user_id belongs to a merchant verify ownership below
+    effectiveFranchise = req.user.id;
+  }
+
   if (
     user_id !== undefined ||
+    franchaise_id !== undefined ||
     payment_mode !== undefined ||
     card_type !== undefined ||
     card_brand !== undefined ||
@@ -248,6 +378,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
       where: {
         id: { [Op.ne]: id },
         user_id: user_id !== undefined ? user_id || null : rec.user_id,
+        franchaise_id: effectiveFranchise,
         payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
         card_type: card_type !== undefined ? card_type || null : rec.card_type,
         card_brand: card_brand !== undefined ? card_brand || null : rec.card_brand,
@@ -267,6 +398,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     const checkMax = checkMaxVal != null ? checkMaxVal : null;
     const overlapCondition = {
       user_id: user_id !== undefined ? user_id || null : rec.user_id,
+      franchaise_id: effectiveFranchise,
       payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
       card_type: card_type !== undefined ? card_type || null : rec.card_type,
       card_brand: card_brand !== undefined ? card_brand || null : rec.card_brand,
@@ -296,6 +428,10 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
 
   // explicitly pick gst fields for safety
   const updateData = { ...req.body };
+  // enforce franchise ownership on explicit field
+  if (req.user.role === 'franchaise') {
+    updateData.franchaise_id = req.user.id;
+  }
   if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
   if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
   await rec.update(updateData);
@@ -309,6 +445,19 @@ const deletePosChargeRule = asyncHandler(async (req, res) => {
 
   const rec = await PosChargeRule.findByPk(id);
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
+
+  // franchise may only delete their own rules or those for their merchants
+  if (req.user.role === 'franchaise') {
+    if (rec.franchaise_id && parseInt(rec.franchaise_id) !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Cannot delete rule for another franchise' });
+    }
+    if (rec.user_id) {
+      const target = await User.findByPk(rec.user_id);
+      if (!target || String(target.franchaise_id) !== String(req.user.id)) {
+        return res.status(403).json({ success: false, message: 'Cannot delete merchant rule that is not yours' });
+      }
+    }
+  }
 
   await rec.destroy();
   res.status(200).json({ success: true, message: 'Rule deleted' });
@@ -338,8 +487,16 @@ const calculateCharge = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'amount must be a non-negative number' });
   }
 
+  // determine franchise id if not explicitly supplied
+  let franchiseId = req.body.franchaise_id;
+  if (!franchiseId && user_id) {
+    const u = await User.findByPk(user_id);
+    if (u) franchiseId = u.franchaise_id;
+  }
+
   let rule = await ChargeService.getTransactionChargeRule({
     userId: user_id,
+    franchiseId,
     paymentMode: payment_mode,
     cardType: card_type,
     cardBrand: card_brand,

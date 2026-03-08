@@ -254,13 +254,18 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     // Step 3: Resolve POS charge using the new rule engine
     // The service takes all relevant parameters and returns the most specific rule.
+    // Always supply the franchiseId when available so that franchise‑level defaults
+    // are considered.  This is important for merchants under a franchise as well
+    // as for franchise operators themselves (admin may configure franchise
+    // specific rates with franchaise_id).
     const ChargeService = require("../services/chargeService");
 
     const paymentMethod = paymentMode ? paymentMode.toUpperCase() : null;
 
-// settlement_type is stored on the user record rather than in the notification
-      const rule = await ChargeService.getTransactionChargeRule({
+    // settlement_type is stored on the user record rather than in the notification
+    const rule = await ChargeService.getTransactionChargeRule({
       userId: posOperator.id,
+      franchiseId: posOperator.franchaise_id || null,
       paymentMode: paymentMethod,
       cardType: paymentCardType || null,
       cardBrand: paymentCardBrand || null,
@@ -268,6 +273,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       settlement: posOperator.settlement_type || null,
       amount: parseFloat(transactionAmount)
     });
+
+    logger.log(`[Razorpay Webhook Worker] Charge lookup parameters: userId=${posOperator.id}, franchiseId=${posOperator.franchaise_id || 'none'}`);
 
     logger.log('[Razorpay Webhook Worker] Using card classification from JSON:', classificationFromJson);
 
@@ -286,6 +293,33 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const gstAmount = chargeResult.gstAmount;
 
     logger.log(`[Razorpay Webhook Worker] POS charge resolved (${chargeSource}): ${chargeRate}% for user: ${posOperator.id}, paymentMode: ${paymentMethod}`, { chargeAmount, gstAmount });
+
+    // If merchant belongs to a franchise we also determine the rate that the
+    // franchise would pay to admin so that the franchise keeps the difference
+    // between merchant charge and admin charge.
+    let franchiseChargeAmount = 0;
+    let franchiseEarning = 0;
+    if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
+      const franchiseRule = await ChargeService.getTransactionChargeRule({
+        userId: null,
+        franchiseId: posOperator.franchaise_id,
+        paymentMode: paymentMethod,
+        cardType: paymentCardType || null,
+        cardBrand: paymentCardBrand || null,
+        classification: classificationFromJson,
+        settlement: posOperator.settlement_type || null,
+        amount: parseFloat(transactionAmount)
+      });
+      if (franchiseRule) {
+        franchiseChargeAmount = ChargeService.calculateCharge(parseFloat(transactionAmount), franchiseRule).charge;
+      } else {
+        // use default MDR if no specific franchise/admin rule
+        const DEFAULT_MDR = 2.5;
+        franchiseChargeAmount = parseFloat((parseFloat(transactionAmount) * (DEFAULT_MDR/100)).toFixed(2));
+      }
+      franchiseEarning = chargeAmount - franchiseChargeAmount;
+      logger.log(`[Razorpay Webhook Worker] Franchise charge: ${franchiseChargeAmount}, earning: ${franchiseEarning}`);
+    }
 
     // Step 4: Calculate net amount (deduct both charge and GST)
     const netAmount = transactionAmount - chargeAmount - gstAmount;
@@ -343,6 +377,72 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     });
 
     logger.log(`[Razorpay Webhook Worker] ✅ Created wallet transaction for user: ${posOperator.id}, txn: ${txnId}`);
+
+    // Step 6a: If merchant belongs to a franchise record the flow at the
+    // franchise level.  We debit the franchise by the admin/franchise rate
+    // (what they owe the platform) and credit the franchise by the full
+    // merchant charge (what the merchant paid the franchise).  The net effect
+    // mirrors the old "earning" behaviour but makes two ledger entries.
+    if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
+      const franchiseId = posOperator.franchaise_id;
+      const ledgerService = require("../services/ledgerService");
+
+      if (franchiseChargeAmount > 0) {
+        // debit franchise
+        const desc = `Admin charge for Razorpay txn ${txnId}`;
+        await WalletTransaction.create({
+          type: "franchise_admin_fee",
+          amount: -franchiseChargeAmount,
+          status: "completed",
+          reason: desc,
+          requested_by: franchiseId,
+          source: "razorpay",
+          reference_id: null
+        });
+        await ledgerService.createLedgerEntry({
+          userId: franchiseId,
+          transactionType: "franchise_admin_fee",
+          transactionId: txnId,
+          description: desc,
+          debit: franchiseChargeAmount,
+          status: "completed",
+          metadata: {
+            merchant_id: posOperator.id,
+            transaction_amount: transactionAmount,
+            charge_rate: chargeRate,
+            franchise_charge: franchiseChargeAmount
+          }
+        });
+        logger.log(`[Razorpay Webhook Worker] Debited franchise ${franchiseId} ₹${franchiseChargeAmount}`);
+      }
+
+      if (chargeAmount > 0) {
+        const desc2 = `Merchant charge for Razorpay txn ${txnId}`;
+        await WalletTransaction.create({
+          type: "franchise_merchant_charge",
+          amount: chargeAmount,
+          status: "completed",
+          reason: desc2,
+          requested_by: franchiseId,
+          source: "razorpay",
+          reference_id: null
+        });
+        await ledgerService.createLedgerEntry({
+          userId: franchiseId,
+          transactionType: "franchise_merchant_charge",
+          transactionId: txnId,
+          description: desc2,
+          credit: chargeAmount,
+          status: "completed",
+          metadata: {
+            merchant_id: posOperator.id,
+            transaction_amount: transactionAmount,
+            charge_rate: chargeRate
+          }
+        });
+        logger.log(`[Razorpay Webhook Worker] Credited franchise ${franchiseId} ₹${chargeAmount}`);
+      }
+    }
 
     // Step 7: Create MerchantTransactionCharge record to track deducted amount
     const merchantTransactionCharge = await MerchantTransactionCharge.create({
@@ -412,81 +512,39 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       // Don't throw - ledger is for tracking, transaction is already processed
     }
 
-    // ── Step 9: Commission ────────────────────────────────────────────────────────
-    // Rule: commission is only applicable when the POS operator is a merchant AND
-    // belongs to a franchise. In that case the franchise owner earns the commission.
-    // - Operator role = merchant + franchaise_id set  → franchise owner gets commission
-    // - Operator role = merchant + no franchaise_id   → no commission
-    // - Operator role = franchise                     → no commission
-    if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
+    // Step 9: Franchise earning (replaces previous commission logic)
+    if (posOperator.role === 'merchant' && posOperator.franchaise_id && typeof franchiseEarning === 'number' && franchiseEarning > 0) {
       try {
-        const commissionService = require("../services/commissionService");
-        const franchiseOwner = await User.findByPk(posOperator.franchaise_id);
+        // credit franchise wallet with the difference
+        const franchiseWalletTxn = await WalletTransaction.create({
+          type: "franchise_earning",
+          amount: franchiseEarning,
+          status: "completed",
+          reason: `Franchise earning ₹${franchiseEarning} | Merchant: ${posOperator.id} | Razorpay txn: ${txnId}`,
+          requested_by: posOperator.franchaise_id,
+          source: "razorpay",
+          reference_id: null,
+        });
 
-        if (!franchiseOwner) {
-          logger.warn(`[Razorpay Webhook Worker] Franchise owner not found: ${posOperator.franchaise_id} for txn: ${txnId}`);
-        } else {
-          const franchiseCommResult = await commissionService.resolveCommission(
-            franchiseOwner.id,
-            {
-              paymentMode: paymentMethod,
-              paymentCardBrand: paymentCardBrand || null,
-              paymentCardType: paymentCardType || null,
-            },
-            transactionAmount
-          );
-
-          if (franchiseCommResult && franchiseCommResult.fee && franchiseCommResult.fee.charge > 0) {
-            const franchCommAmount = franchiseCommResult.fee.charge;
-            const franchRateLabel = franchiseCommResult.fee.percent_fee > 0
-              ? `${franchiseCommResult.fee.percent_fee}%`
-              : `₹${franchiseCommResult.fee.flat_fee} flat`;
-
-            logger.log(`[Razorpay Webhook Worker] Franchise commission (${franchiseCommResult.source}): ₹${franchCommAmount} (${franchRateLabel}) for franchise owner: ${franchiseOwner.id}, txn: ${txnId}`);
-
-            // Create WalletTransaction for the franchise owner's commission credit
-            await WalletTransaction.create({
-              type: "commission",
-              amount: franchCommAmount,
-              status: "completed",
-              reason: `Franchise commission (${franchRateLabel}) | Operator: ${posOperator.id} | Razorpay txn: ${txnId} | Txn amt: ₹${transactionAmount}`,
-              requested_by: franchiseOwner.id,
-              source: "razorpay",
-              reference_id: null,
-            });
-
-            // Ledger entry for franchise owner's commission (also syncs wallet)
-            await ledgerService.createCommissionEntry({
-              userId: franchiseOwner.id,
-              razorpayTransactionId: txnId,
-              commissionAmount: franchCommAmount,
-              transactionType: "razorpay_franchise_commission",
-              description: `Franchise commission (${franchRateLabel}) | Operator: ${posOperator.id} | Razorpay txn: ${txnId} | Amt: ₹${transactionAmount}`,
-              metadata: {
-                razorpay_notification_id: notification.id,
-                merchant_id: posOperator.id,
-                commission_source: franchiseCommResult.source,
-                payment_method: paymentMethod,
-                payment_card_brand: paymentCardBrand || null,
-                payment_card_type: paymentCardType || null,
-                transaction_amount: transactionAmount,
-                commission_rate_percent: franchiseCommResult.fee.percent_fee || 0,
-                commission_flat_fee: franchiseCommResult.fee.flat_fee || 0,
-                pos_machine_id: posMachine.id,
-              },
-            });
-
-            logger.log(`[Razorpay Webhook Worker] ✅ Franchise commission ₹${franchCommAmount} credited to franchise owner: ${franchiseOwner.id}`);
-          } else {
-            logger.log(`[Razorpay Webhook Worker] No commission slab for franchise owner: ${franchiseOwner.id}, txn: ${txnId}, paymentMode: ${paymentMethod}`);
+        // ledger entry for franchise earning
+        await ledgerService.createFranchiseEarningEntry({
+          userId: posOperator.franchaise_id,
+          razorpayTransactionId: txnId,
+          amount: franchiseEarning,
+          transactionType: "razorpay_franchise_earning",
+          description: `Franchise earning ₹${franchiseEarning} | Merchant: ${posOperator.id}`,
+          metadata: {
+            merchant_id: posOperator.id,
+            transaction_amount: transactionAmount,
+            charge_amount: chargeAmount,
+            franchise_charge: franchiseChargeAmount,
           }
-        }
-      } catch (franchCommError) {
-        logger.error(`[Razorpay Webhook Worker] ⚠️ Error processing franchise commission for txn: ${txnId}`, franchCommError);
-        // Non-fatal — core transaction already processed
+        });
+
+        logger.log(`[Razorpay Webhook Worker] ✅ Franchise earning ₹${franchiseEarning} credited to user ${posOperator.franchaise_id}`);
+      } catch (earnError) {
+        logger.error(`[Razorpay Webhook Worker] ⚠️ Error crediting franchise earning for txn: ${txnId}`, earnError);
       }
-    } else {
-      logger.log(`[Razorpay Webhook Worker] No commission applicable — operator role: ${posOperator.role}, franchaise_id: ${posOperator.franchaise_id || 'none'}, txn: ${txnId}`);
     }
 
   } catch (error) {

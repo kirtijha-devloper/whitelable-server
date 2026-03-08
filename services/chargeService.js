@@ -16,6 +16,7 @@ const db = require('../config/database');
  */
 async function getTransactionChargeRule({
   userId,
+  franchiseId,
   paymentMode,
   cardType,
   cardBrand,
@@ -23,30 +24,46 @@ async function getTransactionChargeRule({
   settlement,
   amount
 }) {
+  // The query gives highest weight to a rule matching the userId,
+  // then franchiseId, then the usual attributes.  A global rule has
+  // specificity = 0.  The WHERE clause only pulls in rows that are
+  // relevant to the current transaction (user or franchise matches or
+  // both null).
   const query = `
     SELECT *,
     (
-      (CASE WHEN user_id IS NOT NULL THEN 8 ELSE 0 END) +
+      (CASE
+         WHEN user_id IS NOT NULL AND user_id = $1 THEN 16
+         ELSE 0
+       END) +
+      (CASE
+         WHEN franchaise_id IS NOT NULL AND franchaise_id = $2 THEN 8
+         ELSE 0
+       END) +
       (CASE WHEN card_classification IS NOT NULL THEN 4 ELSE 0 END) +
       (CASE WHEN card_brand IS NOT NULL THEN 2 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL THEN 1 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      AND (user_id = $1 OR user_id IS NULL)
-      AND (payment_mode = $2 OR payment_mode IS NULL)
-      AND (card_type = $3 OR card_type IS NULL)
-      AND (card_brand = $4 OR card_brand IS NULL)
-      AND (card_classification = $5 OR card_classification IS NULL)
-      AND (settlement_type = $6 OR settlement_type IS NULL)
-      AND $7 >= min_amount
-      AND ($7 <= max_amount OR max_amount IS NULL)
+      AND (
+            (user_id = $1)
+         OR (user_id IS NULL AND (franchaise_id = $2 OR franchaise_id IS NULL))
+      )
+      AND (payment_mode = $3 OR payment_mode IS NULL)
+      AND (card_type = $4 OR card_type IS NULL)
+      AND (card_brand = $5 OR card_brand IS NULL)
+      AND (card_classification = $6 OR card_classification IS NULL)
+      AND (settlement_type = $7 OR settlement_type IS NULL)
+      AND $8 >= min_amount
+      AND ($8 <= max_amount OR max_amount IS NULL)
     ORDER BY specificity DESC
     LIMIT 1
   `;
 
   const replacements = [
     userId || null,
+    franchiseId || null,
     paymentMode || null,
     cardType || null,
     cardBrand || null,
@@ -55,8 +72,12 @@ async function getTransactionChargeRule({
     amount
   ];
 
-  const [results] = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
-  return results && results[0] ? results[0] : null;
+  // When QueryTypes.SELECT is used, `db.query` returns an array of rows.
+  // Previously we destructured the first element which meant `results` was a
+  // single object; indexing `results[0]` therefore always returned undefined.
+  // Simply keep the full array and pick the first row if present.
+  const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
+  return results && results.length ? results[0] : null;
 }
 
 /**

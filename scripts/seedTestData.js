@@ -95,15 +95,15 @@ async function seed() {
 
     const hashedPassword = await bcrypt.hash('Test@1234', 10);
 
-    // ── 1. Franchise user ─────────────────────────────────────────────────────
-    console.log('── 1. Franchise user ──────────────────────────────────────────');
+    // ── 1. Franchise users ─────────────────────────────────────────────────
+    console.log('── 1. Franchise users ─────────────────────────────────────────');
     const franchise = await findOrCreateUser(
       { email: 'test.franchise@example.com' },
       {
         name: 'Test Franchise',
         mobile_number: '9000000001',
         password: hashedPassword,
-        role: 'franchise',
+        role: 'franchaise',
         status: 'active',
         is_approved: true,
         wallet: 0,
@@ -112,8 +112,24 @@ async function seed() {
       }
     );
 
-    // ── 2. Merchant user ──────────────────────────────────────────────────────
-    console.log('\n── 2. Merchant user ───────────────────────────────────────────');
+    // add a second franchise for variety
+    const franchise2 = await findOrCreateUser(
+      { email: 'another.franchise@example.com' },
+      {
+        name: 'Another Franchise',
+        mobile_number: '9000000003',
+        password: hashedPassword,
+        role: 'franchaise',
+        status: 'active',
+        is_approved: true,
+        wallet: 0,
+        wallet_hold: 0,
+        settlement_type: 'today_settlement',
+      }
+    );
+
+    // ── 2. Merchant users ──────────────────────────────────────────────────
+    console.log('\n── 2. Merchant users ───────────────────────────────────────────');
     const merchant = await findOrCreateUser(
       { email: 'test.merchant@example.com' },
       {
@@ -130,6 +146,53 @@ async function seed() {
         franchaise_id: franchise.id,
       }
     );
+
+    // merchant without a franchise (admin-only)
+    const merchantNoFr = await findOrCreateUser(
+      { email: 'solo.merchant@example.com' },
+      {
+        name: 'Solo Merchant',
+        mobile_number: '9000000004',
+        password: hashedPassword,
+        role: 'merchant',
+        status: 'active',
+        is_approved: true,
+        is_pos_asigned: false,
+        wallet: 0,
+        wallet_hold: 0,
+        settlement_type: 'today_settlement',
+        franchaise_id: null,
+      }
+    );
+
+    // merchant under second franchise
+    const merchantUnder2 = await findOrCreateUser(
+      { email: 'fr2.merchant@example.com' },
+      {
+        name: 'Franchise2 Merchant',
+        mobile_number: '9000000005',
+        password: hashedPassword,
+        role: 'merchant',
+        status: 'active',
+        is_approved: true,
+        is_pos_asigned: true,
+        wallet: 0,
+        wallet_hold: 0,
+        settlement_type: 'today_settlement',
+        franchaise_id: franchise2.id,
+      }
+    );
+
+    // Ensure franchaise_id is set (handles re-run after franchise was already created)
+    if (!merchant.franchaise_id || merchant.franchaise_id !== franchise.id) {
+      await merchant.update({ franchaise_id: franchise.id });
+      console.log(`  [UPD]  Set merchant.franchaise_id = ${franchise.id}`);
+    }
+
+    if (!merchantUnder2.franchaise_id || merchantUnder2.franchaise_id !== franchise2.id) {
+      await merchantUnder2.update({ franchaise_id: franchise2.id });
+      console.log(`  [UPD]  Set merchantUnder2.franchaise_id = ${franchise2.id}`);
+    }
 
     // Ensure franchaise_id is set (handles re-run after franchise was already created)
     if (!merchant.franchaise_id || merchant.franchaise_id !== franchise.id) {

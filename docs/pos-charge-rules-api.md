@@ -18,7 +18,8 @@ Body parameters (JSON):
 
 ```json
 {
-  "user_id": 45,                    // optional merchant
+  "user_id": 45,                    // optional merchant; null means non-specific
+  "franchaise_id": 7,              // optional franchise; null means global
   "payment_mode": "CARD",         // required
   "card_type": "CREDIT",          // optional
   "card_brand": "VISA",           // optional
@@ -32,11 +33,37 @@ Body parameters (JSON):
 }
 ```
 
+> **Permission notes:**
+>
+> * **admin** may create any combination. Merchant rules are allowed only if the
+>   target merchant has no `franchaise_id` (otherwise use a franchise rule).
+> * **franchaise** may create or modify rules where `franchaise_id` equals their
+>   own ID; rules for specific merchants require that the merchant belongs to
+>   the franchise.
+>
+> The same restrictions apply to updates and deletes.
+
 Rules are validated for duplicate combinations, overlapping slabs and simple sanity checks (min &lt;= max, non‑negative percent).
 
 ### List rules
 
 `GET /api/pos-charge-rules/list` with query parameters matching the filter names above plus `page` and `limit`.
+
+> **Visibility rules:**
+>
+> * **admin:** sees all records.
+> * **franchaise:** sees their own franchise defaults
+>   (`franchaise_id = <their id>`), any rule explicitly targeting them
+>   (`user_id = <their id>`), and also any merchant-specific rules for merchants
+>   under their franchise (useful for legacy data; new rules of that type are
+>   not created by the system).
+> * **merchant:** sees a personal rule (`user_id` equal theirs) if one exists,
+>   otherwise the applicable default(s) – first the franchise default (if the
+>   merchant has a `franchaise_id`), then the global default (`franchaise_id` is
+>   `NULL`).
+
+The endpoint accepts the additional `franchaise_id` filter to locate rules by
+franchise when needed.
 
 ### Retrieve single rule
 
@@ -70,6 +97,11 @@ Response:
 ```
 
 If no active rule matches the supplied criteria the system returns a default MDR of `2.5%` (configurable in code).
+
+Rules are now looked up by both `user_id` **and** `franchaise_id` so that
+franchise‑level defaults can be defined independent of individual merchants.  The
+engine will select the most specific applicable rule (merchant wins over
+franchise over global).
 
 ## Table schema
 

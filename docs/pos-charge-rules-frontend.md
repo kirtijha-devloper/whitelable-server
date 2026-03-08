@@ -22,11 +22,23 @@ This path is mounted by the Express server alongside the legacy POS charge endpo
 POST /api/pos-charge-rules
 ```
 
+> **Who can create what?**
+>
+> * **Admin users** may create any rule.  However, if the target merchant has a
+>   `franchaise_id` an admin **must not** create a merchant-specific rule; the
+>   system will reject the request with a 400 and instruct you to set a
+>   franchise-level rule instead.
+> * **Franchise users** can only create rules where `franchaise_id` equals their
+>   own ID.  They may optionally supply a `user_id` but it must belong to one of
+>   their merchants – they are **not** allowed to create a rule targeting their
+>   own user account.
+
 **Request body** (JSON):
 
 ```json
 {
   "user_id": 45,                    // optional merchant (null = global)
+  "franchaise_id": 7,              // optional franchise (null = global)
   "payment_mode": "CARD",         // required
   "card_type": "CREDIT",          // optional
   "card_brand": "VISA",           // optional
@@ -41,7 +53,6 @@ POST /api/pos-charge-rules
   "is_active": true                // optional
 }
 ```
-
 > **Important:** the comments above are for documentation only. `// …`
 > lines are **not valid JSON** and will cause the request body parser to hang.
 > Copy the snippet below when you need a ready‑to‑paste example:
@@ -69,6 +80,17 @@ POST /api/pos-charge-rules
 GET /api/pos-charge-rules/list
 ```
 
+> **What each role sees:**
+>
+> * **Admin:** sees every rule.
+> * **Franchise:** sees its own defaults (`franchaise_id` matches), any rule
+>   directly assigned to the franchise user (`user_id` equals their ID), and any
+>   merchant-specific rules belonging to merchants under the franchise (these
+>   should only appear if they pre‑dated the franchise logic).
+> * **Merchant:** sees a personal rule if one exists, otherwise the applicable
+>   default — first the franchise default if the merchant has `franchaise_id`,
+>   then the global default (`franchaise_id` null).
+
 Supports query‑string filters. Example:
 
 ```
@@ -92,6 +114,9 @@ PUT /api/pos-charge-rules/:id
 ```
 
 Body may contain any subset of the creation fields.  Only submitted fields will change.
+
+> Franchise users cannot update a rule that targets their own user id; they may
+> only update defaults or merchant‑specific rules under their franchise.
 
 ### Delete a rule
 

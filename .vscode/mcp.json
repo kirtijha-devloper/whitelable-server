@@ -1,0 +1,23 @@
+{
+	"servers": {
+		"filesystem": {
+		"type": "stdio",
+		"command": "npx",
+		"args": [
+				"-y",
+				"@modelcontextprotocol/server-filesystem",
+				"./"
+			]
+		},
+		"postgres": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"@modelcontextprotocol/server-postgres",
+				"postgresql://pos_user:{$DB_PASS}@localhost:5432/pos_db"
+			]
+		}
+	},
+	"inputs": []
+}

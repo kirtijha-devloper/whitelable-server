@@ -16,6 +16,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@modelcontextprotocol/server-filesystem": "^2026.1.14",
+    "@modelcontextprotocol/server-postgres": "^0.6.2",
     "axios": "^1.8.4",
     "bcrypt": "^5.1.1",
     "bull": "^4.16.5",
@@ -43,6 +45,7 @@
     "chai": "^4.3.7",
     "mocha": "^10.2.0",
     "nodeman": "^1.1.2",
+    "sinon": "^21.0.2",
     "sqlite3": "^5.1.6",
     "supertest": "^6.3.3"
   }

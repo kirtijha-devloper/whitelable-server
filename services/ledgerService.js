@@ -316,6 +316,25 @@ async function createCommissionEntry({
   });
 }
 
+// convenience wrapper for franchise earnings; uses commission-like ledger entry
+async function createFranchiseEarningEntry({
+  userId,
+  razorpayTransactionId,
+  amount,
+  description = null,
+  metadata = null,
+}) {
+  return await createLedgerEntry({
+    userId,
+    transactionType: 'razorpay_franchise_earning',
+    transactionId: razorpayTransactionId,
+    description: description || `Franchise earning on txn: ${razorpayTransactionId} — ₹${amount}`,
+    credit: amount,
+    status: 'completed',
+    metadata,
+  });
+}
+
 /**
  * Create a ledger debit entry for a rental charge.
  *
