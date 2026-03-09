@@ -313,11 +313,27 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
 
 // update rule
 const updatePosChargeRule = asyncHandler(async (req, res) => {
+  fileLog(`UPDATE request id=${req.params.id} body=${JSON.stringify(req.body)}`);
   const { id } = req.params;
   if (!id) return res.status(400).json({ success: false, message: 'id required' });
 
   const rec = await PosChargeRule.findByPk(id);
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
+
+  // pull fields early so we can validate them
+  const {
+    user_id,
+    franchaise_id,
+    payment_mode,
+    card_type,
+    card_brand,
+    card_classification,
+    settlement_type,
+    min_amount,
+    max_amount,
+    gst_required,
+    gst_percent
+  } = req.body;
 
   const errs = validateRuleInput(req.body);
   if (franchaise_id !== undefined && franchaise_id !== null && isNaN(parseInt(franchaise_id, 10))) {
@@ -328,17 +344,6 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   }
 
   // if slab or identifiers changed, ensure not creating duplicate
-  const {
-    user_id,
-    franchaise_id,
-    payment_mode,
-    card_type,
-    card_brand,
-    card_classification,
-    settlement_type,
-    min_amount,
-    max_amount
-  } = req.body;
 
   // determine effective franchise for update
   let effectiveFranchise = franchaise_id !== undefined ? franchaise_id : rec.franchaise_id;
@@ -361,19 +366,23 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     effectiveFranchise = req.user.id;
   }
 
-  if (
-    user_id !== undefined ||
-    franchaise_id !== undefined ||
-    payment_mode !== undefined ||
-    card_type !== undefined ||
-    card_brand !== undefined ||
-    card_classification !== undefined ||
-    settlement_type !== undefined ||
-    min_amount !== undefined ||
-    max_amount !== undefined ||
-    gst_required !== undefined ||
-    gst_percent !== undefined
-  ) {
+  // only perform duplicate/overlap check when any of the identity or slab fields are being changed
+  const fieldsToCheck = [
+    user_id,
+    franchaise_id,
+    payment_mode,
+    card_type,
+    card_brand,
+    card_classification,
+    settlement_type,
+    min_amount,
+    max_amount,
+    gst_required,
+    gst_percent
+  ];
+
+  const shouldValidateSlab = fieldsToCheck.some(val => val !== undefined);
+  if (shouldValidateSlab) {
     const dup = await PosChargeRule.findOne({
       where: {
         id: { [Op.ne]: id },
@@ -435,6 +444,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
   if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
   await rec.update(updateData);
+  fileLog(`UPDATE success id=${rec.id}`);
   res.status(200).json({ success: true, message: 'Rule updated', record: rec });
 });
 

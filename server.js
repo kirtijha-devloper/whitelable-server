@@ -12,6 +12,8 @@ const fileUpload = require('express-fileupload');
 // Import workers to start processing queues
 require("./workers/walletWorker"); // Existing wallet worker
 require("./workers/razorpayWebhookWorker"); // Razorpay webhook worker
+// start CredXPay pending resolver cron
+require('./cron/resolvePendingCredxpay');
 
 const app = express();
 
@@ -93,6 +95,11 @@ app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRou
 app.use('/api/pos-charge-rules', require('./routes/posChargeRuleRoutes'));
 app.use('/api/ledger', require('./routes/ledgerRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
+
+// CredXPay payout integration (separate from existing BranchX routes)
+app.use('/payout/credxpay', require('./routes/credxpay/payout'));
+app.use('/payout/credxpay/beneficiaries', require('./routes/credxpay/beneficiary'));
+app.use('/payout/credxpay/callback', require('./routes/credxpay/webhook'));
 app.use('/api/complaint', require('./routes/complaintRoutes'));
 app.use('/api/report', require('./routes/reportRoutes'));
 app.use('/api/kyc', require('./routes/kycRoutes'));

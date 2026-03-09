@@ -42,5 +42,14 @@ module.exports = {
     dialect: 'sqlite',
     storage: ':memory:',
     logging: false
+  },
+  // configuration for CredXPay payout integration
+  credxpay: {
+    baseUrl: process.env.CREDXPAY_BASE_URL || '',
+    apiKey: process.env.CREDXPAY_API_KEY || '',
+    webhookIPs: (process.env.CREDXPAY_WEBHOOK_IPS || '')
+      .split(',')
+      .map(ip => ip.trim())
+      .filter(ip => ip.length > 0)
   }
 };

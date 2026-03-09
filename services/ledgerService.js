@@ -68,7 +68,7 @@ async function createLedgerEntry({
   credit = 0,
   status = 'completed',
   metadata = null
-}) {
+}, opts = {}) {
   // Validate amounts
   if (debit > 0 && credit > 0) {
     throw new Error('Cannot have both debit and credit in the same ledger entry');
@@ -103,13 +103,13 @@ async function createLedgerEntry({
     balance: balanceAfter,
     status: status,
     metadata: metadataString
-  });
+  }, opts);
 
   // Keep user.wallet in sync with the ledger
-  const user = await User.findByPk(userId);
+  const user = await User.findByPk(userId, opts);
   if (user) {
     user.wallet = balanceAfter;
-    await user.save();
+    await user.save(opts);
   }
 
   return ledgerEntry;
@@ -384,7 +384,7 @@ async function createPayoutEntry({
   description = null,
   status = 'completed',
   metadata = null,
-}) {
+}, opts = {}) {
   return await createLedgerEntry({
     userId,
     transactionType: 'payout',
@@ -394,7 +394,7 @@ async function createPayoutEntry({
     debit: amount,
     status,
     metadata,
-  });
+  }, opts);
 }
 
 // ---------------------------------------------------------------------------
