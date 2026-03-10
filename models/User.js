@@ -106,6 +106,17 @@ const User = db.define('User', {
         //   key: 'id'
         // }
       },
+      company_or_shop_name: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        comment: 'Optional company or shop name provided by user'
+      },
+      username: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        unique: true,
+        comment: 'System-generated login username (not supplied by frontend)'
+      },
       ipay_outlet_id: {
         type: Sequelize.INTEGER,
         allowNull: true,

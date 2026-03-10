@@ -2,6 +2,8 @@ const asyncHandler = require("express-async-handler");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const  User = require('../models/User');
+const db = require('../config/database');
+const UsernameSequence = require('../models/UsernameSequence');
 
 const fs = require("fs");
 const path = require("path");
@@ -44,6 +46,36 @@ const sendEmailOtp = require("../utils/emailOtp");
 const PosTransactionCharge = require('../models/PosTransactionCharge');
 const PayoutCharge = require('../models/PayoutCharge');
 const Rental = require('../models/Rental');
+
+// helper used during registration to allocate a unique username
+function prefixForRole(role) {
+  switch (role) {
+    case 'merchant': return 'APM';
+    case 'franchaise': return 'APF';
+    case 'admin': return 'APA';
+    default: return 'APX';
+  }
+}
+
+async function allocateUsernameForRole(role, transaction) {
+  const prefix = prefixForRole(role);
+
+  // try to fetch the sequence row with an update lock. if it doesn't exist, create it.
+  let seq = await UsernameSequence.findOne({
+    where: { prefix },
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+
+  if (!seq) {
+    seq = await UsernameSequence.create({ prefix, current_value: 1 }, { transaction });
+    return `${prefix}${String(1).padStart(5, '0')}`;
+  }
+
+  seq.current_value += 1;
+  await seq.save({ transaction });
+  return `${prefix}${String(seq.current_value).padStart(5, '0')}`;
+}
 
 const cloudinary = require("cloudinary").v2;
 cloudinary.config({
@@ -259,7 +291,8 @@ const getUserByID = asyncHandler(async (req, res) => {
 
 const registerUser = asyncHandler(async (req, res) => {
     try {
-        const { email, password, role } = req.body;
+        // pull off company/shop name as well (optional)
+        const { email, password, role, company_or_shop_name } = req.body;
         const mobileNumber = req.body.mobile_number;
 
         if (!mobileNumber || !password || !role || !email) {
@@ -327,33 +360,40 @@ const registerUser = asyncHandler(async (req, res) => {
             bankPassbookFile ? cloudinary.uploader.upload(bankPassbookFile.tempFilePath, { folder: 'users' }) : null,
         ]);
 
-        const user = await User.create({
-            email,
-            password: hashPassword,
-            role: normalizedRole,
-            mobile_number: mobileNumber,
-            mobile_number_country_code: req.body.mobile_number_country_code || '+91',
-            abheepay_id,
-            name: req.body.name,
-            gender: req.body.gender,
-            dob: req.body.dob || null,
-            address1: req.body.address1,
-            address2: req.body.address2,
-            city: req.body.city,
-            district: req.body.district,
-            pincode: req.body.pincode,
-            state: req.body.state,
-            aadhar_number: req.body.aadhar_number,
-            pan_number: req.body.pan_number,
-            pan_number_url:        panUrl?.secure_url    || null,
-            aadhar_number_url:     aadharUrl?.secure_url || null,
-            aadhar_back_number_url: aadharBkUrl?.secure_url || null,
-            shop_with_photo_url:   shopUrl?.secure_url   || null,
-            bank_passbook_url:      bankPassbookUrl?.secure_url || null,
-            settlement_type: req.body.settlement_type || 'today_settlement',
-            is_approved: false,
-            status: 'active',
-            ...(req.user && req.user.role === 'franchaise' && normalizedRole === 'merchant' && { franchaise_id: req.user.id }),
+        // allocate username inside same transaction so sequence rollback works
+        let user;
+        await db.transaction(async (t) => {
+            const username = await allocateUsernameForRole(normalizedRole, t);
+            user = await User.create({
+                email,
+                password: hashPassword,
+                role: normalizedRole,
+                mobile_number: mobileNumber,
+                mobile_number_country_code: req.body.mobile_number_country_code || '+91',
+                abheepay_id,
+                name: req.body.name,
+                gender: req.body.gender,
+                dob: req.body.dob || null,
+                address1: req.body.address1,
+                address2: req.body.address2,
+                city: req.body.city,
+                district: req.body.district,
+                pincode: req.body.pincode,
+                state: req.body.state,
+                aadhar_number: req.body.aadhar_number,
+                pan_number: req.body.pan_number,
+                pan_number_url:        panUrl?.secure_url    || null,
+                aadhar_number_url:     aadharUrl?.secure_url || null,
+                aadhar_back_number_url: aadharBkUrl?.secure_url || null,
+                shop_with_photo_url:   shopUrl?.secure_url   || null,
+                bank_passbook_url:      bankPassbookUrl?.secure_url || null,
+                settlement_type: req.body.settlement_type || 'today_settlement',
+                is_approved: false,
+                status: 'active',
+                company_or_shop_name: company_or_shop_name || null,
+                username,
+                ...(req.user && req.user.role === 'franchaise' && normalizedRole === 'merchant' && { franchaise_id: req.user.id }),
+            }, { transaction: t });
         });
 
         console.log('User created', user);
@@ -1113,6 +1153,11 @@ const updateUser = asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
+    // username is system-generated; ignore any attempt to set it via API
+    if (req.body.username !== undefined) {
+      delete req.body.username;
+    }
+
     // ── Access control ────────────────────────────────────────────────────
     if (requesterRole === 'merchant') {
       if (requesterId !== targetId) {
@@ -1139,6 +1184,7 @@ const updateUser = asyncHandler(async (req, res) => {
       'mobile_number_country_code', 'address1', 'address2',
       'city', 'district', 'pincode', 'state', 'country',
       'aadhar_number', 'pan_number', 'organization_name',
+      'company_or_shop_name',
     ];
 
     // Fields only admin may touch:

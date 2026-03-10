@@ -32,9 +32,12 @@ The form is divided into five logical sections.
 | `mobile_number`| string | **yes**  | Mobile number — used as the primary login identifier. Must be unique among active users. |
 | `password`     | string | **yes**  | Plain-text password (hashed server-side with bcrypt). |
 | `name`         | string | no       | Full name of the user. Strongly recommended. |
+| `company_or_shop_name` | string | no | Optional company or shop name for merchants or franchises. |
 | `mobile_number_country_code` | string | no | Country code prefix. Defaults to `+91`. |
 
 > **Server-enforced required fields:** Only `role`, `email`, `mobile_number`, and `password` will cause a `400` if missing. All other fields are optional at the API level — the frontend form marks several as required for UX purposes.
+>
+> **Important:** the API will generate a unique `username` for the new user based on their role (e.g. `APM00001`). This value is **not** supplied by the client and is returned in the response.
 
 > **Note:** When a **franchise** user registers a merchant (`role: "merchant"`), the new merchant is automatically linked to that franchise via `franchaise_id`.
 
@@ -129,6 +132,7 @@ const response = await fetch('/api/user/register', {
   "message": "User registered successfully",
   "user": {
     "id": 123,
+    "username": "APM00001",
     "email": "john@example.com",
     "mobile_number": "9876543210",
     "abheepay_id": "APM0001",
@@ -156,7 +160,7 @@ const response = await fetch('/api/user/register', {
 |-----------------|-------------|
 | `user.id` / `data.id` | The newly created user's internal ID. Both keys are present and identical. `resp.user.id` is the recommended accessor. |
 | `user.abheepay_id` | System-generated ID with prefix `APM` (merchant), `APF` (franchise), or `APA` (admin). |
-| `pos.assigned`  | `true` if POS machines were successfully assigned. |
+| `user.username` | System-generated login username (e.g. `APM00001`). Unique per user. || `pos.assigned`  | `true` if POS machines were successfully assigned. |
 | `pos.message`   | Describes POS assignment result. |
 | `sms.sent`      | `true` if the registration SMS was delivered successfully. |
 | `sms.message`   | Describes SMS delivery status. Registration succeeds even if SMS fails. |

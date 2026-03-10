@@ -118,6 +118,7 @@ async function runTests() {
     form.append('address1',        '12 Test Street');
     form.append('city',            'Mumbai');
     form.append('district',        'Mumbai City');
+    form.append('company_or_shop_name', 'Integration Shop LLC');
     form.append('pincode',         '400001');
     form.append('state',           'Maharashtra');
     form.append('aadhar_number',   '123456789012');
@@ -142,6 +143,9 @@ async function runTests() {
     assert(body.data?.id,              'body.data.id should be present');
     assert(body.user.id === body.data.id, 'user.id and data.id should match');
     assert(body.user.role === 'merchant', `Expected role merchant, got ${body.user.role}`);
+    assert(body.user.company_or_shop_name === 'Integration Shop LLC', 'company_or_shop_name should be echoed back');
+    assert(/^AP[MAF]\d{5}$/.test(body.user.username), `username should follow APx00000 pattern, got ${body.user.username}`);
+    createdUsername = body.user.username;
     assert(body.user.abheepay_id?.startsWith('APM'), `abheepay_id should start APM, got ${body.user.abheepay_id}`);
     assert(typeof body.pos === 'object',  'pos object should be present');
     assert(typeof body.sms === 'object',  'sms object should be present');
@@ -149,7 +153,30 @@ async function runTests() {
     console.log(`\n       Created user id: ${createdUserId}`);
   });
 
-  // ── 4. Duplicate mobile → 400 ─────────────────────────────────────────────
+  // ── 4. Second merchant registration should increment username ──────────
+  let secondUsername;
+  await test('Second merchant username increments', async () => {
+    const mobSecond = `9${Date.now().toString().slice(-9)}`;
+    const form = new FormData();
+    form.append('role', 'merchant');
+    form.append('name', 'Second Merchant');
+    form.append('email', `second_${Date.now()}@example.com`);
+    form.append('mobile_number', mobSecond);
+    form.append('password', 'Test@1234');
+    // required passbook file
+    const fs = require('fs'); const path = require('path');
+    const dummy = path.join(__dirname, 'dummy_passbook.txt');
+    fs.writeFileSync(dummy, 'pass');
+    form.append('bank_passbook', fs.createReadStream(dummy));
+
+    const { status, body } = await post(form, `Bearer ${token}`);
+    assert(status === 201, `Expected 201, got ${status}`);
+    assert(/^AP[MAF]\d{5}$/.test(body.user.username), 'username should match pattern');
+    secondUsername = body.user.username;
+    assert(secondUsername > createdUsername, 'second username should be lexicographically greater');
+  });
+
+  // ── 5. Duplicate mobile → 400 ─────────────────────────────────────────────
   await test('Returns 400 on duplicate mobile_number registration', async () => {
     const form = new FormData();
     form.append('role',          'merchant');
@@ -223,6 +250,18 @@ async function runTests() {
     assert(body.success === true, 'Response success must be true');
     // either URL present or unchanged
     assert('pan_number_url' in body.data, 'Response should include pan_number_url');
+    assert(body.data.username === createdUsername, 'username should remain the same after update');
+  });
+
+  // ── 8. Ensure company_or_shop_name can be updated ─────────────────────
+  await test('Updating company_or_shop_name via PUT works', async () => {
+    assert(createdUserId, 'createdUserId must be set by registration test');
+    const form = new FormData();
+    form.append('company_or_shop_name', 'New Shop Name');
+    const { status, body } = await putForm(`/api/user/${createdUserId}`, form, `Bearer ${token}`);
+    assert(status === 200, `Expected 200, got ${status}`);
+    assert(body.success === true, 'Response success must be true');
+    assert(body.data.company_or_shop_name === 'New Shop Name', 'company_or_shop_name should be updated');
   });
 
   // ── Summary ───────────────────────────────────────────────────────────────
