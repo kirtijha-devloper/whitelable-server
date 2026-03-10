@@ -80,6 +80,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     gst_percent,
     is_active
   } = req.body;
+  // we will also record who created this rule for later filtering/permissions
+  const creatorId = req.user && req.user.id ? req.user.id : null;
 
   // basic validation (franchaise_id is optional and numeric)
   const errs = validateRuleInput(req.body);
@@ -185,7 +187,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       charge_flat: charge_flat || 0,
       gst_required: Boolean(gst_required),
       gst_percent: gst_percent !== undefined && gst_percent !== null ? gst_percent : 0,
-      is_active: typeof is_active === 'boolean' ? is_active : true
+      is_active: typeof is_active === 'boolean' ? is_active : true,
+      created_by: creatorId
     });
   } catch (err) {
     fileLog(`CREATE error: ${err.message}`);
@@ -209,7 +212,112 @@ const getPosChargeRule = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, record: rec });
 });
 
+
+// list only the rules that were provided by the system (admin/global) for a
+// given franchise.  this endpoint is intended for a franchise user who wants
+// to see the non‑editable set: global defaults plus any franchise‑level rules
+// *not* created by the franchise itself.
+const listFranchiseAdminRules = asyncHandler(async (req, res) => {
+  if (!isFranchiseRole(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'Only franchise users may call this endpoint' });
+  }
+
+  const {
+    payment_mode,
+    card_type,
+    card_brand,
+    card_classification,
+    settlement_type,
+    is_active,
+    page = 1,
+    limit = 20
+  } = req.query;
+
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const where = {};
+  if (payment_mode) where.payment_mode = payment_mode;
+  if (card_type) where.card_type = card_type;
+  if (card_brand) where.card_brand = card_brand;
+  if (card_classification) where.card_classification = card_classification;
+  if (settlement_type) where.settlement_type = settlement_type;
+  if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
+
+  // only global defaults or franchise rules not created by this user
+  where[Op.or] = [
+    { franchaise_id: null, user_id: null },
+    { franchaise_id: req.user.id, user_id: null, created_by: { [Op.ne]: req.user.id } }
+  ];
+
+  const { count, rows } = await PosChargeRule.findAndCountAll({
+    where,
+    limit: parseInt(limit),
+    offset,
+    order: [['createdAt', 'DESC']]
+  });
+
+  res.status(200).json({
+    success: true,
+    data: rows,
+    pagination: {
+      total: count,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(count / parseInt(limit))
+    }
+  });
+});
+
+// list the rules that the franchise user themselves created (for their own
+// franchise or merchants).  results are editable by the caller.
+const listFranchiseCustomRules = asyncHandler(async (req, res) => {
+  if (!isFranchiseRole(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'Only franchise users may call this endpoint' });
+  }
+
+  const {
+    user_id,
+    payment_mode,
+    card_type,
+    card_brand,
+    card_classification,
+    settlement_type,
+    is_active,
+    page = 1,
+    limit = 20
+  } = req.query;
+
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const where = { franchaise_id: req.user.id, created_by: req.user.id };
+  if (user_id !== undefined) where.user_id = user_id || null;
+  if (payment_mode) where.payment_mode = payment_mode;
+  if (card_type) where.card_type = card_type;
+  if (card_brand) where.card_brand = card_brand;
+  if (card_classification) where.card_classification = card_classification;
+  if (settlement_type) where.settlement_type = settlement_type;
+  if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
+
+  const { count, rows } = await PosChargeRule.findAndCountAll({
+    where,
+    limit: parseInt(limit),
+    offset,
+    order: [['createdAt', 'DESC']]
+  });
+
+  res.status(200).json({
+    success: true,
+    data: rows,
+    pagination: {
+      total: count,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(count / parseInt(limit))
+    }
+  });
+});
+
 // list rules with filters & pagination
+// this endpoint is generic and used internally by admin/merchant as well as
+// by the UI when it wants everything; we leave it largely untouched
 const listPosChargeRules = asyncHandler(async (req, res) => {
   const {
     user_id,
@@ -239,6 +347,11 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   // from supplying a `user_id` or `franchaise_id` outside their scope and thus
   // leaking other merchants' rules.
   if (req.user.role === 'franchise') {
+    // if the caller is a franchise we automatically exclude any rules that
+    // were created by someone else unless the UI asked for them explicitly
+    // via the new endpoints below; the generic `/list` will continue to
+    // behave as before for compatibility, so we don't change the where
+    // clause here.
     // collect the set of IDs we're allowed to query for
     const merchantRows = await User.findAll({
       where: { role: 'merchant', franchaise_id: req.user.id },
@@ -263,6 +376,10 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
 
   // apply role-based restrictions
   if (req.user.role === 'franchise') {
+    // franchise users should see:
+    //  * global defaults created by admin (franchaise_id === null)
+    //  * any rule targeting their own franchise (admin or their own)
+    //  * any rule they created for themselves or their merchants
     // franchise users should see:
     //  * global defaults created by admin (franchaise_id === null)
     //  * any rule targeting their own franchise (admin or their own)
@@ -319,6 +436,12 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
 
   const rec = await PosChargeRule.findByPk(id);
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
+
+  // franchise users may only modify rules they created. treat null/absent
+  // created_by as system-owned (not editable).
+  if (req.user.role === 'franchaise' && rec.created_by !== req.user.id) {
+    return res.status(403).json({ success: false, message: 'Cannot modify rule created by another user' });
+  }
 
   // pull fields early so we can validate them
   const {
@@ -458,6 +581,9 @@ const deletePosChargeRule = asyncHandler(async (req, res) => {
 
   // franchise may only delete their own rules or those for their merchants
   if (req.user.role === 'franchaise') {
+    if (rec.created_by !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Cannot delete rule created by another user' });
+    }
     if (rec.franchaise_id && parseInt(rec.franchaise_id) !== req.user.id) {
       return res.status(403).json({ success: false, message: 'Cannot delete rule for another franchise' });
     }
@@ -540,6 +666,8 @@ module.exports = {
   createPosChargeRule,
   getPosChargeRule,
   listPosChargeRules,
+  listFranchiseAdminRules,
+  listFranchiseCustomRules,
   updatePosChargeRule,
   deletePosChargeRule,
   calculateCharge

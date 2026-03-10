@@ -49,6 +49,16 @@ Rules are validated for duplicate combinations, overlapping slabs and simple san
 
 `GET /api/pos-charge-rules/list` with query parameters matching the filter names above plus `page` and `limit`.
 
+There are two additional helper endpoints for franchise users:
+
+* `GET /api/pos-charge-rules/list/admin` – returns global defaults plus any
+  franchise‑level rules **not created by the franchise itself**; these are
+  considered system/admin charges and cannot be edited or deleted by the
+  franchise user.
+* `GET /api/pos-charge-rules/list/franchise` – returns only the rules that the
+  calling franchise user created (either merchant‑specific or a default).  The
+  franchise may update/delete records returned by this endpoint.
+
 > **Visibility rules:**
 >
 > * **admin:** sees all records.
@@ -106,6 +116,12 @@ franchise over global).
 ## Table schema
 
 The underlying table is `pos_charge_rules` and matches the specification provided in the design document. An index (`idx_charge_lookup`) covers the lookup columns for fast queries.
+
+New column added in 2026-03-10 migration:
+
+* `created_by` – integer reference to the user who created the rule.  Used
+  internally for permission checks and to differentiate admin‑supplied
+  defaults from franchise‑created overrides.
 
 ## Notes
 

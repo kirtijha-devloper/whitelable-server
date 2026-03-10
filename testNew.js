@@ -9,5 +9,13 @@ const User = require('./models/User');
     status(code) { this.code = code; return this; },
     json(o) { console.log('ids', o.data.map(d => d.id)); }
   };
+  console.log('generic list');
   await controller.listPosChargeRules(req, res);
+
+  if (user.role === 'franchaise') {
+    console.log('admin list for franchise');
+    await controller.listFranchiseAdminRules(req, res);
+    console.log('custom list for franchise');
+    await controller.listFranchiseCustomRules(req, res);
+  }
 })();

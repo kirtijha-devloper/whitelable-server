@@ -5,6 +5,8 @@ const {
   createPosChargeRule,
   getPosChargeRule,
   listPosChargeRules,
+  listFranchiseAdminRules,
+  listFranchiseCustomRules,
   updatePosChargeRule,
   deletePosChargeRule,
   calculateCharge
@@ -14,7 +16,11 @@ router.use(validateToken);
 
 // create / update / list / delete rules
 router.post('/', createPosChargeRule);
+// existing generic list remains for backward compatibility
 router.get('/list', listPosChargeRules);
+// new franchise helpers
+router.get('/list/admin', listFranchiseAdminRules);
+router.get('/list/franchise', listFranchiseCustomRules);
 router.get('/:id', getPosChargeRule);
 router.put('/:id', updatePosChargeRule);
 router.delete('/:id', deletePosChargeRule);

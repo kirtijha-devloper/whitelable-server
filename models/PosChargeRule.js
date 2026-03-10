@@ -18,6 +18,11 @@ const PosChargeRule = db.define('PosChargeRule', {
     allowNull: true,
     comment: 'franchise-specific rule; null for none'
   },
+  created_by: {
+    type: Sequelize.INTEGER,
+    allowNull: true,
+    comment: 'user id who created this record (used for permissions/filtering)'
+  },
   payment_mode: {
     type: Sequelize.STRING,
     allowNull: false
