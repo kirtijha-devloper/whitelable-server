@@ -23,6 +23,12 @@ const PosChargeRule = db.define('PosChargeRule', {
     allowNull: true,
     comment: 'user id who created this record (used for permissions/filtering)'
   },
+  scope: {
+    type: Sequelize.STRING(30),
+    allowNull: false,
+    defaultValue: 'admin_default',
+    comment: 'Rule tier: admin_default | admin_franchise | admin_merchant | franchise_default | franchise_merchant'
+  },
   payment_mode: {
     type: Sequelize.STRING,
     allowNull: false

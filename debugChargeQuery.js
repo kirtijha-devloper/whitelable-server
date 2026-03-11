@@ -4,14 +4,15 @@ const db = require('./config/database');
   const query = `
     SELECT *,
     (
-      (CASE
-         WHEN user_id IS NOT NULL AND user_id = $1 THEN 16
-         ELSE 0
-       END) +
-      (CASE
-         WHEN franchaise_id IS NOT NULL AND franchaise_id = $2 THEN 8
-         ELSE 0
-       END) +
+      CASE scope
+        WHEN 'franchise_merchant' THEN 64
+        WHEN 'admin_merchant'     THEN 48
+        WHEN 'franchise_default'  THEN 32
+        WHEN 'admin_franchise'    THEN 16
+        ELSE 0
+      END
+      +
+      (CASE WHEN settlement_type IS NOT NULL THEN 8 ELSE 0 END) +
       (CASE WHEN card_classification IS NOT NULL THEN 4 ELSE 0 END) +
       (CASE WHEN card_brand IS NOT NULL THEN 2 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL THEN 1 ELSE 0 END)

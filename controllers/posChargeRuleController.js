@@ -12,6 +12,7 @@ function isFranchiseRole(role) {
   return role === 'franchaise' || role === 'franchise';
 }
 const ChargeService = require('../services/chargeService');
+const { deriveScope } = ChargeService;
 
 // simple file logger for debugging
 const logFile = path.join(__dirname, '../logs/posChargeRule.log');
@@ -122,11 +123,16 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     }
   }
 
+  // determine the scope of this rule
+  const callerRole = isFranchiseRole(req.user.role) ? 'franchaise' : req.user.role;
+  const ruleScope = deriveScope(callerRole, user_id || null, effectiveFranchise);
+
   // duplicate check: exact same combination including franchise
   const duplicate = await PosChargeRule.findOne({
     where: {
       user_id: user_id || null,
       franchaise_id: effectiveFranchise,
+      scope: ruleScope,
       payment_mode: payment_mode || null,
       card_type: card_type || null,
       card_brand: card_brand || null,
@@ -150,6 +156,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   const overlapCondition = {
     user_id: user_id || null,
     franchaise_id: effectiveFranchise,
+    scope: ruleScope,
     payment_mode: payment_mode || null,
     card_type: card_type || null,
     card_brand: card_brand || null,
@@ -176,6 +183,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     rec = await PosChargeRule.create({
       user_id: user_id || null,
       franchaise_id: effectiveFranchise,
+      scope: ruleScope,
       payment_mode: payment_mode || null,
       card_type: card_type || null,
       card_brand: card_brand || null,
@@ -242,10 +250,10 @@ const listFranchiseAdminRules = asyncHandler(async (req, res) => {
   if (settlement_type) where.settlement_type = settlement_type;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
-  // only global defaults or franchise rules not created by this user
+  // only global defaults or admin-set franchise rules (not editable by franchise)
   where[Op.or] = [
-    { franchaise_id: null, user_id: null },
-    { franchaise_id: req.user.id, user_id: null, created_by: { [Op.ne]: req.user.id } }
+    { scope: 'admin_default' },
+    { scope: 'admin_franchise', franchaise_id: req.user.id }
   ];
 
   const { count, rows } = await PosChargeRule.findAndCountAll({
@@ -287,7 +295,7 @@ const listFranchiseCustomRules = asyncHandler(async (req, res) => {
   } = req.query;
 
   const offset = (parseInt(page) - 1) * parseInt(limit);
-  const where = { franchaise_id: req.user.id, created_by: req.user.id };
+  const where = { franchaise_id: req.user.id, scope: { [Op.in]: ['franchise_default', 'franchise_merchant'] } };
   if (user_id !== undefined) where.user_id = user_id || null;
   if (payment_mode) where.payment_mode = payment_mode;
   if (card_type) where.card_type = card_type;
@@ -327,6 +335,7 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
     card_brand,
     card_classification,
     settlement_type,
+    scope,
     is_active,
     page = 1,
     limit = 20
@@ -341,18 +350,14 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   if (card_brand) where.card_brand = card_brand;
   if (card_classification) where.card_classification = card_classification;
   if (settlement_type) where.settlement_type = settlement_type;
+  if (scope) where.scope = scope;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
   // role-specific validation of incoming filters - prevents a franchise
   // from supplying a `user_id` or `franchaise_id` outside their scope and thus
   // leaking other merchants' rules.
-  if (req.user.role === 'franchise') {
-    // if the caller is a franchise we automatically exclude any rules that
-    // were created by someone else unless the UI asked for them explicitly
-    // via the new endpoints below; the generic `/list` will continue to
-    // behave as before for compatibility, so we don't change the where
-    // clause here.
-    // collect the set of IDs we're allowed to query for
+  if (isFranchiseRole(req.user.role)) {
+    // if the caller is a franchise, validate that any explicit filter ids belong to them
     const merchantRows = await User.findAll({
       where: { role: 'merchant', franchaise_id: req.user.id },
       attributes: ['id']
@@ -374,37 +379,28 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
     }
   }
 
-  // apply role-based restrictions
-  if (req.user.role === 'franchise') {
-    // franchise users should see:
-    //  * global defaults created by admin (franchaise_id === null)
-    //  * any rule targeting their own franchise (admin or their own)
-    //  * any rule they created for themselves or their merchants
-    // franchise users should see:
-    //  * global defaults created by admin (franchaise_id === null)
-    //  * any rule targeting their own franchise (admin or their own)
-    //  * any rule they created for themselves or their merchants
-    const merchantRows = await User.findAll({
-      where: { role: 'merchant', franchaise_id: req.user.id },
-      attributes: ['id']
-    });
-    const merchantIds = merchantRows.map(m => m.id);
-    const userIdCondition = merchantIds.length > 0
-      ? { user_id: { [Op.in]: [req.user.id, ...merchantIds] } }
-      : { user_id: req.user.id };
-
+  // apply role-based restrictions using scope
+  if (isFranchiseRole(req.user.role)) {
+    // franchise sees: admin_default, admin_franchise (for them),
+    //   franchise_default (their own), franchise_merchant (their merchants)
     where[Op.or] = [
-      { franchaise_id: null, user_id: null }, // global default (admin only)
-      { franchaise_id: req.user.id },         // rule for the franchise itself
-      userIdCondition                         // rules for this user or their merchants
+      { scope: 'admin_default' },
+      { scope: 'admin_franchise', franchaise_id: req.user.id },
+      { scope: 'franchise_default', franchaise_id: req.user.id },
+      { scope: 'franchise_merchant', franchaise_id: req.user.id }
     ];
   } else if (req.user.role === 'merchant') {
-    // merchants only see their own rules and applicable defaults (global + their franchise)
-    const orConditions = [ { user_id: req.user.id } ];
-    // only include true global defaults (no specific user attached)
-    orConditions.push({ franchaise_id: null, user_id: null });
+    // merchant sees: rules targeting them specifically
+    //   + franchise defaults/merchant rules from their franchise
+    //   + admin defaults
+    const orConditions = [
+      { scope: 'admin_default' },
+      { scope: 'admin_merchant', user_id: req.user.id }
+    ];
     if (req.user.franchaise_id) {
-      orConditions.push({ franchaise_id: req.user.franchaise_id });
+      orConditions.push({ scope: 'admin_franchise', franchaise_id: req.user.franchaise_id });
+      orConditions.push({ scope: 'franchise_default', franchaise_id: req.user.franchaise_id });
+      orConditions.push({ scope: 'franchise_merchant', user_id: req.user.id });
     }
     where[Op.or] = orConditions;
   }
@@ -564,6 +560,11 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   if (req.user.role === 'franchaise') {
     updateData.franchaise_id = req.user.id;
   }
+  // re-derive scope based on (possibly updated) identifiers
+  const updCallerRole = isFranchiseRole(req.user.role) ? 'franchaise' : req.user.role;
+  const updUserId = user_id !== undefined ? user_id || null : rec.user_id;
+  const updFranchise = effectiveFranchise;
+  updateData.scope = deriveScope(updCallerRole, updUserId, updFranchise);
   if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
   if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
   await rec.update(updateData);

@@ -1,140 +1,357 @@
-# POS Charge Rules Frontend Documentation
+# POS Charge Rules — Frontend Documentation
 
-This document is intended for the **frontend team**.  It describes the HTTP API exposed by the new MDR rule engine.  All endpoints are protected by the existing `Authorization: Bearer <token>` scheme (same as other APIs).
+This document is intended for the **frontend team**. It describes the HTTP API
+exposed by the MDR (Merchant Discount Rate) rule engine, how the new **scope**
+system works, and what each role should see.
+
+All endpoints require a **Bearer token** in the `Authorization` header (same as
+every other API).
 
 ---
 
-## 🔗 Base URL
+## Key Concept: Scopes
+
+Every charge rule now carries a **`scope`** field that tells you _who created
+it and for whom_. This is the single most important field for building the UI
+correctly.
+
+| `scope` value | Created by | Applies to | Editable by |
+|---|---|---|---|
+| `admin_default` | Admin | Everyone (global fallback) | Admin only |
+| `admin_franchise` | Admin | A specific franchise and all its merchants | Admin only |
+| `admin_merchant` | Admin | A specific non-franchised merchant | Admin only |
+| `franchise_default` | Franchise | All merchants under that franchise | That franchise |
+| `franchise_merchant` | Franchise | One specific merchant under that franchise | That franchise |
+
+> **You do NOT need to send `scope` when creating a rule.** The backend
+> automatically derives it from the caller's role and the `user_id` /
+> `franchaise_id` values in the request body. The field is returned in every
+> response and can be used for display, grouping, and filtering.
+
+---
+
+## How Charge Resolution Works (background for UI understanding)
+
+When a POS transaction occurs, the system picks a single "best matching" rule
+using a **two-level ranking**:
+
+### 1. Scope tier (higher wins)
+
+| Priority | Scope | Meaning |
+|:---:|---|---|
+| 5 (highest) | `franchise_merchant` | Franchise set a rate for THIS specific merchant |
+| 4 | `admin_merchant` | Admin set a rate for a specific non-franchised merchant |
+| 3 | `franchise_default` | Franchise's default rate for all its merchants |
+| 2 | `admin_franchise` | Admin's rate for the franchise (and its merchants) |
+| 1 (lowest) | `admin_default` | Global fallback rate |
+
+### 2. Dimension specificity (tie-breaker within the same scope)
+
+If there are two rules with the same scope, the one that matches more optional
+dimensions wins:
+
+| Matched dimension | Points |
+|---|:---:|
+| `settlement_type` match | +8 |
+| `card_classification` match | +4 |
+| `card_brand` match | +2 |
+| `card_type` match | +1 |
+
+**Example:** For a VISA CREDIT PLATINUM card transaction of ₹5,000 on a
+merchant under franchise #7:
+
+1. The system first looks for a `franchise_merchant` rule targeting this
+   exact merchant — if found, use it.
+2. Otherwise fall back to `franchise_default` for franchise #7.
+3. Otherwise `admin_franchise` for franchise #7.
+4. Otherwise `admin_default`.
+5. Within each tier, the rule that matches more of {settlement_type,
+   card_classification, card_brand, card_type} wins.
+
+If nothing matches at all, a hardcoded **2.5% MDR fallback** is used.
+
+### How franchises earn money
+
+This is the key business logic:
+
+- **Admin** sets a rate for the franchise (scope `admin_franchise`) or uses the
+  global default (`admin_default`).
+- **Franchise** sets a (higher) rate for its merchants (`franchise_default` or
+  `franchise_merchant`).
+- When a transaction occurs, the merchant is charged at the franchise's rate,
+  and the franchise is charged at the admin's rate. The difference is the
+  **franchise earning**.
+
+> This means the franchise UI should always show two columns/sections:
+> 1. "What admin charges me" (read-only: `admin_default` + `admin_franchise`)
+> 2. "What I charge my merchants" (editable: `franchise_default` +
+>    `franchise_merchant`)
+
+---
+
+## Base URL
 
 ```
 /api/pos-charge-rules
 ```
 
-This path is mounted by the Express server alongside the legacy POS charge endpoints.  Do **not** call `/api/pos-charge` or `/api/pos-transaction-charge` for the new functionality.
+---
+
+## Data Model — `pos_charge_rules` table
+
+| Field | Type | Nullable | Description |
+|---|---|---|---|
+| `id` | integer | — | Primary key, auto-increment |
+| `user_id` | integer | yes | Target merchant. `null` = not merchant-specific |
+| `franchaise_id` | integer | yes | Target franchise. `null` = global |
+| `created_by` | integer | yes | User ID of the creator (for audit) |
+| **`scope`** | **string(30)** | **no** | **Rule tier (see table above). Auto-derived by backend.** |
+| `payment_mode` | string | no | `"CARD"`, `"UPI"`, etc. — required |
+| `card_type` | string | yes | `"CREDIT"`, `"DEBIT"`, etc. `null` = any |
+| `card_brand` | string | yes | `"VISA"`, `"MASTERCARD"`, `"RUPAY"`. `null` = any |
+| `card_classification` | string | yes | `"CLASSIC"`, `"PLATINUM"`, etc. `null` = any |
+| `settlement_type` | string | yes | `"today_settlement"`, `"next_day_settlement"`. `null` = any |
+| `min_amount` | decimal | no | Lower bound of amount slab (default 0) |
+| `max_amount` | decimal | yes | Upper bound. `null` = no upper limit |
+| `charge_percent` | decimal | no | Percentage fee (e.g. `1.7` = 1.7%) |
+| `charge_flat` | decimal | yes | Optional flat fee added on top of percent |
+| `gst_required` | boolean | yes | Whether GST applies to the calculated charge |
+| `gst_percent` | decimal | yes | GST percentage (commonly 18). Only used if `gst_required` is true |
+| `is_active` | boolean | no | Only active rules are resolved during transactions |
+| `createdAt` | datetime | — | Auto-managed |
+| `updatedAt` | datetime | — | Auto-managed |
 
 ---
 
-## 🛠 Rule Management Endpoints (admin screens)
+## Endpoints
 
-### Create a rule
+### 1. Create a rule
 
 ```
 POST /api/pos-charge-rules
 ```
 
-> **Who can create what?**
->
-> * **Admin users** may create any rule.  However, if the target merchant has a
->   `franchaise_id` an admin **must not** create a merchant-specific rule; the
->   system will reject the request with a 400 and instruct you to set a
->   franchise-level rule instead.
-> * **Franchise users** can only create rules where `franchaise_id` equals their
->   own ID.  They may optionally supply a `user_id` but it must belong to one of
->   their merchants – they are **not** allowed to create a rule targeting their
->   own user account.
-
 **Request body** (JSON):
 
 ```json
 {
-  "user_id": 45,                    // optional merchant (null = global)
-  "franchaise_id": 7,              // optional franchise (null = global)
-  "payment_mode": "CARD",         // required
-  "card_type": "CREDIT",          // optional
-  "card_brand": "VISA",           // optional
-  "card_classification": "PLATINUM", // optional; currently not supplied by Razorpay webhook so often null
-  "settlement_type": "TODAY",     // optional
-  "min_amount": 0,                 // required (default 0)
-  "max_amount": null,              // optional (null = open-ended)
-  "charge_percent": 1.7,           // required, ≥0
-  "charge_flat": 0,                // optional
-  "gst_required": false,           // optional, whether GST applies to the charge
-  "gst_percent": 18,               // optional percentage if gst_required is true
-  "is_active": true                // optional
+  "user_id": 45,
+  "franchaise_id": 7,
+  "payment_mode": "CARD",
+  "card_type": "CREDIT",
+  "card_brand": "VISA",
+  "card_classification": "PLATINUM",
+  "settlement_type": "today_settlement",
+  "min_amount": 0,
+  "max_amount": null,
+  "charge_percent": 1.7,
+  "charge_flat": 0,
+  "gst_required": false,
+  "gst_percent": 18,
+  "is_active": true
 }
 ```
-> **Important:** the comments above are for documentation only. `// …`
-> lines are **not valid JSON** and will cause the request body parser to hang.
-> Copy the snippet below when you need a ready‑to‑paste example:
+
+> **Do NOT send `scope`** — it is computed automatically from:
+>
+> | Caller role | `user_id` | `franchaise_id` | Resulting scope |
+> |---|---|---|---|
+> | admin | null | null | `admin_default` |
+> | admin | null | 7 | `admin_franchise` |
+> | admin | 45 | null | `admin_merchant` |
+> | franchise | null | _(forced to own id)_ | `franchise_default` |
+> | franchise | 45 | _(forced to own id)_ | `franchise_merchant` |
+
+**Permission rules:**
+
+| Caller | What they can create |
+|---|---|
+| **Admin** | Any scope. But if a merchant has a `franchaise_id`, admin **cannot** create `admin_merchant` for them — must use `admin_franchise` instead. |
+| **Franchise** | Only `franchise_default` or `franchise_merchant`. The `franchaise_id` is forced to the caller's own ID. The `user_id` (if set) must be one of their merchants. A franchise **cannot** create a rule targeting their own user ID. |
+| **Merchant** | Cannot create rules. |
+
+**Validation enforced by the backend:**
+
+- `charge_percent` >= 0
+- `min_amount` <= `max_amount`
+- If `gst_required=true`, then `gst_percent` >= 0
+- No exact duplicate (same combination of all filter fields + scope + slab)
+- No overlapping amount slabs for the same parameter combination + scope
+
+**Success response** (201):
 
 ```json
 {
-  "user_id": 45,
-  "payment_mode": "CARD",
-  "charge_percent": 1.7,
-  "min_amount": 0
+  "success": true,
+  "message": "POS Charge rule created",
+  "data": {
+    "id": 12,
+    "scope": "admin_franchise",
+    "user_id": null,
+    "franchaise_id": 7,
+    "payment_mode": "CARD",
+    "...": "..."
+  }
 }
 ```
 
-> The backend enforces:
-> * `charge_percent` ≥ 0
-> * `min_amount <= max_amount`
-> * If `gst_required=true` then `gst_percent` must be ≥ 0
-> * No overlapping slabs for the same parameter combination
-> * No exact duplicate records
+---
 
-
-### List rules
+### 2. List rules (generic)
 
 ```
 GET /api/pos-charge-rules/list
 ```
 
-> **What each role sees:**
->
-> * **Admin:** sees every rule.
-> * **Franchise:** sees its own defaults (`franchaise_id` matches), any rule
->   directly assigned to the franchise user (`user_id` equals their ID), and any
->   merchant-specific rules belonging to merchants under the franchise (these
->   should only appear if they pre‑dated the franchise logic).
-> * **Merchant:** sees a personal rule if one exists, otherwise the applicable
->   default — first the franchise default if the merchant has `franchaise_id`,
->   then the global default (`franchaise_id` null).
+**Query parameters** (all optional):
 
-Supports query‑string filters. Example:
+| Param | Example | Notes |
+|---|---|---|
+| `user_id` | `45` | Filter by target merchant |
+| `franchaise_id` | `7` | Filter by target franchise |
+| `payment_mode` | `CARD` | |
+| `card_type` | `CREDIT` | |
+| `card_brand` | `VISA` | |
+| `card_classification` | `PLATINUM` | |
+| `settlement_type` | `today_settlement` | |
+| **`scope`** | `admin_default` | **New filter.** One of: `admin_default`, `admin_franchise`, `admin_merchant`, `franchise_default`, `franchise_merchant` |
+| `is_active` | `true` | |
+| `page` | `1` | Default: 1 |
+| `limit` | `20` | Default: 20 |
+
+Example: `?scope=franchise_default&franchaise_id=7&payment_mode=CARD&page=1&limit=50`
+
+**What each role sees** (the backend automatically restricts results):
+
+| Role | Visible scopes | Additional constraint |
+|---|---|---|
+| **Admin** | All scopes | No restriction — sees everything |
+| **Franchise** | `admin_default`, `admin_franchise`, `franchise_default`, `franchise_merchant` | Only sees `admin_franchise` / `franchise_default` / `franchise_merchant` rows where `franchaise_id` = own ID |
+| **Merchant** | `admin_default`, `admin_merchant`, `admin_franchise`, `franchise_default`, `franchise_merchant` | Only sees rows that target them: `admin_merchant` where `user_id` = own ID; franchise scopes where `franchaise_id` = own franchise ID. Non-franchised merchants only see `admin_default` + `admin_merchant`. |
+
+**Response** (200):
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "scope": "admin_default",
+      "user_id": null,
+      "franchaise_id": null,
+      "payment_mode": "CARD",
+      "card_type": null,
+      "card_brand": null,
+      "card_classification": null,
+      "settlement_type": null,
+      "min_amount": "0",
+      "max_amount": null,
+      "charge_percent": "2.50",
+      "charge_flat": "0",
+      "gst_required": false,
+      "gst_percent": "18",
+      "is_active": true,
+      "createdAt": "2026-03-10T12:00:00.000Z",
+      "updatedAt": "2026-03-10T12:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 42,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 3
+  }
+}
+```
+
+---
+
+### 3. List admin-set rules (franchise helper)
 
 ```
-?user_id=45&payment_mode=CARD&card_brand=VISA&is_active=true&page=2&limit=50
+GET /api/pos-charge-rules/list/admin
 ```
 
-Response includes `pagination` metadata.
+**Who can call:** Franchise users only (returns 403 for others).
 
-### Get one rule
+Returns rules with scope `admin_default` or `admin_franchise` (where
+`franchaise_id` = the caller's ID). These are the rates the admin has set
+**for** the franchise — the franchise **cannot** edit or delete them.
+
+> **Use this endpoint to build the "What admin charges me" section** in the
+> franchise dashboard.
+
+Same query-string filters as the generic list (except `user_id`,
+`franchaise_id`, and `scope` are controlled by the endpoint).
+
+---
+
+### 4. List franchise-created rules (franchise helper)
+
+```
+GET /api/pos-charge-rules/list/franchise
+```
+
+**Who can call:** Franchise users only (returns 403 for others).
+
+Returns rules with scope `franchise_default` or `franchise_merchant` where
+`franchaise_id` = the caller's ID. These are rules the franchise **created
+themselves** — they can be edited or deleted.
+
+> **Use this endpoint to build the "What I charge my merchants" section** in
+> the franchise dashboard.
+
+Same filters as generic list. Accepts `user_id` to narrow down to a specific
+merchant.
+
+---
+
+### 5. Get a single rule
 
 ```
 GET /api/pos-charge-rules/:id
 ```
 
-Where `:id` is the rule primary key.
+Returns one rule by primary key.
 
-### Update a rule
+---
+
+### 6. Update a rule
 
 ```
 PUT /api/pos-charge-rules/:id
 ```
 
-Body may contain any subset of the creation fields.  Only submitted fields will change.
+Body may contain any subset of the creation fields. Only submitted fields
+change. The `scope` is **re-derived** automatically if `user_id` or
+`franchaise_id` changes.
 
-> Franchise users cannot update a rule that targets their own user id; they may
-> only update defaults or merchant‑specific rules under their franchise.
+**Permissions:** Admin can update any rule. Franchise can only update rules
+they created (`franchise_default` / `franchise_merchant` scoped to their own
+franchise). Merchant cannot update rules.
 
-### Delete a rule
+---
+
+### 7. Delete a rule
 
 ```
 DELETE /api/pos-charge-rules/:id
 ```
 
-Removes the rule from the database.
+Permanently removes the rule. Same permissions as update.
 
 ---
 
-## ⚡ Charge Calculation Endpoint (transaction screens)
+### 8. Calculate charge (preview / simulation)
 
 ```
 POST /api/pos-charge-rules/calculate
 ```
 
-**Body**:
+Use this from any payment screen to preview what a merchant will be charged.
+
+**Request body:**
 
 ```json
 {
@@ -143,45 +360,133 @@ POST /api/pos-charge-rules/calculate
   "card_type": "CREDIT",
   "card_brand": "VISA",
   "card_classification": "PLATINUM",
-  "settlement_type": "TODAY",
+  "settlement_type": "today_settlement",
   "amount": 5000
 }
 ```
 
-The service looks up the most specific active rule, using the `settlement_type` stored on the merchant’s user record rather than the webhook payload.  (Any `settlement_type` included in the request body is ignored.)  When the frontend creates or edits a user it must supply one of the two supported values:
+> **Note:** The backend uses the `settlement_type` stored on the merchant's
+> user record, not the one in this request body. If you need to override it,
+> update the user record first.
 
-```
-'today_settlement'   // default
-'next_day_settlement'
-```
-
-The user model enforces this with a Sequelize `isIn` validation, so invalid strings will be rejected by the API.
-
-Card classification is currently not provided by Razorpay notifications and will usually be null; you may include it manually if available but most lookups omit it.
-
-The engine falls back to a global MDR of **2.5 %** if nothing matches.  It returns both the matched rule row and calculated numbers.
-
-**Response**:
+**Response** (200):
 
 ```json
 {
   "success": true,
-  "rule": { /* matched DB row or fallback */ },
+  "rule": {
+    "id": 12,
+    "scope": "franchise_default",
+    "payment_mode": "CARD",
+    "card_type": "CREDIT",
+    "charge_percent": "1.70",
+    "charge_flat": "0",
+    "gst_required": false,
+    "gst_percent": "18"
+  },
   "charge_percent": 1.7,
   "charge_amount": 85,
+  "gst_amount": 0,
   "merchant_settlement": 4915
 }
 ```
 
-Use this endpoint from any payment-related UI (checkout page, POS simulator, QR scan, etc.) to display charges without needing to know the rule logic.
+If no rule matches, fallback MDR of **2.5%** is applied and `rule` will be a
+synthetic fallback object.
 
 ---
 
-## 📝 Notes for Integration
+## Frontend UI Guide by Role
 
-* **Legacy endpoints remain in place but are unrelated**; continue using the new routes for all future work.
-* The `/calculate` route is stateless—call it on demand and cache the result client‑side if desired.
-* The response includes the raw `rule` row; you can display `rule.id` or other fields for debugging or logging.
-* Filtering and pagination parameters on the list endpoint help keep payload sizes small when rendering tables.
+### Admin Dashboard
 
-Feel free to copy this markdown file into the frontend repo or central docs site.  Reach out if you need sample Postman collections or swagger specs!  🎯
+The admin has full CRUD on all rules. Suggested UI sections:
+
+1. **Global Defaults** — list filtered by `scope=admin_default`. These apply
+   to everyone unless overridden by a more specific scope.
+2. **Franchise-specific rates** — list filtered by `scope=admin_franchise`.
+   Show with the franchise name/ID. This is the rate the admin charges a
+   franchise.
+3. **Merchant-specific rates** — list filtered by `scope=admin_merchant`.
+   Only for non-franchised merchants (merchants without a `franchaise_id`).
+
+When creating a rule:
+
+| Target | Set `user_id` to | Set `franchaise_id` to | Resulting scope |
+|---|---|---|---|
+| Global default | `null` | `null` | `admin_default` |
+| For a franchise | `null` | franchise's user ID | `admin_franchise` |
+| For a non-franchised merchant | merchant's user ID | `null` | `admin_merchant` |
+
+### Franchise Dashboard
+
+Split the screen into two sections:
+
+#### Section A: "Admin rates" (read-only)
+
+Call `GET /api/pos-charge-rules/list/admin`.
+
+Display a table showing the rates the admin has set. The franchise **cannot
+edit or delete** these. Show a label like _"Set by admin"_ or a lock icon.
+
+These define what the franchise owes the platform per transaction.
+
+#### Section B: "My rates for merchants" (editable)
+
+Call `GET /api/pos-charge-rules/list/franchise`.
+
+Display an editable table. This is what the franchise charges its merchants.
+The franchise can create, edit, and delete rules here.
+
+- **Default rate** (scope `franchise_default`): applies to all merchants under
+  the franchise who don't have a merchant-specific rule. Create with
+  `user_id = null`.
+- **Merchant-specific rate** (scope `franchise_merchant`): overrides the
+  default for one specific merchant. Create with `user_id = <merchant id>`.
+
+> **Earning indicator:** Optionally show a calculated column:
+> `franchise_rate - admin_rate = earning per transaction`. Fetch the admin
+> rate from Section A and the franchise rate from Section B for the same
+> combination to display the margin.
+
+### Merchant Dashboard
+
+Merchants have read-only access. Call `GET /api/pos-charge-rules/list` (the
+generic endpoint — the backend automatically filters to only show applicable
+rules).
+
+Show a simple table of the charge rates that apply to them. Use human-friendly
+labels for the `scope` field:
+
+| Raw `scope` value | Display as |
+|---|---|
+| `admin_default` | Platform Default |
+| `admin_franchise` | Franchise Rate (set by platform) |
+| `admin_merchant` | Your Custom Rate (set by platform) |
+| `franchise_default` | Franchise Rate |
+| `franchise_merchant` | Your Custom Rate (set by franchise) |
+
+---
+
+## Quick Reference: scope Filter Cheat Sheet
+
+| UI screen | Endpoint | `scope` filter |
+|---|---|---|
+| Admin → global defaults | `GET /list?scope=admin_default` | `admin_default` |
+| Admin → franchise rates | `GET /list?scope=admin_franchise` | `admin_franchise` |
+| Admin → merchant overrides | `GET /list?scope=admin_merchant` | `admin_merchant` |
+| Franchise → admin-set rates | `GET /list/admin` | _(automatic)_ |
+| Franchise → own rates | `GET /list/franchise` | _(automatic)_ |
+| Merchant → my rates | `GET /list` | _(automatic)_ |
+
+---
+
+## Notes
+
+- **Legacy endpoints** (`/api/pos-charge`, `/api/pos-transaction-charge`)
+  remain untouched and unrelated. Use only the `/api/pos-charge-rules` routes.
+- The `/calculate` endpoint is stateless — call on demand, cache client-side.
+- The response always includes the full `rule` object; display `rule.scope` or
+  `rule.id` for debugging/logging.
+- `card_classification` is currently not supplied by Razorpay webhooks and
+  will usually be `null`. Include it manually if available.

@@ -306,8 +306,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     let franchiseChargeAmount = 0;
     let franchiseEarning = 0;
     if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
-      const franchiseRule = await ChargeService.getTransactionChargeRule({
-        userId: null,
+      const franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
         franchiseId: posOperator.franchaise_id,
         paymentMode: paymentMethod,
         cardType: paymentCardType || null,
@@ -461,7 +460,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       gst_percent: rule && rule.gst_required ? rule.gst_percent : null,
       net_amount: netAmount,
       charge_rate: chargeRate,
-      charge_config_id: resolvedCharge ? resolvedCharge.id : null,
+      charge_config_id: rule ? rule.id : null,
       payment_method: paymentMethod,
       payment_card_type: paymentCardType,
       payment_card_brand: paymentCardBrand,
@@ -528,7 +527,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           status: "completed",
           reason: `Franchise earning ₹${franchiseEarning} | Merchant: ${posOperator.id} | Razorpay txn: ${txnId}`,
           requested_by: posOperator.franchaise_id,
-          source: "razorpay",
+          source: src,
           reference_id: null,
         });
 
