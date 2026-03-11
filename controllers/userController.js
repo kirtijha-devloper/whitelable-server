@@ -42,6 +42,7 @@ const OTP = require("../models/Otp");
 const sendOtpHelper = require("../utils/sendOtp");
 const { sendRegistrationSms } = require("../utils/sendOtp");
 const sendEmailOtp = require("../utils/emailOtp");
+const { sendMail } = require("../utils/mail");
 
 const PosTransactionCharge = require('../models/PosTransactionCharge');
 const PayoutCharge = require('../models/PayoutCharge');
@@ -442,6 +443,34 @@ const registerUser = asyncHandler(async (req, res) => {
             console.error('Failed to send registration SMS:', smsErr);
         }
 
+        // send welcome email with credentials if we have an email address
+        let emailSent = false;
+        let emailError = null;
+
+        if (user.email) {
+            try {
+                const loginUrl = process.env.FRONTEND_URL || 'https://pos.abheepay.com/';
+                await sendMail({
+                    to: user.email,
+                    subject: 'Abheepay POS Account Created',
+                    html: `
+                        <p>Dear User,</p>
+                        <p>Your Franchise / User Account has been successfully created. 🎉</p>
+                        <p>🔹 <strong>User ID</strong>: ${user.abheepay_id || user.id}</p>
+                        <p>🔹 <strong>Password</strong>: ${password}</p>
+                        <p>⚠️ For security reasons, please change your password after your first login.</p>
+                        <p>🔗 <a href="${loginUrl}">Login Here</a></p>
+                        <p>We wish you a successful business and a great day ahead.</p>
+                        <p>Team – ABHEEPAY</p>
+                    `,
+                });
+                emailSent = true;
+            } catch (emailErr) {
+                emailError = emailErr.message || 'Failed to send email';
+                console.error('Failed to send registration email:', emailErr);
+            }
+        }
+
         const userPayload = {
             id: user.id,
             email: user.email,
@@ -468,6 +497,12 @@ const registerUser = asyncHandler(async (req, res) => {
                 message: smsSent
                     ? 'Registration details sent via SMS'
                     : `Registration successful, but SMS could not be sent: ${smsError || 'Unknown error'}`,
+            },
+            email: {
+                sent: emailSent,
+                message: emailSent
+                    ? 'Registration details sent via Email'
+                    : `Registration successful, but email could not be sent: ${emailError || 'Unknown error'}`,
             },
         });
 

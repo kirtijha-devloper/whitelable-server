@@ -14,6 +14,13 @@ const path = require('path');
 
 const BASE_URL = `http://localhost:${process.env.PORT || 5000}`;
 
+// avoid sending real emails during tests
+const mail = require('../utils/mail');
+mail.sendMail = async (options) => {
+    // pretend mail sent successfully
+    return { accepted: [options.to] };
+};
+
 // ── Mint a short-lived admin token ──────────────────────────────────────────
 const token = jwt.sign(
   { user: { id: 30, name: 'Vivek', mobile_number: '8873962933', role: 'admin', ipay_outlet_id: null } },
@@ -149,6 +156,9 @@ async function runTests() {
     assert(body.user.abheepay_id?.startsWith('APM'), `abheepay_id should start APM, got ${body.user.abheepay_id}`);
     assert(typeof body.pos === 'object',  'pos object should be present');
     assert(typeof body.sms === 'object',  'sms object should be present');
+    // new checks for email status
+    assert(typeof body.email === 'object', 'email object should be present');
+    assert(body.email.sent === true, 'email.sent should be true');
     createdUserId = body.user.id;
     console.log(`\n       Created user id: ${createdUserId}`);
   });

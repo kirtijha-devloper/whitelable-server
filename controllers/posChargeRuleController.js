@@ -500,6 +500,11 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     gst_percent
   ];
 
+  // derive scope early so we can use it in duplicate/overlap checks
+  const updCallerRole = isFranchiseRole(req.user.role) ? 'franchaise' : req.user.role;
+  const updUserId = user_id !== undefined ? user_id || null : rec.user_id;
+  const updScope = deriveScope(updCallerRole, updUserId, effectiveFranchise);
+
   const shouldValidateSlab = fieldsToCheck.some(val => val !== undefined);
   if (shouldValidateSlab) {
     const dup = await PosChargeRule.findOne({
@@ -507,6 +512,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
         id: { [Op.ne]: id },
         user_id: user_id !== undefined ? user_id || null : rec.user_id,
         franchaise_id: effectiveFranchise,
+        scope: updScope,
         payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
         card_type: card_type !== undefined ? card_type || null : rec.card_type,
         card_brand: card_brand !== undefined ? card_brand || null : rec.card_brand,
@@ -527,6 +533,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     const overlapCondition = {
       user_id: user_id !== undefined ? user_id || null : rec.user_id,
       franchaise_id: effectiveFranchise,
+      scope: updScope,
       payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
       card_type: card_type !== undefined ? card_type || null : rec.card_type,
       card_brand: card_brand !== undefined ? card_brand || null : rec.card_brand,
@@ -560,11 +567,8 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   if (req.user.role === 'franchaise') {
     updateData.franchaise_id = req.user.id;
   }
-  // re-derive scope based on (possibly updated) identifiers
-  const updCallerRole = isFranchiseRole(req.user.role) ? 'franchaise' : req.user.role;
-  const updUserId = user_id !== undefined ? user_id || null : rec.user_id;
-  const updFranchise = effectiveFranchise;
-  updateData.scope = deriveScope(updCallerRole, updUserId, updFranchise);
+  // apply pre-computed scope
+  updateData.scope = updScope;
   if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
   if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
   await rec.update(updateData);
