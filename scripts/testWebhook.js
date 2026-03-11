@@ -17,8 +17,14 @@ const axios = require('axios');
 // ── Config ────────────────────────────────────────────────────────────────────
 const BASE_URL   = `http://localhost:${process.env.PORT || 5000}`;
 const ENDPOINT   = `${BASE_URL}/api/razorpay/webhook`;
-const USERNAME   = process.env.WEBHOOK_USERNAME || 'razorpay';
-const PASSWORD   = process.env.WEBHOOK_PASSWORD || 'secret';
+// determine which credential set to use (first CLI arg can be 'everlife')
+const useEverlife = process.argv[2] && process.argv[2].toLowerCase() === 'everlife';
+const USERNAME   = useEverlife
+                    ? (process.env.WEBHOOK_USERNAME_EVERLIFE || process.env.WEBHOOK_USERNAME || 'razorpay')
+                    : (process.env.WEBHOOK_USERNAME || 'razorpay');
+const PASSWORD   = useEverlife
+                    ? (process.env.WEBHOOK_PASSWORD_EVERLIFE || process.env.WEBHOOK_PASSWORD || 'secret')
+                    : (process.env.WEBHOOK_PASSWORD || 'secret');
 const AUTH       = Buffer.from(`${USERNAME}:${PASSWORD}`).toString('base64');
 
 // ── Sample payloads ───────────────────────────────────────────────────────────
@@ -112,11 +118,17 @@ function generateTxnId() {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  const [, , typeArg = 'upi', txnIdArg] = process.argv;
-  const type  = typeArg.toLowerCase();
+  const [, , maybeSource, typeArg = 'upi', txnIdArg] = process.argv;
+  const sourceArg = maybeSource ? maybeSource.toLowerCase() : '';
+  // if first argument was "everlife" then the next should be type
+  const type  = sourceArg === 'everlife' ? (typeArg || 'upi').toLowerCase() : typeArg.toLowerCase();
   const txnId = txnIdArg || generateTxnId();
 
   const payload = type === 'card' ? cardPayload(txnId) : upiPayload(txnId);
+  if (useEverlife) {
+    // tag payload so we can easily identify it in DB/logic
+    payload.source = 'everlife';
+  }
 
   console.log('─'.repeat(60));
   console.log(`Endpoint : POST ${ENDPOINT}`);

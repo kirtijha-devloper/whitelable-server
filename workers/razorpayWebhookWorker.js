@@ -50,6 +50,9 @@ razorpayWebhookQueue.process(async (job) => {
 
   logger.log(`[Razorpay Webhook Worker] Processing business logic for txn: ${txnId}, status: ${status}`);
 
+  // we'll resolve the actual source after we fetch the notification record below
+  let src = 'razorpay';  // default fallback
+
   try {
     // Verify the notification exists in DB (safety check)
     const notification = await RazorpayNotification.findOne({
@@ -60,7 +63,10 @@ razorpayWebhookQueue.process(async (job) => {
       throw new Error(`Notification not found in database for txn: ${txnId}`);
     }
 
-    logger.log(`[Razorpay Webhook Worker] Notification found in database for txn: ${txnId}`);
+    // once we have the record we can determine which source triggered this webhook
+    src = notification.source || (event && event.source) || 'razorpay';
+
+    logger.log(`[Razorpay Webhook Worker] Notification found in database for txn: ${txnId} (source=${src})`);
 
     // Business logic based on transaction status
     switch (status) {
@@ -372,7 +378,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       status: "completed",
       reason: walletReason,
       requested_by: posOperator.id,
-      source: "razorpay",
+      source: src,
       reference_id: rrNumber || null // Store RR number as reference
     });
 
@@ -396,7 +402,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           status: "completed",
           reason: desc,
           requested_by: franchiseId,
-          source: "razorpay",
+          source: src,
           reference_id: null
         });
         await ledgerService.createLedgerEntry({
@@ -424,7 +430,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           status: "completed",
           reason: desc2,
           requested_by: franchiseId,
-          source: "razorpay",
+          source: src,
           reference_id: null
         });
         await ledgerService.createLedgerEntry({

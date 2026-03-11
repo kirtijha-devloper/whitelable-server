@@ -39,3 +39,21 @@ system will fall back to email-only OTP delivery where appropriate.
 When both SMS and email delivery are possible (e.g. login OTP), the same
 random code is used for both channels so the user sees identical values in
 their message and email.
+
+## Razorpay Webhook Credentials
+
+The server authenticates incoming Razorpay (and Everlife) webhooks using HTTP
+basic auth.  The credentials are stored in environment variables – you must
+provide **both** pairs even if only one source is active:
+
+```env
+WEBHOOK_USERNAME=razorpay
+WEBHOOK_PASSWORD=secret
+WEBHOOK_USERNAME_EVERLIFE=razorpay
+WEBHOOK_PASSWORD_EVERLIFE=secret
+```
+
+These credentials are checked by middleware in `utils/razorpay/auth.js` and
+attached to the request object as `req.webhookSource` (either `razorpay` or
+`everlife`).  The same `/api/razorpay/webhook` endpoint handles events from
+both sources, and notifications are tagged in the database accordingly.

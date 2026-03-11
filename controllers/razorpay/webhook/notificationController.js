@@ -6,6 +6,7 @@ const { Op } = require("sequelize");
 async function handleRzpNotification(req, res) {
     try {
         const body = req.body;
+        const source = req.webhookSource || 'razorpay'; // default if somehow not set
         
         // Razorpay requires 200 OK IMMEDIATELY (no slow operations)
         // Return XML response as Razorpay expects text/xml format
@@ -17,7 +18,8 @@ async function handleRzpNotification(req, res) {
         // Using setImmediate ensures response is sent first, then processing starts
         setImmediate(async () => {
             try {
-                await processRzpNotification(body);
+                // include source so service can store it
+                await processRzpNotification(body, source);
             } catch (error) {
                 // Errors are already handled in processRzpNotification
                 // But we catch here to prevent unhandled promise rejection
@@ -87,6 +89,11 @@ const listNotifications = asyncHandler(async (req, res) => {
         }
         if (deviceSerial) {
             where.device_serial = { [Op.like]: `%${deviceSerial}%` };
+        }
+
+        // source filter (razorpay vs everlife)
+        if (req.query.source) {
+            where.source = req.query.source;
         }
 
         let formattedNotifications = [];
@@ -183,6 +190,7 @@ const getNotificationById = asyncHandler(async (req, res) => {
             id: notification.id,
             txn_id: notification.txn_id,
             status: notification.status,
+            source: notification.source || 'razorpay',
             createdAt: notification.createdAt,
             updatedAt: notification.updatedAt,
             event_json: eventData

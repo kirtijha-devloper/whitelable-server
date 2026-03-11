@@ -9,6 +9,9 @@ following columns:
 - `payment_card_type`
 - `payment_card_brand`
 
+> **Note:** the table now also contains a `source` column indicating whether the webhook
+> originated from the legacy Razorpay integration or the new Everlife endpoint.  Filtering
+> by source is supported on the listing endpoint but not exposed here.
 This information is typically used by the frontend to populate filter dropdowns or other UI
 controls that depend on actual values present in the database. Only authenticated users may
 access the endpoint, and it simply performs three `DISTINCT` queries internally.

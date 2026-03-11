@@ -34,6 +34,11 @@ async function test() {
     const res3 = makeMockRes();
     await reportCtrl.getRazorpayNotificationReport(req3, res3);
 
+    console.log('Testing with source filter (everlife)');
+    const req4 = makeMockReq({ start_date: today, end_date: today, source: 'everlife' }, { role:'admin', id:1 });
+    const res4 = makeMockRes();
+    await reportCtrl.getRazorpayNotificationReport(req4, res4);
+
     // ledger tests
     console.log('Testing getLedgerReport default dates as admin');
     const reqL1 = makeMockReq({}, { role: 'admin', id: 1 });

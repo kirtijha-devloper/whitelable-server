@@ -9,18 +9,25 @@ const Ledger = require('../models/Ledger');
 const PayoutTransaction = require('../models/PayoutTransaction');
 
 // Admin-only full notifications list
+// Supports optional `source` query parameter to restrict to 'razorpay' or 'everlife' webhooks
 const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
   const userRole = req.user?.role;
   if (userRole !== 'admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
-  const { page = 1, limit = 50 } = req.query;
+  const { page = 1, limit = 50, source } = req.query;
   const pageNum = Math.max(1, parseInt(page) || 1);
   const limitNum = Math.min(50, Math.max(1, parseInt(limit) || 50));
   const offset = (pageNum - 1) * limitNum;
 
+  const where = {};
+  if (source) {
+    where.source = source;
+  }
+
   const { count, rows } = await RazorpayNotification.findAndCountAll({
+    where,
     order: [['id', 'DESC']],
     limit: limitNum,
     offset,
@@ -282,6 +289,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       to_date,
       status,
       payment_mode,
+      source,
       include_unlinked = 'false',
       page = 1,
       limit = 50
@@ -875,6 +883,10 @@ const getUserReport = asyncHandler(async (req, res) => {
 
     if (status) {
       where.status = status;
+    }
+
+    if (source) {
+      where.source = source;
     }
 
     if (role) {

@@ -12,8 +12,13 @@ const razorpayWebhookQueue = require("../../queues/razorpayWebhookQueue.js");
  * - Business logic runs asynchronously (non-blocking)
  * - Production-ready with retries and error handling
  */
-async function processRzpNotification(event) {
+async function processRzpNotification(event, source = 'razorpay') {
     try {
+        // tag the incoming payload so downstream code and logs can see where it came from
+        if (event && typeof event === 'object') {
+            event.source = source;
+        }
+
         // Extract txnId - can be in txnId or Id field (handle both cases)
         const txnId = event.txnId || event.Id || event.id;
         const status = event.status; // AUTHORIZED, FAILED, VOIDED, SETTLED etc.
@@ -58,6 +63,7 @@ async function processRzpNotification(event) {
             txn_id: txnId,
             event_json: event,
             status: status || null,
+            source: source || 'razorpay',
             mid: midVal,
             tid: tidVal,
             amount: amountVal,
@@ -80,6 +86,7 @@ async function processRzpNotification(event) {
             await notification.update({
                 event_json: event,
                 status: status || notification.status,
+                source: source || notification.source,
                 mid: midVal,
                 tid: tidVal,
                 amount: amountVal,

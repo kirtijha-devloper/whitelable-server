@@ -13,15 +13,34 @@ function verifyRzpAuth(req, res, next) {
 
         const [username, password] = decoded.split(":");
 
+        // check both the original Razorpay credentials and the new Everlife ones
+        let valid = false;
+        let source = null;
+
         if (
-            username !== process.env.WEBHOOK_USERNAME ||
-            password !== process.env.WEBHOOK_PASSWORD
+            username === process.env.WEBHOOK_USERNAME &&
+            password === process.env.WEBHOOK_PASSWORD
         ) {
+            valid = true;
+            source = 'razorpay';
+        }
+
+        if (
+            username === process.env.WEBHOOK_USERNAME_EVERLIFE &&
+            password === process.env.WEBHOOK_PASSWORD_EVERLIFE
+        ) {
+            valid = true;
+            source = 'everlife';
+        }
+
+        if (!valid) {
             return res.status(401)
                       .set('Content-Type', 'text/xml; charset=utf-8')
                       .send('<?xml version="1.0" encoding="UTF-8"?><response><status>Invalid credentials</status></response>');
         }
 
+        // attach the determined source to the request for downstream handlers
+        req.webhookSource = source;
         next();
     } catch (err) {
         return res.status(500)
