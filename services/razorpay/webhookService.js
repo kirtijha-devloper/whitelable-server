@@ -81,7 +81,9 @@ async function processRzpNotification(event, source = 'razorpay') {
             defaults
         });
 
-        // If notification already exists, update it (in case of retry with updated data)
+        // If notification already exists, update it (in case of retry with updated data).
+        // Any update resets the processed flag so the worker can re-run, and clears
+        // any previous error/status note.
         if (!created) {
             await notification.update({
                 event_json: event,
@@ -96,7 +98,11 @@ async function processRzpNotification(event, source = 'razorpay') {
                 payment_card_brand: cardBrandVal,
                 rr_number: rrVal,
                 device_serial: deviceSerialVal,
-                posting_date: postingDateVal
+                posting_date: postingDateVal,
+                processed: false,
+                processing_status: 'pending',
+                processing_error: null,
+                processed_at: null
             });
         }
 

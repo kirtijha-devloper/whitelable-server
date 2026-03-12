@@ -232,6 +232,13 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     if (!posMachine) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine not found for mid: ${merchantId}, tid: ${terminalId}. Notification stored without user link.`);
+      // mark for admin review so it can be fixed later
+      await notification.update({
+        processed: false,
+        processing_status: 'needs_admin',
+        processing_error: 'POS machine not found',
+        processed_at: new Date()
+      });
       return;
     }
 
@@ -241,7 +248,12 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     if (!posMachine.assigned_user_id) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine (id: ${posMachine.id}) mid: ${merchantId}, tid: ${terminalId} has no assigned user. Financial processing skipped. Notification stored with pos_machine_id only.`);
-      // pos_machine_id is already stamped above; user_id stays null.
+      await notification.update({
+        processed: false,
+        processing_status: 'needs_admin',
+        processing_error: 'POS machine has no assigned user',
+        processed_at: new Date()
+      });
       return;
     }
 
@@ -252,6 +264,12 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     if (!posOperator) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ POS operator not found with id: ${posMachine.assigned_user_id} for txn: ${txnId}. Financial processing skipped.`);
+      await notification.update({
+        processed: false,
+        processing_status: 'needs_admin',
+        processing_error: 'Assigned user not found',
+        processed_at: new Date()
+      });
       return;
     }
 
@@ -292,8 +310,15 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       chargeRate = parseFloat(rule.charge_percent);
       chargeSource = 'rule';
     } else {
-      // if no rule found, apply default MDR
-      chargeRate = 2.5;
+      // no applicable rule – financial policy requires manual intervention
+      logger.warn(`[Razorpay Webhook Worker] ⚠️ No charge rule matched for txn: ${txnId}`);
+      await notification.update({
+        processed: false,
+        processing_status: 'needs_admin',
+        processing_error: 'No matching charge rule',
+        processed_at: new Date()
+      });
+      return;
     }
 
     const chargeResult = ChargeService.calculateCharge(parseFloat(transactionAmount), rule || { charge_percent: chargeRate, charge_flat: 0, gst_required: false, gst_percent:0 });
@@ -347,6 +372,11 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     if (existingChargeRecord) {
       logger.log(`[Razorpay Webhook Worker] Transaction charge record already exists for txn: ${txnId}`);
+      await notification.update({
+        processed: true,
+        processing_status: 'completed',
+        processed_at: new Date()
+      });
       return;
     }
 
@@ -358,6 +388,11 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     if (existingTransaction) {
       logger.log(`[Razorpay Webhook Worker] Transaction already processed for txn: ${txnId}`);
+      await notification.update({
+        processed: true,
+        processing_status: 'completed',
+        processed_at: new Date()
+      });
       return;
     }
 
@@ -475,6 +510,12 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     });
 
     logger.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for user: ${posOperator.id}, txn: ${txnId}, charge: ${chargeAmount}`);
+    // mark notification fully processed
+    await notification.update({
+      processed: true,
+      processing_status: 'completed',
+      processed_at: new Date()
+    });
 
     // Step 8: Create ledger entries for transaction tracking (ledger service syncs wallet automatically)
     const ledgerService = require("../services/ledgerService");
@@ -557,6 +598,17 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
   } catch (error) {
     logger.error(`[Razorpay Webhook Worker] Error in handleAuthorizedTransaction for txn: ${txnId}`, error);
+    // mark failure so admin can inspect; leave processed=false so manual action needed
+    try {
+      await notification.update({
+        processed: false,
+        processing_status: 'failed',
+        processing_error: error.message || String(error),
+        processed_at: new Date()
+      });
+    } catch (updErr) {
+      logger.error('[Razorpay Webhook Worker] Failed to update notification status after error', updErr);
+    }
     throw error; // Re-throw to trigger retry mechanism
   }
 }

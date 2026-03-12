@@ -100,6 +100,33 @@ const RazorpayNotification = db.define('RazorpayNotification', {
     field: 'pos_machine_id',
     comment: 'FK → posMachines.id resolved from mid/tid in the webhook payload.'
   },
+  // processing metadata for business logic
+  processed: {
+    type: Sequelize.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'processed',
+    comment: 'true once webhook has passed through the worker (success or marked for review)'
+  },
+  processing_status: {
+    type: Sequelize.STRING(30),
+    allowNull: false,
+    defaultValue: 'pending',
+    field: 'processing_status',
+    comment: "one of 'pending','completed','needs_admin','failed'"
+  },
+  processing_error: {
+    type: Sequelize.TEXT,
+    allowNull: true,
+    field: 'processing_error',
+    comment: 'optional human-readable note explaining why processing was deferred or failed'
+  },
+  processed_at: {
+    type: Sequelize.DATE,
+    allowNull: true,
+    field: 'processed_at',
+    comment: 'timestamp when the record was marked processed'
+  },
   // ─────────────────────────────────────────────────────────────────────────
   createdAt: {
     allowNull: false,
