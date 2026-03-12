@@ -5,6 +5,7 @@ const {
   createPosChargeRule,
   getPosChargeRule,
   listPosChargeRules,
+  listMerchantChargeRules,
   listFranchiseAdminRules,
   listFranchiseCustomRules,
   updatePosChargeRule,
@@ -18,7 +19,9 @@ router.use(validateToken);
 router.post('/', createPosChargeRule);
 // existing generic list remains for backward compatibility
 router.get('/list', listPosChargeRules);
-// new franchise helpers
+// merchant-specific grouped list
+router.get('/list/merchant', listMerchantChargeRules);
+// franchise helpers
 router.get('/list/admin', listFranchiseAdminRules);
 router.get('/list/franchise', listFranchiseCustomRules);
 router.get('/:id', getPosChargeRule);

@@ -12,6 +12,12 @@ const User = require('./models/User');
   console.log('generic list');
   await controller.listPosChargeRules(req, res);
 
+  if (user.role === 'merchant') {
+    console.log('merchant list with blank franchaise_id');
+    req.query = { franchaise_id: '' };
+    await controller.listPosChargeRules(req, res);
+  }
+
   if (user.role === 'franchaise') {
     console.log('admin list for franchise');
     await controller.listFranchiseAdminRules(req, res);

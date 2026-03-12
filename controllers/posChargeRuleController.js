@@ -358,17 +358,30 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   // merchant always sees their own records even if the scope logic would
   // otherwise omit them.
   if (req.user.role === 'merchant') {
+    // merchants may not filter by another user or franchise; if either key is
+    // present we check that it matches the caller and then throw away the
+    // value.  a blank string in the query will be coerced to `null` above,
+    // which would otherwise turn into an accidental filter (“franchaise_id is
+    // null”) and hide all of the records the OR clause is intended to expose.
     if ('user_id' in where && where.user_id !== null) {
       const uid = parseInt(where.user_id, 10);
       if (uid !== req.user.id) {
         return res.status(403).json({ success: false, message: 'Cannot filter by another user' });
       }
     }
+    if ('franchaise_id' in where && where.franchaise_id !== null) {
+      const fid = parseInt(where.franchaise_id, 10);
+      if (fid !== req.user.franchaise_id) {
+        return res.status(403).json({ success: false, message: 'Cannot filter by another franchise' });
+      }
+    }
 
-    // drop any explicit user_id filter; merchants should not have to send
-    // their own id in the query and doing so would prevent the OR logic from
-    // returning admin/franchise defaults or franchise‑merchant rules.
+    // merchants shouldn't need to supply either id when listing.  dropping
+    // them ensures a stray empty value from the UI doesn't turn into a
+    // restrictive `WHERE franchaise_id IS NULL` clause that excludes the very
+    // defaults we're trying to return.
     delete where.user_id;
+    delete where.franchaise_id;
   }
 
   // role-specific validation of incoming filters - prevents a franchise
@@ -442,6 +455,83 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
       page: parseInt(page),
       limit: parseInt(limit),
       totalPages: Math.ceil(count / parseInt(limit))
+    }
+  });
+});
+
+// dedicated list endpoint for merchants - returns rules grouped by origin
+const listMerchantChargeRules = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'merchant') {
+    return res.status(403).json({ success: false, message: 'Only merchants may call this endpoint' });
+  }
+
+  const {
+    payment_mode,
+    card_type,
+    card_brand,
+    card_classification,
+    settlement_type,
+    is_active
+  } = req.query;
+
+  // common filter applied to every group (does not include user/franchise ids
+  // because each group applies those separately)
+  const baseFilter = {};
+  if (payment_mode) baseFilter.payment_mode = payment_mode;
+  if (card_type) baseFilter.card_type = card_type;
+  if (card_brand) baseFilter.card_brand = card_brand;
+  if (card_classification) baseFilter.card_classification = card_classification;
+  if (settlement_type) baseFilter.settlement_type = settlement_type;
+  if (is_active !== undefined) baseFilter.is_active = is_active === 'true' || is_active === true;
+
+  const merchantId = req.user.id;
+
+  // franchaise_id is NOT embedded in the JWT - look it up from the DB so we
+  // always have the current value.
+  const merchantRecord = await User.findByPk(merchantId, { attributes: ['franchaise_id'] });
+  if (!merchantRecord) {
+    return res.status(404).json({ success: false, message: 'Merchant not found' });
+  }
+  const franchiseId = merchantRecord.franchaise_id || null;
+
+  // fetch all four groups in parallel
+  const [adminDefault, adminMerchant, franchiseDefault, franchiseMerchant] = await Promise.all([
+    // 1. admin global defaults (no user, no franchise)
+    PosChargeRule.findAll({
+      where: { ...baseFilter, scope: 'admin_default' },
+      order: [['createdAt', 'DESC']]
+    }),
+
+    // 2. admin rules created specifically for this merchant
+    PosChargeRule.findAll({
+      where: { ...baseFilter, scope: 'admin_merchant', user_id: merchantId },
+      order: [['createdAt', 'DESC']]
+    }),
+
+    // 3. franchise default rules (visible only if merchant belongs to a franchise)
+    franchiseId
+      ? PosChargeRule.findAll({
+          where: { ...baseFilter, scope: 'franchise_default', franchaise_id: franchiseId },
+          order: [['createdAt', 'DESC']]
+        })
+      : Promise.resolve([]),
+
+    // 4. franchise rules created specifically for this merchant
+    franchiseId
+      ? PosChargeRule.findAll({
+          where: { ...baseFilter, scope: 'franchise_merchant', user_id: merchantId, franchaise_id: franchiseId },
+          order: [['createdAt', 'DESC']]
+        })
+      : Promise.resolve([])
+  ]);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      admin_default:     adminDefault,
+      admin_merchant:    adminMerchant,
+      franchise_default: franchiseDefault,
+      franchise_merchant: franchiseMerchant
     }
   });
 });
@@ -693,6 +783,7 @@ module.exports = {
   createPosChargeRule,
   getPosChargeRule,
   listPosChargeRules,
+  listMerchantChargeRules,
   listFranchiseAdminRules,
   listFranchiseCustomRules,
   updatePosChargeRule,
