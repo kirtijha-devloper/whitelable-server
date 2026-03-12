@@ -1,14 +1,37 @@
 const asyncHandler = require("express-async-handler");
+const fs = require("fs");
+const path = require("path");
 const { processRzpNotification } = require("../../../services/razorpay/webhookService");
 const RazorpayNotification = require("../../../models/RazorpayNotification");
 const { Op } = require("sequelize");
+
+// ── Minimal file logger for incoming webhook notifications ────────────────────
+const LOG_FILE = path.join(__dirname, "../../../logs/webhookNotifications.log");
+
+function logNotification(source, body) {
+    try {
+        const ts   = new Date().toISOString();
+        const txn  = body.txnId || body.txn_id || body.orderId || '-';
+        const amt  = body.amount || body.amountOriginal || '-';
+        const mid  = body.mid || body.mid_number || '-';
+        const tid  = body.tid || body.tid_number || '-';
+        const mode = body.paymentMode || '-';
+        const stat = body.status || '-';
+        const line = `[${ts}] source=${source} txnId=${txn} status=${stat} amount=${amt} mid=${mid} tid=${tid} paymentMode=${mode}\n`;
+        fs.appendFileSync(LOG_FILE, line);
+    } catch (_) { /* never crash the request due to a log write failure */ }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function handleRzpNotification(req, res) {
     try {
         const body = req.body;
         const source = req.webhookSource || 'razorpay'; // default if somehow not set
-        
-        // Razorpay requires 200 OK IMMEDIATELY (no slow operations)
+
+        // write a short one-line entry immediately (before anything else can fail)
+        logNotification(source, body);
+
+        // Razorpay requires 200 OK IMMEDIATELY
         // Return XML response as Razorpay expects text/xml format
         res.status(200)
            .set('Content-Type', 'text/xml; charset=utf-8')

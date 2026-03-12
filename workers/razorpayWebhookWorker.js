@@ -191,7 +191,9 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     // fall back to JSON payload values if the column was not back‑filled yet
     const merchantId = notification.mid || mid || mid_number;
     const terminalId = notification.tid || tid || tid_number;
-    const transactionAmount = notification.amount || amount || amountOriginal;
+    // always parse to float so arithmetic (netAmount, etc.) produces a proper
+    // number rather than string concatenation or unrounded floating-point values
+    const transactionAmount = parseFloat(notification.amount || amount || amountOriginal);
 
     logger.log(`[Razorpay Webhook Worker] Transaction details:`, {
       txnId,
@@ -327,7 +329,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     }
 
     // Step 4: Calculate net amount (deduct both charge and GST)
-    const netAmount = transactionAmount - chargeAmount - gstAmount;
+    // round to 2 decimal places, matching posChargeRuleController's calculateCharge endpoint
+    const netAmount = parseFloat((transactionAmount - chargeAmount - gstAmount).toFixed(2));
 
     logger.log(`[Razorpay Webhook Worker] Transaction Amount: ${transactionAmount}, Charge: ${chargeAmount}, Net Amount: ${netAmount}`);
 
@@ -454,7 +457,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       merchant_id: posOperator.id,
       pos_machine_id: posMachine.id,
       razorpay_transaction_id: txnId,
-      transaction_amount: transactionAmount,
+      transaction_amount: transactionAmount,   // already a parsed float
       charge_amount: chargeAmount,
       gst_amount: gstAmount,
       gst_percent: rule && rule.gst_required ? rule.gst_percent : null,
