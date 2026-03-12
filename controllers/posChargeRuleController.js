@@ -353,6 +353,24 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   if (scope) where.scope = scope;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
+  // merchants should not be able to request rules for someone else; if
+  // `user_id` is supplied it must match the caller.  we also later ensure the
+  // merchant always sees their own records even if the scope logic would
+  // otherwise omit them.
+  if (req.user.role === 'merchant') {
+    if ('user_id' in where && where.user_id !== null) {
+      const uid = parseInt(where.user_id, 10);
+      if (uid !== req.user.id) {
+        return res.status(403).json({ success: false, message: 'Cannot filter by another user' });
+      }
+    }
+
+    // drop any explicit user_id filter; merchants should not have to send
+    // their own id in the query and doing so would prevent the OR logic from
+    // returning admin/franchise defaults or franchise‑merchant rules.
+    delete where.user_id;
+  }
+
   // role-specific validation of incoming filters - prevents a franchise
   // from supplying a `user_id` or `franchaise_id` outside their scope and thus
   // leaking other merchants' rules.
@@ -390,10 +408,14 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
       { scope: 'franchise_merchant', franchaise_id: req.user.id }
     ];
   } else if (req.user.role === 'merchant') {
-    // merchant sees: rules targeting them specifically
-    //   + franchise defaults/merchant rules from their franchise
-    //   + admin defaults
+    // merchant sees:
+    //   * any rule explicitly tied to their user id (regardless of scope),
+    //     this catches mis‑scoped records and avoids relying solely on the
+    //     scoped branches below
+    //   * admin defaults (global)
+    //   * admin/franchise rules created for them
     const orConditions = [
+      { user_id: req.user.id },
       { scope: 'admin_default' },
       { scope: 'admin_merchant', user_id: req.user.id }
     ];
