@@ -24,6 +24,16 @@ router.get("/count", userCount);
 
 router.get("/", validateToken, getUsers);
 router.get("/current", validateToken, currentUser);
+
+// If someone (or a redirect) hits GET /register, it should not be treated as an ID lookup.
+// Respond with a clear error rather than attempting to query `id = 'register'`.
+router.get("/register", (req, res) => {
+  return res.status(405).json({
+    success: false,
+    message: "Use POST /api/user/register (multipart/form-data) to register a user",
+  });
+});
+
 router.get("/:id", validateToken, getUserByID);
 // change password
 //  - admin users may reset any account by sending { id, newPassword }
