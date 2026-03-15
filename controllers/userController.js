@@ -296,9 +296,26 @@ const registerUser = asyncHandler(async (req, res) => {
         const { email, password, role, company_or_shop_name } = req.body;
         const mobileNumber = req.body.mobile_number;
 
-        if (!mobileNumber || !password || !role || !email) {
-            res.status(400);
-            throw new Error("All fields are mandatory!");
+        // validate required fields with explicit error messages
+        const missingFields = [];
+        if (!mobileNumber) missingFields.push('mobile_number');
+        if (!password) missingFields.push('password');
+        if (!role) missingFields.push('role');
+        if (!email) missingFields.push('email');
+
+        if (missingFields.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Missing required field${missingFields.length > 1 ? 's' : ''}: ${missingFields.join(', ')}`,
+            });
+        }
+
+        const allowedRoles = ['merchant', 'franchise', 'admin'];
+        if (!allowedRoles.includes(role)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid role: '${role}'. Allowed values are: ${allowedRoles.join(', ')}`,
+            });
         }
 
         // bank passbook must be uploaded by requirement
@@ -310,16 +327,25 @@ const registerUser = asyncHandler(async (req, res) => {
             });
         }
 
-        const userAvailable = await User.findOne({
-            where: {
-                mobile_number: mobileNumber,
-                status: "active"
-            }
+        // Avoid registering the same mobile/email again (active users only)
+        const existingMobile = await User.findOne({
+            where: { mobile_number: mobileNumber, status: "active" }
         });
+        if (existingMobile) {
+            return res.status(409).json({
+                success: false,
+                message: "Mobile number is already registered",
+            });
+        }
 
-        if (userAvailable) {
-            res.status(400);
-            throw new Error("User Already Exist!");
+        const existingEmail = await User.findOne({
+            where: { email, status: "active" }
+        });
+        if (existingEmail) {
+            return res.status(409).json({
+                success: false,
+                message: "Email is already registered",
+            });
         }
 
         const hashPassword = await bcrypt.hash(password, 10);
