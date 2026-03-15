@@ -36,10 +36,22 @@ async function sendBulk9(templateId, variablesValues, numbers) {
             res.on("end", () => {
                 try {
                     const resp = JSON.parse(data);
-                    if (resp.status && resp.status.toLowerCase() === "success") {
+
+                    // Bulk9 sometimes returns non-standard status fields (e.g. numeric or non-lowercase).
+                    // Treat typical success indications as success, otherwise reject.
+                    const status = resp.status;
+                    const message = (resp.message || "").toString();
+
+                    const isSuccess =
+                        (typeof status === "string" && status.toLowerCase().includes("success")) ||
+                        status === true ||
+                        status === 1 ||
+                        message.toLowerCase().includes("success");
+
+                    if (isSuccess) {
                         resolve(resp);
                     } else {
-                        reject(new Error(resp.message || "Bulk9 API error"));
+                        reject(new Error(message || "Bulk9 API error"));
                     }
                 } catch (err) {
                     reject(err);
@@ -96,15 +108,29 @@ const sendOtpHelper = async (mobile, purpose, options = {}) => {
     return otp;
 };
 
-const sendRegistrationSms = async (mobile, userId, password) => {
+const sendRegistrationSms = async (mobile, userId, password, name) => {
     if (!mobile || !userId || !password) {
         throw new Error("Mobile number, user ID, and password are required.");
     }
 
+    const namePlaceholder = name || userId;
+
     // template 10086 (Account Creation)
     const templateId = "10086";
-    const values = `${userId}|${password}`; // variables: Name | UserID | Password
-    await sendBulk9(templateId, values, mobile);
+    const values = `${namePlaceholder}|${userId}|${password}`; // variables: Name | UserID | Password
+
+    try {
+        await sendBulk9(templateId, values, mobile);
+    } catch (err) {
+        // Bulk9 may return a non-success status but still send the SMS (message includes "success").
+        // Treat those as success to avoid false failure reports.
+        const msg = (err?.message || "").toLowerCase();
+        if (msg.includes("success")) {
+            console.warn("Bulk9 reported error but message indicates success:", err);
+            return;
+        }
+        throw err;
+    }
 };
 
 module.exports = sendOtpHelper;

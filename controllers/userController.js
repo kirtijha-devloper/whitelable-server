@@ -435,7 +435,12 @@ const registerUser = asyncHandler(async (req, res) => {
         let smsSent = false;
         let smsError = null;
         try {
-            await sendRegistrationSms(user.mobile_number, user.abheepay_id || user.id, password);
+            await sendRegistrationSms(
+                user.mobile_number,
+                user.abheepay_id || user.id,
+                password,
+                user.name || (user.abheepay_id || user.id)
+            );
             smsSent = true;
             console.log(`Registration SMS sent successfully to ${user.mobile_number}`);
         } catch (smsErr) {
@@ -457,6 +462,7 @@ const registerUser = asyncHandler(async (req, res) => {
                         <p>Dear User,</p>
                         <p>Your Franchise / User Account has been successfully created. 🎉</p>
                         <p>🔹 <strong>User ID</strong>: ${user.abheepay_id || user.id}</p>
+                        <p>🔹 <strong>Mobile Number for Login</strong>: ${user.mobile_number}</p>
                         <p>🔹 <strong>Password</strong>: ${password}</p>
                         <p>⚠️ For security reasons, please change your password after your first login.</p>
                         <p>🔗 <a href="${loginUrl}">Login Here</a></p>
