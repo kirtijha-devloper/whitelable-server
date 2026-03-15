@@ -4,6 +4,7 @@ const asyncHandler = require("express-async-handler")
 
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
+const PosMachineAssignmentLog = require('../models/PosMachineAssignmentLog');
 const { response } = require("express");
 const { parse } = require('csv-parse/sync');
 const fs = require('fs');
@@ -316,8 +317,12 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
 
     const assigneeRole = user.role
 
+    // Capture current assignment state for audit logging
+    const posMachines = await PosMachine.findAll({
+      where: { id: ids }
+    });
+
     const updated = await PosMachine.update(
-        
         { status: "active",
         ...(assigneeRole === "franchaise" && { franchaise_id: userId }),
         ...(assigneeRole === "merchant" && { assigned_user_id: userId })
@@ -328,6 +333,23 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
         }
         }
     );
+
+    // Create audit log entries for each machine updated
+    await Promise.all(posMachines.map(async (posMachine) => {
+      const action = posMachine.assigned_user_id ? 'reassign' : 'assign';
+      await PosMachineAssignmentLog.create({
+        pos_machine_id: posMachine.id,
+        action,
+        assigned_from_user_id: posMachine.assigned_user_id,
+        assigned_to_user_id: userId,
+        performed_by_user_id: req.user.id,
+        details: {
+          previous_franchaise_id: posMachine.franchaise_id,
+          new_franchaise_id: assigneeRole === 'franchaise' ? userId : posMachine.franchaise_id
+        }
+      });
+    }));
+
     if (assigneeRole === "merchant"){
       user.is_pos_asigned = true
       await user.save()
@@ -366,14 +388,26 @@ const assignPosMachineToMerchant = asyncHandler(async (req, res) => {
         throw new Error("Please select correct merchant.");
     }
 
+    // Franchise can only reassign machines that belong to them
+    const posMachine = await PosMachine.findByPk(posMachineId);
+    if (!posMachine) {
+        res.status(404);
+        throw new Error("POS machine not found.");
+    }
+
     if (req.user.role === "franchaise") {
         if (!merchantUser.franchaise_id || merchantUser.franchaise_id !== req.user.id) {
             res.status(400);
             throw new Error("Please select correct merchant.");
         }
+        if (!posMachine.franchaise_id || posMachine.franchaise_id !== req.user.id) {
+            res.status(400);
+            throw new Error("Cannot reassign a POS machine that does not belong to you.");
+        }
     }
 
     // assign the POS machine
+    const previousAssignedUserId = posMachine.assigned_user_id;
     const [updatedCount] = await PosMachine.update(
         { assigned_user_id: merchantId, status: "active" },
         { where: { id: posMachineId } }
@@ -387,6 +421,19 @@ const assignPosMachineToMerchant = asyncHandler(async (req, res) => {
     // mark merchant as having a POS assigned
     merchantUser.is_pos_asigned = true;
     await merchantUser.save();
+
+    // audit log
+    await PosMachineAssignmentLog.create({
+      pos_machine_id: posMachineId,
+      action: previousAssignedUserId ? 'reassign' : 'assign',
+      assigned_from_user_id: previousAssignedUserId,
+      assigned_to_user_id: merchantId,
+      performed_by_user_id: req.user.id,
+      details: {
+        previous_franchaise_id: posMachine.franchaise_id,
+        new_franchaise_id: posMachine.franchaise_id
+      }
+    });
 
     res.status(200).json({
         message: `POS Machine ${posMachineId} assigned to merchant ${merchantId}`,

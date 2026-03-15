@@ -246,7 +246,9 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     // is traceable even when no user is assigned yet.
     await notification.update({ pos_machine_id: posMachine.id });
 
-    if (!posMachine.assigned_user_id) {
+    // Prefer the assigned merchant; fall back to the franchise owner if no merchant is assigned.
+    const operatorUserId = posMachine.assigned_user_id || posMachine.franchaise_id;
+    if (!operatorUserId) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine (id: ${posMachine.id}) mid: ${merchantId}, tid: ${terminalId} has no assigned user. Financial processing skipped. Notification stored with pos_machine_id only.`);
       await notification.update({
         processed: false,
@@ -257,10 +259,9 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       return;
     }
 
-    // Step 2: Get POS operator (can be a merchant or franchise owner)
-    // Note: This user operates the POS machine and may belong to a franchise (user.franchaise_id)
+    // Step 2: Get POS operator (merchant or franchise owner)
     const User = require("../models/User");
-    const posOperator = await User.findByPk(posMachine.assigned_user_id);
+    const posOperator = await User.findByPk(operatorUserId);
 
     if (!posOperator) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ POS operator not found with id: ${posMachine.assigned_user_id} for txn: ${txnId}. Financial processing skipped.`);
@@ -289,9 +290,11 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const paymentMethod = paymentMode ? paymentMode.toUpperCase() : null;
 
     // settlement_type is stored on the user record rather than in the notification
+    const franchiseId = posOperator.franchaise_id || (posOperator.role === 'franchaise' ? posOperator.id : null);
+
     const rule = await ChargeService.getTransactionChargeRule({
       userId: posOperator.id,
-      franchiseId: posOperator.franchaise_id || null,
+      franchiseId: franchiseId,
       paymentMode: paymentMethod,
       cardType: paymentCardType || null,
       cardBrand: paymentCardBrand || null,
@@ -300,7 +303,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       amount: parseFloat(transactionAmount)
     });
 
-    logger.log(`[Razorpay Webhook Worker] Charge lookup parameters: userId=${posOperator.id}, franchiseId=${posOperator.franchaise_id || 'none'}`);
+    logger.log(`[Razorpay Webhook Worker] Charge lookup parameters: userId=${posOperator.id}, franchiseId=${franchiseId || 'none'}`);
 
     logger.log('[Razorpay Webhook Worker] Using card classification from JSON:', classificationFromJson);
 
