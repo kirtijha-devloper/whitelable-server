@@ -36,7 +36,7 @@ const authLogger = {
   error: (...args) => { console.error(...args); _authFileLog("ERROR", args); },
 };
 const Tpin = require('../models/Tpin');
-const { Op } = require('sequelize');
+const { Op, fn, col } = require('sequelize');
 const PosMachine = require("../models/posMachine");
 const OTP = require("../models/Otp");
 const sendOtpHelper = require("../utils/sendOtp");
@@ -129,10 +129,34 @@ const getUsers = asyncHandler(async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
+        // Add POS machine assignment count per user (if any in this page)
+        const userIds = users.map((u) => u.id);
+        const posCounts = userIds.length
+          ? await PosMachine.findAll({
+              where: { assigned_user_id: userIds },
+              attributes: [
+                'assigned_user_id',
+                [fn('COUNT', col('id')), 'count'],
+              ],
+              group: ['assigned_user_id'],
+            })
+          : [];
+
+        const posCountMap = posCounts.reduce((acc, row) => {
+          acc[row.assigned_user_id] = parseInt(row.get('count'), 10);
+          return acc;
+        }, {});
+
+        const usersWithPosCount = users.map((u) => {
+          const plain = u.toJSON ? u.toJSON() : u;
+          plain.pos_machine_count = posCountMap[u.id] || 0;
+          return plain;
+        });
+
         res.status(200).json({
             success: true,
             message: 'Users retrieved successfully',
-            data: users,
+            data: usersWithPosCount,
             pagination: {
                 total: count,
                 page: parseInt(page),
