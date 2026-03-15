@@ -8,6 +8,7 @@ const {
   getPosMachine,
   activatePosMachine,
   deactivatePosMachine,
+  unassignPosMachine,
   deletePosMachine,
   markAsDelivered,
   markAsReturnInitiated,
@@ -34,6 +35,8 @@ router.post("/bulk-create", upload.single('file'), bulkCreatePosMachines); // Up
 // 🔄 Activate/Deactivate
 router.put("/activate/:id", activatePosMachine);
 router.put("/de-activate/:id", deactivatePosMachine);
+// 🔌 Unassign
+router.put("/unassign/:id", unassignPosMachine);
 
 // 📦 Status updates
 router.put("/delivered/:id", markAsDelivered);

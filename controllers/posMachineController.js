@@ -235,12 +235,57 @@ const deactivatePosMachine = asyncHandler(async (req, res) => {
   if (assignedUserId) {
     const user = await User.findByPk(assignedUserId);
     if (user) {
-      user.is_pos_asigned = false;
-      await user.save();
+      // Only clear the flag if the user no longer has any assigned machines
+      const remaining = await PosMachine.count({ where: { assigned_user_id: assignedUserId } });
+      if (remaining === 0) {
+        user.is_pos_asigned = false;
+        await user.save();
+      }
     }
   }
 
   res.status(200).json(posMachineById);
+});
+
+const unassignPosMachine = asyncHandler(async (req, res) => {
+  const id = req.params.id;
+  const posMachine = await PosMachine.findByPk(id);
+
+  if (!posMachine) {
+    res.status(404);
+    throw new Error("Not Found!");
+  }
+
+  const previousAssignee = posMachine.assigned_user_id;
+
+  posMachine.assigned_user_id = null;
+  posMachine.status = "active"; // keep it available as inventory
+  await posMachine.save();
+
+  if (previousAssignee) {
+    const user = await User.findByPk(previousAssignee);
+    if (user) {
+      const remaining = await PosMachine.count({ where: { assigned_user_id: previousAssignee } });
+      if (remaining === 0) {
+        user.is_pos_asigned = false;
+        await user.save();
+      }
+    }
+
+    // audit log
+    await PosMachineAssignmentLog.create({
+      pos_machine_id: posMachine.id,
+      action: 'unassign',
+      assigned_from_user_id: previousAssignee,
+      assigned_to_user_id: null,
+      performed_by_user_id: req.user.id,
+      details: {
+        franchaise_id: posMachine.franchaise_id
+      }
+    });
+  }
+
+  res.status(200).json(posMachine);
 });
 
 
@@ -310,10 +355,7 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
         throw new Error("User Not Found!");
     }
 
-    if (user.is_pos_asigned) {
-        res.status(400);
-        throw new Error("User Id has already pos assigned");
-    }
+    // allow merchants to have multiple POS machines (is_pos_asigned now indicates "has at least one")
 
     const assigneeRole = user.role
 
@@ -712,4 +754,4 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerchant, getPosMachineList, updatePosMachine, bulkCreatePosMachines}
+module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, unassignPosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerchant, getPosMachineList, updatePosMachine, bulkCreatePosMachines }
