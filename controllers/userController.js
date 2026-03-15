@@ -353,24 +353,9 @@ const registerUser = asyncHandler(async (req, res) => {
         // Normalise role: frontend sends "franchise", DB stores "franchaise"
         const normalizedRole = role === 'franchise' ? 'franchaise' : role;
 
-        let abheepay_id = '';
-        let abheepayPrefix = '';
-        let count = 0;
-
-        if (normalizedRole === 'merchant') {
-            abheepayPrefix = 'APM';
-            count = await User.count({ where: { role: 'merchant' } });
-            abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        } else if (normalizedRole === 'franchaise') {
-            abheepayPrefix = 'APF';
-            count = await User.count({ where: { role: 'franchaise' } });
-            abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        } else if (normalizedRole === 'admin') {
-            abheepayPrefix = 'APA';
-            count = await User.count({ where: { role: 'admin' } });
-            if (count === 0) { count = 1; }
-            abheepay_id = `${abheepayPrefix}${String(count + 1).padStart(4, '0')}`;
-        }
+        // abheepay_id is the same as the generated username (token) for this user.
+        // This makes the identifier consistent between the user record and login username.
+        let abheepay_id = null;
 
         // Handle file uploads to Cloudinary
         const panFile          = req.files?.pan_photo;
@@ -387,10 +372,12 @@ const registerUser = asyncHandler(async (req, res) => {
             bankPassbookFile ? cloudinary.uploader.upload(bankPassbookFile.tempFilePath, { folder: 'users' }) : null,
         ]);
 
-        // allocate username inside same transaction so sequence rollback works
+        // allocate username (and use it as abheepay_id) inside the same transaction so rollback works
         let user;
         await db.transaction(async (t) => {
             const username = await allocateUsernameForRole(normalizedRole, t);
+            abheepay_id = username;
+
             user = await User.create({
                 email,
                 password: hashPassword,
