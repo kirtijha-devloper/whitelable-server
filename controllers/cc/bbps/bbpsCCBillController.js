@@ -37,7 +37,8 @@ function normalizeGeoCode(geoCode) {
   const lat = parseFloat(parts[0]);
   const lon = parseFloat(parts[1]);
   if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
-  return `${lat},${lon}`;
+  // InstantPay requires exactly 4 decimal places
+  return `${lat.toFixed(4)},${lon.toFixed(4)}`;
 }
 
 /**

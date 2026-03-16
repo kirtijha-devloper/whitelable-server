@@ -1,4 +1,12 @@
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+
+const logFile = path.join(__dirname, '../../../logs/bbpsCCBill.log');
+function svcLog(msg) {
+  const ts = new Date().toISOString();
+  fs.appendFile(logFile, `[${ts}] [service] ${msg}\n`, () => {});
+}
 
 /**
  * BBPS CC Bill Payment Service
@@ -95,7 +103,7 @@ async function prePaymentEnquiry(opts) {
   const externalRef = generateExternalRef();
   const remarkParam = (String(opts.param1).length === 10 ? opts.param1 : opts.param2) || opts.customerMobile || '9999999999';
 
-  const response = await axios.post(`${BASE_URL}/prePaymentEnquiry`, {
+  const payload = {
     billerId:          opts.billerId,
     initChannel:       opts.initChannel,
     externalRef,
@@ -103,10 +111,16 @@ async function prePaymentEnquiry(opts) {
     deviceInfo:        { mac: '00:00:00:00:00:00', ip: opts.ipAddress || '0.0.0.0' },
     remarks:           { param1: remarkParam },
     transactionAmount: opts.transactionAmount,
-  }, {
+  };
+
+  svcLog(`prePaymentEnquiry PAYLOAD: ${JSON.stringify(payload)}`);
+
+  const response = await axios.post(`${BASE_URL}/prePaymentEnquiry`, payload, {
     headers: buildHeaders(opts.outletId),
     timeout: 30000,
   });
+
+  svcLog(`prePaymentEnquiry RESPONSE: ${JSON.stringify(response.data)}`);
 
   return { externalRef, data: response.data };
 }
@@ -156,10 +170,14 @@ async function payCCBill(opts) {
     payload.customerPan = opts.customerPan;
   }
 
+  svcLog(`payCCBill PAYLOAD: ${JSON.stringify(payload)}`);
+
   const response = await axios.post(`${BASE_URL}/payment`, payload, {
     headers: buildHeaders(opts.outletId),
     timeout: 60000,
   });
+
+  svcLog(`payCCBill RESPONSE: ${JSON.stringify(response.data)}`);
 
   return { externalRef, data: response.data };
 }
