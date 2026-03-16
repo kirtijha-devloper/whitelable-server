@@ -144,7 +144,7 @@ async function payCCBill(opts) {
       terminalId: opts.customerMobile,
       mobile:     opts.customerMobile,
       postalCode: '110044',
-      geoCode:    opts.geoCode || '0.0,0.0',
+      ...(opts.geoCode ? { geoCode: opts.geoCode } : {}),
     },
     paymentMode: opts.paymentMode || 'Cash',
     paymentInfo: opts.paymentInfo || { Remarks: 'CC Bill Payment' },
