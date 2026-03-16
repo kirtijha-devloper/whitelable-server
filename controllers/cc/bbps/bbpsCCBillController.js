@@ -16,6 +16,18 @@ function bbpsFileLog(message) {
   });
 }
 
+// Return a valid IPv4 string for InstantPay (they reject IPv6 formats like ::1).
+function normalizeIp(ip) {
+  if (!ip || typeof ip !== 'string') return '0.0.0.0';
+  // If IPv6 loopback or contains IPv4-mapped IPv6, extract IPv4
+  const ipv4Match = ip.match(/(\d+\.\d+\.\d+\.\d+)/);
+  if (ipv4Match) return ipv4Match[1];
+  // If IPv6 loopback
+  if (ip === '::1' || ip === '::ffff:127.0.0.1') return '127.0.0.1';
+  // Fallback to 0.0.0.0
+  return '0.0.0.0';
+}
+
 /**
  * Helper: resolve outlet ID from JWT user payload or header fallback.
  * PHP equivalent: intval(session('outlet'))
@@ -114,7 +126,7 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
       param2,
       transactionAmount,
       customerMobile,
-      ipAddress: req.ip,
+      ipAddress: normalizeIp(req.ip),
       outletId:  getOutletId(req),
     });
 
@@ -200,7 +212,7 @@ const payCCBill = asyncHandler(async (req, res) => {
       enquiryReferenceId,
       geoCode,
       customerPan,
-      ipAddress: req.ip,
+      ipAddress: normalizeIp(req.ip),
       outletId:  getOutletId(req),
     });
 
