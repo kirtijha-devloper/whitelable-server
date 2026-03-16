@@ -7,7 +7,8 @@ const WalletTransaction = require('../../../models/WalletTransaction');
 const ledgerService = require('../../../services/ledgerService');
 
 // Debug logging helper for this controller
-const bbpsLogFile = path.join(__dirname, '../../logs/bbpsCCBill.log');
+// Logs are written to the shared root /logs folder (same as auth.log etc.)
+const bbpsLogFile = path.join(__dirname, '../../../logs/bbpsCCBill.log');
 function bbpsFileLog(message) {
   const timestamp = new Date().toISOString();
   fs.appendFile(bbpsLogFile, `[${timestamp}] ${message}\n`, (err) => {
