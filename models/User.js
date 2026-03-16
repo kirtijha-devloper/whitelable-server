@@ -117,10 +117,19 @@ const User = db.define('User', {
         unique: true,
         comment: 'System-generated login username (not supplied by frontend)'
       },
+      // InstantPay outlet ID (aka "pin").
+      //
+      // This is set via the KYC flow (POST /api/kyc/validate-otp) when the
+      // InstantPay API returns `data.outletId` after successful OTP validation.
+      //
+      // It is used by downstream InstantPay integrations (e.g. BBPS bill payments)
+      // and can also be set/updated via the admin endpoint
+      // PUT /api/merchant/:id/ipay-outlet.
       ipay_outlet_id: {
         type: Sequelize.INTEGER,
         allowNull: true,
-        comment: 'InstantPay outlet ID assigned to this merchant (PHP: session outlet)'
+        comment:
+          'InstantPay outlet ID assigned to this merchant (from InstantPay KYC/OTP validation)'
       },
       createdAt: {
           allowNull: false,

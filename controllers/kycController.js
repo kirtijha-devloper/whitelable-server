@@ -185,9 +185,16 @@ const validateKycOtp = asyncHandler(async (req, res) => {
 
   console.info('[KYC validateKycOtp] response for otpReferenceID', otpReferenceID, ipayResponse);
 
-  const outletId = ipayResponse?.data?.outletId ?? null;
+  const outletIdRaw = ipayResponse?.data?.outletId ?? null;
+  const outletId = outletIdRaw != null ? parseInt(outletIdRaw, 10) : null;
   const statusCode = ipayResponse?.statuscode ?? null;
   const status = ipayResponse?.status ?? null;
+
+  if (outletIdRaw != null && (isNaN(outletId) || outletId <= 0)) {
+    console.error('[KYC validateKycOtp] Invalid outletId returned from InstantPay:', outletIdRaw);
+    res.status(502);
+    throw new Error('Invalid outletId returned from InstantPay.');
+  }
 
   // Update the authenticated user's ipay_outlet_id
   const userId = req.user?.id;
