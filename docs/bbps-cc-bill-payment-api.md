@@ -173,6 +173,7 @@ Content-Type: application/json
   "success": true,
   "message": "Pre-payment enquiry successful",
   "externalRef": "APBBPS20261234567890123",
+  "enquiryReferenceId": "ENQ123456789",   // returned at top-level for easy access
   "data": {
     "statuscode": "OI",
     "data": {
@@ -188,7 +189,7 @@ Content-Type: application/json
 ```
 
 > **UI tip:** Display `billDetails` to the user for confirmation before proceeding.  
-> Save `data.data.enquiryReferenceId` — pass it as `enquiryReferenceId` in `/pay`.
+> Save `enquiryReferenceId` (top-level field) and pass it as `enquiryReferenceId` in `/pay`.
 
 ---
 

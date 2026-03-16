@@ -106,11 +106,14 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
       outletId:  getOutletId(req),
     });
 
+    const enquiryReferenceId = result.data?.data?.enquiryReferenceId ?? null;
+
     return res.status(200).json({
-      success:     true,
-      message:     'Pre-payment enquiry successful',
-      externalRef: result.externalRef,
-      data:        result.data,
+      success:             true,
+      message:             'Pre-payment enquiry successful',
+      externalRef:         result.externalRef,
+      enquiryReferenceId, // returned to the frontend for use in /pay
+      data:                result.data,
     });
   } catch (error) {
     console.error('[bbpsCC] prePaymentEnquiry error:', error.message);
