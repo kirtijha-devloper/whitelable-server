@@ -18,6 +18,7 @@
 | POST | `/assign-to-merchant` | Assign to merchant | ✅ |
 | PUT | `/activate/:id` | Activate POS machine | ✅ |
 | PUT | `/de-activate/:id` | Deactivate POS machine | ✅ |
+| PUT | `/unassign/:id` | Unassign POS machine (clear user assignment) | ✅ |
 | PUT | `/delivered/:id` | Mark as delivered | ✅ |
 | PUT | `/returned-initiated/:id` | Mark return initiated | ✅ |
 | PUT | `/:id` | Update POS machine | ✅ |
@@ -84,6 +85,12 @@ Content-Type: application/json
 ```http
 PUT /api/pos-machine/activate/:id
 PUT /api/pos-machine/de-activate/:id
+Authorization: Bearer <token>
+```
+
+### Unassign POS Machine
+```http
+PUT /api/pos-machine/unassign/:id
 Authorization: Bearer <token>
 ```
 

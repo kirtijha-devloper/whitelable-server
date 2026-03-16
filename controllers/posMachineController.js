@@ -257,11 +257,15 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
   }
 
   const previousAssignee = posMachine.assigned_user_id;
+  const previousFranchise = posMachine.franchaise_id;
 
+  // clear both merchant and franchise assignment
   posMachine.assigned_user_id = null;
+  posMachine.franchaise_id = null;
   posMachine.status = "active"; // keep it available as inventory
   await posMachine.save();
 
+  // When unassigning, update any user flags that indicate they have a POS machine
   if (previousAssignee) {
     const user = await User.findByPk(previousAssignee);
     if (user) {
@@ -271,19 +275,30 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
         await user.save();
       }
     }
-
-    // audit log
-    await PosMachineAssignmentLog.create({
-      pos_machine_id: posMachine.id,
-      action: 'unassign',
-      assigned_from_user_id: previousAssignee,
-      assigned_to_user_id: null,
-      performed_by_user_id: req.user.id,
-      details: {
-        franchaise_id: posMachine.franchaise_id
-      }
-    });
   }
+
+  if (previousFranchise) {
+    const franchaiseUser = await User.findByPk(previousFranchise);
+    if (franchaiseUser) {
+      const remaining = await PosMachine.count({ where: { franchaise_id: previousFranchise } });
+      if (remaining === 0) {
+        franchaiseUser.is_pos_asigned = false;
+        await franchaiseUser.save();
+      }
+    }
+  }
+
+  // audit log
+  await PosMachineAssignmentLog.create({
+    pos_machine_id: posMachine.id,
+    action: 'unassign',
+    assigned_from_user_id: previousAssignee,
+    assigned_to_user_id: null,
+    performed_by_user_id: req.user.id,
+    details: {
+      previous_franchaise_id: previousFranchise
+    }
+  });
 
   res.status(200).json(posMachine);
 });
