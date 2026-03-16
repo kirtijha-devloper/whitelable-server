@@ -214,6 +214,40 @@ const payCCBill = asyncHandler(async (req, res) => {
     // Fixed initChannel required by InstantPay for this integration.
     const initChannel = 'AGT';
 
+    const userId = req.user?.id;
+    const txnAmount = parseFloat(transactionAmount);
+
+    // ── Step 1: Debit wallet BEFORE calling InstantPay ───────────────────────
+    let walletTx = null;
+    let ledgerEntry = null;
+
+    if (userId && txnAmount > 0) {
+      walletTx = await WalletTransaction.create({
+        type: 'bbps',
+        amount: txnAmount,
+        status: 'pending',
+        reason: `BBPS CC bill payment — biller: ${billerId}, mobile: ${customerMobile}`,
+        source: 'bbps_cc',
+        requested_by: userId,
+      });
+
+      ledgerEntry = await ledgerService.createLedgerEntry({
+        userId,
+        transactionType: 'bbps_payment',
+        referenceId: walletTx.id,
+        referenceTable: 'WalletTransactions',
+        description: `BBPS CC bill payment — biller: ${billerId}, mobile: ${customerMobile}`,
+        debit: txnAmount,
+        status: 'pending',
+        metadata: {
+          biller_id: billerId,
+          customer_mobile: customerMobile,
+          payment_mode: paymentMode || 'Cash',
+        }
+      });
+    }
+
+    // ── Step 2: Call InstantPay ──────────────────────────────────────────────
     const result = await bbpsCCBillService.payCCBill({
       billerId,
       initChannel,
@@ -232,46 +266,58 @@ const payCCBill = asyncHandler(async (req, res) => {
 
     const isSuccess = ['TXN', 'TUP'].includes(result.data?.statuscode);
 
-    if (!isSuccess) {
+    // ── Step 3: Finalise or reverse based on result ─────────────────────────
+    if (isSuccess && walletTx) {
+      // Mark debit as completed
+      walletTx.status = 'completed';
+      walletTx.reference_id = result.externalRef || null;
+      await walletTx.save();
+
+      if (ledgerEntry) {
+        ledgerEntry.status = 'completed';
+        ledgerEntry.transaction_id = result.externalRef || null;
+        ledgerEntry.metadata = JSON.stringify({
+          biller_id: billerId,
+          customer_mobile: customerMobile,
+          payment_mode: paymentMode || 'Cash',
+          statuscode: result.data?.statuscode,
+          external_ref: result.externalRef,
+        });
+        await ledgerEntry.save();
+      }
+    } else if (!isSuccess && walletTx) {
+      // Payment failed — reverse the wallet debit
+      bbpsFileLog(`payCCBill failed for billerId=${billerId} body=${JSON.stringify(req.body)} response=${JSON.stringify(result)}`);
+
+      walletTx.status = 'reversed';
+      walletTx.reference_id = result.externalRef || null;
+      await walletTx.save();
+
+      // Credit the amount back
+      await ledgerService.createLedgerEntry({
+        userId,
+        transactionType: 'bbps_payment_reversal',
+        transactionId: result.externalRef || null,
+        referenceId: walletTx.id,
+        referenceTable: 'WalletTransactions',
+        description: `Reversed — BBPS CC payment failed (${result.data?.status || 'unknown'})`,
+        credit: txnAmount,
+        status: 'completed',
+        metadata: {
+          biller_id: billerId,
+          original_ledger_id: ledgerEntry?.id,
+          statuscode: result.data?.statuscode,
+          external_ref: result.externalRef,
+        }
+      });
+
+      if (ledgerEntry) {
+        ledgerEntry.status = 'reversed';
+        await ledgerEntry.save();
+      }
+    } else if (!isSuccess) {
       bbpsFileLog(`payCCBill failed for billerId=${billerId} body=${JSON.stringify(req.body)} response=${JSON.stringify(result)}`);
     }
-
-    // ── Wallet debit + ledger entry on successful payment ────────────────────
-    if (isSuccess) {
-      const userId = req.user?.id;
-      const txnAmount = parseFloat(transactionAmount);
-
-      if (userId && txnAmount > 0) {
-        // NOTE: createLedgerEntry() below syncs user.wallet as its last step — no manual update needed here.
-        const walletTx = await WalletTransaction.create({
-          type: 'bbps',
-          amount: txnAmount,
-          status: 'completed',
-          reason: `BBPS CC bill payment — biller: ${billerId}, mobile: ${customerMobile}`,
-          source: 'bbps_cc',
-          reference_id: result.externalRef || null
-        });
-
-        await ledgerService.createLedgerEntry({
-          userId,
-          transactionType: 'bbps_payment',
-          transactionId: result.externalRef || null,
-          referenceId: walletTx.id,
-          referenceTable: 'WalletTransactions',
-          description: `BBPS CC bill payment — biller: ${billerId}, mobile: ${customerMobile}`,
-          debit: txnAmount,
-          status: 'completed',
-          metadata: {
-            biller_id: billerId,
-            customer_mobile: customerMobile,
-            payment_mode: paymentMode || 'Cash',
-            statuscode: result.data?.statuscode,
-            external_ref: result.externalRef
-          }
-        });
-      }
-    }
-    // ─────────────────────────────────────────────────────────────────────────
 
     return res.status(200).json({
       success:     isSuccess,
