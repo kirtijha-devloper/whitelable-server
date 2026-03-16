@@ -83,14 +83,17 @@ const getBillerDetails = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const prePaymentEnquiry = asyncHandler(async (req, res) => {
   try {
-    const { billerId, initChannel, param1, param2, transactionAmount, customerMobile } = req.body;
+    const { billerId, param1, param2, transactionAmount, customerMobile } = req.body;
 
-    if (!billerId || !initChannel || !param1 || !transactionAmount) {
+    if (!billerId || !param1 || !transactionAmount) {
       return res.status(400).json({
         success: false,
-        message: 'Required: billerId, initChannel, param1, transactionAmount',
+        message: 'Required: billerId, param1, transactionAmount',
       });
     }
+
+    // Fixed initChannel required by InstantPay for this integration.
+    const initChannel = 'AGT';
 
     const result = await bbpsCCBillService.prePaymentEnquiry({
       billerId,
@@ -141,7 +144,6 @@ const payCCBill = asyncHandler(async (req, res) => {
   try {
     const {
       billerId,
-      initChannel,
       param1,
       param2,
       transactionAmount,
@@ -153,12 +155,15 @@ const payCCBill = asyncHandler(async (req, res) => {
       customerPan,
     } = req.body;
 
-    if (!billerId || !initChannel || !param1 || !transactionAmount || !customerMobile) {
+    if (!billerId || !param1 || !transactionAmount || !customerMobile) {
       return res.status(400).json({
         success: false,
-        message: 'Required: billerId, initChannel, param1, transactionAmount, customerMobile',
+        message: 'Required: billerId, param1, transactionAmount, customerMobile',
       });
     }
+
+    // Fixed initChannel required by InstantPay for this integration.
+    const initChannel = 'AGT';
 
     const result = await bbpsCCBillService.payCCBill({
       billerId,
