@@ -117,6 +117,9 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
       outletId:  getOutletId(req),
     });
 
+    // Log the raw response to help debug missing enquiryReferenceId cases.
+    bbpsFileLog(`prePaymentEnquiry response for billerId=${billerId}: ${JSON.stringify(result)}`);
+
     const enquiryReferenceId = result.data?.data?.enquiryReferenceId ?? null;
 
     if (!enquiryReferenceId) {
