@@ -28,6 +28,18 @@ function normalizeIp(ip) {
   return '0.0.0.0';
 }
 
+// Normalize geoCode to a valid "lat,long" string (InstantPay expects numeric values).
+// If invalid, return null so it can be omitted from the payload.
+function normalizeGeoCode(geoCode) {
+  if (!geoCode || typeof geoCode !== 'string') return null;
+  const parts = geoCode.split(',').map((p) => p.trim());
+  if (parts.length !== 2) return null;
+  const lat = parseFloat(parts[0]);
+  const lon = parseFloat(parts[1]);
+  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  return `${lat},${lon}`;
+}
+
 /**
  * Helper: resolve outlet ID from JWT user payload or header fallback.
  * PHP equivalent: intval(session('outlet'))
@@ -126,6 +138,7 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
       param2,
       transactionAmount,
       customerMobile,
+      geoCode: normalizeGeoCode(req.body.geoCode),
       ipAddress: normalizeIp(req.ip),
       outletId:  getOutletId(req),
     });
@@ -210,13 +223,17 @@ const payCCBill = asyncHandler(async (req, res) => {
       paymentMode:        paymentMode || 'Cash',
       paymentInfo:        paymentInfo || { Remarks: 'CC Bill Payment' },
       enquiryReferenceId,
-      geoCode,
+      geoCode: normalizeGeoCode(geoCode),
       customerPan,
       ipAddress: normalizeIp(req.ip),
       outletId:  getOutletId(req),
     });
 
     const isSuccess = ['TXN', 'TUP'].includes(result.data?.statuscode);
+
+    if (!isSuccess) {
+      bbpsFileLog(`payCCBill failed for billerId=${billerId} body=${JSON.stringify(req.body)} response=${JSON.stringify(result)}`);
+    }
 
     // ── Wallet debit + ledger entry on successful payment ────────────────────
     if (isSuccess) {
