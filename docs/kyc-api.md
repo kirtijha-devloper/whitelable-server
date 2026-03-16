@@ -16,6 +16,36 @@ Step 0 – GET /api/kyc/info
      indicating if KYC is already done.  Use these values to pre‑fill the
      form on the frontend.
 
+  **Sample response (KYC not completed)**
+
+  ```json
+  {
+    "success": true,
+    "data": {
+      "mobile": "9876543210",
+      "email": "merchant@example.com",
+      "pan": "ABCDE1234F",
+      "aadhaar": "123456789012",
+      "kycDone": false
+    }
+  }
+  ```
+
+  **Sample response (KYC completed)**
+
+  ```json
+  {
+    "success": true,
+    "data": {
+      "mobile": "9876543210",
+      "email": "merchant@example.com",
+      "pan": "ABCDE1234F",
+      "aadhaar": "123456789012",
+      "kycDone": true
+    }
+  }
+  ```
+
 Step 1 – POST /api/kyc/initiate
   └─ Submit merchant details (missing fields are filled from the user record) →
      InstantPay sends an OTP to the registered mobile
@@ -37,6 +67,17 @@ Authorization: Bearer <access_token>
 > 💡 *Note:* the new `GET /api/kyc/info` also requires authentication and can
 > be called immediately after login to determine whether the user needs to
 > complete KYC and to populate the form fields.
+
+### How a logged-in user can tell if KYC is already complete
+
+A user can determine whether they already have an InstantPay `outletId` (stored
+as `ipay_outlet_id`) by calling either:
+
+- `GET /api/kyc/info` (recommended) — the response includes `kycDone: true` when
+  `ipay_outlet_id` is present.
+- `GET /api/user/current` — the response now includes `ipay_outlet_id` directly.
+
+Both endpoints require a valid JWT in the `Authorization` header.
 
 ---
 
