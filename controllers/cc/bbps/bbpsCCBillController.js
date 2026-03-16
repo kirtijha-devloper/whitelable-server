@@ -1,8 +1,19 @@
 const asyncHandler = require('express-async-handler');
+const fs = require('fs');
+const path = require('path');
 const bbpsCCBillService = require('../../../services/cc/bbps/bbpsCCBillService');
 const User = require('../../../models/User');
 const WalletTransaction = require('../../../models/WalletTransaction');
 const ledgerService = require('../../../services/ledgerService');
+
+// Debug logging helper for this controller
+const bbpsLogFile = path.join(__dirname, '../../logs/bbpsCCBill.log');
+function bbpsFileLog(message) {
+  const timestamp = new Date().toISOString();
+  fs.appendFile(bbpsLogFile, `[${timestamp}] ${message}\n`, (err) => {
+    if (err) console.error('[bbpsCC] log write failed', err);
+  });
+}
 
 /**
  * Helper: resolve outlet ID from JWT user payload or header fallback.
@@ -107,6 +118,11 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
     });
 
     const enquiryReferenceId = result.data?.data?.enquiryReferenceId ?? null;
+
+    if (!enquiryReferenceId) {
+      // Log full response for investigation (enquiryReferenceId missing)
+      bbpsFileLog(`Missing enquiryReferenceId for billerId=${billerId} body=${JSON.stringify(req.body)} response=${JSON.stringify(result)}`);
+    }
 
     return res.status(200).json({
       success:             true,
