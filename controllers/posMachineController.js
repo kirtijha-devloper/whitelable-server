@@ -769,4 +769,10 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, unassignPosMachine, deletePosMachine, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerchant, getPosMachineList, updatePosMachine, bulkCreatePosMachines }
+// ⚠️ TEMPORARY – delete ALL POS machines. Remove before production.
+const deleteAllPosMachines = asyncHandler(async (req, res) => {
+  const deleted = await PosMachine.destroy({ where: {}, truncate: true });
+  res.status(200).json({ success: true, message: `All POS machines deleted`, deleted });
+});
+
+module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, unassignPosMachine, deletePosMachine, deleteAllPosMachines, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerchant, getPosMachineList, updatePosMachine, bulkCreatePosMachines }
