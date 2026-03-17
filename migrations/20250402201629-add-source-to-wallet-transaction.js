@@ -2,13 +2,13 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    // await queryInterface.addColumn('WalletTransactions', 'source', {
-    //   type: Sequelize.STRING,
-    //   allowNull: true // or false if required
-    // });
+    await queryInterface.addColumn('WalletTransactions', 'source', {
+      type: Sequelize.STRING,
+      allowNull: true
+    });
   },
 
   async down(queryInterface, Sequelize) {
-    // await queryInterface.removeColumn('WalletTransactions', 'source');
+    await queryInterface.removeColumn('WalletTransactions', 'source');
   }
 };

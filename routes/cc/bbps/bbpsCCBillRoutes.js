@@ -6,6 +6,8 @@ const {
   getBillerDetails,
   prePaymentEnquiry,
   payCCBill,
+  getCcBillPayments,
+  getCcBillPayment,
 } = require('../../../controllers/cc/bbps/bbpsCCBillController');
 
 const validateToken = require('../../../middleware/validateTokenHandler');
@@ -27,5 +29,11 @@ router.post('/pre-payment-enquiry', prePaymentEnquiry);
 
 // POST /api/bbps-cc/pay                 – Execute CC bill payment
 router.post('/pay', payCCBill);
+
+// GET /api/bbps-cc/payments            – List CC bill payment records (admin sees all)
+router.get('/payments', getCcBillPayments);
+
+// GET /api/bbps-cc/payments/:id        – Get a specific CC bill payment record
+router.get('/payments/:id', getCcBillPayment);
 
 module.exports = router;
