@@ -508,4 +508,8 @@ module.exports = {
   payCCBill,
   getCcBillPayments,
   getCcBillPayment,
+  getBbpsCcChargeRules,
+  createBbpsCcChargeRule,
+  updateBbpsCcChargeRule,
+  deleteBbpsCcChargeRule,
 };
