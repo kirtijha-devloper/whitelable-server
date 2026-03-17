@@ -50,7 +50,7 @@ router.post("/assign", assignPosMachineToUserID);
 router.post("/assign-to-merchant", assignPosMachineToMerchant); // route to assign single machine to merchant
 
 // ⚠️ TEMPORARY – delete ALL POS machines. Remove before production.
-// router.delete("/all", deleteAllPosMachines);
+router.delete("/all", deleteAllPosMachines);
 
 // 🧍 Get single, Delete
 router.get("/:id", getPosMachine);
