@@ -2,6 +2,7 @@ const asyncHandler = require("express-async-handler")
 // @desc Get all Pos Machine
 // @route GET /api/pos_machine
 
+const { Op } = require('sequelize');
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
 const PosMachineAssignmentLog = require('../models/PosMachineAssignmentLog');
@@ -135,52 +136,48 @@ const createPosMachine = asyncHandler(async (req, res ) => {
     const razorpayId = req.body.razorpayid || req.body.razorpay_id || null;
     const remarks = req.body.remarks || "added";
 
-    // Find or create based on required fields (tid_number, mid_number, device_serial_number)
-    const [posMachine, created] = await PosMachine.findOrCreate({
-        where: {
-            tid_number: tid_number,
-            mid_number: mid_number,
-            device_serial_number: device_serial_number
-        },
-        defaults: {
-            tid_number: tid_number,
-            mid_number: mid_number,
-            device_serial_number: device_serial_number,
-            company_name: company_name || null,
-            razorpay_id: razorpayId,
-            remarks: remarks,
-            status: "added",
-            franchaise_id: franchaiseId
-        }
+    const companyName = company_name ? company_name.toString().trim() : null;
+
+    // Prevent creating POS machine if TID/MID/Serial already exists for this company
+    const existingDuplicate = await PosMachine.findOne({
+      where: {
+        company_name: companyName,
+        [Op.or]: [
+          { tid_number },
+          { mid_number },
+          { device_serial_number }
+        ]
+      }
     });
 
-    // If record already exists, update optional fields if provided
-    if (!created) {
-        const updateData = {};
-        if (company_name !== undefined) {
-            updateData.company_name = company_name;
-        }
-        if (razorpayId) {
-            updateData.razorpay_id = razorpayId;
-        }
-        if (remarks && remarks !== "added") {
-            updateData.remarks = remarks;
-        }
-        if (franchaiseId && !posMachine.franchaise_id) {
-            updateData.franchaise_id = franchaiseId;
-        }
-        
-        if (Object.keys(updateData).length > 0) {
-            await posMachine.update(updateData);
-        }
+    if (existingDuplicate) {
+      res.status(400);
+      const duplicateField =
+        existingDuplicate.tid_number === tid_number
+          ? 'tid_number'
+          : existingDuplicate.mid_number === mid_number
+          ? 'mid_number'
+          : 'device_serial_number';
+      throw new Error(`A POS machine with the same ${duplicateField} already exists for this company.`);
     }
 
-    const statusCode = created ? 201 : 200;
-    res.status(statusCode).json({
-        success: true,
-        created: created,
-        message: created ? "POS machine created successfully" : "POS machine already exists",
-        data: posMachine
+    // Create new record
+    const posMachine = await PosMachine.create({
+      tid_number: tid_number,
+      mid_number: mid_number,
+      device_serial_number: device_serial_number,
+      company_name: companyName,
+      razorpay_id: razorpayId,
+      remarks: remarks,
+      status: "added",
+      franchaise_id: franchaiseId
+    });
+
+    res.status(201).json({
+      success: true,
+      created: true,
+      message: "POS machine created successfully",
+      data: posMachine
     });
     } catch (error) {
     res.status(500).json({
@@ -681,6 +678,41 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
 
     console.log("Parsed records:", records);
 
+    // Preload existing values from database (filtered by company_name) to avoid inserting duplicates
+    const companyNames = [...new Set(records.map(r => r.company_name || null))];
+    const nonNullCompanyNames = companyNames.filter(c => c !== null);
+    const tids = [...new Set(records.map(r => r.tid_number).filter(Boolean))];
+    const mids = [...new Set(records.map(r => r.mid_number).filter(Boolean))];
+    const serials = [...new Set(records.map(r => r.device_serial_number).filter(Boolean))];
+
+    const companyCondition = nonNullCompanyNames.length > 0
+      ? { [Op.or]: [{ company_name: null }, { company_name: nonNullCompanyNames }] }
+      : { company_name: null };
+
+    const existingPosMachines = await PosMachine.findAll({
+      where: {
+        ...companyCondition,
+        [Op.or]: [
+          { tid_number: tids },
+          { mid_number: mids },
+          { device_serial_number: serials }
+        ]
+      },
+      attributes: ['company_name', 'tid_number', 'mid_number', 'device_serial_number']
+    });
+
+    const makeKey = (company, field, value) => `${company ?? '<NULL>'}||${field}||${value}`;
+
+    const existingKeys = new Set();
+    existingPosMachines.forEach(p => {
+      const companyKey = p.company_name || null;
+      if (p.tid_number) existingKeys.add(makeKey(companyKey, 'tid_number', p.tid_number));
+      if (p.mid_number) existingKeys.add(makeKey(companyKey, 'mid_number', p.mid_number));
+      if (p.device_serial_number) existingKeys.add(makeKey(companyKey, 'device_serial_number', p.device_serial_number));
+    });
+
+    const createdKeys = new Set();
+
     for (let index = 0; index < records.length; index++) {
       const record = records[index];
       const rowNumber = index + 2; // +2 because index is 0-based and we skip header row
@@ -696,39 +728,47 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
           continue;
         }
 
-        // Use findOrCreate to optimize database queries (single query instead of findOne + create)
-        const [posMachine, created] = await PosMachine.findOrCreate({
-          where: {
-            tid_number: record.tid_number,
-            mid_number: record.mid_number,
-            device_serial_number: record.device_serial_number
-          },
-          defaults: {
-            tid_number: record.tid_number,
-            mid_number: record.mid_number,
-            device_serial_number: record.device_serial_number,
-            company_name: record.company_name || null,
-            razorpay_id: record.razorpay_id || null,
-            remarks: record.remarks || "added",
-            status: "added",
-            franchaise_id: franchaiseId
-          }
-        });
+        const companyName = record.company_name || null;
+        const tidKey = makeKey(companyName, 'tid_number', record.tid_number);
+        const midKey = makeKey(companyName, 'mid_number', record.mid_number);
+        const serialKey = makeKey(companyName, 'device_serial_number', record.device_serial_number);
 
-        if (created) {
-          // New record was created
-          results.push(posMachine);
-        } else {
-          // Record already exists; optionally update company_name if provided
-          if (record.company_name && (!posMachine.company_name || posMachine.company_name !== record.company_name)) {
-            await posMachine.update({ company_name: record.company_name });
-          }
+        // Check for duplicates against existing database records (same company)
+        if (existingKeys.has(tidKey) || existingKeys.has(midKey) || existingKeys.has(serialKey)) {
           errors.push({
             row: rowNumber,
             data: record,
-            error: `POS machine already exists (TID: ${record.tid_number}, MID: ${record.mid_number}, Serial: ${record.device_serial_number})`
+            error: `Duplicate TID/MID/Serial already exists for company "${companyName || 'NULL'}" (TID: ${record.tid_number}, MID: ${record.mid_number}, Serial: ${record.device_serial_number})`
           });
+          continue;
         }
+
+        // Prevent duplicates within the same upload (same company)
+        if (createdKeys.has(tidKey) || createdKeys.has(midKey) || createdKeys.has(serialKey)) {
+          errors.push({
+            row: rowNumber,
+            data: record,
+            error: `Duplicate TID/MID/Serial in uploaded data for company "${companyName || 'NULL'}" (TID: ${record.tid_number}, MID: ${record.mid_number}, Serial: ${record.device_serial_number})`
+          });
+          continue;
+        }
+
+        // Create the POS machine
+        const posMachine = await PosMachine.create({
+          tid_number: record.tid_number,
+          mid_number: record.mid_number,
+          device_serial_number: record.device_serial_number,
+          company_name: record.company_name || null,
+          razorpay_id: record.razorpay_id || null,
+          remarks: record.remarks || "added",
+          status: "added",
+          franchaise_id: franchaiseId
+        });
+
+        results.push(posMachine);
+        createdKeys.add(tidKey);
+        createdKeys.add(midKey);
+        createdKeys.add(serialKey);
       } catch (error) {
         console.error(`Error processing record at row ${rowNumber}:`, error);
         errors.push({
@@ -748,9 +788,10 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Successfully created ${results.length} POS machines`,
+      message: `Created ${results.length} machines, skipped ${errors.length} rows`,
+      createdCount: results.length,
       created: results,
-      errors: errors
+      skipped: errors
     });
   } catch (error) {
     console.error("Bulk create error:", error);
