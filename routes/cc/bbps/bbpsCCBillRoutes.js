@@ -8,6 +8,10 @@ const {
   payCCBill,
   getCcBillPayments,
   getCcBillPayment,
+  getBbpsCcChargeRules,
+  createBbpsCcChargeRule,
+  updateBbpsCcChargeRule,
+  deleteBbpsCcChargeRule,
 } = require('../../../controllers/cc/bbps/bbpsCCBillController');
 
 const validateToken = require('../../../middleware/validateTokenHandler');
@@ -35,5 +39,11 @@ router.get('/payments', getCcBillPayments);
 
 // GET /api/bbps-cc/payments/:id        – Get a specific CC bill payment record
 router.get('/payments/:id', getCcBillPayment);
+
+// CC charge rules (admin only)
+router.get('/charge-rules', getBbpsCcChargeRules);
+router.post('/charge-rules', createBbpsCcChargeRule);
+router.put('/charge-rules/:id', updateBbpsCcChargeRule);
+router.delete('/charge-rules/:id', deleteBbpsCcChargeRule);
 
 module.exports = router;

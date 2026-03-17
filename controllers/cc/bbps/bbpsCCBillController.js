@@ -241,6 +241,81 @@ const getCcBillPayment = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, data: record });
 });
 
+const getBbpsCcChargeRules = asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+
+  const rules = await BbpsCcChargeRule.findAll({ order: [['from_amount', 'ASC']] });
+  return res.status(200).json({ success: true, data: rules });
+});
+
+const createBbpsCcChargeRule = asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+
+  const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
+  if (!from_amount || !to_amount || !rate || !rate_type) {
+    return res.status(400).json({ success: false, message: 'from_amount, to_amount, rate, and rate_type are required' });
+  }
+  if (!['percentage', 'flat'].includes(rate_type)) {
+    return res.status(400).json({ success: false, message: 'rate_type must be percentage or flat' });
+  }
+
+  const rule = await BbpsCcChargeRule.create({
+    from_amount,
+    to_amount,
+    rate,
+    rate_type,
+    is_active: is_active !== undefined ? is_active : true,
+    description,
+  });
+
+  return res.status(201).json({ success: true, data: rule });
+});
+
+const updateBbpsCcChargeRule = asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+
+  const rule = await BbpsCcChargeRule.findByPk(req.params.id);
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Charge rule not found' });
+  }
+
+  const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
+  if (from_amount !== undefined) rule.from_amount = from_amount;
+  if (to_amount !== undefined) rule.to_amount = to_amount;
+  if (rate !== undefined) rule.rate = rate;
+  if (rate_type !== undefined) {
+    if (!['percentage', 'flat'].includes(rate_type)) {
+      return res.status(400).json({ success: false, message: 'rate_type must be percentage or flat' });
+    }
+    rule.rate_type = rate_type;
+  }
+  if (is_active !== undefined) rule.is_active = is_active;
+  if (description !== undefined) rule.description = description;
+
+  await rule.save();
+  return res.status(200).json({ success: true, data: rule });
+});
+
+const deleteBbpsCcChargeRule = asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+
+  const rule = await BbpsCcChargeRule.findByPk(req.params.id);
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Charge rule not found' });
+  }
+
+  await rule.destroy();
+  return res.status(200).json({ success: true, message: 'Charge rule deleted' });
+});
+
 const payCCBill = asyncHandler(async (req, res) => {
   try {
     const {
@@ -333,7 +408,8 @@ const payCCBill = asyncHandler(async (req, res) => {
       order: [['from_amount', 'DESC']],
     });
 
-    let chargeAmount = 0;
+    // Default charge when no rule is configured
+    let chargeAmount = 20;
     if (chargeRule) {
       if (chargeRule.rate_type === 'flat') {
         chargeAmount = parseFloat(chargeRule.rate);
