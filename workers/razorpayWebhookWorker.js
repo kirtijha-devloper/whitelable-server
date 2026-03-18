@@ -204,7 +204,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       paymentCardType,
       paymentCardBrand,
       cardClassification: classificationFromJson,
-      settlementType: posOperator ? posOperator.settlement_type : 'N/A',
+      settlementType: 'N/A',
       status: transactionStatus,
       settlementStatus,
       customerName,
@@ -278,6 +278,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     await notification.update({ user_id: posOperator.id });
 
     logger.log(`[Razorpay Webhook Worker] Found POS operator: ${posOperator.id} (${posOperator.name || posOperator.email})`);
+    logger.log(`[Razorpay Webhook Worker] Settlement type: ${posOperator.settlement_type || 'N/A'}`);
 
     // Step 3: Resolve POS charge using the new rule engine
     // The service takes all relevant parameters and returns the most specific rule.
@@ -363,7 +364,6 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     logger.log(`[Razorpay Webhook Worker] Transaction Amount: ${transactionAmount}, Charge: ${chargeAmount}, Net Amount: ${netAmount}`);
 
     // Step 5: Check if transaction already processed (idempotency)
-    const WalletTransaction = require("../models/WalletTransaction");
     const MerchantTransactionCharge = require("../models/MerchantTransactionCharge");
     
     // Check if charge record already exists
@@ -383,52 +383,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       return;
     }
 
-    const existingTransaction = await WalletTransaction.findOne({
-      where: {
-        reason: `Razorpay transaction: ${txnId}`
-      }
-    });
-
-    if (existingTransaction) {
-      logger.log(`[Razorpay Webhook Worker] Transaction already processed for txn: ${txnId}`);
-      await notification.update({
-        processed: true,
-        processing_status: 'completed',
-        processed_at: new Date()
-      });
-      return;
-    }
-
-    // Step 6: Create WalletTransaction record with comprehensive details
-    const walletReason = [
-      `Razorpay transaction: ${txnId}`,
-      `Amount: ${transactionAmount}`,
-      `Charge: ${chargeAmount}`,
-      `Net: ${netAmount}`,
-      paymentMode ? `Payment: ${paymentMode}` : '',
-      paymentCardBrand ? `Card: ${paymentCardBrand}` : '',
-      walletProvider ? `Wallet: ${walletProvider}` : '',
-      rrNumber ? `RR#: ${rrNumber}` : '',
-      customerName ? `Customer: ${customerName}` : ''
-    ].filter(Boolean).join(' | ');
-    
-    const walletTransaction = await WalletTransaction.create({
-      type: "razorpay",
-      amount: netAmount,
-      status: "completed",
-      reason: walletReason,
-      requested_by: posOperator.id,
-      source: src,
-      reference_id: rrNumber || null // Store RR number as reference
-    });
-
-    logger.log(`[Razorpay Webhook Worker] ✅ Created wallet transaction for user: ${posOperator.id}, txn: ${txnId}`);
-
-    // Step 6a: If merchant belongs to a franchise record the flow at the
-    // franchise level.  We debit the franchise by the admin/franchise rate
-    // (what they owe the platform) and credit the franchise by the full
-    // merchant charge (what the merchant paid the franchise).  The net effect
-    // mirrors the old "earning" behaviour but makes two ledger entries.
+    // Step 6: If merchant belongs to a franchise record, apply the franchise-level ledger entries
     if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
       const franchiseId = posOperator.franchaise_id;
       const ledgerService = require("../services/ledgerService");
@@ -436,15 +391,6 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       if (franchiseChargeAmount > 0) {
         // debit franchise
         const desc = `Admin charge for Razorpay txn ${txnId}`;
-        await WalletTransaction.create({
-          type: "franchise_admin_fee",
-          amount: -franchiseChargeAmount,
-          status: "completed",
-          reason: desc,
-          requested_by: franchiseId,
-          source: src,
-          reference_id: null
-        });
         await ledgerService.createLedgerEntry({
           userId: franchiseId,
           transactionType: "franchise_admin_fee",
@@ -464,15 +410,6 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
       if (chargeAmount > 0) {
         const desc2 = `Merchant charge for Razorpay txn ${txnId}`;
-        await WalletTransaction.create({
-          type: "franchise_merchant_charge",
-          amount: chargeAmount,
-          status: "completed",
-          reason: desc2,
-          requested_by: franchiseId,
-          source: src,
-          reference_id: null
-        });
         await ledgerService.createLedgerEntry({
           userId: franchiseId,
           transactionType: "franchise_merchant_charge",
@@ -505,7 +442,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       payment_method: paymentMethod,
       payment_card_type: paymentCardType,
       payment_card_brand: paymentCardBrand,
-      wallet_transaction_id: walletTransaction.id,
+      wallet_transaction_id: null,
       rr_number: rrNumber,
       mid_number: merchantId.toString(),
       tid_number: terminalId.toString(),
@@ -543,7 +480,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         description: ledgerDescription,
         metadata: {
           razorpay_notification_id: notification.id,
-          wallet_transaction_id: walletTransaction.id,
+
           pos_machine_id: posMachine.id,
           payment_method: paymentMethod,
           payment_card_type: paymentCardType,
@@ -567,17 +504,6 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     // Step 9: Franchise earning (replaces previous commission logic)
     if (posOperator.role === 'merchant' && posOperator.franchaise_id && typeof franchiseEarning === 'number' && franchiseEarning > 0) {
       try {
-        // credit franchise wallet with the difference
-        const franchiseWalletTxn = await WalletTransaction.create({
-          type: "franchise_earning",
-          amount: franchiseEarning,
-          status: "completed",
-          reason: `Franchise earning ₹${franchiseEarning} | Merchant: ${posOperator.id} | Razorpay txn: ${txnId}`,
-          requested_by: posOperator.franchaise_id,
-          source: src,
-          reference_id: null,
-        });
-
         // ledger entry for franchise earning
         await ledgerService.createFranchiseEarningEntry({
           userId: posOperator.franchaise_id,
