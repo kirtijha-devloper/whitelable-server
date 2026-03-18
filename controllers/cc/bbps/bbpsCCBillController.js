@@ -57,6 +57,45 @@ const getOutletId = (req) => {
   return isNaN(parsed) ? null : parsed;
 };
 
+// Calculate the configured BBPS CC charge for a given transaction amount.
+// Falls back to a default ₹20 charge when no rule is configured.
+async function calculateBbpsCcCharge(txnAmount) {
+  const chargeRule = await BbpsCcChargeRule.findOne({
+    where: {
+      is_active: true,
+      from_amount: { [Op.lte]: txnAmount },
+      to_amount: { [Op.gte]: txnAmount },
+    },
+    order: [['from_amount', 'DESC']],
+  });
+
+  let chargeAmount = 20;
+  if (chargeRule) {
+    if (chargeRule.rate_type === 'flat') {
+      chargeAmount = parseFloat(chargeRule.rate);
+    } else {
+      chargeAmount = parseFloat((txnAmount * parseFloat(chargeRule.rate)) / 100.0);
+    }
+  }
+
+  return chargeAmount;
+}
+
+// Validate that the user has sufficient active balance to cover the transaction,
+// the configured BBPS CC charge, and a safety buffer of ₹30.
+async function ensureSufficientBalance(userId, txnAmount) {
+  const chargeAmount = await calculateBbpsCcCharge(txnAmount);
+  const minimumRequired = txnAmount + chargeAmount + 30;
+  const currentBalance = await ledgerService.getLatestBalance(userId);
+
+  return {
+    currentBalance,
+    chargeAmount,
+    minimumRequired,
+    isSufficient: currentBalance >= minimumRequired,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/bbps-cc/categories
 // Fetch all BBPS utility categories from InstantPay.
@@ -129,6 +168,27 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Required: billerId, param1, transactionAmount',
+      });
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const txnAmount = parseFloat(transactionAmount);
+    if (Number.isNaN(txnAmount) || txnAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid transactionAmount' });
+    }
+
+    const balanceCheck = await ensureSufficientBalance(userId, txnAmount);
+    if (!balanceCheck.isSufficient) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Minimum required is ₹${balanceCheck.minimumRequired.toFixed(2)} (transaction + charge + buffer).`,
+        currentBalance: balanceCheck.currentBalance,
+        requiredBalance: balanceCheck.minimumRequired,
+        requiredCharge: balanceCheck.chargeAmount,
       });
     }
 
@@ -338,11 +398,29 @@ const payCCBill = asyncHandler(async (req, res) => {
       });
     }
 
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const txnAmount = parseFloat(transactionAmount);
+    if (Number.isNaN(txnAmount) || txnAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid transactionAmount' });
+    }
+
+    const balanceCheck = await ensureSufficientBalance(userId, txnAmount);
+    if (!balanceCheck.isSufficient) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Minimum required is ₹${balanceCheck.minimumRequired.toFixed(2)} (transaction + charge + buffer).`,
+        currentBalance: balanceCheck.currentBalance,
+        requiredBalance: balanceCheck.minimumRequired,
+        requiredCharge: balanceCheck.chargeAmount,
+      });
+    }
+
     // Fixed initChannel required by InstantPay for this integration.
     const initChannel = 'AGT';
-
-    const userId = req.user?.id;
-    const txnAmount = parseFloat(transactionAmount);
 
     // Create a pending CC bill payment record early so ledger/wallet tx can reference it
     const ccPayment = await CcBillPayment.create({
@@ -398,25 +476,8 @@ const payCCBill = asyncHandler(async (req, res) => {
 
     const isSuccess = ['TXN', 'TUP'].includes(result.data?.statuscode);
 
-    // Calculate any configured BBPS CC charge (percentage or flat) based on txn amount
-    const chargeRule = await BbpsCcChargeRule.findOne({
-      where: {
-        is_active: true,
-        from_amount: { [Op.lte]: txnAmount },
-        to_amount:   { [Op.gte]: txnAmount },
-      },
-      order: [['from_amount', 'DESC']],
-    });
-
-    // Default charge when no rule is configured
-    let chargeAmount = 20;
-    if (chargeRule) {
-      if (chargeRule.rate_type === 'flat') {
-        chargeAmount = parseFloat(chargeRule.rate);
-      } else {
-        chargeAmount = parseFloat((txnAmount * parseFloat(chargeRule.rate)) / 100.0);
-      }
-    }
+    // Determine configured BBPS CC charge (percentage or flat) based on txn amount
+    const chargeAmount = await calculateBbpsCcCharge(txnAmount);
 
     // Persist final payment attempt details (success or failure)
     await ccPayment.update({
