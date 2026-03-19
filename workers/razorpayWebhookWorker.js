@@ -235,13 +235,46 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     // Step 1: Find POS Machine by mid and tid to get merchant
     const PosMachine = require("../models/posMachine");
-    const posMachine = await PosMachine.findOne({
-      where: {
-        mid_number: merchantId.toString(),
-        tid_number: terminalId.toString(),
-        status: "active"
+
+    // Some sources send mid/tid with leading zeros while DB stores them without.
+    // Try both versions so we can still match the POS machine.
+    const normalizeId = (id) => {
+      const s = id == null ? "" : id.toString();
+      const stripped = s.replace(/^0+/, "");
+      // Keep original if stripping would result in empty string (e.g., "0" or "000")
+      return stripped === "" ? s : stripped;
+    };
+
+    const midCandidates = [merchantId.toString()];
+    const tidCandidates = [terminalId.toString()];
+
+    const normalizedMid = normalizeId(merchantId);
+    if (normalizedMid !== midCandidates[0]) midCandidates.push(normalizedMid);
+
+    const normalizedTid = normalizeId(terminalId);
+    if (normalizedTid !== tidCandidates[0]) tidCandidates.push(normalizedTid);
+
+    let posMachine = null;
+    let matchedMid = null;
+    let matchedTid = null;
+
+    for (const mid of midCandidates) {
+      for (const tid of tidCandidates) {
+        posMachine = await PosMachine.findOne({
+          where: {
+            mid_number: mid,
+            tid_number: tid,
+            status: "active"
+          }
+        });
+        if (posMachine) {
+          matchedMid = mid;
+          matchedTid = tid;
+          break;
+        }
       }
-    });
+      if (posMachine) break;
+    }
 
     if (!posMachine) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine not found for mid: ${merchantId}, tid: ${terminalId}. Notification stored without user link.`);
@@ -253,6 +286,10 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         processed_at: new Date()
       });
       return;
+    }
+
+    if (matchedMid !== merchantId.toString() || matchedTid !== terminalId.toString()) {
+      logger.log(`[Razorpay Webhook Worker] ⚡ Matched POS Machine using normalized mid/tid (mid: ${matchedMid}, tid: ${matchedTid}) for incoming mid: ${merchantId}, tid: ${terminalId}`);
     }
 
     // Stamp the POS machine link on the notification immediately so the record
