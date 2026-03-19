@@ -561,6 +561,42 @@ const getPosMachineList = asyncHandler(async (req, res) => {
 };
   });
 
+// Get assigned POS machines by user id (admin-only)
+const getPosMachinesByUserId = asyncHandler(async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Only admin can access this endpoint' });
+    }
+
+    const { userId } = req.params;
+    const { status, page = 1, limit = 50 } = req.query;
+
+    const offset = (page - 1) * limit;
+    const where = { assigned_user_id: userId };
+    if (status) where.status = status;
+
+    const { count, rows } = await PosMachine.findAndCountAll({
+      where,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.status(200).json({
+      success: true,
+      totalItems: count,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(count / limit),
+      data: rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+    });
+  }
+});
+
 
 const updatePosMachine = asyncHandler(async (req, res) => {
   try {
@@ -816,4 +852,21 @@ const deleteAllPosMachines = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, message: `All POS machines deleted`, deleted });
 });
 
-module.exports = { getAllPosMachine, createPosMachine, getPosMachine, activatePosMachine, deactivatePosMachine, unassignPosMachine, deletePosMachine, deleteAllPosMachines, markAsDelivered , markAsReturnInitiated, assignPosMachineToUserID, assignPosMachineToMerchant, getPosMachineList, updatePosMachine, bulkCreatePosMachines }
+module.exports = {
+  getAllPosMachine,
+  createPosMachine,
+  getPosMachine,
+  activatePosMachine,
+  deactivatePosMachine,
+  unassignPosMachine,
+  deletePosMachine,
+  deleteAllPosMachines,
+  markAsDelivered,
+  markAsReturnInitiated,
+  assignPosMachineToUserID,
+  assignPosMachineToMerchant,
+  getPosMachineList,
+  getPosMachinesByUserId,
+  updatePosMachine,
+  bulkCreatePosMachines
+}

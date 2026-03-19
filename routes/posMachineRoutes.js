@@ -16,6 +16,7 @@ const {
   assignPosMachineToUserID,
   assignPosMachineToMerchant,
   getPosMachineList,
+  getPosMachinesByUserId,
   updatePosMachine,
   bulkCreatePosMachines
 } = require("../controllers/posMachineController");
@@ -28,6 +29,9 @@ router.use(validateToken);
 // 🔍 Get all + paginated list
 router.get("/", getAllPosMachine);                 // admin use
 router.get("/list", getPosMachineList);            // role-based filtered list with pagination
+
+// 🔎 Get POS machines assigned to a specific user (admin only)
+router.get("/assigned/:userId", getPosMachinesByUserId);
 
 // ➕ Create
 router.post("/", createPosMachine);
