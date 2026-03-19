@@ -32,7 +32,9 @@ function verifyRzpAuth(req, res, next) {
 
         // check both the original Razorpay credentials and the new Everlife ones
         let valid = false;
-        let source = null;
+        // keep source explicitly set to UNKNOWN when credentials don't match
+        // (this ensures downstream logs/metrics see a consistent value)
+        let source = 'UNKNOWN';
 
         if (
             username === process.env.WEBHOOK_USERNAME &&
@@ -51,15 +53,19 @@ function verifyRzpAuth(req, res, next) {
         }
 
         if (!valid) {
-            logAuth("INVALID", null, username, ip);
-            return res.status(401)
-                      .set('Content-Type', 'text/xml; charset=utf-8')
-                      .send('<?xml version="1.0" encoding="UTF-8"?><response><status>Invalid credentials</status></response>');
+            logAuth("INVALID", source, username, ip);
+            // Allow the request to proceed so the webhook payload is recorded and
+            // tracked in the same way as valid requests (but marked as UNKNOWN source).
+            // Downstream processing can then decide how to flag these (e.g. needs admin review).
+            req.webhookSource = source;
+            req.webhookAuthValid = false;
+            return next();
         }
 
         logAuth("OK", source, username, ip);
         // attach the determined source to the request for downstream handlers
         req.webhookSource = source;
+        req.webhookAuthValid = true;
         next();
     } catch (err) {
         logAuth("ERROR", null, null, ip);

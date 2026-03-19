@@ -68,6 +68,19 @@ razorpayWebhookQueue.process(async (job) => {
 
     logger.log(`[Razorpay Webhook Worker] Notification found in database for txn: ${txnId} (source=${src})`);
 
+    // If the webhook arrived with invalid/missing auth, we still keep the record for auditing
+    // but we do not attempt normal transaction processing.
+    if (src === 'UNKNOWN') {
+      logger.warn(`[Razorpay Webhook Worker] ⚠️ Unknown source for txn: ${txnId}. Marking for admin review.`);
+      await notification.update({
+        processed: false,
+        processing_status: 'needs_admin',
+        processing_error: 'Webhook auth invalid or missing (source UNKNOWN)',
+        processed_at: new Date()
+      });
+      return;
+    }
+
     // Business logic based on transaction status
     switch (status) {
       case "AUTHORIZED":
