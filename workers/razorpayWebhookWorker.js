@@ -1,5 +1,6 @@
 const razorpayWebhookQueue = require("../queues/razorpayWebhookQueue");
 const RazorpayNotification = require("../models/RazorpayNotification");
+const { Op } = require("sequelize");
 const fs = require("fs");
 const path = require("path");
 
@@ -236,48 +237,66 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     // Step 1: Find POS Machine by mid and tid to get merchant
     const PosMachine = require("../models/posMachine");
 
-    // Some sources send mid/tid with leading zeros while DB stores them without.
-    // Try both versions so we can still match the POS machine.
+    // Normalize IDs (trim, keep digits only, strip leading zeros) so we can match
+    // even when webhooks or admin UI store different formats.
     const normalizeId = (id) => {
-      const s = id == null ? "" : id.toString();
-      const stripped = s.replace(/^0+/, "");
-      // Keep original if stripping would result in empty string (e.g., "0" or "000")
-      return stripped === "" ? s : stripped;
+      if (id == null) return "";
+      const digits = id.toString().trim().replace(/\D/g, "");
+      const stripped = digits.replace(/^0+/, "");
+      return stripped === "" ? digits : stripped;
     };
 
-    const midCandidates = [merchantId.toString()];
-    const tidCandidates = [terminalId.toString()];
-
     const normalizedMid = normalizeId(merchantId);
-    if (normalizedMid !== midCandidates[0]) midCandidates.push(normalizedMid);
-
     const normalizedTid = normalizeId(terminalId);
-    if (normalizedTid !== tidCandidates[0]) tidCandidates.push(normalizedTid);
+
+    const midCandidates = [merchantId.toString().trim()];
+    if (normalizedMid && normalizedMid !== midCandidates[0]) midCandidates.push(normalizedMid);
+
+    const tidCandidates = [terminalId.toString().trim()];
+    if (normalizedTid && normalizedTid !== tidCandidates[0]) tidCandidates.push(normalizedTid);
+
+    // Fetch active machines for the candidate tid(s), then do a normalized match in JS.
+    const posMachines = await PosMachine.findAll({
+      where: {
+        status: "active",
+        tid_number: { [Op.in]: tidCandidates }
+      }
+    });
 
     let posMachine = null;
     let matchedMid = null;
     let matchedTid = null;
 
-    for (const mid of midCandidates) {
-      for (const tid of tidCandidates) {
-        posMachine = await PosMachine.findOne({
-          where: {
-            mid_number: mid,
-            tid_number: tid,
-            status: "active"
-          }
-        });
-        if (posMachine) {
-          matchedMid = mid;
-          matchedTid = tid;
-          break;
-        }
+    for (const pm of posMachines) {
+      const storedMid = normalizeId(pm.mid_number);
+      const storedTid = normalizeId(pm.tid_number);
+
+      if (storedMid === normalizedMid && storedTid === normalizedTid) {
+        posMachine = pm;
+        matchedMid = pm.mid_number;
+        matchedTid = pm.tid_number;
+        break;
       }
-      if (posMachine) break;
+    }
+
+    // If a match wasn't found via tid, try a broader query using both candidate lists.
+    if (!posMachine) {
+      const fallback = await PosMachine.findOne({
+        where: {
+          status: "active",
+          mid_number: { [Op.in]: midCandidates },
+          tid_number: { [Op.in]: tidCandidates }
+        }
+      });
+      if (fallback) {
+        posMachine = fallback;
+        matchedMid = fallback.mid_number;
+        matchedTid = fallback.tid_number;
+      }
     }
 
     if (!posMachine) {
-      logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine not found for mid: ${merchantId}, tid: ${terminalId}. Notification stored without user link.`);
+      logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine not found for mid: ${merchantId}, tid: ${terminalId}. Tried mid candidates=${JSON.stringify(midCandidates)}, tid candidates=${JSON.stringify(tidCandidates)}. Notification stored without user link.`);
       // mark for admin review so it can be fixed later
       await notification.update({
         processed: false,

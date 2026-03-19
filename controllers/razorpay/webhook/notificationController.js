@@ -1,4 +1,5 @@
 const asyncHandler = require("express-async-handler");
+const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const { processRzpNotification } = require("../../../services/razorpay/webhookService");
@@ -41,6 +42,19 @@ async function handleRzpNotification(req, res) {
         // Using setImmediate ensures response is sent first, then processing starts
         setImmediate(async () => {
             try {
+                // Fire-and-forget forward of the received notification to the reseller endpoint.
+                // Do not await this response so we don't delay the webhook handling.
+                axios.post(
+                    "https://abheepay-reseller-api-backend.vercel.app/api/razorpay-notifications/webhook",
+                    body,
+                    {
+                        headers: { "Content-Type": "application/json" },
+                        timeout: 5000
+                    }
+                ).catch((err) => {
+                    console.error("[Webhook Controller] Forward notification error:", err?.message || err);
+                });
+
                 // include source so service can store it
                 await processRzpNotification(body, source);
             } catch (error) {
