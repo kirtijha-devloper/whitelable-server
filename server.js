@@ -104,6 +104,7 @@ app.use('/api/complaint', require('./routes/complaintRoutes'));
 app.use('/api/report', require('./routes/reportRoutes'));
 app.use('/api/kyc', require('./routes/kycRoutes'));
 app.use('/api/razorpay', require('./routes/razorpay/webhook/notificationRoutes'));
+app.use('/api/vimo', require('./routes/vimoRoutes'));
 // Direct-login feature: DL token management (admin-protected) + exchange endpoint (uses dl_token as credential)
 app.use('/api/admin',   require('./routes/directLoginRoutes'));
 

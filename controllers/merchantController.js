@@ -165,11 +165,11 @@ const getUsers = asyncHandler(async (req, res) => {
 
 const updateUserStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, is_payout_enabled } = req.body;
 
-  if (!status) {
+  if (status === undefined && is_payout_enabled === undefined) {
     res.status(400);
-    throw new Error('Status is required');
+    throw new Error('Either status or is_payout_enabled is required');
   }
 
   const user = await User.findByPk(id);
@@ -179,10 +179,22 @@ const updateUserStatus = asyncHandler(async (req, res) => {
     throw new Error('User not found');
   }
 
-  user.status = status;
+  if (status !== undefined) {
+    user.status = status;
+  }
+
+  if (is_payout_enabled !== undefined) {
+    user.is_payout_enabled = !!is_payout_enabled;
+  }
+
   await user.save();
 
-  res.status(200).json({ message: 'Status updated', id });
+  res.status(200).json({
+    message: 'User updated',
+    id,
+    status: user.status,
+    is_payout_enabled: user.is_payout_enabled,
+  });
 });
 
 // List Merchant Transaction Charges (deducted amounts per merchant)

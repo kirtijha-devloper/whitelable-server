@@ -26,33 +26,44 @@ router.post('/payout', asyncHandler(async (req, res) => {
       longitude
     } = req.body;
 
-      const tpin  = req.body.tpin;
+    const tpin = req.body.tpin;
 
-      if (!tpin) {
-        res.status(400);
-        throw new Error("T-PIN is required");
-      }
+    if (!tpin) {
+      res.status(400);
+      throw new Error("T-PIN is required");
+    }
 
-      const savedTpin = await Tpin.findOne({ where: { user_id: merchant_id } });
+    if (!['merchant', 'franchaise'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Only merchant or franchise can initiate payouts' });
+    }
 
-      if (!savedTpin) {
-        res.status(404);
-        throw new Error("T-PIN not found. Please generate one.");
-      }
+    const user = await User.findByPk(merchant_id);
+    if (!user) {
+      return res.status(404).json({ message: "Merchant not found" });
+    }
+    if (!user.is_payout_enabled) {
+      return res.status(403).json({ message: "Payout service is disabled for this user" });
+    }
 
-      if (new Date(savedTpin.expires_at) < new Date()) {
-        res.status(400);
-        throw new Error("T-PIN has expired. Please generate a new one.");
-      }
+    const savedTpin = await Tpin.findOne({ where: { user_id: merchant_id } });
 
-      const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
+    if (!savedTpin) {
+      res.status(404);
+      throw new Error("T-PIN not found. Please generate one.");
+    }
 
-      if (!isMatch) {
-        res.status(401);
-        throw new Error("Invalid T-PIN");
-      }
+    if (new Date(savedTpin.expires_at) < new Date()) {
+      res.status(400);
+      throw new Error("T-PIN has expired. Please generate a new one.");
+    }
 
-    const user = await User.findByPk(merchant_id)
+    const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
+
+    if (!isMatch) {
+      res.status(401);
+      throw new Error("Invalid T-PIN");
+    }
+
     const amount = parseFloat(req.body.amount);
     
     if (!amount || isNaN(amount) || amount <= 0) {
@@ -82,9 +93,16 @@ router.post('/payout', asyncHandler(async (req, res) => {
       }
     }
 
-    if (!service_charge || isNaN(service_charge) || service_charge < 0) {
+    if (service_charge === null || service_charge === undefined || isNaN(service_charge)) {
       return res.status(400).json({ message: "Invalid service charge" });
     }
+
+    service_charge = Number(service_charge);
+    if (service_charge < 0) {
+      return res.status(400).json({ message: "Invalid service charge" });
+    }
+
+    // Allow zero charge if no slab or service charge is intentionally zero
 
     const total_amount = amount + service_charge;
     if (parseFloat(user.wallet) < total_amount) {

@@ -22,6 +22,7 @@ router.post("/forgot-password", forgotPassword);
 // test-only public endpoint; no authentication required
 router.get("/count", userCount);
 
+router.put("/:id/status", validateToken, updateUserStatus); // usertype-agnostic
 router.get("/", validateToken, getUsers);
 router.get("/current", validateToken, currentUser);
 

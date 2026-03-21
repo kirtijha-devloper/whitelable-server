@@ -76,7 +76,13 @@ const User = db.define('User', {
         type: Sequelize.STRING,
         allowNull: false,
         defaultValue: 'active',
-        },
+      },
+      is_payout_enabled: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+        comment: 'Can this user initiate payout requests?'
+      },
       wallet: {
         type: Sequelize.DECIMAL(10, 2),
         allowNull: false,

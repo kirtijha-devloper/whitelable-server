@@ -84,10 +84,19 @@ router.post('/', asyncHandler(async (req, res) => {
   // wrap critical wallet/debit operations in a transaction
   const transaction = await db.transaction();
   try {
+      if (!['merchant', 'franchaise'].includes(req.user.role)) {
+      await transaction.rollback();
+      return res.status(403).json({ success: false, message: 'Only merchant or franchise can initiate payouts' });
+    }
+
     // lock user row to avoid concurrent debits
     const user = await User.findByPk(user_id, { transaction, lock: transaction.LOCK.UPDATE });
     if (!user) {
       throw new Error('User not found');
+    }
+    if (!user.is_payout_enabled) {
+      await transaction.rollback();
+      return res.status(403).json({ success: false, message: 'Payout service is disabled for this user' });
     }
     const walletBalance = parseFloat(user.wallet || 0);
     if (walletBalance < total_amount) {

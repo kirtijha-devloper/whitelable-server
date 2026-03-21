@@ -185,6 +185,51 @@ const userCount = asyncHandler(async (req, res) => {
     }
 });
 
+const updateUserStatus = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { status, is_payout_enabled } = req.body;
+
+  if (status === undefined && is_payout_enabled === undefined) {
+    res.status(400);
+    throw new Error('Either status or is_payout_enabled is required');
+  }
+
+  const requesterRole = req.user.role;
+  const requesterId = req.user.id;
+
+  // Only admin and franchise can update user status/payout permission for plugged users
+  if (requesterRole !== 'admin' && requesterRole !== 'franchaise') {
+    res.status(403);
+    throw new Error('Permission denied');
+  }
+
+  const targetUser = await User.findByPk(id);
+  if (!targetUser) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  if (requesterRole === 'franchaise') {
+    const isOwnMerchant = targetUser.franchaise_id === requesterId;
+    if (!isOwnMerchant) {
+      res.status(403);
+      throw new Error('You can only manage your own merchants');
+    }
+  }
+
+  if (status !== undefined) targetUser.status = status;
+  if (is_payout_enabled !== undefined) targetUser.is_payout_enabled = !!is_payout_enabled;
+
+  await targetUser.save();
+
+  res.status(200).json({
+    message: 'Status updated',
+    id: targetUser.id,
+    status: targetUser.status,
+    is_payout_enabled: targetUser.is_payout_enabled,
+  });
+});
+
 const getUserByID = asyncHandler(async (req, res) => {
   try {
     const role = req.user.role;
@@ -1269,7 +1314,7 @@ const updateUser = asyncHandler(async (req, res) => {
     // Fields only admin may touch:
     const adminOnlyFields = [
       'status', 'is_approved', 'settlement_type',
-      'franchaise_id', 'ipay_outlet_id', 'role',
+      'franchaise_id', 'ipay_outlet_id', 'role', 'is_payout_enabled',
     ];
 
     const updates = {};
@@ -1355,4 +1400,4 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID,/* newly added */ userCount, updatePassword, updateUser, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, userCount, updatePassword, updateUser, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
