@@ -6,6 +6,7 @@ const router = express.Router();
 router.use(validateToken);
 
 router.post('/auth/token', vimoController.fetchTokenStatus);
+router.get('/auth/token', vimoController.fetchTokenStatus); // support GET for frontend convenience
 router.get('/banks', vimoController.fetchBankList);
 router.get('/purposes', vimoController.fetchPurposeList);
 router.get('/states', vimoController.fetchStateList);

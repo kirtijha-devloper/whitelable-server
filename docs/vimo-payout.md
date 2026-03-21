@@ -24,7 +24,8 @@ Each beneficiary has:
 
 ### 1) Get Vimo auth-token status
 
-- `GET /api/vimo/auth/token`
+- `GET /api/vimo/auth/token` (now supported)
+- `POST /api/vimo/auth/token` (original)
 
 #### Query
 
