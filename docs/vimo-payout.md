@@ -12,6 +12,16 @@ This document describes how the frontend can use the new Vimo payout flow endpoi
 
 ## Supported routes
 
+### 0) Beneficiary management (shared with CredXPay)
+
+- `POST /api/vimo/beneficiaries` or `/payout/credxpay/beneficiaries` - create beneficiary
+- `GET /api/vimo/beneficiaries/:user_id` - list user beneficiaries
+- `PUT /api/vimo/beneficiaries/:id` - update beneficiary
+- `DELETE /api/vimo/beneficiaries/:id` - delete beneficiary
+
+Each beneficiary has:
+- `name`, `account_number`, `ifsc_code`, `bank_name`, optional `branch_name`, `mobile`, `email`, `is_verified`
+
 ### 1) Get Vimo auth-token status
 
 - `GET /api/vimo/auth/token`
@@ -52,13 +62,14 @@ This document describes how the frontend can use the new Vimo payout flow endpoi
 
 - `POST /api/vimo/payout`
 
-#### Request fields
+#### Request fields (beneficiary details)
 
 - `user_id`: number (performing user)
 - `amount`: number (payout amount)
 - `merchantRefId`: string
 - `paymentMode`: string
 - `paymentPurpose`: string
+- `beneficiary_id`: number (optional, preferred)
 - `beneficiaryBank`: string
 - `beneficiaryAccountNumber`: string
 - `beneficiaryIFSC`: string
@@ -69,6 +80,8 @@ This document describes how the frontend can use the new Vimo payout flow endpoi
 - `tpin`: string ( required) 
 - `purpose`: string (optional)
 - `service_charge`: number (optional)
+
+If `beneficiary_id` is supplied, the corresponding record is loaded from the beneficiary table and fills missing beneficiary fields automatically.
 
 #### Example
 

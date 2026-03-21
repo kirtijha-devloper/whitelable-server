@@ -1,5 +1,6 @@
 const vimoService = require('../services/vimo.service');
 const User = require('../models/User');
+const PayoutBeneficiary = require('../models/PayoutBeneficiary');
 
 const normalizeError = (err, fallback) => {
   if (fallback && err.statusCode === undefined) {
@@ -28,6 +29,7 @@ async function createPayout(req, res) {
     user_id,
     amount: rawAmount,
     service_charge = 0,
+    beneficiary_id,
     beneficiaryBank,
     beneficiaryAccountNumber,
     beneficiaryIFSC,
@@ -42,6 +44,25 @@ async function createPayout(req, res) {
     latitude,
     longitude
   } = req.body;
+
+  let selectedBeneficiary = null;
+  if (beneficiary_id) {
+    selectedBeneficiary = await PayoutBeneficiary.findOne({ where: { id: beneficiary_id, user_id } });
+    if (!selectedBeneficiary) {
+      return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+    }
+  }
+
+  const resolvedBeneficiaryBank = beneficiaryBank || selectedBeneficiary?.bank_name || null;
+  const resolvedBeneficiaryAccountNumber = beneficiaryAccountNumber || selectedBeneficiary?.account_number || null;
+  const resolvedBeneficiaryIFSC = beneficiaryIFSC || selectedBeneficiary?.ifsc_code || null;
+  const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile || null;
+  const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.name || null;
+  const resolvedBeneficiaryLocation = beneficiaryLocation || selectedBeneficiary?.branch_name || null;
+
+  if (!resolvedBeneficiaryBank || !resolvedBeneficiaryAccountNumber || !resolvedBeneficiaryIFSC || !resolvedBeneficiaryName) {
+    return res.status(400).json({ success: false, message: 'Beneficiary information missing' });
+  }
 
   if (!user_id) {
     return res.status(400).json({ success: false, message: 'user_id is required' });
@@ -93,12 +114,13 @@ async function createPayout(req, res) {
       status: 'pending',
       metadata: {
         service: 'vimo',
-        beneficiaryBank,
-        beneficiaryAccountNumber,
-        beneficiaryIFSC,
-        beneficiaryMobileNumber,
-        beneficiaryName,
-        beneficiaryLocation,
+        beneficiaryBank: resolvedBeneficiaryBank,
+        beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+        beneficiaryIFSC: resolvedBeneficiaryIFSC,
+        beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
+        beneficiaryName: resolvedBeneficiaryName,
+        beneficiaryLocation: resolvedBeneficiaryLocation,
+        beneficiary_id: beneficiary_id || null,
         paymentPurpose,
         paymentMode,
         merchantRefId,
@@ -118,14 +140,14 @@ async function createPayout(req, res) {
     const result = await vimoService.createPayout({
       amount,
       merchantRefId,
-      beneficiaryBank,
+      beneficiaryBank: resolvedBeneficiaryBank,
       paymentPurpose,
       paymentMode,
-      beneficiaryAccountNumber,
-      beneficiaryIFSC,
-      beneficiaryMobileNumber,
-      beneficiaryName,
-      beneficiaryLocation,
+      beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+      beneficiaryIFSC: resolvedBeneficiaryIFSC,
+      beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
+      beneficiaryName: resolvedBeneficiaryName,
+      beneficiaryLocation: resolvedBeneficiaryLocation,
       latitude,
       longitude,
       tpin,
