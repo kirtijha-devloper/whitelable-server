@@ -35,7 +35,7 @@ const vimoTimeoutMs = Number(process.env.VIMO_TIMEOUT_MS || 15000);
 const vimoCredentials = {
   secretKey: process.env.VIMO_SECRET_KEY,
   saltKey: process.env.VIMO_SALT_KEY,
-  encryptdecryptKey: process.env.VIMO_ENCRYPT_KEY,
+  encryptdecryptKey: process.env.VIMO_ENCRYPTDECRYPT_KEY || process.env.VIMO_ENCRYPT_KEY,
   userId: process.env.VIMO_USER_ID,
 };
 
