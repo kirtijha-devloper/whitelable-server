@@ -1,7 +1,22 @@
-const { sendFailure, sendSuccess } = require('../utils/response');
-const { normalizeError } = require('../utils/errors');
 const vimoService = require('../services/vimo.service');
 const User = require('../models/User');
+
+const normalizeError = (err, fallback) => {
+  if (fallback && err.statusCode === undefined) {
+    return { statusCode: fallback.statusCode || 500, message: fallback.message || 'Error', code: fallback.code || 'ERROR', details: err };
+  }
+
+  if (err && typeof err === 'object') {
+    return {
+      statusCode: err.statusCode || err.status || 500,
+      message: err.message || err.error || 'Something went wrong',
+      code: err.code || 'ERROR',
+      details: err.details || err
+    };
+  }
+
+  return { statusCode: 500, message: String(err), code: 'ERROR', details: err };
+};
 const PayoutTransaction = require('../models/PayoutTransaction');
 const ledgerService = require('../services/ledgerService');
 const db = require('../config/database');
@@ -29,31 +44,31 @@ async function createPayout(req, res) {
   } = req.body;
 
   if (!user_id) {
-    return sendFailure(res, { statusCode: 400, message: 'user_id is required' });
+    return res.status(400).json({ success: false, message: 'user_id is required' });
   }
 
   if (!tpin) {
-    return sendFailure(res, { statusCode: 400, message: 'tpin is required' });
+    return res.status(400).json({ success: false, message: 'tpin is required' });
   }
 
   const user = await User.findByPk(user_id);
   if (!user) {
-    return sendFailure(res, { statusCode: 404, message: 'User not found' });
+    return res.status(404).json({ success: false, message: 'User not found' });
   }
 
   if (!user.is_payout_enabled) {
-    return sendFailure(res, { statusCode: 403, message: 'Payout service is disabled for this user' });
+    return res.status(403).json({ success: false, message: 'Payout service is disabled for this user' });
   }
 
   const amount = parseFloat(rawAmount);
   if (!amount || isNaN(amount) || amount <= 0) {
-    return sendFailure(res, { statusCode: 400, message: 'Invalid payout amount' });
+    return res.status(400).json({ success: false, message: 'Invalid payout amount' });
   }
 
   const total_amount = amount + parseFloat(service_charge || 0);
 
   if (parseFloat(user.wallet) < total_amount) {
-    return sendFailure(res, { statusCode: 400, message: 'Insufficient wallet balance' });
+    return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
   }
 
   const transaction = await db.transaction();
@@ -117,7 +132,8 @@ async function createPayout(req, res) {
       purpose
     });
 
-    return sendSuccess(res, {
+    return res.status(200).json({
+      success: true,
       message: result.message,
       responseCode: result.responseCode,
       data: result.data
@@ -125,77 +141,102 @@ async function createPayout(req, res) {
   } catch (error) {
     // NOTE: we choose not to rollback ledger here; a separate job/webhook should settle
     console.error('Vimo payout failed', error);
-    return sendFailure(res, normalizeError(error));
-  }
-}
-
-async function fetchTokenStatus(req, res) {
-  try {
-    const authorizeResponse = await vimoService.getAuthorizeTokenResponse({
-      forceRefresh: req.query.forceRefresh === 'true'
+    const normalized = normalizeError(error);
+    return res.status(normalized.statusCode || 500).json({
+      success: false,
+      message: normalized.message,
+      error: normalized,
     });
-    return sendSuccess(res, {
-      message: authorizeResponse.message || 'Token status fetched',
-      responseCode: authorizeResponse.responseCode || '000',
-      data: authorizeResponse.data || authorizeResponse
-    });
-  } catch (error) {
-    return sendFailure(res, normalizeError(error, {
-      statusCode: 502,
-      message: 'Token generation failure',
-      code: 'TOKEN_GENERATION_FAILED'
-    }));
   }
 }
 
 async function fetchBankList(req, res) {
   try {
     const result = await vimoService.fetchBankList();
-    return sendSuccess(res, {
+    return res.status(200).json({
+      success: true,
       message: result.message,
       responseCode: result.responseCode,
       data: result.data
     });
   } catch (error) {
-    return sendFailure(res, normalizeError(error, {
+    const normalized = normalizeError(error, {
       statusCode: 502,
       message: 'Failed to fetch bank list',
       code: 'BANK_API_ERROR'
-    }));
+    });
+    return res.status(normalized.statusCode || 500).json({
+      success: false,
+      message: normalized.message,
+      error: normalized
+    });
   }
 }
 
 async function fetchPurposeList(req, res) {
   try {
     const result = await vimoService.fetchPurposeList();
-    return sendSuccess(res, {
+    return res.status(200).json({
+      success: true,
       message: result.message,
       responseCode: result.responseCode,
       data: result.data
     });
   } catch (error) {
-    return sendFailure(res, normalizeError(error, {
+    const normalized = normalizeError(error, {
       statusCode: 502,
       message: 'Failed to fetch purpose list',
       code: 'BANK_API_ERROR'
-    }));
+    });
+    return res.status(normalized.statusCode || 500).json({
+      success: false,
+      message: normalized.message,
+      error: normalized
+    });
   }
 }
 
 async function fetchStateList(req, res) {
   try {
     const result = await vimoService.fetchStateList();
-    return sendSuccess(res, {
+    return res.status(200).json({
+      success: true,
       message: result.message,
       responseCode: result.responseCode,
       data: result.data
     });
   } catch (error) {
-    return sendFailure(res, normalizeError(error, {
+    const normalized = normalizeError(error, {
       statusCode: 502,
       message: 'Failed to fetch state list',
       code: 'BANK_API_ERROR'
-    }));
+    });
+    return res.status(normalized.statusCode || 500).json({
+      success: false,
+      message: normalized.message,
+      error: normalized
+    });
+  }
+}
+
+async function fetchTokenStatus(req, res) {
+  try {
+    const result = await vimoService.getAuthorizeTokenResponse({
+      forceRefresh: req.query.forceRefresh === 'true'
+    });
+    return res.status(200).json({
+      success: true,
+      message: result.message || 'Token status fetched',
+      responseCode: result.responseCode || '000',
+      data: result.data
+    });
+  } catch (error) {
+    const normalized = normalizeError(error);
+    return res.status(normalized.statusCode || 500).json({
+      success: false,
+      message: normalized.message,
+      error: normalized
+    });
   }
 }
 
