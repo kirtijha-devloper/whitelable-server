@@ -18,6 +18,7 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     device_serial_number, 
     razorpay_id, 
     company_name,
+    bank_name,
     is_pos_asigned,
     page = 1,
     limit = 10
@@ -35,6 +36,7 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     if (device_serial_number) where.device_serial_number = device_serial_number;
     if (razorpay_id) where.razorpay_id = razorpay_id;
     if (company_name) where.company_name = company_name;
+    if (bank_name) where.bank_name = bank_name;
 
     if (status) where.status = status;
     if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
@@ -79,6 +81,7 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
         status: posMachine.status,
         remarks: posMachine.remarks,
         company_name: posMachine.company_name,
+        bank_name: posMachine.bank_name,
         assigned_user: assignedUser ? {
           id: assignedUser.id,
           name: assignedUser.name,
@@ -121,7 +124,7 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
 const createPosMachine = asyncHandler(async (req, res ) => {
     try {
     console.log("create params:", req.body)
-    const { tid_number, mid_number, device_serial_number, company_name } = req.body;
+    const { tid_number, mid_number, device_serial_number, company_name, bank_name } = req.body;
     const userRole = req.user.role
     if (!tid_number || !mid_number || !device_serial_number) {
         res.status(400);
@@ -137,6 +140,7 @@ const createPosMachine = asyncHandler(async (req, res ) => {
     const remarks = req.body.remarks || "added";
 
     const companyName = company_name ? company_name.toString().trim() : null;
+    const bankName = bank_name ? bank_name.toString().trim() : null;
 
     // Prevent creating POS machine if TID/MID/Serial already exists for this company
     const existingDuplicate = await PosMachine.findOne({
@@ -167,6 +171,7 @@ const createPosMachine = asyncHandler(async (req, res ) => {
       mid_number: mid_number,
       device_serial_number: device_serial_number,
       company_name: companyName,
+      bank_name: bankName,
       razorpay_id: razorpayId,
       remarks: remarks,
       status: "added",
@@ -498,7 +503,7 @@ const assignPosMachineToMerchant = asyncHandler(async (req, res) => {
 const getPosMachineList = asyncHandler(async (req, res) => {
     try {
     console.log("user", req.user.role)
-    const { status, company_name, page = 1, limit = 10 } = req.query;
+    const { status, company_name, bank_name, page = 1, limit = 10 } = req.query;
     const role = req.user.role; 
     const id = req.user.id;
 
@@ -507,6 +512,7 @@ const getPosMachineList = asyncHandler(async (req, res) => {
 
     if (status) where.status = status;
     if (company_name) where.company_name = company_name;
+    if (bank_name) where.bank_name = bank_name;
 
     // Role-based scoping
     if (role === 'franchaise') {
@@ -536,6 +542,7 @@ const getPosMachineList = asyncHandler(async (req, res) => {
         status: posMachine.status,
         remarks: posMachine.remarks,
         company_name: posMachine.company_name,
+        bank_name: posMachine.bank_name,
         assigned_user: assignedUser ? {
           id: assignedUser.id,
           name: assignedUser.name,
@@ -608,7 +615,8 @@ const updatePosMachine = asyncHandler(async (req, res) => {
       razorpayid,
       remarks,
       status,
-      company_name
+      company_name,
+      bank_name
     } = req.body;
 
     // Validate if all required fields are present
@@ -626,6 +634,7 @@ const updatePosMachine = asyncHandler(async (req, res) => {
     posMachine.mid_number = mid_number || posMachine.mid_number;
     posMachine.device_serial_number = device_serial_number || posMachine.device_serial_number;
     posMachine.company_name = company_name !== undefined ? company_name : posMachine.company_name;
+    posMachine.bank_name = bank_name !== undefined ? bank_name : posMachine.bank_name;
     posMachine.razorpay_id = razorpayid || posMachine.razorpay_id;
     posMachine.remarks = remarks || posMachine.remarks;
     posMachine.status = status || posMachine.status;
@@ -700,6 +709,8 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
       
       // company_name is optional
       normalized.company_name = (record.company_name || record['Company Name'] || record['company name'] || '').toString().trim() || null;
+      // bank_name is optional
+      normalized.bank_name = (record.bank_name || record['Bank Name'] || record['bank name'] || '').toString().trim() || null;
       
       // razorpay_id is optional - convert empty strings to null
       const razorpayIdValue = (record.razorpay_id || record['Razorpay ID'] || record['razorpay id'] || record['razorpayid'] || record.razorpayid || '').toString().trim();
@@ -795,6 +806,7 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
           mid_number: record.mid_number,
           device_serial_number: record.device_serial_number,
           company_name: record.company_name || null,
+          bank_name: record.bank_name || null,
           razorpay_id: record.razorpay_id || null,
           remarks: record.remarks || "added",
           status: "added",

@@ -30,6 +30,10 @@ const PosMachine = db.define('PosMachine', {
         type: Sequelize.STRING,
         allowNull: true
       },
+      bank_name: {
+        type: Sequelize.STRING,
+        allowNull: true
+      },
       abheepay_id: { type: Sequelize.INTEGER },
       assigned_user_id: { type: Sequelize.INTEGER },
       franchaise_id: { type: Sequelize.INTEGER },
