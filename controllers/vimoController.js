@@ -299,11 +299,68 @@ function handleCallback(req, res) {
   });
 }
 
+// Vimo beneficiary management
+async function createBeneficiary(req, res) {
+  const { user_id, name, account_number, ifsc_code, bank_name, branch_name, mobile, email } = req.body;
+
+  if (!user_id || !name || !account_number || !ifsc_code || !bank_name) {
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
+  }
+
+  const beneficiary = await PayoutBeneficiary.create({
+    user_id,
+    name,
+    account_number,
+    ifsc_code,
+    bank_name,
+    branch_name: branch_name || null,
+    mobile: mobile || null,
+    email: email || null,
+    is_verified: false
+  });
+
+  return res.status(201).json({ success: true, data: beneficiary });
+}
+
+async function listBeneficiaries(req, res) {
+  const userId = req.params.user_id;
+  const list = await PayoutBeneficiary.findAll({ where: { user_id: userId } });
+  return res.status(200).json({ success: true, data: list });
+}
+
+async function updateBeneficiary(req, res) {
+  const id = req.params.id;
+  const beneficiary = await PayoutBeneficiary.findByPk(id);
+
+  if (!beneficiary) {
+    return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+  }
+
+  await beneficiary.update(req.body);
+  return res.status(200).json({ success: true, data: beneficiary });
+}
+
+async function deleteBeneficiary(req, res) {
+  const id = req.params.id;
+  const beneficiary = await PayoutBeneficiary.findByPk(id);
+
+  if (!beneficiary) {
+    return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+  }
+
+  await beneficiary.destroy();
+  return res.status(200).json({ success: true, message: 'Deleted' });
+}
+
 module.exports = {
   createPayout,
   fetchTokenStatus,
   fetchBankList,
   fetchPurposeList,
   fetchStateList,
-  handleCallback
+  handleCallback,
+  createBeneficiary,
+  listBeneficiaries,
+  updateBeneficiary,
+  deleteBeneficiary
 };

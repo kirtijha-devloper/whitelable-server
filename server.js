@@ -98,8 +98,8 @@ app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 
 // CredXPay payout integration (separate from existing BranchX routes)
 app.use('/payout/credxpay', require('./routes/credxpay/payout'));
-app.use('/payout/credxpay/beneficiaries', require('./routes/credxpay/beneficiary'));
-app.use('/api/vimo/beneficiaries', require('./routes/credxpay/beneficiary')); // alias for vimo
+// app.use('/payout/credxpay/beneficiaries', require('./routes/credxpay/beneficiary'));
+// app.use('/api/vimo/beneficiaries', require('./routes/credxpay/beneficiary')); // deprecated in favor of Vimo native beneficiaries
 app.use('/payout/credxpay/callback', require('./routes/credxpay/webhook'));
 app.use('/api/complaint', require('./routes/complaintRoutes'));
 app.use('/api/report', require('./routes/reportRoutes'));
