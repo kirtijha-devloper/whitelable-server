@@ -241,7 +241,28 @@ async function fetchStateList(req, res) {
   }
 }
 
+function isVimoConfigured() {
+  return (
+    Boolean(process.env.VIMO_BASE_URL) &&
+    Boolean(process.env.VIMO_SECRET_KEY) &&
+    Boolean(process.env.VIMO_SALT_KEY) &&
+    Boolean(process.env.VIMO_ENCRYPTDECRYPT_KEY || process.env.VIMO_ENCRYPT_KEY) &&
+    Boolean(process.env.VIMO_USER_ID)
+  );
+}
+
 async function fetchTokenStatus(req, res) {
+  if (!isVimoConfigured()) {
+    return res.status(503).json({
+      success: false,
+      message: 'Vimo is not fully configured. Check VIMO_* environment variables.',
+      error: {
+        statusCode: 503,
+        code: 'VIMO_CONFIG_MISSING'
+      }
+    });
+  }
+
   try {
     const result = await vimoService.getAuthorizeTokenResponse({
       forceRefresh: req.query.forceRefresh === 'true'

@@ -1,4 +1,6 @@
 const axios = require('axios');
+const crypto = require('crypto');
+const zlib = require('zlib');
 
 class AppError extends Error {
   constructor(message, options = {}) {
@@ -10,14 +12,283 @@ class AppError extends Error {
   }
 }
 
-// `crypto.service` and `payout-guard.service` are not present in repo; implement lightweight stubs
-const decryptCipherText = (text) => {
-  // fallback no-op; real Vimo decrypt logic is external
-  try {
-    return text;
-  } catch (err) {
-    throw new Error("Decrypt failed");
+function isHexString(value) {
+  return typeof value === 'string' && value.length > 0 && value.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(value);
+}
+
+function resolveBufferFromValue(value, encoding, label) {
+  if (!value) {
+    throw new AppError('Invalid crypto configuration', {
+      code: 'INVALID_CRYPTO_CONFIG',
+      statusCode: 500,
+      details: `${label} is empty.`,
+    });
   }
+
+  if (encoding === 'utf8') {
+    return Buffer.from(value, 'utf8');
+  }
+
+  if (encoding === 'hex') {
+    if (!isHexString(value)) {
+      throw new AppError('Invalid crypto configuration', {
+        code: 'INVALID_CRYPTO_CONFIG',
+        statusCode: 500,
+        details: `${label} is not a valid hex string.`,
+      });
+    }
+
+    return Buffer.from(value, 'hex');
+  }
+
+  if (encoding === 'auto') {
+    return isHexString(value) ? Buffer.from(value, 'hex') : Buffer.from(value, 'utf8');
+  }
+
+  throw new AppError('Invalid crypto configuration', {
+    code: 'INVALID_CRYPTO_CONFIG',
+    statusCode: 500,
+    details: `Unsupported ${label} encoding: ${encoding}`,
+  });
+}
+
+function getAesGcmAlgorithm(keyBuffer) {
+  if (keyBuffer.length === 16) return 'aes-128-gcm';
+  if (keyBuffer.length === 24) return 'aes-192-gcm';
+  if (keyBuffer.length === 32) return 'aes-256-gcm';
+
+  throw new AppError('Invalid crypto configuration', {
+    code: 'INVALID_CRYPTO_CONFIG',
+    statusCode: 500,
+    details: 'AES-GCM key must resolve to 16, 24, or 32 bytes.',
+  });
+}
+
+function buildIvBuffer(ivSourceBuffer, ivLength) {
+  if (ivSourceBuffer.length === 0) {
+    throw new AppError('Invalid crypto configuration', {
+      code: 'INVALID_CRYPTO_CONFIG',
+      statusCode: 500,
+      details: 'IV source is empty.',
+    });
+  }
+
+  if (!Number.isInteger(ivLength) || ivLength <= 0) {
+    return ivSourceBuffer;
+  }
+
+  if (ivSourceBuffer.length === ivLength) {
+    return ivSourceBuffer;
+  }
+
+  if (ivSourceBuffer.length > ivLength) {
+    return ivSourceBuffer.subarray(0, ivLength);
+  }
+
+  const ivBuffer = Buffer.alloc(ivLength);
+  ivSourceBuffer.copy(ivBuffer);
+  return ivBuffer;
+}
+
+function createCryptoContext(overrides = {}) {
+  const keySource = process.env.VIMO_CRYPTO_KEY_SOURCE || 'secretKey';
+  const ivSource = process.env.VIMO_CRYPTO_IV_SOURCE || 'saltKey';
+  const keyEncoding = overrides.keyEncoding || process.env.VIMO_CRYPTO_KEY_ENCODING || 'utf8';
+  const ivEncoding = overrides.ivEncoding || process.env.VIMO_CRYPTO_IV_ENCODING || 'utf8';
+  const ivLength = Object.prototype.hasOwnProperty.call(overrides, 'ivLength')
+    ? overrides.ivLength
+    : Number(process.env.VIMO_GCM_IV_BYTES || 0) || null;
+
+  const keyCandidates = {
+    secretKey: vimoCredentials.secretKey,
+    saltKey: vimoCredentials.saltKey,
+    encryptdecryptKey: vimoCredentials.encryptdecryptKey,
+  };
+
+  const ivCandidates = {
+    secretKey: vimoCredentials.secretKey,
+    saltKey: vimoCredentials.saltKey,
+    encryptdecryptKey: vimoCredentials.encryptdecryptKey,
+  };
+
+  const key = keyCandidates[keySource] || vimoCredentials.encryptdecryptKey;
+  const ivSourceValue = ivCandidates[ivSource] || vimoCredentials.saltKey;
+
+  if (!key || !ivSourceValue) {
+    throw new AppError('Vimo crypto keys missing', {
+      code: 'VIMO_CRYPTO_CONFIG_MISSING',
+      statusCode: 500,
+      details: `Key source (${keySource}) or IV source (${ivSource}) is not configured`,
+    });
+  }
+
+  const keyBuffer = resolveBufferFromValue(key, keyEncoding, 'Crypto key');
+  const ivSourceBuffer = resolveBufferFromValue(ivSourceValue, ivEncoding, 'IV source');
+  const ivBuffer = buildIvBuffer(ivSourceBuffer, ivLength);
+
+  return {
+    algorithm: getAesGcmAlgorithm(keyBuffer),
+    keyBuffer,
+    ivBuffer,
+    authTagLength: 16,
+  };
+}
+
+function getCryptoCandidateContexts() {
+  const configs = [];
+  const seenSignatures = new Set();
+
+  const addCandidate = (overrides = {}) => {
+    try {
+      const ctx = createCryptoContext(overrides);
+      const signature = `${ctx.algorithm}|${ctx.keyBuffer.length}|${ctx.ivBuffer.length}|${ctx.authTagLength}`;
+      if (!seenSignatures.has(signature)) {
+        seenSignatures.add(signature);
+        configs.push(ctx);
+      }
+    } catch (_) {
+      // skip invalid context
+    }
+  };
+
+  addCandidate();
+  addCandidate({ ivLength: null });
+  addCandidate({ keyEncoding: 'auto', ivEncoding: 'auto', ivLength: null });
+  addCandidate({ keyEncoding: 'hex', ivEncoding: 'hex', ivLength: null });
+  addCandidate({ keyEncoding: 'utf8', ivEncoding: 'utf8', ivLength: null });
+  addCandidate({ keyEncoding: 'hex', ivEncoding: 'hex', ivLength: 12 });
+  addCandidate({ keyEncoding: 'utf8', ivEncoding: 'utf8', ivLength: 12 });
+
+  if (configs.length === 0) {
+    throw new AppError('Invalid crypto configuration', {
+      code: 'INVALID_CRYPTO_CONFIG',
+      statusCode: 500,
+      details: 'Unable to derive a valid AES-GCM crypto context.',
+    });
+  }
+
+  return configs;
+}
+
+function decryptAesGcm(base64CipherText) {
+  if (!base64CipherText || typeof base64CipherText !== 'string') {
+    throw new AppError('Decryption failure', {
+      code: 'DECRYPTION_FAILURE',
+      statusCode: 502,
+      details: 'Encrypted payload must be a base64 string.',
+    });
+  }
+
+  const encryptedBuffer = Buffer.from(base64CipherText, 'base64');
+  if (encryptedBuffer.length <= 16) {
+    throw new AppError('Decryption failure', {
+      code: 'DECRYPTION_FAILURE',
+      statusCode: 502,
+      details: 'Encrypted payload is too short to contain a valid auth tag.',
+    });
+  }
+
+  let lastError = null;
+
+  for (const ctx of getCryptoCandidateContexts()) {
+    try {
+      const authTag = encryptedBuffer.subarray(encryptedBuffer.length - ctx.authTagLength);
+      const ciphertext = encryptedBuffer.subarray(0, encryptedBuffer.length - ctx.authTagLength);
+
+      const decipher = crypto.createDecipheriv(ctx.algorithm, ctx.keyBuffer, ctx.ivBuffer, {
+        authTagLength: ctx.authTagLength,
+      });
+      decipher.setAuthTag(authTag);
+
+      const decryptedBuffer = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      const result = decryptedBuffer.toString('utf8');
+      console.debug('Vimo decrypted by AES-GCM', { len: result.length, algorithm: ctx.algorithm });
+      return result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new AppError('Decryption failure', {
+    code: 'DECRYPTION_FAILURE',
+    statusCode: 502,
+    details: lastError ? lastError.message : 'Unable to authenticate encrypted payload.',
+  });
+}
+
+const tryAesCbcDecrypt = (text) => {
+  const keySource = process.env.VIMO_CRYPTO_KEY_SOURCE || 'secretKey';
+  const ivSource = process.env.VIMO_CRYPTO_IV_SOURCE || 'saltKey';
+  const keyEncoding = process.env.VIMO_CRYPTO_KEY_ENCODING || 'utf8';
+  const ivEncoding = process.env.VIMO_CRYPTO_IV_ENCODING || 'utf8';
+
+  const keyCandidates = {
+    secretKey: vimoCredentials.secretKey,
+    saltKey: vimoCredentials.saltKey,
+    encryptdecryptKey: vimoCredentials.encryptdecryptKey,
+  };
+  const ivCandidates = {
+    secretKey: vimoCredentials.secretKey,
+    saltKey: vimoCredentials.saltKey,
+    encryptdecryptKey: vimoCredentials.encryptdecryptKey,
+  };
+
+  const key = keyCandidates[keySource] || vimoCredentials.encryptdecryptKey;
+  const iv = ivCandidates[ivSource] || vimoCredentials.saltKey;
+
+  const keyBuf = resolveBufferFromValue(key, keyEncoding, 'Crypto key');
+  const ivBuf = resolveBufferFromValue(iv, ivEncoding, 'IV source');
+
+  if (![16, 24, 32].includes(keyBuf.length) || ivBuf.length !== 16) {
+    throw new AppError('Invalid Vimo crypto key/iv length', {
+      code: 'VIMO_CRYPTO_INVALID_LENGTH',
+      statusCode: 500,
+      details: `Key length=${keyBuf.length}, iv length=${ivBuf.length}`,
+    });
+  }
+
+  const algorithm = `aes-${keyBuf.length * 8}-cbc`;
+  const encryptedBuffer = Buffer.from(text, 'base64');
+  const decipher = crypto.createDecipheriv(algorithm, keyBuf, ivBuf);
+  const decryptedBuffer = Buffer.concat([decipher.update(encryptedBuffer), decipher.final()]);
+  return decryptedBuffer.toString('utf8');
+};
+
+const decryptCipherText = (text) => {
+  if (!text || typeof text !== 'string') {
+    return text;
+  }
+
+  // First try AES-GCM with multiple key/iv formats from configs.
+  try {
+    return decryptAesGcm(text);
+  } catch (gcmErr) {
+    console.warn('Vimo AES-GCM decrypt failed:', gcmErr.message || gcmErr);
+  }
+
+  // Then try AES-CBC as fallback.
+  try {
+    const decrypted = tryAesCbcDecrypt(text);
+    if (decrypted && decrypted.trim().length > 0) {
+      console.debug('Vimo decrypted by AES-CBC', { len: decrypted.length });
+      return decrypted;
+    }
+  } catch (cbcErr) {
+    console.warn('Vimo AES-CBC decrypt failed:', cbcErr.message || cbcErr);
+  }
+
+  // Fallback: base64-decoded plaintext.
+  try {
+    const plain = Buffer.from(text, 'base64').toString('utf8');
+    if (plain && plain.trim().length > 0) {
+      console.debug('Vimo base64 decode successful (no AES)', { len: plain.length });
+      return plain;
+    }
+  } catch (base64Err) {
+    console.warn('Vimo base64 fallback failed:', base64Err.message || base64Err);
+  }
+
+  return text;
 };
 
 const encryptPlainText = (text) => {
@@ -86,8 +357,21 @@ const payoutResponseFields = [
 
 function normalizeDecryptedEnvelope(bankResponse, defaultMessage) {
   const encryptedPayload = extractEncryptedPayload(bankResponse);
-  const decryptedText = decryptCipherText(encryptedPayload);
-  const parsedPayload = parseMaybeJson(decryptedText);
+  let decryptedText = decryptCipherText(encryptedPayload);
+
+  if (Buffer.isBuffer(decryptedText)) {
+    decryptedText = decryptedText.toString('utf8');
+  }
+
+  let parsedPayload = parseMaybeJson(decryptedText);
+
+  if (typeof parsedPayload === 'string' && parsedPayload === decryptedText) {
+    const decompressed = tryDecompressIfNeeded(decryptedText);
+    if (decompressed && decompressed !== decryptedText) {
+      decryptedText = decompressed;
+      parsedPayload = parseMaybeJson(decompressed);
+    }
+  }
 
   if (!parsedPayload) {
     throw new AppError('Invalid bank response', {
@@ -134,6 +418,59 @@ function parseMaybeJson(value) {
   } catch (error) {
     return value;
   }
+}
+
+function tryDecompressIfNeeded(text) {
+  if (text == null) {
+    return null;
+  }
+
+  let sourceBuffer;
+  if (Buffer.isBuffer(text)) {
+    sourceBuffer = text;
+  } else if (typeof text === 'string') {
+    sourceBuffer = Buffer.from(text, 'binary');
+  } else {
+    return null;
+  }
+
+  const strategies = [
+    {name: 'gzip', fn: zlib.gunzipSync},
+    {name: 'inflate', fn: zlib.inflateSync},
+    {name: 'inflateRaw', fn: zlib.inflateRawSync},
+    {name: 'unzip', fn: zlib.unzipSync},
+  ];
+
+  for (const {name, fn} of strategies) {
+    try {
+      const decompressed = fn(sourceBuffer);
+      if (decompressed && decompressed.length > 0) {
+        const asText = decompressed.toString('utf8');
+        console.debug(`Vimo decompressed using ${name}`, { len: asText.length });
+        return asText;
+      }
+    } catch (err) {
+      // fallback only
+    }
+  }
+
+  if (typeof text === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(text.trim())) {
+    try {
+      const decoded = Buffer.from(text, 'base64');
+      if (decoded.length > 0) {
+        try {
+          const unzipped = zlib.gunzipSync(decoded);
+          return unzipped.toString('utf8');
+        } catch (err) {}
+
+        return decoded.toString('utf8');
+      }
+    } catch (err) {
+      // Ignore base64 fallback failures.
+    }
+  }
+
+  return null;
 }
 
 function extractEncryptedPayload(responseBody) {
