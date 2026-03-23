@@ -45,7 +45,7 @@ async function handleRzpNotification(req, res) {
                 // Fire-and-forget forward of the received notification to the reseller endpoint.
                 // Do not await this response so we don't delay the webhook handling.
                 axios.post(
-                    "https://abheepay-reseller-api-backend.vercel.app/api/razorpay-notifications/webhook",
+                    "https://api.abheepay.com/api/razorpay-notifications/webhook",
                     body,
                     {
                         headers: { "Content-Type": "application/json" },
