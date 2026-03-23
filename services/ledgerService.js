@@ -535,6 +535,7 @@ module.exports = {
   createRazorpayChargeEntry,
   createWalletTransactionEntry,
   createCommissionEntry,
+  createFranchiseEarningEntry,
   createRentalChargeEntry,
   createPayoutEntry,
   getLedgerEntries,
