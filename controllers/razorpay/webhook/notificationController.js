@@ -27,7 +27,7 @@ function logNotification(source, body) {
 async function handleRzpNotification(req, res) {
     try {
         const body = req.body;
-        const source = req.webhookSource || 'razorpay'; // default if somehow not set
+        const source = req.webhookSource || 'agro'; // default if somehow not set
 
         // write a short one-line entry immediately (before anything else can fail)
         logNotification(source, body);

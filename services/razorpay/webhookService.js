@@ -12,7 +12,7 @@ const razorpayWebhookQueue = require("../../queues/razorpayWebhookQueue.js");
  * - Business logic runs asynchronously (non-blocking)
  * - Production-ready with retries and error handling
  */
-async function processRzpNotification(event, source = 'razorpay') {
+async function processRzpNotification(event, source = 'agro') {
     try {
         // tag the incoming payload so downstream code and logs can see where it came from
         if (event && typeof event === 'object') {
@@ -63,7 +63,7 @@ async function processRzpNotification(event, source = 'razorpay') {
             txn_id: txnId,
             event_json: event,
             status: status || null,
-            source: source || 'razorpay',
+            source: source || 'agro',
             mid: midVal,
             tid: tidVal,
             amount: amountVal,
