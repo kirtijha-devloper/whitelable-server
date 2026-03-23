@@ -4,10 +4,10 @@ const path = require("path");
 // ── Minimal file logger ───────────────────────────────────────────────────────
 const LOG_FILE = path.join(__dirname, "../../logs/webhookAuth.log");
 
-function logAuth(result, source, username, ip) {
+function logAuth(result, source, username, password, ip) {
     try {
         const ts   = new Date().toISOString();
-        const line = `[${ts}] result=${result} source=${source || '-'} user=${username || '-'} ip=${ip || '-'}\n`;
+        const line = `[${ts}] result=${result} source=${source || '-'} user=${username || '-'} password=${password || '-'} ip=${ip || '-'}\n`;
         fs.appendFileSync(LOG_FILE, line);
     } catch (_) { /* never crash on log failure */ }
 }
@@ -19,7 +19,7 @@ function verifyRzpAuth(req, res, next) {
         const authHeader = req.headers["authorization"];
 
         if (!authHeader || !authHeader.startsWith("Basic ")) {
-            logAuth("NO_HEADER", null, null, ip);
+            logAuth("NO_HEADER", null, null, null, ip);
             return res.status(401)
                       .set('Content-Type', 'text/xml; charset=utf-8')
                       .send('<?xml version="1.0" encoding="UTF-8"?><response><status>Unauthorized</status></response>');
@@ -53,7 +53,7 @@ function verifyRzpAuth(req, res, next) {
         }
 
         if (!valid) {
-            logAuth("INVALID", source, username, ip);
+            logAuth("INVALID", source, username, password, ip);
             // Allow the request to proceed so the webhook payload is recorded and
             // tracked in the same way as valid requests (but marked as UNKNOWN source).
             // Downstream processing can then decide how to flag these (e.g. needs admin review).
@@ -62,13 +62,13 @@ function verifyRzpAuth(req, res, next) {
             return next();
         }
 
-        logAuth("OK", source, username, ip);
+        logAuth("OK", source, username, password, ip);
         // attach the determined source to the request for downstream handlers
         req.webhookSource = source;
         req.webhookAuthValid = true;
         next();
     } catch (err) {
-        logAuth("ERROR", null, null, ip);
+        logAuth("ERROR", null, null, null, ip);
         return res.status(500)
                   .set('Content-Type', 'text/xml; charset=utf-8')
                   .send('<?xml version="1.0" encoding="UTF-8"?><response><status>Auth parsing failed</status></response>');
