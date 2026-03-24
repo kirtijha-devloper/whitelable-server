@@ -1,6 +1,17 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const zlib = require('zlib');
+const fs = require('fs');
+const path = require('path');
+
+const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimo.log');
+function logVimo(label, data) {
+  try {
+    const ts = new Date().toISOString();
+    const body = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    fs.appendFileSync(VIMO_LOG_FILE, `[${ts}] ${label}\n${body}\n\n`);
+  } catch (_) { /* never crash on log failure */ }
+}
 
 class AppError extends Error {
   constructor(message, options = {}) {
@@ -495,6 +506,7 @@ function extractEncryptedPayload(responseBody) {
     }
   }
 
+  logVimo('extractEncryptedPayload: no encrypted field found', responseBody);
   throw new AppError('Invalid bank response', {
     code: 'INVALID_BANK_RESPONSE',
     statusCode: 502,
@@ -768,6 +780,8 @@ async function createPayout(payload) {
         }
       )
     );
+
+    logVimo('createPayout response status: ' + response.status, response.data);
 
     const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Payout processed successfully');
 
