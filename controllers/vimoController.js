@@ -1,6 +1,7 @@
 const vimoService = require('../services/vimo.service');
 const User = require('../models/User');
 const PayoutBeneficiary = require('../models/PayoutBeneficiary');
+const { Op } = require('sequelize');
 
 const normalizeError = (err, fallback) => {
   if (fallback && err.statusCode === undefined) {
@@ -28,7 +29,6 @@ async function createPayout(req, res) {
   const {
     user_id,
     amount: rawAmount,
-    service_charge = 0,
     beneficiary_id,
     beneficiaryBank,
     beneficiaryAccountNumber,
@@ -38,13 +38,13 @@ async function createPayout(req, res) {
     beneficiaryLocation,
     paymentPurpose,
     paymentMode,
-    merchantRefId,
+    merchantRefId: incomingMerchantRefId,
     tpin,
     purpose,
     latitude,
     longitude
   } = req.body;
-
+  let merchantRefId = incomingMerchantRefId;
   let selectedBeneficiary = null;
   if (beneficiary_id) {
     selectedBeneficiary = await PayoutBeneficiary.findOne({ where: { id: beneficiary_id, user_id } });
@@ -81,17 +81,24 @@ async function createPayout(req, res) {
     return res.status(403).json({ success: false, message: 'Payout service is disabled for this user' });
   }
 
+  // enforce/generate merchantRefId for idempotency and duplicate prevention
+  if (!merchantRefId) {
+    merchantRefId = await generateMerchantRefId();
+  } else {
+    const existingReference = await PayoutTransaction.findOne({ where: { reference_id: merchantRefId } });
+    if (existingReference) {
+      return res.status(409).json({ success: false, message: 'Duplicate merchantRefId', error: { code: 'DUPLICATE_REFERENCE', details: 'merchantRefId already used' } });
+    }
+  }
+
   const amount = parseFloat(rawAmount);
   if (!amount || isNaN(amount) || amount <= 0) {
     return res.status(400).json({ success: false, message: 'Invalid payout amount' });
   }
 
-  const total_amount = amount + parseFloat(service_charge || 0);
-
-  if (parseFloat(user.wallet) < total_amount) {
-    return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
-  }
-
+  // Service charge controlled by backend configuration
+  const serviceCharge = parseFloat(process.env.VIMO_DEFAULT_SERVICE_CHARGE || 0);
+  const total_amount = amount + serviceCharge;
   const transaction = await db.transaction();
   try {
     // wallet deduction in ledger, will sync balance
@@ -103,7 +110,7 @@ async function createPayout(req, res) {
       status: 'PENDING',
       purpose: purpose || paymentPurpose || null,
       data: null,
-      service_charge: service_charge
+      service_charge: serviceCharge
     }, { transaction });
 
     await ledgerService.createPayoutEntry({
@@ -158,6 +165,8 @@ async function createPayout(req, res) {
       success: true,
       message: result.message,
       responseCode: result.responseCode,
+      merchantRefId,
+      service_charge: serviceCharge,
       data: result.data
     });
   } catch (error) {
@@ -283,6 +292,35 @@ async function fetchTokenStatus(req, res) {
   }
 }
 
+async function generateMerchantRefId() {
+  const last = await PayoutTransaction.findOne({
+    where: {
+      reference_id: {
+        [Op.like]: 'APPV%'
+      }
+    },
+    order: [['createdAt', 'DESC']],
+  });
+
+  if (!last || !last.reference_id) {
+    return 'APPV00000001';
+  }
+
+  const numeric = parseInt(last.reference_id.replace(/^APPV0*/, ''), 10) || 0;
+  const next = numeric + 1;
+  return `APPV${next.toString().padStart(8, '0')}`;
+}
+
+async function getPayoutReference(req, res) {
+  try {
+    const reference = await generateMerchantRefId();
+    return res.status(200).json({ success: true, merchantRefId: reference });
+  } catch (err) {
+    const normalized = normalizeError(err, { statusCode: 500, message: 'Could not generate merchantRefId', code: 'REFERENCE_GENERATION_FAILED' });
+    return res.status(normalized.statusCode || 500).json({ success: false, message: normalized.message, error: normalized });
+  }
+}
+
 function handleCallback(req, res) {
   const callbackEvent = {
     receivedAt: new Date().toISOString(),
@@ -364,6 +402,7 @@ module.exports = {
   fetchBankList,
   fetchPurposeList,
   fetchStateList,
+  getPayoutReference,
   handleCallback,
   createBeneficiary,
   listBeneficiaries,
