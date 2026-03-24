@@ -79,7 +79,7 @@ Each beneficiary has:
 - `lat`, `long`: string
 
 > beneficiary state/location are loaded from saved beneficiary in DB; frontend should not send them explicitly.
-- `tpin`: string ( required) 
+- `tpin`: string (optional)
 - `purpose`: string (optional)
 - `service_charge`: number (optional)
 

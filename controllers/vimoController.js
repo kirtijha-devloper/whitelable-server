@@ -40,6 +40,7 @@ async function createPayout(req, res) {
     paymentPurpose,
     paymentMode,
     merchantRefId: incomingMerchantRefId,
+    // tpin is no longer required by Vimo payload per docs; can be validated externally if needed.
     tpin,
     purpose,
     latitude,
@@ -79,9 +80,10 @@ async function createPayout(req, res) {
     return res.status(400).json({ success: false, message: 'user_id is required' });
   }
 
-  if (!tpin) {
-    return res.status(400).json({ success: false, message: 'tpin is required' });
-  }
+  // NOTE: tpin is optional for Vimo payload; can be enforced by frontend or internal auth if needed.
+  // if (!tpin) {
+  //   return res.status(400).json({ success: false, message: 'tpin is required' });
+  // }
 
   const user = await User.findByPk(user_id);
   if (!user) {
@@ -169,7 +171,6 @@ async function createPayout(req, res) {
       beneficiaryLocation: resolvedBeneficiaryLocation,
       lat: latitude,
       long: longitude,
-      tpin,
       purpose
     });
 
