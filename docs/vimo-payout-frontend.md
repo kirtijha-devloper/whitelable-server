@@ -95,7 +95,16 @@ Use this `merchantRefId` for retries and duplicate prevention.
 ```
 
 ### Errors
-- `400`: `Invalid payout amount`, `Beneficiary information missing`, `tpin is required`
+- `400 Beneficiary information missing`:
+```json
+{
+  "success": false,
+  "message": "Beneficiary information missing",
+  "missing": ["beneficiaryBank", "beneficiaryIFSC"]
+}
+```
+Possible values in `missing`: `beneficiaryBank`, `beneficiaryAccountNumber`, `beneficiaryIFSC`, `beneficiaryName`
+- `400`: `Invalid payout amount`, `tpin is required`
 - `403`: `Payout service is disabled for this user`
 - `409`: `Duplicate merchantRefId` (`DUPLICATE_REFERENCE`)
 - `500`: provider/internal

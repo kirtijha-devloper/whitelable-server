@@ -60,8 +60,13 @@ async function createPayout(req, res) {
   const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.name || null;
   const resolvedBeneficiaryLocation = beneficiaryLocation || selectedBeneficiary?.branch_name || null;
 
-  if (!resolvedBeneficiaryBank || !resolvedBeneficiaryAccountNumber || !resolvedBeneficiaryIFSC || !resolvedBeneficiaryName) {
-    return res.status(400).json({ success: false, message: 'Beneficiary information missing' });
+  const missingBeneficiaryFields = [];
+  if (!resolvedBeneficiaryBank) missingBeneficiaryFields.push('beneficiaryBank');
+  if (!resolvedBeneficiaryAccountNumber) missingBeneficiaryFields.push('beneficiaryAccountNumber');
+  if (!resolvedBeneficiaryIFSC) missingBeneficiaryFields.push('beneficiaryIFSC');
+  if (!resolvedBeneficiaryName) missingBeneficiaryFields.push('beneficiaryName');
+  if (missingBeneficiaryFields.length > 0) {
+    return res.status(400).json({ success: false, message: 'Beneficiary information missing', missing: missingBeneficiaryFields });
   }
 
   if (!user_id) {
