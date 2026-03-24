@@ -302,9 +302,23 @@ const decryptCipherText = (text) => {
   return text;
 };
 
+const encryptAesGcm = (text) => {
+  const ctx = createCryptoContext();
+  const cipher = crypto.createCipheriv(ctx.algorithm, ctx.keyBuffer, ctx.ivBuffer, {
+    authTagLength: ctx.authTagLength,
+  });
+  const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return Buffer.concat([encrypted, authTag]).toString('base64');
+};
+
 const encryptPlainText = (text) => {
-  // fallback no-op; real Vimo encrypt logic is external
-  return text;
+  try {
+    return encryptAesGcm(text);
+  } catch (err) {
+    console.warn('Vimo AES-GCM encrypt failed, falling back to plain text:', err.message);
+    return text;
+  }
 };
 
 const reservePayoutWindow = (payload) => ({
@@ -695,9 +709,15 @@ function validatePayoutPayload(payload) {
     'amount',
     'merchantRefId',
     'beneficiaryBank',
+    'paymentPurpose',
+    'paymentMode',
     'beneficiaryAccountNumber',
     'beneficiaryIFSC',
+    'beneficiaryMobileNumber',
     'beneficiaryName',
+    'beneficiaryLocation',
+    'lat',
+    'long',
   ];
 
   const missingFields = requiredFields.filter((fieldName) => {

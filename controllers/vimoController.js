@@ -36,15 +36,16 @@ async function createPayout(req, res) {
     beneficiaryIFSC,
     beneficiaryMobileNumber,
     beneficiaryName,
-    beneficiaryLocation,
     paymentPurpose,
     paymentMode,
     merchantRefId: incomingMerchantRefId,
-    // tpin is no longer required by Vimo payload per docs; can be validated externally if needed.
     tpin,
     purpose,
-    latitude,
-    longitude
+    lat,
+    long: lng,
+    udf1,
+    udf2,
+    udf3
   } = req.body;
   let merchantRefId = incomingMerchantRefId;
   let selectedBeneficiary = null;
@@ -60,8 +61,8 @@ async function createPayout(req, res) {
   const resolvedBeneficiaryIFSC = beneficiaryIFSC || selectedBeneficiary?.ifsc_code || null;
   const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile || null;
   const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.name || null;
-  // beneficiaryLocation should be DB state, fallback to provided location or branch for compatibility.
-  const resolvedBeneficiaryLocation = selectedBeneficiary?.state || beneficiaryLocation || selectedBeneficiary?.branch_name || null;
+  // beneficiaryLocation = state code from DB (e.g. 'JH'); never use branch_name which may hold coordinates.
+  const resolvedBeneficiaryLocation = selectedBeneficiary?.state || null;
 
   const missingBeneficiaryFields = [];
   if (!resolvedBeneficiaryBank) missingBeneficiaryFields.push('beneficiaryBank');
@@ -144,8 +145,8 @@ async function createPayout(req, res) {
         paymentPurpose,
         paymentMode,
         merchantRefId,
-        latitude,
-        longitude
+        lat,
+        long: lng
       }
     }, { transaction });
 
@@ -169,9 +170,11 @@ async function createPayout(req, res) {
       beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
       beneficiaryName: resolvedBeneficiaryName,
       beneficiaryLocation: resolvedBeneficiaryLocation,
-      lat: latitude,
-      long: longitude,
-      purpose
+      lat,
+      long: lng,
+      udf1: udf1 || '',
+      udf2: udf2 || '',
+      udf3: udf3 || ''
     });
 
     return res.status(200).json({
