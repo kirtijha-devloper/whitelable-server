@@ -669,15 +669,9 @@ function validatePayoutPayload(payload) {
     'amount',
     'merchantRefId',
     'beneficiaryBank',
-    'paymentPurpose',
-    'paymentMode',
     'beneficiaryAccountNumber',
     'beneficiaryIFSC',
-    'beneficiaryMobileNumber',
     'beneficiaryName',
-    'beneficiaryLocation',
-    'lat',
-    'long',
   ];
 
   const missingFields = requiredFields.filter((fieldName) => {

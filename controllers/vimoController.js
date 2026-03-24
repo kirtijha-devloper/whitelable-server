@@ -162,8 +162,8 @@ async function createPayout(req, res) {
       beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
       beneficiaryName: resolvedBeneficiaryName,
       beneficiaryLocation: resolvedBeneficiaryLocation,
-      latitude,
-      longitude,
+      lat: latitude,
+      long: longitude,
       tpin,
       purpose
     });
