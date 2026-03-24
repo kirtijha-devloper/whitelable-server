@@ -740,6 +740,7 @@ const approveUser = asyncHandler( async (req, res) => {
                     wallet_hold: user.wallet_hold,
                     tpin_set: !!tpinRecord,
                     ipay_outlet_id: user.ipay_outlet_id || null,
+                    is_payout_enabled: user.is_payout_enabled,
 
                     id: user.id
             });
