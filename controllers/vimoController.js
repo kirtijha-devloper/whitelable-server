@@ -301,14 +301,15 @@ function handleCallback(req, res) {
 
 // Vimo beneficiary management
 async function createBeneficiary(req, res) {
-  const { user_id, name, account_number, ifsc_code, bank_name, branch_name, mobile, email } = req.body;
+  const { name, account_number, ifsc_code, bank_name, branch_name, mobile, email } = req.body;
+  const userId = req.user?.id;
 
-  if (!user_id || !name || !account_number || !ifsc_code || !bank_name) {
+  if (!userId || !name || !account_number || !ifsc_code || !bank_name) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
 
   const beneficiary = await PayoutBeneficiary.create({
-    user_id,
+    user_id: userId,
     name,
     account_number,
     ifsc_code,
@@ -323,8 +324,13 @@ async function createBeneficiary(req, res) {
 }
 
 async function listBeneficiaries(req, res) {
-  const userId = req.params.user_id;
-  const list = await PayoutBeneficiary.findAll({ where: { user_id: userId } });
+  const userIdFromToken = req.user?.id;
+
+  if (!userIdFromToken) {
+    return res.status(401).json({ success: false, message: 'User not authenticated' });
+  }
+
+  const list = await PayoutBeneficiary.findAll({ where: { user_id: userIdFromToken } });
   return res.status(200).json({ success: true, data: list });
 }
 

@@ -18,7 +18,7 @@ router.get('/states', vimoController.fetchStateList);
 router.post('/payout', vimoController.createPayout);
 
 router.post('/beneficiaries', vimoController.createBeneficiary);
-router.get('/beneficiaries/:user_id', vimoController.listBeneficiaries);
+router.get('/beneficiaries', vimoController.listBeneficiaries);
 router.put('/beneficiaries/:id', vimoController.updateBeneficiary);
 router.delete('/beneficiaries/:id', vimoController.deleteBeneficiary);
 
