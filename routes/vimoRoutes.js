@@ -3,6 +3,9 @@ const vimoController = require('../controllers/vimoController');
 const validateToken = require('../middleware/validateTokenHandler');
 const router = express.Router();
 
+// Webhook callback should be open to Vimo provider; no user JWT required.
+router.post('/callback', vimoController.handleCallback);
+
 router.use(validateToken);
 
 router.post('/auth/token', vimoController.fetchTokenStatus);
