@@ -26,6 +26,7 @@ const db = require('../config/database');
 const callbackEvents = [];
 
 async function createPayout(req, res) {
+  try {
   const {
     user_id,
     amount: rawAmount,
@@ -144,7 +145,8 @@ async function createPayout(req, res) {
     await transaction.commit();
   } catch (err) {
     await transaction.rollback();
-    return sendFailure(res, normalizeError(err));
+    const normalized = normalizeError(err);
+    return res.status(normalized.statusCode || 500).json({ success: false, message: normalized.message, error: normalized });
   }
 
   // call external provider, then update payout status
@@ -183,6 +185,11 @@ async function createPayout(req, res) {
       message: normalized.message,
       error: normalized,
     });
+  }
+  } catch (err) {
+    console.error('Vimo createPayout unhandled error', err);
+    const normalized = normalizeError(err);
+    return res.status(normalized.statusCode || 500).json({ success: false, message: normalized.message, error: normalized });
   }
 }
 
