@@ -782,20 +782,30 @@ async function createPayout(payload) {
   const payoutReservation = reservePayoutWindow(payload);
 
   try {
-    const response = await executeAuthorizedRequest((token) =>
-      vimoClient.post(
-        '/payoutapi/api/payment/payoutsuat',
-        { requestBody: encryptPlainText(JSON.stringify(payload)) },
-        {
-          headers: {
-            ...buildAuthorizedHeaders(token),
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    );
+    let requestBody;
+    const response = await executeAuthorizedRequest((token) => {
+      const headers = {
+        ...buildAuthorizedHeaders(token),
+        'Content-Type': 'application/json',
+      };
+      requestBody = { requestBody: encryptPlainText(JSON.stringify(payload)) };
 
-    logVimo('createPayout response status: ' + response.status, response.data);
+      logVimo('createPayout outgoing request', {
+        url: vimoBaseURL + '/payoutapi/api/payment/payoutsuat',
+        method: 'POST',
+        headers: { userId: headers.userId, hasToken: Boolean(token) },
+        rawPayload: payload,
+        encryptedBody: requestBody,
+      });
+
+      return vimoClient.post('/payoutapi/api/payment/payoutsuat', requestBody, { headers });
+    });
+
+    logVimo('createPayout provider response', {
+      status: response.status,
+      headers: response.headers,
+      data: response.data,
+    });
 
     const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Payout processed successfully');
 
@@ -820,6 +830,15 @@ async function createPayout(payload) {
     };
   } catch (error) {
     payoutReservation.release();
+
+    if (axios.isAxiosError(error)) {
+      logVimo('createPayout provider error', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        responseData: error.response?.data,
+      });
+    }
 
     if (error.code === 'BANK_TIMEOUT' || error.statusCode) {
       throw error;
