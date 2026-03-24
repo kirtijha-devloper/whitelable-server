@@ -110,7 +110,7 @@ async function createPayout(req, res) {
     // wallet deduction in ledger, will sync balance
     const payoutTransaction = await PayoutTransaction.create({
       merchant_id: user_id,
-      beneficiary_id: null,
+      beneficiary_id: beneficiary_id || null,
       reference_id: merchantRefId || null,
       amount: amount,
       status: 'PENDING',

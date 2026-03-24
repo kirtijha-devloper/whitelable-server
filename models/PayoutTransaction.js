@@ -14,7 +14,7 @@ const PayoutTransaction = db.define('PayoutTransaction', {
   },
   beneficiary_id: {
     type: Sequelize.INTEGER,
-    allowNull: false
+    allowNull: true
   },
   reference_id: {
     type: Sequelize.STRING,
