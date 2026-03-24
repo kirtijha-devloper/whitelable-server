@@ -76,8 +76,9 @@ Each beneficiary has:
 - `beneficiaryIFSC`: string
 - `beneficiaryMobileNumber`: string
 - `beneficiaryName`: string
-- `beneficiaryLocation`: string
 - `lat`, `long`: string
+
+> beneficiary state/location are loaded from saved beneficiary in DB; frontend should not send them explicitly.
 - `tpin`: string ( required) 
 - `purpose`: string (optional)
 - `service_charge`: number (optional)

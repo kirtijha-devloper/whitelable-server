@@ -72,7 +72,9 @@ Use this `merchantRefId` for retries and duplicate prevention.
 - `user_id` (from current user)
 - optional:
   - `merchantRefId` (recommended)
-  - `paymentPurpose`, `paymentMode`, `beneficiaryLocation`, `purpose`, `latitude`, `longitude`
+  - `paymentPurpose`, `paymentMode`, `purpose`, `latitude`, `longitude`
+
+> `beneficiaryLocation` is derived from DB `state` via selected beneficiary, frontend should not set this manually.
 
 ### Backend logic
 1. Check user exists and `is_payout_enabled`.

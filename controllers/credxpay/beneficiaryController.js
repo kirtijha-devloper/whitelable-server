@@ -6,7 +6,7 @@ const router = express.Router();
 
 // create beneficiary
 router.post('/', asyncHandler(async (req, res) => {
-  const { user_id, name, account_number, ifsc_code, bank_name, branch_name, mobile, email } = req.body;
+  const { user_id, name, account_number, ifsc_code, bank_name, branch_name, state, mobile, email } = req.body;
   if (!user_id || !name || !account_number || !ifsc_code || !bank_name) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
@@ -17,6 +17,7 @@ router.post('/', asyncHandler(async (req, res) => {
     ifsc_code,
     bank_name,
     branch_name: branch_name || null,
+    state: state || null,
     mobile: mobile || null,
     email: email || null,
     is_verified: false

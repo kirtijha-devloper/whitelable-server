@@ -36,7 +36,7 @@ async function createPayout(req, res) {
     beneficiaryIFSC,
     beneficiaryMobileNumber,
     beneficiaryName,
-    beneficiaryLocation,
+    // frontend should not provide location/state; we derive from beneficiary DB record.
     paymentPurpose,
     paymentMode,
     merchantRefId: incomingMerchantRefId,
@@ -59,7 +59,8 @@ async function createPayout(req, res) {
   const resolvedBeneficiaryIFSC = beneficiaryIFSC || selectedBeneficiary?.ifsc_code || null;
   const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile || null;
   const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.name || null;
-  const resolvedBeneficiaryLocation = beneficiaryLocation || selectedBeneficiary?.branch_name || null;
+  // beneficiaryLocation must come from stored beneficiary state.
+  const resolvedBeneficiaryLocation = selectedBeneficiary?.state || null;
 
   const missingBeneficiaryFields = [];
   if (!resolvedBeneficiaryBank) missingBeneficiaryFields.push('beneficiaryBank');
@@ -351,7 +352,7 @@ function handleCallback(req, res) {
 
 // Vimo beneficiary management
 async function createBeneficiary(req, res) {
-  const { name, account_number, ifsc_code, bank_name, branch_name, mobile, email } = req.body;
+  const { name, account_number, ifsc_code, bank_name, branch_name, state, mobile, email } = req.body;
   const userId = req.user?.id;
 
   if (!userId || !name || !account_number || !ifsc_code || !bank_name) {
@@ -365,6 +366,7 @@ async function createBeneficiary(req, res) {
     ifsc_code,
     bank_name,
     branch_name: branch_name || null,
+    state: state || null,
     mobile: mobile || null,
     email: email || null,
     is_verified: false

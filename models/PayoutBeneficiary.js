@@ -30,6 +30,9 @@ const PayoutBeneficiary = db.define('PayoutBeneficiary', {
   branch_name: {
     type: Sequelize.STRING(255)
   },
+  state: {
+    type: Sequelize.STRING(255)
+  },
   mobile: {
     type: Sequelize.STRING(15)
   },
