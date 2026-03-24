@@ -367,6 +367,20 @@ const payoutResponseFields = [
 ];
 
 function normalizeDecryptedEnvelope(bankResponse, defaultMessage) {
+  // Detect plain error envelope (successStatus: false, data: null) — not encrypted
+  if (
+    bankResponse &&
+    typeof bankResponse === 'object' &&
+    bankResponse.successStatus === false &&
+    bankResponse.data === null
+  ) {
+    throw new AppError(bankResponse.message || 'Payout failed', {
+      code: 'PAYOUT_PROVIDER_ERROR',
+      statusCode: 502,
+      details: `Provider responseCode: ${bankResponse.responseCode || 'unknown'}, message: ${bankResponse.message || 'Failed'}`,
+    });
+  }
+
   const encryptedPayload = extractEncryptedPayload(bankResponse);
   let decryptedText = decryptCipherText(encryptedPayload);
 
