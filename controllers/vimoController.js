@@ -36,7 +36,7 @@ async function createPayout(req, res) {
     beneficiaryIFSC,
     beneficiaryMobileNumber,
     beneficiaryName,
-    // frontend should not provide location/state; we derive from beneficiary DB record.
+    beneficiaryLocation,
     paymentPurpose,
     paymentMode,
     merchantRefId: incomingMerchantRefId,
@@ -59,8 +59,8 @@ async function createPayout(req, res) {
   const resolvedBeneficiaryIFSC = beneficiaryIFSC || selectedBeneficiary?.ifsc_code || null;
   const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile || null;
   const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.name || null;
-  // beneficiaryLocation must come from stored beneficiary state.
-  const resolvedBeneficiaryLocation = selectedBeneficiary?.state || null;
+  // beneficiaryLocation should be DB state, fallback to provided location or branch for compatibility.
+  const resolvedBeneficiaryLocation = selectedBeneficiary?.state || beneficiaryLocation || selectedBeneficiary?.branch_name || null;
 
   const missingBeneficiaryFields = [];
   if (!resolvedBeneficiaryBank) missingBeneficiaryFields.push('beneficiaryBank');
@@ -69,6 +69,10 @@ async function createPayout(req, res) {
   if (!resolvedBeneficiaryName) missingBeneficiaryFields.push('beneficiaryName');
   if (missingBeneficiaryFields.length > 0) {
     return res.status(400).json({ success: false, message: 'Beneficiary information missing', missing: missingBeneficiaryFields });
+  }
+
+  if (!resolvedBeneficiaryLocation) {
+    return res.status(400).json({ success: false, message: 'Beneficiary location is required from saved beneficiary state' });
   }
 
   if (!user_id) {
