@@ -43,9 +43,14 @@ async function handleRzpNotification(req, res) {
         setImmediate(async () => {
             try {
                 // Fire-and-forget forward of the received notification to the reseller endpoint.
+                // Choose path based on source
+                const forwardUrl = source === 'everlife'
+                    ? "https://api.abheepay.com/api/razorpay-notifications/webhook/everlife"
+                    : "https://api.abheepay.com/api/razorpay-notifications/webhook";
+
                 // Do not await this response so we don't delay the webhook handling.
                 axios.post(
-                    "https://api.abheepay.com/api/razorpay-notifications/webhook",
+                    forwardUrl,
                     body,
                     {
                         headers: { "Content-Type": "application/json" },
