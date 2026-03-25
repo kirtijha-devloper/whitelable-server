@@ -38,11 +38,51 @@ const normalizeError = (err, fallback) => {
   return { statusCode: 500, message: String(err), code: 'ERROR', details: err };
 };
 const PayoutTransaction = require('../models/PayoutTransaction');
-const Ledger = require('../models/Ledger');
-const ledgerService = require('../services/ledgerService');
-const db = require('../config/database');
+const Ledger            = require('../models/Ledger');
+const PayoutAuditLog    = require('../models/PayoutAuditLog');
+const PayoutWebhookLog  = require('../models/PayoutWebhookLog');
+const PayoutCharge      = require('../models/PayoutCharge');
+const ledgerService     = require('../services/ledgerService');
+const db                = require('../config/database');
 
-const callbackEvents = [];
+/**
+ * Resolves the service charge for a payout using the admin-configured
+ * PayoutCharge rules:
+ *   1. Look for an active slab for this merchant where min <= amount <= max
+ *   2. Fall back to the is_default=true slab for this merchant
+ *   3. Fall back to VIMO_DEFAULT_SERVICE_CHARGE env var (or 0)
+ *
+ * A slab may have a flat `amount`, a `percentage`, or both (they are summed).
+ *
+ * @returns {{ charge: number, source: string, slabId: number|null }}
+ */
+async function resolvePayoutServiceCharge(userId, payoutAmount) {
+  const slabs = await PayoutCharge.findAll({
+    where: { merchant_id: userId, status: 'active' },
+    order: [['is_default', 'ASC']], // non-default first so we check slabs before fallback
+  });
+
+  // 1. Find a slab where amount falls within min..max range
+  const matchingSlab = slabs.find(s => {
+    const min = s.min !== null ? parseFloat(s.min) : 0;
+    const max = s.max !== null ? parseFloat(s.max) : Infinity;
+    return payoutAmount >= min && payoutAmount <= max;
+  });
+
+  // 2. Fall back to is_default slab for this merchant
+  const slab = matchingSlab || slabs.find(s => s.is_default);
+
+  if (slab) {
+    const flat   = slab.amount     !== null ? parseFloat(slab.amount)     : 0;
+    const pct    = slab.percentage !== null ? parseFloat(slab.percentage) : 0;
+    const charge = +(flat + (pct / 100) * payoutAmount).toFixed(2);
+    return { charge, source: 'db', slabId: slab.id, flat, pct };
+  }
+
+  // 3. Env-var fallback
+  const charge = parseFloat(process.env.VIMO_DEFAULT_SERVICE_CHARGE || 0);
+  return { charge, source: 'env', slabId: null, flat: charge, pct: 0 };
+}
 
 async function createPayout(req, res) {
   try {
@@ -146,9 +186,21 @@ async function createPayout(req, res) {
     merchantRefId = await generateMerchantRefId();
   }
 
-  // Service charge controlled by backend configuration
-  const serviceCharge = parseFloat(process.env.VIMO_DEFAULT_SERVICE_CHARGE || 0);
+  // ── Resolve service charge from DB rules (admin-configured PayoutCharge) ──
+  const chargeResolution = await resolvePayoutServiceCharge(user_id, amount);
+  const serviceCharge = chargeResolution.charge;
   const total_amount = amount + serviceCharge;
+
+  vimoLog && vimoLog('INFO', 'Service charge resolved', {
+    user_id,
+    payoutAmount: amount,
+    serviceCharge,
+    chargeSource: chargeResolution.source,
+    slabId: chargeResolution.slabId,
+    flat: chargeResolution.flat,
+    pct: chargeResolution.pct,
+    total_amount,
+  });
 
   const transaction = await db.transaction();
   try {
@@ -202,6 +254,25 @@ async function createPayout(req, res) {
         beneficiaryBank: resolvedBeneficiaryBank,
       }),
       service_charge: serviceCharge,
+    }, { transaction });
+
+    // ── DB audit: record payout initiation with balance snapshot ────────────
+    await PayoutAuditLog.create({
+      payout_id: payoutTransaction.id,
+      action: 'VIMO_PAYOUT_INIT',
+      details: {
+        user_id,
+        amount,
+        service_charge: serviceCharge,
+        total_amount,
+        beneficiary_id: beneficiary_id || null,
+        beneficiary_account: resolvedBeneficiaryAccountNumber,
+        beneficiary_ifsc: resolvedBeneficiaryIFSC,
+        beneficiary_name: resolvedBeneficiaryName,
+        merchant_ref_id: merchantRefId,
+        opening_balance: currentBalance,
+        closing_balance: +(currentBalance - total_amount).toFixed(2),
+      }
     }, { transaction });
 
     await ledgerService.createPayoutEntry({
@@ -422,12 +493,17 @@ async function getPayoutReference(req, res) {
 async function handleCallback(req, res) {
   const payload = req.body;
   const receivedAt = new Date().toISOString();
+  const sourceIp = req.ip || req.connection?.remoteAddress;
 
-  vimoLog('INFO', '--- Vimo callback received ---', {
-    receivedAt,
-    ip: req.ip || req.connection?.remoteAddress,
-    payload,
-  });
+  vimoLog('INFO', '--- Vimo callback received ---', { receivedAt, ip: sourceIp, payload });
+
+  // ── DB: persist raw payload immediately (outside transaction) ─────────────
+  // This guarantees we always have the raw inbound data even if processing fails.
+  try {
+    await PayoutWebhookLog.create({ payload, source_ip: sourceIp });
+  } catch (logErr) {
+    vimoLog('WARN', 'PayoutWebhookLog.create failed (non-fatal)', { message: logErr.message });
+  }
 
   // Always respond 200 immediately so Vimo doesn't retry.
   res.status(200).json({ successStatus: true, message: 'Success', responseCode: '000' });
@@ -467,6 +543,11 @@ async function handleCallback(req, res) {
 
         // Terminal check inside the lock.
         if (TERMINAL.includes((txn.status || '').toUpperCase())) {
+          await PayoutAuditLog.create({
+            payout_id: txn.id,
+            action: 'VIMO_SKIP_TERMINAL',
+            details: { merchantRefId, vimoStatus, currentStatus: txn.status, reason: 'Already in terminal state' }
+          }, { transaction: tr });
           await tr.commit();
           vimoLog('INFO', `Transaction ${merchantRefId} already terminal (${txn.status}) — skipping update`);
           return;
@@ -479,6 +560,7 @@ async function handleCallback(req, res) {
 
         vimoLog('INFO', `Status mapping: vimo=${vimoStatus} → internal=${newStatus}`);
 
+        const previousStatus = txn.status;
         txn.status = newStatus;
         if (payload.utr || payload.bankRefNo) {
           const existing = txn.data ? JSON.parse(txn.data) : {};
@@ -487,6 +569,20 @@ async function handleCallback(req, res) {
         }
         await txn.save({ transaction: tr });
         vimoLog('INFO', `PayoutTransaction ${txn.id} status updated to ${newStatus}`);
+
+        // ── DB audit: status transition ──────────────────────────────────────
+        await PayoutAuditLog.create({
+          payout_id: txn.id,
+          action: 'VIMO_STATUS_UPDATE',
+          details: {
+            merchantRefId,
+            previousStatus,
+            newStatus,
+            vimoStatus,
+            utr: payload.utr || payload.bankRefNo || null,
+            source_ip: sourceIp,
+          }
+        }, { transaction: tr });
 
         // Update matching pending ledger entry.
         const ledgerStatus = newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending';
@@ -509,6 +605,12 @@ async function handleCallback(req, res) {
 
           if (existingRefund) {
             vimoLog('WARN', `Refund already exists for PayoutTransaction ${txn.id} (Ledger id=${existingRefund.id}) — duplicate refund blocked`);
+            // ── DB audit: duplicate refund blocked ────────────────────────
+            await PayoutAuditLog.create({
+              payout_id: txn.id,
+              action: 'VIMO_REFUND_BLOCKED',
+              details: { merchantRefId, existingLedgerId: existingRefund.id, reason: 'Duplicate refund prevented' }
+            }, { transaction: tr });
           } else {
             const refundAmount = parseFloat(txn.amount || 0) + parseFloat(txn.service_charge || 0);
             vimoLog('INFO', `Issuing refund credit`, { merchant_id: txn.merchant_id, refundAmount });
@@ -522,6 +624,12 @@ async function handleCallback(req, res) {
               status: 'completed',
             }, { transaction: tr });
             vimoLog('INFO', `Refund credit created for merchant ${txn.merchant_id}, amount ₹${refundAmount}`);
+            // ── DB audit: refund issued ────────────────────────────────────
+            await PayoutAuditLog.create({
+              payout_id: txn.id,
+              action: 'VIMO_REFUND_ISSUED',
+              details: { merchantRefId, merchant_id: txn.merchant_id, refundAmount, amount: txn.amount, service_charge: txn.service_charge }
+            }, { transaction: tr });
           }
         }
 
