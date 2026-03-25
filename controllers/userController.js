@@ -1402,12 +1402,16 @@ const updateUser = asyncHandler(async (req, res) => {
 });
 
 const promoteUserToFranchise = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Admin role required.' });
+  const requesterRole = req.user?.role;
+  const requesterId = req.user?.id;
+
+  // Restrict to admin, and franchise may promote own merchants only.
+  if (requesterRole !== 'admin' && requesterRole !== 'franchaise') {
+    return res.status(403).json({ success: false, message: 'Admin or franchise role required.' });
   }
 
   const targetId = parseInt(req.params.id, 10);
-  if (!targetId) {
+  if (!Number.isInteger(targetId) || targetId <= 0) {
     return res.status(400).json({ success: false, message: 'Valid user ID is required.' });
   }
 
@@ -1416,54 +1420,53 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'User not found.' });
   }
 
-  if (targetUser.role === 'franchaise') {
+  // Franchise can only promote their own merchants
+  if (requesterRole === 'franchaise' && targetUser.franchaise_id !== requesterId) {
+    return res.status(403).json({ success: false, message: 'You can only promote your own merchant users.' });
+  }
+
+  const normalizedTargetRole = targetUser.role === 'franchise' ? 'franchaise' : targetUser.role;
+  if (normalizedTargetRole === 'franchaise') {
     return res.status(400).json({ success: false, message: 'User is already a franchise.' });
   }
 
-  if (targetUser.role === 'admin') {
+  if (normalizedTargetRole === 'admin') {
     return res.status(400).json({ success: false, message: 'Cannot promote admin user.' });
   }
 
   const trx = await db.transaction();
   try {
-    // if existing username uses the merchant prefix, keep the numeric suffix and switch to APF.
+    // Derive candidate username from existing merchant username (APM → APF), then
+    // check for conflicts. If the derived name is already taken, fall back to
+    // allocating a fresh sequence-based franchise username.
     let newUsername = null;
     if (targetUser.username && /^APM(\d{5})$/.test(targetUser.username)) {
-      newUsername = targetUser.username.replace(/^APM/, 'APF');
+      const candidate = targetUser.username.replace(/^APM/, 'APF');
+      const conflict = await User.findOne({
+        where: {
+          id: { [Op.ne]: targetUser.id },
+          [Op.or]: [{ username: candidate }, { abheepay_id: candidate }],
+        },
+        transaction: trx,
+      });
+      if (!conflict) {
+        newUsername = candidate;
+      }
     }
 
-    // fallback: generate a new franchise username from sequence if no valid old merchant username available.
+    // If no valid derived name, generate a new one from the sequence.
     if (!newUsername) {
       newUsername = await allocateUsernameForRole('franchaise', trx);
-    }
-
-    // ensure uniqueness
-    const conflict = await User.findOne({
-      where: {
-        [Op.or]: [
-          { username: newUsername },
-          { abheepay_id: newUsername }
-        ]
-      },
-      transaction: trx,
-      lock: trx.LOCK.UPDATE
-    });
-
-    if (conflict && conflict.id !== targetUser.id) {
-      await trx.rollback();
-      return res.status(409).json({
-        success: false,
-        message: 'Calculated franchise username is already in use; please retry.',
-      });
     }
 
     targetUser.role = 'franchaise';
     targetUser.username = newUsername;
     targetUser.abheepay_id = newUsername;
     targetUser.franchaise_id = null;
+    targetUser.is_approved = true;
+    targetUser.status = 'active';
 
     await targetUser.save({ transaction: trx });
-
     await trx.commit();
 
     const { password: _pw, ...safeUser } = targetUser.toJSON();

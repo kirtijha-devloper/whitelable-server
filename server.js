@@ -68,7 +68,24 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+// strict: false lets body-parser accept any valid JSON top-level value (null,
+// number, string) instead of only arrays/objects, so a frontend that sends
+// the literal body `null` no longer causes a 400 parse error.
+app.use(express.json({ strict: false }));
+
+// Normalize a JSON-null body to an empty object so all route handlers see {}.
+app.use((req, res, next) => {
+  if (req.body === null) req.body = {};
+  next();
+});
+
+// Catch body-parser errors for truly malformed JSON (not null) and return 400.
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.parse.failed' || err.status === 400) {
+    return res.status(400).json({ success: false, message: 'Invalid request body.' });
+  }
+  next(err);
+});
 
 app.use('/uploads', express.static('uploads'));
 

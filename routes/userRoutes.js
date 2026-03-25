@@ -48,6 +48,7 @@ router.put("/update-password", validateToken, updatePassword);
 // Supports multipart/form-data for KYC file uploads
 router.put("/:id", validateToken, updateUser);
 router.post("/:id/promote-to-franchise", validateToken, promoteUserToFranchise);
+router.put("/:id/promote-to-franchise", validateToken, promoteUserToFranchise); // fallback for PUT calls
 
 // 📌 TPIN Routes
 router.post("/tpin", validateToken, generateTpin);
