@@ -1426,7 +1426,36 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
 
   const trx = await db.transaction();
   try {
-    const newUsername = await allocateUsernameForRole('franchaise', trx);
+    // if existing username uses the merchant prefix, keep the numeric suffix and switch to APF.
+    let newUsername = null;
+    if (targetUser.username && /^APM(\d{5})$/.test(targetUser.username)) {
+      newUsername = targetUser.username.replace(/^APM/, 'APF');
+    }
+
+    // fallback: generate a new franchise username from sequence if no valid old merchant username available.
+    if (!newUsername) {
+      newUsername = await allocateUsernameForRole('franchaise', trx);
+    }
+
+    // ensure uniqueness
+    const conflict = await User.findOne({
+      where: {
+        [Op.or]: [
+          { username: newUsername },
+          { abheepay_id: newUsername }
+        ]
+      },
+      transaction: trx,
+      lock: trx.LOCK.UPDATE
+    });
+
+    if (conflict && conflict.id !== targetUser.id) {
+      await trx.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'Calculated franchise username is already in use; please retry.',
+      });
+    }
 
     targetUser.role = 'franchaise';
     targetUser.username = newUsername;
