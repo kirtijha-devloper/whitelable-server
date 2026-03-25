@@ -20,6 +20,7 @@ const normalizeError = (err, fallback) => {
   return { statusCode: 500, message: String(err), code: 'ERROR', details: err };
 };
 const PayoutTransaction = require('../models/PayoutTransaction');
+const Ledger = require('../models/Ledger');
 const ledgerService = require('../services/ledgerService');
 const db = require('../config/database');
 
@@ -95,36 +96,94 @@ async function createPayout(req, res) {
     return res.status(403).json({ success: false, message: 'Payout service is disabled for this user' });
   }
 
-  // enforce/generate merchantRefId for idempotency and duplicate prevention
-  if (!merchantRefId) {
-    merchantRefId = await generateMerchantRefId();
-  } else {
-    const existingReference = await PayoutTransaction.findOne({ where: { reference_id: merchantRefId } });
-    if (existingReference) {
-      return res.status(409).json({ success: false, message: 'Duplicate merchantRefId', error: { code: 'DUPLICATE_REFERENCE', details: 'merchantRefId already used' } });
-    }
-  }
-
   const amount = parseFloat(rawAmount);
   if (!amount || isNaN(amount) || amount <= 0) {
     return res.status(400).json({ success: false, message: 'Invalid payout amount' });
   }
 
+  // ── 3-minute duplicate payout guard ────────────────────────────────────────
+  // Prevent accidental double-submission: same user / same amount / same
+  // beneficiary within the last 3 minutes that is still non-terminal.
+  if (beneficiary_id || resolvedBeneficiaryAccountNumber) {
+    const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
+    const dupWhere = {
+      merchant_id: user_id,
+      amount,
+      status: { [Op.notIn]: ['FAILED', 'REVERSED', 'CANCELLED'] },
+      createdAt: { [Op.gte]: threeMinutesAgo },
+    };
+    if (beneficiary_id) dupWhere.beneficiary_id = beneficiary_id;
+    const recentDup = await PayoutTransaction.findOne({ where: dupWhere });
+    if (recentDup) {
+      return res.status(429).json({
+        success: false,
+        message: 'A payout of the same amount to this beneficiary was already submitted within the last 3 minutes. Please wait before retrying.',
+        retryAfter: 180,
+      });
+    }
+  }
+
+  // Generate merchantRefId if not supplied (idempotency key).
+  if (!merchantRefId) {
+    merchantRefId = await generateMerchantRefId();
+  }
+
   // Service charge controlled by backend configuration
   const serviceCharge = parseFloat(process.env.VIMO_DEFAULT_SERVICE_CHARGE || 0);
   const total_amount = amount + serviceCharge;
+
   const transaction = await db.transaction();
   try {
-    // wallet deduction in ledger, will sync balance
+    // ── Row-level lock on user ─────────────────────────────────────────────
+    // Serialises concurrent payout attempts for the same user so we can
+    // do a safe balance check and prevent double-deduction.
+    const lockedUser = await User.findByPk(user_id, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!lockedUser) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // ── Balance check ──────────────────────────────────────────────────────
+    const currentBalance = parseFloat(lockedUser.wallet) || 0;
+    if (currentBalance < total_amount) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Available: ₹${currentBalance.toFixed(2)}, Required: ₹${total_amount.toFixed(2)}`,
+      });
+    }
+
+    // ── merchantRefId uniqueness check (inside lock) ───────────────────────
+    // Done here (not before) so two concurrent submissions with the same ref
+    // are serialised by the user row lock above.
+    const existingRef = await PayoutTransaction.findOne({
+      where: { reference_id: merchantRefId },
+      transaction,
+    });
+    if (existingRef) {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate merchantRefId',
+        error: { code: 'DUPLICATE_REFERENCE', details: 'merchantRefId already used' },
+      });
+    }
+
+    // ── Create payout record and debit ledger ──────────────────────────────
     const payoutTransaction = await PayoutTransaction.create({
       merchant_id: user_id,
       beneficiary_id: beneficiary_id || null,
       reference_id: merchantRefId || null,
       amount: amount,
-      status: 'PENDING',
+      status: 'Processing',
       purpose: purpose || paymentPurpose || null,
-      data: null,
-      service_charge: serviceCharge
+      data: JSON.stringify({
+        beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+        beneficiaryIFSC: resolvedBeneficiaryIFSC,
+        beneficiaryName: resolvedBeneficiaryName,
+        beneficiaryBank: resolvedBeneficiaryBank,
+      }),
+      service_charge: serviceCharge,
     }, { transaction });
 
     await ledgerService.createPayoutEntry({
@@ -342,19 +401,104 @@ async function getPayoutReference(req, res) {
   }
 }
 
-function handleCallback(req, res) {
-  const callbackEvent = {
-    receivedAt: new Date().toISOString(),
-    payload: req.body,
-  };
+async function handleCallback(req, res) {
+  const payload = req.body;
+  console.log('Vimo callback received:', JSON.stringify(payload));
 
-  callbackEvents.push(callbackEvent);
-  console.log('Vimo callback received:', callbackEvent);
+  // Always respond 200 immediately so Vimo doesn't retry.
+  res.status(200).json({ successStatus: true, message: 'Success', responseCode: '000' });
 
-  return res.status(200).json({
-    successStatus: true,
-    message: 'Success',
-    responseCode: '000'
+  // Process in background after response is sent.
+  setImmediate(async () => {
+    try {
+      const merchantRefId = payload.merchantRefId || payload.merchant_ref_id || payload.referenceId;
+      const vimoStatus   = (payload.status || payload.txnStatus || '').toUpperCase();
+
+      if (!merchantRefId) {
+        console.warn('[Vimo Callback] No merchantRefId in payload, skipping.');
+        return;
+      }
+
+      const TERMINAL = ['SUCCESS', 'FAILED', 'REVERSED', 'CANCELLED'];
+
+      // ── Open transaction FIRST, then lock the row ──────────────────────────
+      // Acquiring the row lock inside the transaction prevents two concurrent
+      // FAILED callbacks from both issuing a refund (TOCTOU race condition).
+      const tr = await db.transaction();
+      try {
+        const txn = await PayoutTransaction.findOne({
+          where: { reference_id: merchantRefId },
+          transaction: tr,
+          lock: tr.LOCK.UPDATE,   // row-level lock – serialises concurrent callbacks
+        });
+
+        if (!txn) {
+          await tr.commit();
+          console.warn(`[Vimo Callback] PayoutTransaction not found for ref: ${merchantRefId}`);
+          return;
+        }
+
+        // Terminal check inside the lock – safe from race conditions.
+        if (TERMINAL.includes((txn.status || '').toUpperCase())) {
+          await tr.commit();
+          console.log(`[Vimo Callback] ${merchantRefId} already terminal (${txn.status}), skipping.`);
+          return;
+        }
+
+        // Map Vimo status to internal status.
+        let newStatus = 'Processing';
+        if (['SUCCESS', 'TRANSFERRED'].includes(vimoStatus)) newStatus = 'SUCCESS';
+        else if (['FAILED', 'FAILURE', 'REJECTED', 'REVERSED', 'CANCELLED'].includes(vimoStatus)) newStatus = 'FAILED';
+
+        txn.status = newStatus;
+        if (payload.utr || payload.bankRefNo) {
+          const existing = txn.data ? JSON.parse(txn.data) : {};
+          txn.data = JSON.stringify({ ...existing, utr: payload.utr || payload.bankRefNo, raw: payload });
+        }
+        await txn.save({ transaction: tr });
+
+        // Update matching pending ledger entry.
+        await Ledger.update(
+          { status: newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending' },
+          { where: { reference_id: txn.id, reference_table: 'PayoutTransactions', status: 'pending' }, transaction: tr }
+        );
+
+        // On failure: refund only if no refund has been issued yet.
+        if (newStatus === 'FAILED') {
+          const existingRefund = await Ledger.findOne({
+            where: {
+              transaction_type: 'payout_refund',
+              reference_id: txn.id,
+              reference_table: 'PayoutTransactions',
+            },
+            transaction: tr,
+          });
+
+          if (existingRefund) {
+            console.warn(`[Vimo Callback] Refund already exists for txn ${txn.id}, skipping duplicate credit.`);
+          } else {
+            const refundAmount = parseFloat(txn.amount || 0) + parseFloat(txn.service_charge || 0);
+            await ledgerService.createLedgerEntry({
+              userId: txn.merchant_id,
+              transactionType: 'payout_refund',
+              referenceId: txn.id,
+              referenceTable: 'PayoutTransactions',
+              description: `Refund for failed Vimo payout ${merchantRefId}`,
+              credit: refundAmount,
+              status: 'completed',
+            }, { transaction: tr });
+          }
+        }
+
+        await tr.commit();
+        console.log(`[Vimo Callback] ${merchantRefId} updated to ${newStatus}.`);
+      } catch (err) {
+        await tr.rollback();
+        console.error('[Vimo Callback] DB error processing callback:', err);
+      }
+    } catch (err) {
+      console.error('[Vimo Callback] Unexpected error:', err);
+    }
   });
 }
 
