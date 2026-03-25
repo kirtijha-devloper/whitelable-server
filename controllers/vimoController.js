@@ -47,41 +47,37 @@ const db                = require('../config/database');
 
 /**
  * Resolves the service charge for a payout using the admin-configured
- * PayoutCharge rules:
- *   1. Look for an active slab for this merchant where min <= amount <= max
- *   2. Fall back to the is_default=true slab for this merchant
- *   3. Fall back to VIMO_DEFAULT_SERVICE_CHARGE env var (or 0)
+ * PayoutCharge slab rules (mirrors calculateBbpsCcCharge logic):
+ *   - Find an active rule where from_amount <= payoutAmount <= to_amount
+ *   - Apply rate as flat fee or percentage based on rate_type
+ *   - Falls back to VIMO_DEFAULT_SERVICE_CHARGE env var (or 0)
  *
- * A slab may have a flat `amount`, a `percentage`, or both (they are summed).
- *
- * @returns {{ charge: number, source: string, slabId: number|null }}
+ * @returns {{ charge: number, source: string, slabId: number|null, rate: number, rate_type: string|null }}
  */
 async function resolvePayoutServiceCharge(userId, payoutAmount) {
-  const slabs = await PayoutCharge.findAll({
-    where: { merchant_id: userId, status: 'active' },
-    order: [['is_default', 'ASC']], // non-default first so we check slabs before fallback
+  const rule = await PayoutCharge.findOne({
+    where: {
+      is_active: true,
+      from_amount: { [Op.lte]: payoutAmount },
+      to_amount:   { [Op.gte]: payoutAmount },
+    },
+    order: [['from_amount', 'DESC']],
   });
 
-  // 1. Find a slab where amount falls within min..max range
-  const matchingSlab = slabs.find(s => {
-    const min = s.min !== null ? parseFloat(s.min) : 0;
-    const max = s.max !== null ? parseFloat(s.max) : Infinity;
-    return payoutAmount >= min && payoutAmount <= max;
-  });
-
-  // 2. Fall back to is_default slab for this merchant
-  const slab = matchingSlab || slabs.find(s => s.is_default);
-
-  if (slab) {
-    const flat   = slab.amount     !== null ? parseFloat(slab.amount)     : 0;
-    const pct    = slab.percentage !== null ? parseFloat(slab.percentage) : 0;
-    const charge = +(flat + (pct / 100) * payoutAmount).toFixed(2);
-    return { charge, source: 'db', slabId: slab.id, flat, pct };
+  if (rule) {
+    let charge;
+    if (rule.rate_type === 'flat') {
+      charge = parseFloat(rule.rate);
+    } else {
+      charge = parseFloat((payoutAmount * parseFloat(rule.rate)) / 100.0);
+    }
+    charge = +charge.toFixed(2);
+    return { charge, source: 'db', slabId: rule.id, rate: parseFloat(rule.rate), rate_type: rule.rate_type };
   }
 
-  // 3. Env-var fallback
+  // Env-var fallback
   const charge = parseFloat(process.env.VIMO_DEFAULT_SERVICE_CHARGE || 0);
-  return { charge, source: 'env', slabId: null, flat: charge, pct: 0 };
+  return { charge, source: 'env', slabId: null, rate: charge, rate_type: 'flat' };
 }
 
 async function createPayout(req, res) {
@@ -197,8 +193,8 @@ async function createPayout(req, res) {
     serviceCharge,
     chargeSource: chargeResolution.source,
     slabId: chargeResolution.slabId,
-    flat: chargeResolution.flat,
-    pct: chargeResolution.pct,
+    rate: chargeResolution.rate,
+    rate_type: chargeResolution.rate_type,
     total_amount,
   });
 
@@ -264,6 +260,10 @@ async function createPayout(req, res) {
         user_id,
         amount,
         service_charge: serviceCharge,
+        charge_slab_id: chargeResolution.slabId,
+        charge_source: chargeResolution.source,
+        charge_rate: chargeResolution.rate,
+        charge_rate_type: chargeResolution.rate_type,
         total_amount,
         beneficiary_id: beneficiary_id || null,
         beneficiary_account: resolvedBeneficiaryAccountNumber,
