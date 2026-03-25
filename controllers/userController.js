@@ -1401,4 +1401,53 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, userCount, updatePassword, updateUser, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
+const promoteUserToFranchise = asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin role required.' });
+  }
+
+  const targetId = parseInt(req.params.id, 10);
+  if (!targetId) {
+    return res.status(400).json({ success: false, message: 'Valid user ID is required.' });
+  }
+
+  const targetUser = await User.findByPk(targetId);
+  if (!targetUser) {
+    return res.status(404).json({ success: false, message: 'User not found.' });
+  }
+
+  if (targetUser.role === 'franchaise') {
+    return res.status(400).json({ success: false, message: 'User is already a franchise.' });
+  }
+
+  if (targetUser.role === 'admin') {
+    return res.status(400).json({ success: false, message: 'Cannot promote admin user.' });
+  }
+
+  const trx = await db.transaction();
+  try {
+    const newUsername = await allocateUsernameForRole('franchaise', trx);
+
+    targetUser.role = 'franchaise';
+    targetUser.username = newUsername;
+    targetUser.abheepay_id = newUsername;
+    targetUser.franchaise_id = null;
+
+    await targetUser.save({ transaction: trx });
+
+    await trx.commit();
+
+    const { password: _pw, ...safeUser } = targetUser.toJSON();
+    return res.status(200).json({
+      success: true,
+      message: 'User promoted to franchise successfully.',
+      data: safeUser,
+    });
+  } catch (error) {
+    await trx.rollback();
+    console.error('promoteUserToFranchise error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to promote user.' });
+  }
+});
+
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }

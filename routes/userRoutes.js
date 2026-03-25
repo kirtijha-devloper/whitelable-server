@@ -2,7 +2,7 @@ const express = require("express");
 
 const router = express.Router();
 
-const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, updatePassword, updateUser, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword}  = require("../controllers/userController");
+const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword}  = require("../controllers/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 
 // @public access
@@ -47,6 +47,7 @@ router.put("/update-password", validateToken, updatePassword);
 // Merchant  → can only update self
 // Supports multipart/form-data for KYC file uploads
 router.put("/:id", validateToken, updateUser);
+router.post("/:id/promote-to-franchise", validateToken, promoteUserToFranchise);
 
 // 📌 TPIN Routes
 router.post("/tpin", validateToken, generateTpin);
