@@ -2,6 +2,24 @@ const vimoService = require('../services/vimo.service');
 const User = require('../models/User');
 const PayoutBeneficiary = require('../models/PayoutBeneficiary');
 const { Op } = require('sequelize');
+const fs   = require('fs');
+const path = require('path');
+
+// ── File logger for Vimo callback events ─────────────────────────────────────
+const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimoCallback.log');
+
+function vimoLog(level, message, data) {
+  try {
+    const ts   = new Date().toISOString();
+    const extra = data !== undefined
+      ? ' | ' + (typeof data === 'object' ? JSON.stringify(data) : String(data))
+      : '';
+    const line = `[${ts}] [${level}] ${message}${extra}\n`;
+    fs.appendFileSync(VIMO_LOG_FILE, line);
+    console.log(`[VimoCallback] [${level}] ${message}${extra}`);
+  } catch (_) { /* never crash due to log failure */ }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const normalizeError = (err, fallback) => {
   if (fallback && err.statusCode === undefined) {
@@ -403,7 +421,13 @@ async function getPayoutReference(req, res) {
 
 async function handleCallback(req, res) {
   const payload = req.body;
-  console.log('Vimo callback received:', JSON.stringify(payload));
+  const receivedAt = new Date().toISOString();
+
+  vimoLog('INFO', '--- Vimo callback received ---', {
+    receivedAt,
+    ip: req.ip || req.connection?.remoteAddress,
+    payload,
+  });
 
   // Always respond 200 immediately so Vimo doesn't retry.
   res.status(200).json({ successStatus: true, message: 'Success', responseCode: '000' });
@@ -414,34 +438,37 @@ async function handleCallback(req, res) {
       const merchantRefId = payload.merchantRefId || payload.merchant_ref_id || payload.referenceId;
       const vimoStatus   = (payload.status || payload.txnStatus || '').toUpperCase();
 
+      vimoLog('INFO', 'Parsed callback fields', { merchantRefId, vimoStatus });
+
       if (!merchantRefId) {
-        console.warn('[Vimo Callback] No merchantRefId in payload, skipping.');
+        vimoLog('WARN', 'No merchantRefId in payload — skipping processing');
         return;
       }
 
       const TERMINAL = ['SUCCESS', 'FAILED', 'REVERSED', 'CANCELLED'];
 
       // ── Open transaction FIRST, then lock the row ──────────────────────────
-      // Acquiring the row lock inside the transaction prevents two concurrent
-      // FAILED callbacks from both issuing a refund (TOCTOU race condition).
       const tr = await db.transaction();
+      vimoLog('INFO', `DB transaction opened for ref: ${merchantRefId}`);
       try {
         const txn = await PayoutTransaction.findOne({
           where: { reference_id: merchantRefId },
           transaction: tr,
-          lock: tr.LOCK.UPDATE,   // row-level lock – serialises concurrent callbacks
+          lock: tr.LOCK.UPDATE,
         });
 
         if (!txn) {
           await tr.commit();
-          console.warn(`[Vimo Callback] PayoutTransaction not found for ref: ${merchantRefId}`);
+          vimoLog('WARN', `No PayoutTransaction found for ref: ${merchantRefId} — nothing to update`);
           return;
         }
 
-        // Terminal check inside the lock – safe from race conditions.
+        vimoLog('INFO', `Found PayoutTransaction`, { id: txn.id, currentStatus: txn.status, amount: txn.amount, service_charge: txn.service_charge, merchant_id: txn.merchant_id });
+
+        // Terminal check inside the lock.
         if (TERMINAL.includes((txn.status || '').toUpperCase())) {
           await tr.commit();
-          console.log(`[Vimo Callback] ${merchantRefId} already terminal (${txn.status}), skipping.`);
+          vimoLog('INFO', `Transaction ${merchantRefId} already terminal (${txn.status}) — skipping update`);
           return;
         }
 
@@ -450,18 +477,24 @@ async function handleCallback(req, res) {
         if (['SUCCESS', 'TRANSFERRED'].includes(vimoStatus)) newStatus = 'SUCCESS';
         else if (['FAILED', 'FAILURE', 'REJECTED', 'REVERSED', 'CANCELLED'].includes(vimoStatus)) newStatus = 'FAILED';
 
+        vimoLog('INFO', `Status mapping: vimo=${vimoStatus} → internal=${newStatus}`);
+
         txn.status = newStatus;
         if (payload.utr || payload.bankRefNo) {
           const existing = txn.data ? JSON.parse(txn.data) : {};
           txn.data = JSON.stringify({ ...existing, utr: payload.utr || payload.bankRefNo, raw: payload });
+          vimoLog('INFO', `UTR/bankRefNo stored`, { utr: payload.utr || payload.bankRefNo });
         }
         await txn.save({ transaction: tr });
+        vimoLog('INFO', `PayoutTransaction ${txn.id} status updated to ${newStatus}`);
 
         // Update matching pending ledger entry.
-        await Ledger.update(
-          { status: newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending' },
+        const ledgerStatus = newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending';
+        const [ledgerRowsUpdated] = await Ledger.update(
+          { status: ledgerStatus },
           { where: { reference_id: txn.id, reference_table: 'PayoutTransactions', status: 'pending' }, transaction: tr }
         );
+        vimoLog('INFO', `Ledger entries updated`, { rowsUpdated: ledgerRowsUpdated, newLedgerStatus: ledgerStatus });
 
         // On failure: refund only if no refund has been issued yet.
         if (newStatus === 'FAILED') {
@@ -475,9 +508,10 @@ async function handleCallback(req, res) {
           });
 
           if (existingRefund) {
-            console.warn(`[Vimo Callback] Refund already exists for txn ${txn.id}, skipping duplicate credit.`);
+            vimoLog('WARN', `Refund already exists for PayoutTransaction ${txn.id} (Ledger id=${existingRefund.id}) — duplicate refund blocked`);
           } else {
             const refundAmount = parseFloat(txn.amount || 0) + parseFloat(txn.service_charge || 0);
+            vimoLog('INFO', `Issuing refund credit`, { merchant_id: txn.merchant_id, refundAmount });
             await ledgerService.createLedgerEntry({
               userId: txn.merchant_id,
               transactionType: 'payout_refund',
@@ -487,17 +521,18 @@ async function handleCallback(req, res) {
               credit: refundAmount,
               status: 'completed',
             }, { transaction: tr });
+            vimoLog('INFO', `Refund credit created for merchant ${txn.merchant_id}, amount ₹${refundAmount}`);
           }
         }
 
         await tr.commit();
-        console.log(`[Vimo Callback] ${merchantRefId} updated to ${newStatus}.`);
+        vimoLog('INFO', `DB transaction committed — ref: ${merchantRefId} finalised as ${newStatus}`);
       } catch (err) {
         await tr.rollback();
-        console.error('[Vimo Callback] DB error processing callback:', err);
+        vimoLog('ERROR', `DB error — transaction rolled back for ref: ${merchantRefId}`, { message: err.message, stack: err.stack });
       }
     } catch (err) {
-      console.error('[Vimo Callback] Unexpected error:', err);
+      vimoLog('ERROR', 'Unexpected error in handleCallback background processing', { message: err.message, stack: err.stack });
     }
   });
 }
