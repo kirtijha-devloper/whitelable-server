@@ -287,20 +287,18 @@ const getUserByID = asyncHandler(async (req, res) => {
         updatedAt: charge.updatedAt
       }));
 
-      // 2. Payout Charges
+      // 2. Payout Charges (global slab rules — not per-merchant)
       const payoutCharges = await PayoutCharge.findAll({
-        where: { merchant_id: searchedId },
-        order: [['is_default', 'DESC'], ['createdAt', 'DESC']]
+        order: [['from_amount', 'ASC']]
       });
       charges.payoutCharges = payoutCharges.map(charge => ({
         id: charge.id,
-        merchant_id: charge.merchant_id,
-        min: charge.min ? parseFloat(charge.min) : null,
-        max: charge.max ? parseFloat(charge.max) : null,
-        amount: charge.amount ? parseFloat(charge.amount) : null,
-        percentage: charge.percentage ? parseFloat(charge.percentage) : null,
-        status: charge.status,
-        is_default: charge.is_default,
+        from_amount: charge.from_amount ? parseFloat(charge.from_amount) : null,
+        to_amount: charge.to_amount ? parseFloat(charge.to_amount) : null,
+        rate: charge.rate ? parseFloat(charge.rate) : null,
+        rate_type: charge.rate_type,
+        is_active: charge.is_active,
+        description: charge.description,
         createdAt: charge.createdAt,
         updatedAt: charge.updatedAt
       }));
