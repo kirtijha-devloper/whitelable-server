@@ -296,4 +296,66 @@ const reconcileWallet = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { adminDirectCredit, adminDirectDebit, reconcileWallet };
+// ---------------------------------------------------------------------------
+// POST /api/admin/wallet/reconcile-all
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconcile every active user's wallet balance against the ledger in one call.
+ *
+ * Admin-only.  Iterates all active users, calls recalculateBalance for each,
+ * and returns a summary: total processed, how many were drifted/corrected,
+ * and a per-user breakdown.
+ *
+ * Recommended for use after bulk DB operations or migrations that may have
+ * affected ledger rows across many users.
+ */
+const reconcileAllWallets = asyncHandler(async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Admin access required." });
+  }
+
+  const users = await User.findAll({
+    where: { status: "active" },
+    attributes: ["id", "name", "role"]
+  });
+
+  const results = [];
+  let totalDrifted = 0;
+
+  for (const user of users) {
+    try {
+      const result = await ledgerService.recalculateBalance(user.id);
+      if (result.drifted) totalDrifted++;
+      results.push({
+        user_id:         result.user_id,
+        user_name:       user.name,
+        user_role:       user.role,
+        true_balance:    result.true_balance,
+        previous_wallet: result.previous_wallet,
+        drift:           parseFloat((result.true_balance - result.previous_wallet).toFixed(2)),
+        drifted:         result.drifted,
+        corrected:       result.corrected,
+      });
+    } catch (err) {
+      results.push({
+        user_id:   user.id,
+        user_name: user.name,
+        error:     err.message,
+      });
+    }
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: `Reconciliation complete. ${totalDrifted} of ${users.length} user(s) had drifted balances and were corrected.`,
+    summary: {
+      total_processed: users.length,
+      total_drifted:   totalDrifted,
+      reconciled_at:   new Date().toISOString(),
+    },
+    results,
+  });
+});
+
+module.exports = { adminDirectCredit, adminDirectDebit, reconcileWallet, reconcileAllWallets };
