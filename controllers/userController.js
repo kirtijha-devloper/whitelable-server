@@ -1568,4 +1568,4 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, searchUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
