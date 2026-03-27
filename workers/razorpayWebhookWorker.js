@@ -315,8 +315,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     // is traceable even when no user is assigned yet.
     await notification.update({ pos_machine_id: posMachine.id });
 
-    // Prefer the assigned merchant; fall back to the franchise owner if no merchant is assigned.
-    const operatorUserId = posMachine.assigned_user_id || posMachine.franchaise_id;
+    // Prefer the assigned user (merchant or franchise owner)
+    const operatorUserId = posMachine.assigned_to;
     if (!operatorUserId) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine (id: ${posMachine.id}) mid: ${merchantId}, tid: ${terminalId} has no assigned user. Financial processing skipped. Notification stored with pos_machine_id only.`);
       await notification.update({
@@ -333,7 +333,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const posOperator = await User.findByPk(operatorUserId);
 
     if (!posOperator) {
-      logger.warn(`[Razorpay Webhook Worker] ⚠️ POS operator not found with id: ${posMachine.assigned_user_id} for txn: ${txnId}. Financial processing skipped.`);
+      logger.warn(`[Razorpay Webhook Worker] ⚠️ POS operator not found with id: ${posMachine.assigned_to} for txn: ${txnId}. Financial processing skipped.`);
       await notification.update({
         processed: false,
         processing_status: 'needs_admin',

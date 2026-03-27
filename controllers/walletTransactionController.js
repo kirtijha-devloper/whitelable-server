@@ -372,11 +372,11 @@ const getTransactionsByRole = asyncHandler(async (req, res) => {
   if (role === 'franchaise') {
     // Get all POS machines for this franchise
     const machines = await PosMachine.findAll({
-      where: { franchaise_id: id },
-      attributes: ['assigned_user_id']
+      where: { assigned_to: id },
+      attributes: ['assigned_to']
     });
 
-    const assignedUserIds = machines.map(m => m.assigned_user_id);
+    const assignedUserIds = machines.map(m => m.assigned_to);
 
     whereClause = {
       [Op.or]: [

@@ -97,12 +97,13 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
     } else if (userRole === 'franchaise') {
       // Franchise can see their own or their merchants' ledgers
       if (user_id) {
-        // Verify that the requested user_id belongs to this franchise
-        const machines = await PosMachine.findAll({
+        // Verify that the requested user_id belongs to this franchise by checking
+        // which merchants have POS machines assigned to this franchise user
+        const merchantsUnderFranchise = await User.findAll({
           where: { franchaise_id: userId },
-          attributes: ['assigned_user_id']
+          attributes: ['id']
         });
-        const assignedUserIds = machines.map(m => m.assigned_user_id).filter(Boolean);
+        const assignedUserIds = merchantsUnderFranchise.map(u => u.id);
         
         if (!assignedUserIds.includes(parseInt(user_id)) && parseInt(user_id) !== userId) {
           return res.status(403).json({
@@ -240,10 +241,10 @@ const getLedgerEntryDetails = asyncHandler(async (req, res) => {
     if (userRole !== 'admin' && entry.user_id !== userId) {
       if (userRole === 'franchaise') {
         // Franchise may view their merchants' entries
-        const machine = await PosMachine.findOne({
-          where: { franchaise_id: userId, assigned_user_id: entry.user_id }
+        const merchant = await User.findOne({
+          where: { id: entry.user_id, franchaise_id: userId }
         });
-        if (!machine) {
+        if (!merchant) {
           return res.status(403).json({ success: false, message: 'Access denied' });
         }
       } else {

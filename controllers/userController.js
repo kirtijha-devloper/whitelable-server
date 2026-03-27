@@ -133,17 +133,17 @@ const getUsers = asyncHandler(async (req, res) => {
         const userIds = users.map((u) => u.id);
         const posCounts = userIds.length
           ? await PosMachine.findAll({
-              where: { assigned_user_id: userIds },
+              where: { assigned_to: userIds },
               attributes: [
-                'assigned_user_id',
+                'assigned_to',
                 [fn('COUNT', col('id')), 'count'],
               ],
-              group: ['assigned_user_id'],
+              group: ['assigned_to'],
             })
           : [];
 
         const posCountMap = posCounts.reduce((acc, row) => {
-          acc[row.assigned_user_id] = parseInt(row.get('count'), 10);
+          acc[row.assigned_to] = parseInt(row.get('count'), 10);
           return acc;
         }, {});
 
@@ -325,22 +325,9 @@ const getUserByID = asyncHandler(async (req, res) => {
 
     // POS Details (if requested)
     if (isPosDetailRequired) {
-      let posDetails = [];
-      if (searchedUser.role === "merchant") {
-        posDetails = await PosMachine.findAll({
-          where: {
-            assigned_user_id: searchedId,
-            status: "active"
-          }
-        });
-      } else if (searchedUser.role === "franchaise") {
-        posDetails = await PosMachine.findAll({
-          where: {
-            franchaise_id: searchedId,
-            status: "active"
-          }
-        });
-      }
+      const posDetails = await PosMachine.findAll({
+        where: { assigned_to: searchedId, status: "active" }
+      });
       response.pos_details = posDetails;
     }
 
@@ -494,8 +481,8 @@ const registerUser = asyncHandler(async (req, res) => {
                     await PosMachine.update(
                         {
                             status: 'active',
-                            ...(normalizedRole === 'franchaise' && { franchaise_id: user.id }),
-                            ...(normalizedRole === 'merchant'   && { assigned_user_id: user.id }),
+                            ...(normalizedRole === 'franchaise' && { assigned_to: user.id }),
+                            ...(normalizedRole === 'merchant'   && { assigned_to: user.id }),
                         },
                         { where: { id: posMachineIds } }
                     );

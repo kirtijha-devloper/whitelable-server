@@ -210,15 +210,14 @@ async function seed() {
         razorpay_id: 'TESTDUMMY01',
         status: 'active',
         remarks: 'Test POS for webhook',
-        assigned_user_id: merchant.id,
-        franchaise_id: franchise.id,
+        assigned_to: merchant.id,
         created_by_user_id: merchant.id,
       }
     );
 
     // Ensure it's assigned to this merchant (handles re-run)
-    if (posMachine.assigned_user_id !== merchant.id || posMachine.status !== 'active') {
-      await posMachine.update({ assigned_user_id: merchant.id, status: 'active' });
+    if (posMachine.assigned_to !== merchant.id || posMachine.status !== 'active') {
+      await posMachine.update({ assigned_to: merchant.id, status: 'active' });
       console.log(`  [UPD]  POS machine re-assigned to merchant.id=${merchant.id}`);
     }
 

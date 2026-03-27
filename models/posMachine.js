@@ -35,8 +35,7 @@ const PosMachine = db.define('PosMachine', {
         allowNull: true
       },
       abheepay_id: { type: Sequelize.INTEGER },
-      assigned_user_id: { type: Sequelize.INTEGER },
-      franchaise_id: { type: Sequelize.INTEGER },
+      assigned_to: { type: Sequelize.INTEGER, allowNull: true },
       created_by_user_id: { type: Sequelize.INTEGER },
       createdAt: {
         allowNull: false,

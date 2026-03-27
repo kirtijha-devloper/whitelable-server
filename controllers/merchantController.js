@@ -221,10 +221,10 @@ const listMerchantTransactionCharges = asyncHandler(async (req, res) => {
     } else if (userRole === 'franchaise') {
       // Franchise can see charges for their assigned merchants
       const machines = await PosMachine.findAll({
-        where: { franchaise_id: userId },
-        attributes: ['assigned_user_id']
+        where: { assigned_to: userId },
+        attributes: ['assigned_to']
       });
-      const assignedUserIds = machines.map(m => m.assigned_user_id).filter(Boolean);
+      const assignedUserIds = machines.map(m => m.assigned_to).filter(Boolean);
       if (assignedUserIds.length > 0) {
         where.merchant_id = { [Op.in]: assignedUserIds };
       } else {

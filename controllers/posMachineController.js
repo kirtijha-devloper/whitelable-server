@@ -42,10 +42,8 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
 
     // Role-based access - filter by logged-in user
-    if (userRole === "franchaise") {
-      where.franchaise_id = userId;
-    } else if (userRole === "merchant") {
-      where.assigned_user_id = userId;
+    if (userRole === "franchaise" || userRole === "merchant") {
+      where.assigned_to = userId;
     }
     // Admin can see all (no additional filter)
 
@@ -59,20 +57,14 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
 
     const formattedPosMachines = await Promise.all(posMachines.map(async (posMachine) => {
       let assignedUser = null;
-      let franchaiseDetails = null;
-      
-      if (posMachine.assigned_user_id) {
-        assignedUser = await User.findByPk(posMachine.assigned_user_id, {
-          attributes: ['id', 'name', 'email', 'abheepay_id'], // Select the required attributes
+
+      if (posMachine.assigned_to) {
+        assignedUser = await User.findByPk(posMachine.assigned_to, {
+          attributes: ['id', 'name', 'email', 'role', 'abheepay_id'],
         });
       }
 
-      if (posMachine.franchaise_id) {
-        franchaiseDetails = await User.findByPk(posMachine.franchaise_id, {
-          attributes: ['id', 'name', 'email', 'abheepay_id'], // Select the required attributes
-        });
-      }
-         return {
+      return {
         id: posMachine.id,
         tid_number: posMachine.tid_number,
         mid_number: posMachine.mid_number,
@@ -82,16 +74,12 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
         remarks: posMachine.remarks,
         company_name: posMachine.company_name,
         bank_name: posMachine.bank_name,
+        assigned_to: posMachine.assigned_to,
         assigned_user: assignedUser ? {
           id: assignedUser.id,
           name: assignedUser.name,
           email: assignedUser.email,
-        } : null, // Include user details if assigned
-        franchaise_id: posMachine.franchaise_id,
-        franchaise_detail: franchaiseDetails ? {
-          id: franchaiseDetails.id,
-          name: franchaiseDetails.name,
-          email: franchaiseDetails.email,
+          role: assignedUser.role,
         } : null,
         createdAt: posMachine.createdAt,
         updatedAt: posMachine.updatedAt,
@@ -175,7 +163,7 @@ const createPosMachine = asyncHandler(async (req, res ) => {
       razorpay_id: razorpayId,
       remarks: remarks,
       status: "added",
-      franchaise_id: franchaiseId
+      assigned_to: franchaiseId
     });
 
     res.status(201).json({
@@ -227,18 +215,17 @@ const deactivatePosMachine = asyncHandler(async (req, res) => {
   }
 
   // Save the assigned user ID before clearing it
-  const assignedUserId = posMachineById.assigned_user_id;
+  const previousAssignedTo = posMachineById.assigned_to;
 
   posMachineById.status = "in_active";
-  posMachineById.assigned_user_id = null;
-  posMachineById.franchaise_id = null;
+  posMachineById.assigned_to = null;
   await posMachineById.save();
 
-  if (assignedUserId) {
-    const user = await User.findByPk(assignedUserId);
+  if (previousAssignedTo) {
+    const user = await User.findByPk(previousAssignedTo);
     if (user) {
       // Only clear the flag if the user no longer has any assigned machines
-      const remaining = await PosMachine.count({ where: { assigned_user_id: assignedUserId } });
+      const remaining = await PosMachine.count({ where: { assigned_to: previousAssignedTo } });
       if (remaining === 0) {
         user.is_pos_asigned = false;
         await user.save();
@@ -258,34 +245,21 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
     throw new Error("Not Found!");
   }
 
-  const previousAssignee = posMachine.assigned_user_id;
-  const previousFranchise = posMachine.franchaise_id;
+  const previousAssignedTo = posMachine.assigned_to;
 
-  // clear both merchant and franchise assignment
-  posMachine.assigned_user_id = null;
-  posMachine.franchaise_id = null;
+  // clear assignment
+  posMachine.assigned_to = null;
   posMachine.status = "active"; // keep it available as inventory
   await posMachine.save();
 
   // When unassigning, update any user flags that indicate they have a POS machine
-  if (previousAssignee) {
-    const user = await User.findByPk(previousAssignee);
+  if (previousAssignedTo) {
+    const user = await User.findByPk(previousAssignedTo);
     if (user) {
-      const remaining = await PosMachine.count({ where: { assigned_user_id: previousAssignee } });
+      const remaining = await PosMachine.count({ where: { assigned_to: previousAssignedTo } });
       if (remaining === 0) {
         user.is_pos_asigned = false;
         await user.save();
-      }
-    }
-  }
-
-  if (previousFranchise) {
-    const franchaiseUser = await User.findByPk(previousFranchise);
-    if (franchaiseUser) {
-      const remaining = await PosMachine.count({ where: { franchaise_id: previousFranchise } });
-      if (remaining === 0) {
-        franchaiseUser.is_pos_asigned = false;
-        await franchaiseUser.save();
       }
     }
   }
@@ -294,12 +268,10 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
   await PosMachineAssignmentLog.create({
     pos_machine_id: posMachine.id,
     action: 'unassign',
-    assigned_from_user_id: previousAssignee,
+    assigned_from_user_id: previousAssignedTo,
     assigned_to_user_id: null,
     performed_by_user_id: req.user.id,
-    details: {
-      previous_franchaise_id: previousFranchise
-    }
+    details: { previous_assigned_to: previousAssignedTo }
   });
 
   res.status(200).json(posMachine);
@@ -382,30 +354,20 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
     });
 
     const updated = await PosMachine.update(
-        { status: "active",
-        ...(assigneeRole === "franchaise" && { franchaise_id: userId }),
-        ...(assigneeRole === "merchant" && { assigned_user_id: userId })
-        },
-        {
-        where: {
-            id: ids
-        }
-        }
+        { status: "active", assigned_to: userId },
+        { where: { id: ids } }
     );
 
     // Create audit log entries for each machine updated
     await Promise.all(posMachines.map(async (posMachine) => {
-      const action = posMachine.assigned_user_id ? 'reassign' : 'assign';
+      const action = posMachine.assigned_to ? 'reassign' : 'assign';
       await PosMachineAssignmentLog.create({
         pos_machine_id: posMachine.id,
         action,
-        assigned_from_user_id: posMachine.assigned_user_id,
+        assigned_from_user_id: posMachine.assigned_to,
         assigned_to_user_id: userId,
         performed_by_user_id: req.user.id,
-        details: {
-          previous_franchaise_id: posMachine.franchaise_id,
-          new_franchaise_id: assigneeRole === 'franchaise' ? userId : posMachine.franchaise_id
-        }
+        details: { previous_assigned_to: posMachine.assigned_to, new_assigned_to: userId }
       });
     }));
 
@@ -459,16 +421,16 @@ const assignPosMachineToMerchant = asyncHandler(async (req, res) => {
             res.status(400);
             throw new Error("Please select correct merchant.");
         }
-        if (!posMachine.franchaise_id || posMachine.franchaise_id !== req.user.id) {
+        if (!posMachine.assigned_to || posMachine.assigned_to !== req.user.id) {
             res.status(400);
             throw new Error("Cannot reassign a POS machine that does not belong to you.");
         }
     }
 
     // assign the POS machine
-    const previousAssignedUserId = posMachine.assigned_user_id;
+    const previousAssignedTo = posMachine.assigned_to;
     const [updatedCount] = await PosMachine.update(
-        { assigned_user_id: merchantId, status: "active" },
+        { assigned_to: merchantId, status: "active" },
         { where: { id: posMachineId } }
     );
 
@@ -484,14 +446,11 @@ const assignPosMachineToMerchant = asyncHandler(async (req, res) => {
     // audit log
     await PosMachineAssignmentLog.create({
       pos_machine_id: posMachineId,
-      action: previousAssignedUserId ? 'reassign' : 'assign',
-      assigned_from_user_id: previousAssignedUserId,
+      action: previousAssignedTo ? 'reassign' : 'assign',
+      assigned_from_user_id: previousAssignedTo,
       assigned_to_user_id: merchantId,
       performed_by_user_id: req.user.id,
-      details: {
-        previous_franchaise_id: posMachine.franchaise_id,
-        new_franchaise_id: posMachine.franchaise_id
-      }
+      details: { previous_assigned_to: previousAssignedTo, new_assigned_to: merchantId }
     });
 
     res.status(200).json({
@@ -515,10 +474,8 @@ const getPosMachineList = asyncHandler(async (req, res) => {
     if (bank_name) where.bank_name = bank_name;
 
     // Role-based scoping
-    if (role === 'franchaise') {
-      where.franchaise_id = id;
-    } else if (role === 'merchant') {
-      where.assigned_user_id = id;
+    if (role === 'franchaise' || role === 'merchant') {
+      where.assigned_to = id;
     }
 
     const { count, rows: machines } = await PosMachine.findAndCountAll({
@@ -531,24 +488,26 @@ const getPosMachineList = asyncHandler(async (req, res) => {
     const formattedPosMachines = await Promise.all(machines.map(async (posMachine) => {
       let assignedUser = null;
       
-      if (posMachine.assigned_user_id) {
-        assignedUser = await User.findByPk(posMachine.assigned_user_id, {
-          attributes: ['id', 'name', 'email'], // Select the required attributes
+      if (posMachine.assigned_to) {
+        assignedUser = await User.findByPk(posMachine.assigned_to, {
+          attributes: ['id', 'name', 'email', 'role'],
         });
       }
-         return {
+
+      return {
         id: posMachine.id,
         tid_number: posMachine.tid_number,
         status: posMachine.status,
         remarks: posMachine.remarks,
         company_name: posMachine.company_name,
         bank_name: posMachine.bank_name,
+        assigned_to: posMachine.assigned_to,
         assigned_user: assignedUser ? {
           id: assignedUser.id,
           name: assignedUser.name,
           email: assignedUser.email,
-        } : null, // Include user details if assigned
-        franchaise_id: posMachine.franchaise_id,
+          role: assignedUser.role,
+        } : null,
         createdAt: posMachine.createdAt,
         updatedAt: posMachine.updatedAt,
       };
@@ -579,7 +538,7 @@ const getPosMachinesByUserId = asyncHandler(async (req, res) => {
     const { status, page = 1, limit = 50 } = req.query;
 
     const offset = (page - 1) * limit;
-    const where = { assigned_user_id: userId };
+    const where = { assigned_to: userId };
     if (status) where.status = status;
 
     const { count, rows } = await PosMachine.findAndCountAll({
@@ -810,7 +769,7 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
           razorpay_id: record.razorpay_id || null,
           remarks: record.remarks || "added",
           status: "added",
-          franchaise_id: franchaiseId
+          assigned_to: franchaiseId
         });
 
         results.push(posMachine);

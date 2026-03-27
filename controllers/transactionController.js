@@ -162,7 +162,7 @@ console.log("data5:")
             amount: tx.Amount,
             status: "pending", // Marked as request
             reason: `Razorpay transaction ID: ${tx.ID}`,
-            requested_by: posMachine.assigned_user_id, // assuming self-initiated
+            requested_by: posMachine.assigned_to, // assuming self-initiated
             source: "razorpay"
           });
         }

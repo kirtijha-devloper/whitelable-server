@@ -107,7 +107,7 @@ const getDashboard = asyncHandler(async (req, res) => {
 
     if (role === 'franchaise') {
       const machines = await PosMachine.findAll({
-        where: { franchaise_id: userId },
+        where: { assigned_to: userId },
         attributes: ['mid_number'],
         raw: true
       });
@@ -115,7 +115,7 @@ const getDashboard = asyncHandler(async (req, res) => {
 
       const [assignedMerchantCount, posMachineCount] = await Promise.all([
         User.count({ where: { franchaise_id: userId, role: 'merchant', status: 'active' } }),
-        PosMachine.count({ where: { franchaise_id: userId } })
+        PosMachine.count({ where: { assigned_to: userId } })
       ]);
 
       const franchiseMerchantIds = await User.findAll({
@@ -161,7 +161,7 @@ const getDashboard = asyncHandler(async (req, res) => {
 
     if (role === 'merchant') {
       const machines = await PosMachine.findAll({
-        where: { assigned_user_id: userId },
+        where: { assigned_to: userId },
         attributes: ['mid_number'],
         raw: true
       });
