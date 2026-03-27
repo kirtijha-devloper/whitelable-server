@@ -2,7 +2,7 @@ const express = require("express");
 
 const router = express.Router();
 
-const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, searchUsers, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword} = require("../controllers/userController");
+const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, searchUsers, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger} = require("../controllers/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 
 // @public access
@@ -50,6 +50,9 @@ router.put("/update-password", validateToken, updatePassword);
 router.put("/:id", validateToken, updateUser);
 router.post("/:id/promote-to-franchise", validateToken, promoteUserToFranchise);
 router.put("/:id/promote-to-franchise", validateToken, promoteUserToFranchise); // fallback for PUT calls
+
+// 📌 Admin-only: enable ledger tracking for a user (one-way; cannot be disabled via API)
+router.put("/:id/enable-ledger", validateToken, enableLedger);
 
 // 📌 TPIN Routes
 router.post("/tpin", validateToken, generateTpin);

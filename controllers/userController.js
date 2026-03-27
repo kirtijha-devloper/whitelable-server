@@ -1568,4 +1568,41 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, searchUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword }
+/**
+ * PUT /api/user/:id/enable-ledger
+ * Admin-only. Enables ledger tracking for the specified user (start_ledger = true).
+ * There is intentionally no route to set it back to false.
+ */
+const enableLedger = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'admin') {
+    res.status(403);
+    throw new Error('Only admins can enable ledger tracking');
+  }
+
+  const targetUser = await User.findByPk(req.params.id);
+  if (!targetUser) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  if (targetUser.start_ledger) {
+    return res.status(200).json({
+      success: true,
+      message: 'Ledger tracking is already enabled for this user',
+      id: targetUser.id,
+      start_ledger: true,
+    });
+  }
+
+  targetUser.start_ledger = true;
+  await targetUser.save();
+
+  return res.status(200).json({
+    success: true,
+    message: 'Ledger tracking enabled successfully',
+    id: targetUser.id,
+    start_ledger: true,
+  });
+});
+
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, searchUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger }

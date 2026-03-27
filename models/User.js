@@ -83,6 +83,12 @@ const User = db.define('User', {
         defaultValue: true,
         comment: 'Can this user initiate payout requests?'
       },
+      start_ledger: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+        comment: 'When true, ledger entries are recorded for this user. Admin-only flag; can only be enabled, never disabled via API.'
+      },
       wallet: {
         type: Sequelize.DECIMAL(10, 2),
         allowNull: false,

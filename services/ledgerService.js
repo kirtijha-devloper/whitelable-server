@@ -69,6 +69,13 @@ async function createLedgerEntry({
   status = 'completed',
   metadata = null
 }, opts = {}) {
+  // Check if ledger tracking is enabled for this user
+  const userCheck = await User.findByPk(userId, { attributes: ['id', 'start_ledger'], ...opts });
+  if (!userCheck || !userCheck.start_ledger) {
+    // Ledger tracking not enabled — skip silently
+    return null;
+  }
+
   // Validate amounts
   if (debit > 0 && credit > 0) {
     throw new Error('Cannot have both debit and credit in the same ledger entry');
