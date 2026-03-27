@@ -153,10 +153,19 @@ const getUsers = asyncHandler(async (req, res) => {
           return plain;
         });
 
+        const usersWithResolvedBalance = usersWithPosCount.map((u) => {
+            const wallet = parseFloat(u.wallet || 0);
+            const walletHold = parseFloat(u.wallet_hold || 0);
+            return {
+                ...u,
+                wallet_balance: parseFloat((wallet - walletHold).toFixed(2)),
+            };
+        });
+
         res.status(200).json({
             success: true,
             message: 'Users retrieved successfully',
-            data: usersWithPosCount,
+            data: usersWithResolvedBalance,
             pagination: {
                 total: count,
                 page: parseInt(page),
@@ -169,6 +178,98 @@ const getUsers = asyncHandler(async (req, res) => {
         res.status(500).json({
             success: false,
             message: error.message || 'Something went wrong'
+        });
+    }
+});
+
+const searchUsers = asyncHandler(async (req, res) => {
+    try {
+        const {
+            q,
+            status,
+            role,
+            page = 1,
+            limit = 10
+        } = req.query;
+
+        const userRole = req.user?.role;
+        const userId = req.user?.id;
+
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+        const where = {};
+
+        if (userRole === 'franchaise') {
+            where.franchaise_id = userId;
+        }
+
+        if (status) {
+            where.status = status;
+        }
+
+        if (role) {
+            where.role = role;
+        }
+
+        if (q) {
+            const normalized = q.trim();
+            where[Op.or] = [
+                { name: { [Op.iLike]: `%${normalized}%` } },
+                { email: { [Op.iLike]: `%${normalized}%` } },
+                { username: { [Op.iLike]: `%${normalized}%` } },
+                { mobile_number: { [Op.iLike]: `%${normalized}%` } },
+                { mobile_number_country_code: { [Op.iLike]: `%${normalized}%` } },
+            ];
+        }
+
+        const { count, rows: users } = await User.findAndCountAll({
+            where,
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            order: [['createdAt', 'DESC']],
+        });
+
+        const userIds = users.map((u) => u.id);
+        const posCounts = userIds.length
+            ? await PosMachine.findAll({
+                where: { assigned_to: userIds },
+                attributes: ['assigned_to', [fn('COUNT', col('id')), 'count']],
+                group: ['assigned_to'],
+            })
+            : [];
+
+        const posCountMap = posCounts.reduce((acc, row) => {
+            acc[row.assigned_to] = parseInt(row.get('count'), 10);
+            return acc;
+        }, {});
+
+        const results = users.map((u) => {
+            const plain = u.toJSON ? u.toJSON() : u;
+            const walletVal = parseFloat(plain.wallet || 0);
+            const walletHoldVal = parseFloat(plain.wallet_hold || 0);
+
+            return {
+                ...plain,
+                pos_machine_count: posCountMap[plain.id] || 0,
+                wallet_balance: parseFloat((walletVal - walletHoldVal).toFixed(2)),
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'User search results',
+            data: results,
+            pagination: {
+                total: count,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(count / parseInt(limit)),
+            },
+        });
+    } catch (error) {
+        console.error('Search users error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Something went wrong',
         });
     }
 });

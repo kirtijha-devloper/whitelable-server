@@ -24,6 +24,7 @@ router.get("/count", userCount);
 
 router.put("/:id/status", validateToken, updateUserStatus); // usertype-agnostic
 router.get("/", validateToken, getUsers);
+router.get("/search", validateToken, searchUsers);
 router.get("/current", validateToken, currentUser);
 
 // If someone (or a redirect) hits GET /register, it should not be treated as an ID lookup.
