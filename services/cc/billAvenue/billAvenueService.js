@@ -34,8 +34,7 @@ async function callBillAvenue(endpoint, xmlPayload) {
   console.error('[billAvenue] config check → apiKey:', maskedKey,
     '| accessCode:', billAvenueConfig.accessCode || '(empty)',
     '| instituteId:', billAvenueConfig.instituteId || '(empty)',
-    '| apiUrl:', billAvenueConfig.apiUrl || '(empty)',
-    '| agentId:', billAvenueConfig.agentId || '(empty)');
+    '| apiUrl:', billAvenueConfig.apiUrl || '(empty)');
 
   const encRequest = encrypt(xmlPayload);
 
@@ -94,13 +93,7 @@ async function getBillerInfo() {
   const cached = billerCache.get(cacheKey);
   if (cached) return cached;
 
-  const xml = buildXml('billerInfoRequest', {
-    agentDeviceInfo: {
-      agentId: billAvenueConfig.agentId,
-      ip: billAvenueConfig.agentDeviceIp,
-      mac: billAvenueConfig.agentDeviceMac,
-    },
-  });
+  const xml = buildXml('billerInfoRequest', {});
 
   const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
   billerCache.set(cacheKey, result);
@@ -111,7 +104,7 @@ async function getBillerInfo() {
  * Fetch a bill (bill fetch / validation).
  * @param {object} params
  */
-async function fetchBill({ billerId, customerParams, amount, agentId, paymentMode, quickPay, splitPay }) {
+async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
   const inputParams = {};
   if (customerParams && typeof customerParams === 'object') {
     Object.entries(customerParams).forEach(([key, value]) => {
@@ -120,11 +113,6 @@ async function fetchBill({ billerId, customerParams, amount, agentId, paymentMod
   }
 
   const fields = {
-    agentDeviceInfo: {
-      agentId: agentId || billAvenueConfig.agentId,
-      ip: billAvenueConfig.agentDeviceIp,
-      mac: billAvenueConfig.agentDeviceMac,
-    },
     billerId,
     inputParams,
   };
@@ -142,7 +130,7 @@ async function fetchBill({ billerId, customerParams, amount, agentId, paymentMod
  * Pay a bill via BillAvenue.
  * @param {object} params
  */
-async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, agentId, ccf }) {
+async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf }) {
   const inputParams = {};
   if (customerParams && typeof customerParams === 'object') {
     Object.entries(customerParams).forEach(([key, value]) => {
@@ -151,11 +139,6 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
   }
 
   const fields = {
-    agentDeviceInfo: {
-      agentId: agentId || billAvenueConfig.agentId,
-      ip: billAvenueConfig.agentDeviceIp,
-      mac: billAvenueConfig.agentDeviceMac,
-    },
     billerId,
     inputParams,
     amount: String(amount),
@@ -173,13 +156,8 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
 /**
  * Register a complaint for a failed transaction.
  */
-async function registerComplaint({ complaintType, billerId, transactionRefId, reason, description, agentId }) {
+async function registerComplaint({ complaintType, billerId, transactionRefId, reason, description }) {
   const fields = {
-    agentDeviceInfo: {
-      agentId: agentId || billAvenueConfig.agentId,
-      ip: billAvenueConfig.agentDeviceIp,
-      mac: billAvenueConfig.agentDeviceMac,
-    },
     complaintType: complaintType || 'Transaction',
     participationType: 'Agent',
     billerId,
@@ -195,13 +173,8 @@ async function registerComplaint({ complaintType, billerId, transactionRefId, re
 /**
  * Check transaction status.
  */
-async function getTransactionStatus({ transactionRefId, agentId }) {
+async function getTransactionStatus({ transactionRefId }) {
   const fields = {
-    agentDeviceInfo: {
-      agentId: agentId || billAvenueConfig.agentId,
-      ip: billAvenueConfig.agentDeviceIp,
-      mac: billAvenueConfig.agentDeviceMac,
-    },
     transactionRefId,
   };
 

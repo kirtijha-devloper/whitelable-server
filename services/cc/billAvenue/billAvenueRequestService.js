@@ -8,7 +8,9 @@ const billAvenueConfig = require('../../../config/billavenue');
  * @returns {string} raw response body (typically encrypted base64)
  */
 async function postForm(endpoint, formParams) {
-  const url = `${billAvenueConfig.apiUrl}${endpoint}`;
+  // Ensure base URL ends without slash, then add the BillAvenue controller path
+  const base = billAvenueConfig.apiUrl.replace(/\/+$/, '');
+  const url = `${base}/billpay/extBillPayCntrl${endpoint}`;
   const params = new URLSearchParams(formParams);
 
   const response = await axios.post(url, params.toString(), {
@@ -28,7 +30,8 @@ async function postForm(endpoint, formParams) {
  * @returns {string} raw response body
  */
 async function postRaw(endpoint, xmlBody) {
-  const url = `${billAvenueConfig.apiUrl}${endpoint}`;
+  const base = billAvenueConfig.apiUrl.replace(/\/+$/, '');
+  const url = `${base}/billpay/extBillPayCntrl${endpoint}`;
 
   const response = await axios.post(url, xmlBody, {
     headers: { 'Content-Type': 'application/xml' },
