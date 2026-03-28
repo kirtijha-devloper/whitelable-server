@@ -40,13 +40,14 @@ async function callBillAvenue(endpoint, xmlPayload) {
   const rawResponse = await postForm(endpoint, formParams);
   const raw = String(rawResponse).trim();
 
-  // Debug: log first 200 chars of raw response to understand its format
-  console.log('[billAvenue] raw response type:', typeof rawResponse, 'length:', raw.length);
-  console.log('[billAvenue] raw response preview:', raw.substring(0, 200));
+  // Log to stderr so it appears in pm2 error log
+  console.error('[billAvenue] raw response type:', typeof rawResponse, 'length:', raw.length);
+  console.error('[billAvenue] raw response preview:', raw.substring(0, 200));
 
-  // BillAvenue returns the encrypted payload as hex.
-  // It may be wrapped in a form-encoded field (encResponse=HEX)
-  // or returned as plain hex.
+  // BillAvenue may return the encrypted payload:
+  //   1. As a form-encoded field: encResponse=CIPHERTEXT
+  //   2. As plain ciphertext (hex or base64)
+  //   3. As XML already (error responses)
   let encryptedPayload;
   if (raw.includes('encResponse=')) {
     const match = raw.match(/encResponse=([^&\s]*)/);
@@ -55,7 +56,15 @@ async function callBillAvenue(endpoint, xmlPayload) {
     encryptedPayload = raw;
   }
 
-  // Decrypt hex ciphertext → XML
+  console.error('[billAvenue] payload to decrypt (first 100):', encryptedPayload.substring(0, 100));
+
+  // If the response is already XML (e.g. error), parse directly
+  if (encryptedPayload.startsWith('<') || encryptedPayload.startsWith('<?xml')) {
+    const parsed = await parseXml(encryptedPayload);
+    return parsed;
+  }
+
+  // Decrypt (tries hex first, then base64)
   const decryptedXml = decrypt(encryptedPayload);
   const parsed = await parseXml(decryptedXml);
   return parsed;

@@ -37,7 +37,7 @@ function encrypt(plainText) {
 /**
  * Decrypt hex ciphertext → plaintext (XML).
  */
-function decrypt(encryptedHex) {
+function decryptHex(encryptedHex) {
   const clean = String(encryptedHex).trim();
   const key = getKey();
   const encryptedBytes = forge.util.hexToBytes(clean);
@@ -45,8 +45,44 @@ function decrypt(encryptedHex) {
   decipher.start({ iv: IV });
   decipher.update(forge.util.createBuffer(encryptedBytes));
   const ok = decipher.finish();
-  if (!ok) throw new Error('AES decryption failed — bad key, IV, or ciphertext');
+  if (!ok) throw new Error('AES-hex decryption failed');
   return decipher.output.toString('utf8');
 }
 
-module.exports = { encrypt, decrypt };
+/**
+ * Decrypt base64 ciphertext → plaintext (XML).
+ */
+function decryptBase64(encryptedBase64) {
+  const clean = String(encryptedBase64).trim();
+  const key = getKey();
+  const encryptedBytes = forge.util.decode64(clean);
+  const decipher = forge.cipher.createDecipher('AES-CBC', key);
+  decipher.start({ iv: IV });
+  decipher.update(forge.util.createBuffer(encryptedBytes));
+  const ok = decipher.finish();
+  if (!ok) throw new Error('AES-base64 decryption failed');
+  return decipher.output.toString('utf8');
+}
+
+/**
+ * Smart decrypt: try hex first, then base64.
+ */
+function decrypt(ciphertext) {
+  const clean = String(ciphertext).trim();
+
+  // If it looks like valid hex (even-length, only 0-9a-fA-F), try hex first
+  if (/^[0-9a-fA-F]+$/.test(clean) && clean.length % 2 === 0) {
+    try {
+      return decryptHex(clean);
+    } catch (_) { /* fall through to base64 */ }
+  }
+
+  // Try base64
+  try {
+    return decryptBase64(clean);
+  } catch (_) { /* fall through */ }
+
+  throw new Error('AES decryption failed — could not decrypt as hex or base64');
+}
+
+module.exports = { encrypt, decrypt, decryptHex, decryptBase64 };
