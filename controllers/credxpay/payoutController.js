@@ -98,8 +98,8 @@ router.post('/', asyncHandler(async (req, res) => {
       await transaction.rollback();
       return res.status(403).json({ success: false, message: 'Payout service is disabled for this user' });
     }
-    const walletBalance = parseFloat(user.wallet || 0);
-    if (walletBalance < total_amount) {
+    const availableBalance = await ledgerService.getAvailableBalance(user_id);
+    if (availableBalance < total_amount) {
       await transaction.rollback();
       return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
     }
@@ -113,8 +113,8 @@ router.post('/', asyncHandler(async (req, res) => {
     seq.current_number = seq.current_number + 1;
     await seq.save({ transaction });
 
-    const openingBalance = walletBalance;
-    const closingBalance = walletBalance - total_amount;
+    const openingBalance = parseFloat(user.wallet || 0);
+    const closingBalance = openingBalance - total_amount;
 
     // insert processing request
     const payoutReq = await PayoutRequest.create({

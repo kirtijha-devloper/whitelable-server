@@ -47,6 +47,7 @@ const { sendMail } = require("../utils/mail");
 const PosTransactionCharge = require('../models/PosTransactionCharge');
 const PayoutCharge = require('../models/PayoutCharge');
 const Rental = require('../models/Rental');
+const ledgerService = require('../services/ledgerService');
 
 // helper used during registration to allocate a unique username
 function prefixForRole(role) {
@@ -811,6 +812,10 @@ const approveUser = asyncHandler( async (req, res) => {
                   where: { user_id: user.id }
                 });
 
+                // Compute settlement hold for next-day settlement users
+                const availableBalance = await ledgerService.getAvailableBalance(user.id);
+                const settlementHold = parseFloat((parseFloat(user.wallet || 0) - availableBalance).toFixed(2));
+
                 res.json({
                     email: user.email,
                     mobile_number: user.mobile_number, 
@@ -824,6 +829,8 @@ const approveUser = asyncHandler( async (req, res) => {
                     is_pos_asigned: ( user.is_pos_asigned || false),
                     wallet: user.wallet,
                     wallet_hold: user.wallet_hold,
+                    settlement_hold: settlementHold,
+                    available_balance: availableBalance,
                     tpin_set: !!tpinRecord,
                     ipay_outlet_id: user.ipay_outlet_id || null,
                     is_payout_enabled: user.is_payout_enabled,

@@ -14,6 +14,8 @@ require("./workers/walletWorker"); // Existing wallet worker
 require("./workers/razorpayWebhookWorker"); // Razorpay webhook worker
 // start CredXPay pending resolver cron
 require('./cron/resolvePendingCredxpay');
+// start settlement hold releaser cron (next-day settlement)
+require('./cron/releaseSettlementHolds');
 
 const app = express();
 

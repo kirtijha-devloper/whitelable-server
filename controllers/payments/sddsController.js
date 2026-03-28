@@ -332,7 +332,8 @@ router.post('/transfer-imps', async (req, res) => {
       return res.status(400).json({ message: "Invalid transfer amount" });
     }
 
-    if (parseFloat(user.wallet) < amount) {
+    const availableBalance = await ledgerService.getAvailableBalance(userId);
+    if (availableBalance < amount) {
       return res.status(400).json({ message: "Insufficient wallet balance" });
     }
 

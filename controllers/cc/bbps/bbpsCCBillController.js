@@ -86,7 +86,7 @@ async function calculateBbpsCcCharge(txnAmount) {
 async function ensureSufficientBalance(userId, txnAmount) {
   const chargeAmount = await calculateBbpsCcCharge(txnAmount);
   const minimumRequired = txnAmount + chargeAmount + 30;
-  const currentBalance = await ledgerService.getLatestBalance(userId);
+  const currentBalance = await ledgerService.getAvailableBalance(userId);
 
   return {
     currentBalance,

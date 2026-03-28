@@ -1,5 +1,6 @@
 const Ledger = require('../models/Ledger');
 const User = require('../models/User');
+const SettlementHold = require('../models/SettlementHold');
 const { Op } = require('sequelize');
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,55 @@ async function getLatestBalance(userId) {
   }
 
   return parseFloat(latestEntry.balance) || 0;
+}
+
+/**
+ * Get the available (spendable) balance for a user.
+ *
+ * For users with settlement_type = 'next_day_settlement', POS earnings from
+ * today are held until the next day at 10:30 AM IST. This function returns
+ * the ledger balance minus any unreleased settlement holds.
+ *
+ * @param {number} userId - User ID
+ * @returns {Promise<number>} Available spendable balance
+ */
+async function getAvailableBalance(userId) {
+  const totalBalance = await getLatestBalance(userId);
+
+  const totalHeld = await SettlementHold.sum('amount', {
+    where: { user_id: userId, released: false }
+  }) || 0;
+
+  return totalBalance - totalHeld;
+}
+
+/**
+ * Create a settlement hold for next-day settlement users.
+ *
+ * @param {number}  userId     - User ID
+ * @param {number}  amount     - Net amount to hold
+ * @param {number}  [ledgerId] - FK to the credit ledger entry
+ */
+async function createSettlementHold(userId, amount, ledgerId = null) {
+  const now = new Date();
+
+  // IST is UTC+5:30 — compute the current IST date
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffset);
+  const holdDate = istNow.toISOString().slice(0, 10); // YYYY-MM-DD in IST
+
+  // Release at next day 10:30 AM IST  →  next day 05:00 UTC
+  const releaseIST = new Date(holdDate + 'T10:30:00+05:30');
+  releaseIST.setDate(releaseIST.getDate() + 1);
+
+  await SettlementHold.create({
+    user_id: userId,
+    ledger_id: ledgerId,
+    amount,
+    hold_date: holdDate,
+    release_at: releaseIST,
+    released: false
+  });
 }
 
 /**
@@ -138,7 +188,7 @@ async function createRazorpayChargeEntry({
   metadata = null
 }) {
   // First, credit the full transaction amount
-  await createLedgerEntry({
+  const creditEntry = await createLedgerEntry({
     userId,
     transactionType: 'razorpay_credit',
     transactionId: razorpayTransactionId,
@@ -170,6 +220,20 @@ async function createRazorpayChargeEntry({
       ...metadata
     }
   });
+
+  // If user has next_day_settlement, hold the net earnings until next day 10:30 AM
+  try {
+    const user = await User.findByPk(userId, { attributes: ['id', 'settlement_type'] });
+    if (user && user.settlement_type === 'next_day_settlement') {
+      const holdAmount = transactionAmount - chargeAmount;
+      if (holdAmount > 0 && creditEntry) {
+        await createSettlementHold(userId, holdAmount, creditEntry.id);
+      }
+    }
+  } catch (holdErr) {
+    // Non-fatal: log but don't fail the transaction
+    console.error(`[ledgerService] Error creating settlement hold for user ${userId}:`, holdErr.message);
+  }
 
   return chargeEntry;
 }
@@ -548,6 +612,7 @@ module.exports = {
   getLedgerEntries,
   getLedgerEntryWithLinkedRecord,
   getLatestBalance,
+  getAvailableBalance,
   rebuildBalanceChain,
   recalculateBalance
 };

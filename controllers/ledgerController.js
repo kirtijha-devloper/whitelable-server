@@ -149,6 +149,7 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
 
     // Get current balance
     const currentBalance = await ledgerService.getLatestBalance(parseInt(targetUserId));
+    const availableBalance = await ledgerService.getAvailableBalance(parseInt(targetUserId));
 
     // Format entries with metadata parsing
     const formattedEntries = entries.map(entry => {
@@ -204,6 +205,8 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
         organization_name: user.organization_name
       } : null,
       current_balance: currentBalance,
+      available_balance: availableBalance,
+      settlement_hold: parseFloat((currentBalance - availableBalance).toFixed(2)),
       data: formattedEntries,
       pagination: pagination
     });

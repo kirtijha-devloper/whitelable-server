@@ -210,7 +210,7 @@ async function createPayout(req, res) {
     }
 
     // ── Balance check ──────────────────────────────────────────────────────
-    const currentBalance = parseFloat(lockedUser.wallet) || 0;
+    const currentBalance = await ledgerService.getAvailableBalance(user_id);
     if (currentBalance < total_amount) {
       await transaction.rollback();
       return res.status(400).json({
