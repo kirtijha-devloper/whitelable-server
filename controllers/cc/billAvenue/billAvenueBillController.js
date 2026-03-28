@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { Op } = require('sequelize');
 const billAvenueService = require('../../../services/cc/billAvenue/billAvenueService');
+const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenuePayment = require('../../../models/BillAvenuePayment');
 const BillAvenueBillFetch = require('../../../models/BillAvenueBillFetch');
 const BbpsCcChargeRule = require('../../../models/BbpsCcChargeRule');
@@ -77,6 +78,21 @@ function getTransactionRefId(parsed) {
 // ═══════════════════════════════════════════════════════════════════════════
 const getBillers = asyncHandler(async (req, res) => {
   try {
+    // Staging environment: return hardcoded test billers
+    const isStaging = billAvenueConfig.apiUrl && billAvenueConfig.apiUrl.includes('stgapi');
+    if (isStaging) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          billers: [
+            { billerId: 'OTME00005XXZ43', billerName: 'Test Biller 1' },
+            { billerId: 'biller2', billerName: 'Biller 2' },
+            { billerId: 'biller3', billerName: 'Biller 3' },
+          ],
+        },
+      });
+    }
+
     const result = await billAvenueService.getBillerInfo();
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
