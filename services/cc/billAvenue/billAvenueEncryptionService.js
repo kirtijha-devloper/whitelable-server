@@ -1,36 +1,45 @@
-const crypto = require('crypto');
+const forge = require('node-forge');
 const billAvenueConfig = require('../../../config/billavenue');
 
 /**
  * BillAvenue uses AES-128-CBC encryption.
- * Key  = first 16 bytes of MD5(apiKey)
+ * Key  = first 16 bytes of MD5(apiKey)   (node-forge: pure-JS, no OpenSSL dependency)
  * IV   = fixed "BillAvenue@12345" (16 bytes)
  */
-const IV = Buffer.from('BillAvenue@12345', 'utf8');
+const IV = 'BillAvenue@12345';
 
 function getKey() {
-  const md5 = crypto.createHash('md5').update(billAvenueConfig.apiKey).digest();
-  return md5; // 16-byte buffer
+  const md = forge.md.md5.create();
+  md.update(billAvenueConfig.apiKey, 'utf8');
+  return md.digest().getBytes(); // 16-byte binary string
 }
 
 /**
  * Encrypt plaintext (typically XML) → Base64 ciphertext.
  */
 function encrypt(plainText) {
-  const cipher = crypto.createCipheriv('aes-128-cbc', getKey(), IV);
-  let encrypted = cipher.update(plainText, 'utf8', 'base64');
-  encrypted += cipher.final('base64');
-  return encrypted;
+  const key = getKey();
+  const cipher = forge.cipher.createCipher('AES-CBC', key);
+  cipher.start({ iv: IV });
+  cipher.update(forge.util.createBuffer(plainText, 'utf8'));
+  cipher.finish();
+  return forge.util.encode64(cipher.output.getBytes());
 }
 
 /**
  * Decrypt Base64 ciphertext → plaintext (typically XML).
+ * Strips surrounding whitespace from the input before decoding to
+ * avoid "wrong block length" errors from stray newlines/spaces.
  */
 function decrypt(encryptedBase64) {
-  const decipher = crypto.createDecipheriv('aes-128-cbc', getKey(), IV);
-  let decrypted = decipher.update(encryptedBase64, 'base64', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  const clean = String(encryptedBase64).trim();
+  const key = getKey();
+  const decipher = forge.cipher.createDecipher('AES-CBC', key);
+  decipher.start({ iv: IV });
+  decipher.update(forge.util.createBuffer(forge.util.decode64(clean)));
+  const ok = decipher.finish();
+  if (!ok) throw new Error('AES decryption failed — bad key, IV, or ciphertext');
+  return decipher.output.toString('utf8');
 }
 
 module.exports = { encrypt, decrypt };
