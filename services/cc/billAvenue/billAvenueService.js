@@ -41,11 +41,15 @@ async function callBillAvenue(endpoint, xmlPayload) {
 
   // BillAvenue returns the encrypted payload as a form-encoded string:
   // encResponse=BASE64DATA  (or occasionally as raw Base64 directly)
+  // IMPORTANT: do NOT use URLSearchParams — it decodes '+' as space,
+  // which corrupts Base64 ('+' is a valid Base64 character).
   let encryptedPayload;
-  if (typeof rawResponse === 'string' && rawResponse.includes('encResponse=')) {
-    encryptedPayload = new URLSearchParams(rawResponse).get('encResponse');
+  const raw = String(rawResponse);
+  if (raw.includes('encResponse=')) {
+    const match = raw.match(/encResponse=([^&\s]*)/);
+    encryptedPayload = match ? match[1] : raw;
   } else {
-    encryptedPayload = rawResponse;
+    encryptedPayload = raw.trim();
   }
 
   // Response is base64-encrypted XML. Decrypt it.
