@@ -93,6 +93,21 @@ async function getBillerInfo() {
   const cached = billerCache.get(cacheKey);
   if (cached) return cached;
 
+  // Staging environment uses hardcoded test billers (BillAvenue staging API
+  // does not serve a real biller list)
+  const isStaging = billAvenueConfig.apiUrl && billAvenueConfig.apiUrl.includes('stgapi');
+  if (isStaging) {
+    const testBillers = {
+      billers: [
+        { billerId: 'OTME00005XXZ43', billerName: 'Test Biller 1' },
+        { billerId: 'biller2', billerName: 'Biller 2' },
+        { billerId: 'biller3', billerName: 'Biller 3' },
+      ],
+    };
+    billerCache.set(cacheKey, testBillers);
+    return testBillers;
+  }
+
   const xml = buildXml('billerInfoRequest', {});
 
   const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
