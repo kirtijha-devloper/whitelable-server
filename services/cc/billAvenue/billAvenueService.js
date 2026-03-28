@@ -40,14 +40,19 @@ async function callBillAvenue(endpoint, xmlPayload) {
   const rawResponse = await postForm(endpoint, formParams);
   const raw = String(rawResponse).trim();
 
-  // Log to stderr so it appears in pm2 error log
-  console.error('[billAvenue] raw response type:', typeof rawResponse, 'length:', raw.length);
+  // Log for debugging
+  console.error('[billAvenue] raw response length:', raw.length);
   console.error('[billAvenue] raw response preview:', raw.substring(0, 200));
 
-  // BillAvenue may return the encrypted payload:
-  //   1. As a form-encoded field: encResponse=CIPHERTEXT
-  //   2. As plain ciphertext (hex or base64)
-  //   3. As XML already (error responses)
+  // BillAvenue gateway returns HTML on access errors (IP not whitelisted, bad credentials, etc.)
+  if (raw.includes('<!DOCTYPE') || raw.includes('<html')) {
+    // Extract <title> for a readable error
+    const titleMatch = raw.match(/<title>(.*?)<\/title>/i);
+    const errorTitle = titleMatch ? titleMatch[1] : 'Access Denied';
+    throw new Error(`BillAvenue API rejected the request: ${errorTitle}. Check API credentials, IP whitelist, and institute ID.`);
+  }
+
+  // Extract encrypted payload from form-encoded or plain response
   let encryptedPayload;
   if (raw.includes('encResponse=')) {
     const match = raw.match(/encResponse=([^&\s]*)/);
@@ -56,9 +61,7 @@ async function callBillAvenue(endpoint, xmlPayload) {
     encryptedPayload = raw;
   }
 
-  console.error('[billAvenue] payload to decrypt (first 100):', encryptedPayload.substring(0, 100));
-
-  // If the response is already XML (e.g. error), parse directly
+  // If the response is XML (e.g. error response), parse directly
   if (encryptedPayload.startsWith('<') || encryptedPayload.startsWith('<?xml')) {
     const parsed = await parseXml(encryptedPayload);
     return parsed;
