@@ -27,6 +27,16 @@ function generateRequestId() {
  * POST encrypted XML to BillAvenue and return decrypted + parsed response.
  */
 async function callBillAvenue(endpoint, xmlPayload) {
+  // Log loaded credentials for debugging (mask apiKey partially)
+  const maskedKey = billAvenueConfig.apiKey
+    ? billAvenueConfig.apiKey.substring(0, 4) + '***' + billAvenueConfig.apiKey.slice(-4)
+    : '(empty)';
+  console.error('[billAvenue] config check → apiKey:', maskedKey,
+    '| accessCode:', billAvenueConfig.accessCode || '(empty)',
+    '| instituteId:', billAvenueConfig.instituteId || '(empty)',
+    '| apiUrl:', billAvenueConfig.apiUrl || '(empty)',
+    '| agentId:', billAvenueConfig.agentId || '(empty)');
+
   const encRequest = encrypt(xmlPayload);
 
   const formParams = {
