@@ -13,6 +13,7 @@ async function postForm(endpoint, formParams) {
 
   const response = await axios.post(url, params.toString(), {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    responseType: 'text',
     timeout: 60000,
   });
 

@@ -38,21 +38,24 @@ async function callBillAvenue(endpoint, xmlPayload) {
   };
 
   const rawResponse = await postForm(endpoint, formParams);
+  const raw = String(rawResponse).trim();
 
-  // BillAvenue returns the encrypted payload as a form-encoded string:
-  // encResponse=BASE64DATA  (or occasionally as raw Base64 directly)
-  // IMPORTANT: do NOT use URLSearchParams — it decodes '+' as space,
-  // which corrupts Base64 ('+' is a valid Base64 character).
+  // Debug: log first 200 chars of raw response to understand its format
+  console.log('[billAvenue] raw response type:', typeof rawResponse, 'length:', raw.length);
+  console.log('[billAvenue] raw response preview:', raw.substring(0, 200));
+
+  // BillAvenue returns the encrypted payload as hex.
+  // It may be wrapped in a form-encoded field (encResponse=HEX)
+  // or returned as plain hex.
   let encryptedPayload;
-  const raw = String(rawResponse);
   if (raw.includes('encResponse=')) {
     const match = raw.match(/encResponse=([^&\s]*)/);
     encryptedPayload = match ? match[1] : raw;
   } else {
-    encryptedPayload = raw.trim();
+    encryptedPayload = raw;
   }
 
-  // Response is base64-encrypted XML. Decrypt it.
+  // Decrypt hex ciphertext → XML
   const decryptedXml = decrypt(encryptedPayload);
   const parsed = await parseXml(decryptedXml);
   return parsed;
