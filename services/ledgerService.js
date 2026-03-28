@@ -11,7 +11,8 @@ const REFERENCE_TABLE_MODEL_MAP = {
   WalletTransactions: () => require('../models/WalletTransaction'),
   MerchantTransactionCharges: () => require('../models/MerchantTransactionCharge'),
   PayoutTransactions: () => require('../models/PayoutTransaction'),
-  Rentals: () => require('../models/Rental')
+  Rentals: () => require('../models/Rental'),
+  BillAvenuePayments: () => require('../models/BillAvenuePayment'),
 };
 
 /**
