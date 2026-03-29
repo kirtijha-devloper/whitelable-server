@@ -31,10 +31,6 @@ const WalletTransaction = db.define('WalletTransaction', {
     type: Sequelize.INTEGER,
     allowNull: true
   },
-  source: {                               
-  type: Sequelize.STRING,  // razorpay, merchant, franchaise
-  allowNull: true // optional, set to false if always required
-},
   reference_id: {
   type: Sequelize.BIGINT,
   allowNull: true

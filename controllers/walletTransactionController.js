@@ -22,15 +22,12 @@ const requestFund = asyncHandler(async (req, res) =>{
   if (!user) throw new Error("User not found");
 
 
-  let source = role;
-
   const wallet = await WalletTransaction.create({
     type: "request",
     amount: parseFloat(amount),
     status: "pending",
     reason,
     requested_by: user_id,
-    source: source
   });
 
   res.status(200).json({ message: "Fund Requested", balance: user.wallet,hold: user.wallet_hold, id: wallet.id });
