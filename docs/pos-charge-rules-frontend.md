@@ -183,8 +183,8 @@ POST /api/pos-charge-rules
 ```json
 {
   "success": true,
-  "message": "POS Charge rule created",
-  "data": {
+  "message": "Charge rule created",
+  "record": {
     "id": 12,
     "scope": "admin_franchise",
     "user_id": null,
@@ -194,6 +194,8 @@ POST /api/pos-charge-rules
   }
 }
 ```
+
+> **Note:** The response key is **`record`** (not `data`).
 
 ---
 
@@ -307,7 +309,41 @@ merchant.
 
 ---
 
-### 5. Get a single rule
+### 5. List merchant charge rules (merchant helper)
+
+```
+GET /api/pos-charge-rules/list/merchant
+```
+
+**Who can call:** Merchant users only (returns 403 for others).
+
+Returns rules grouped by origin — **no pagination**, always returns all matching rules.
+
+**Query parameters** (all optional): `payment_mode`, `card_type`, `card_brand`,
+`card_classification`, `settlement_type`, `is_active`.
+
+**Response** (200):
+
+```json
+{
+  "success": true,
+  "data": {
+    "admin_default": [ { "id": 1, "scope": "admin_default", "..." : "..." } ],
+    "admin_merchant": [ { "id": 5, "scope": "admin_merchant", "..." : "..." } ],
+    "franchise_default": [ { "id": 9, "scope": "franchise_default", "..." : "..." } ],
+    "franchise_merchant": [ { "id": 12, "scope": "franchise_merchant", "..." : "..." } ]
+  }
+}
+```
+
+> For non-franchised merchants, `franchise_default` and `franchise_merchant` will be empty arrays.
+
+> **Use this endpoint to build the merchant's "My Rates" page** instead of the generic `/list`
+> when you want the data pre-grouped by origin.
+
+---
+
+### 6. Get a single rule
 
 ```
 GET /api/pos-charge-rules/:id
@@ -315,9 +351,18 @@ GET /api/pos-charge-rules/:id
 
 Returns one rule by primary key.
 
+**Response** (200):
+
+```json
+{
+  "success": true,
+  "record": { "id": 12, "scope": "franchise_default", "..." : "..." }
+}
+```
+
 ---
 
-### 6. Update a rule
+### 7. Update a rule
 
 ```
 PUT /api/pos-charge-rules/:id
@@ -329,21 +374,42 @@ change. The `scope` is **re-derived** automatically if `user_id` or
 
 **Permissions:** Admin can update any rule. Franchise can only update rules
 they created (`franchise_default` / `franchise_merchant` scoped to their own
-franchise). Merchant cannot update rules.
+franchise —- identified by `created_by` matching the caller). Merchant cannot update rules.
+
+**Response** (200):
+
+```json
+{
+  "success": true,
+  "message": "Rule updated",
+  "record": { "id": 12, "scope": "franchise_default", "..." : "..." }
+}
+```
+
+> **Note:** The response key is **`record`**.
 
 ---
 
-### 7. Delete a rule
+### 8. Delete a rule
 
 ```
 DELETE /api/pos-charge-rules/:id
 ```
 
-Permanently removes the rule. Same permissions as update.
+Permanently removes the rule. Same permissions as update (franchise must be the `created_by`).
+
+**Response** (200):
+
+```json
+{
+  "success": true,
+  "message": "Rule deleted"
+}
+```
 
 ---
 
-### 8. Calculate charge (preview / simulation)
+### 9. Calculate charge (preview / simulation)
 
 ```
 POST /api/pos-charge-rules/calculate
@@ -451,9 +517,13 @@ The franchise can create, edit, and delete rules here.
 
 ### Merchant Dashboard
 
-Merchants have read-only access. Call `GET /api/pos-charge-rules/list` (the
-generic endpoint — the backend automatically filters to only show applicable
-rules).
+Merchants have read-only access. You have two options:
+
+- **`GET /api/pos-charge-rules/list/merchant`** — returns rules **pre-grouped** by
+  `admin_default`, `admin_merchant`, `franchise_default`, `franchise_merchant`. No
+  pagination. Preferred for building the "My Rates" view.
+- **`GET /api/pos-charge-rules/list`** — the generic endpoint. Backend auto-filters
+  to only applicable rules. Use when you need pagination or additional filters.
 
 Show a simple table of the charge rates that apply to them. Use human-friendly
 labels for the `scope` field:
@@ -470,14 +540,16 @@ labels for the `scope` field:
 
 ## Quick Reference: scope Filter Cheat Sheet
 
-| UI screen | Endpoint | `scope` filter |
-|---|---|---|
-| Admin → global defaults | `GET /list?scope=admin_default` | `admin_default` |
-| Admin → franchise rates | `GET /list?scope=admin_franchise` | `admin_franchise` |
-| Admin → merchant overrides | `GET /list?scope=admin_merchant` | `admin_merchant` |
-| Franchise → admin-set rates | `GET /list/admin` | _(automatic)_ |
-| Franchise → own rates | `GET /list/franchise` | _(automatic)_ |
-| Merchant → my rates | `GET /list` | _(automatic)_ |
+| UI screen | Endpoint | `scope` filter | Notes |
+|---|---|---|---|
+| Admin → global defaults | `GET /list?scope=admin_default` | `admin_default` | |
+| Admin → franchise rates | `GET /list?scope=admin_franchise` | `admin_franchise` | |
+| Admin → merchant overrides | `GET /list?scope=admin_merchant` | `admin_merchant` | |
+| Franchise → admin-set rates | `GET /list/admin` | _(automatic)_ | Read-only |
+| Franchise → own rates | `GET /list/franchise` | _(automatic)_ | Editable |
+| Merchant → rates (grouped) | `GET /list/merchant` | _(automatic)_ | Grouped, no pagination |
+| Merchant → rates (paginated) | `GET /list` | _(automatic)_ | Paginated |
+| Any role → charge preview | `POST /calculate` | — | Stateless |
 
 ---
 
@@ -490,3 +562,9 @@ labels for the `scope` field:
   `rule.id` for debugging/logging.
 - `card_classification` is currently not supplied by Razorpay webhooks and
   will usually be `null`. Include it manually if available.
+- **Response keys:** Create/Get/Update all return the rule under **`record`**, not `data`.
+- **Franchise role name:** Internally the DB stores the role as `franchaise` (historical typo).
+  The backend accepts both `franchise` and `franchaise` spellings transparently — the
+  frontend does not need to worry about this.
+- `charge_percent`, `charge_flat`, `min_amount`, `max_amount`, `gst_percent` are returned
+  as decimal strings (e.g. `"1.70"`) — use `parseFloat()` before arithmetic.
