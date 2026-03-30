@@ -16,14 +16,17 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     const transaction = await queryInterface.sequelize.transaction();
     try {
+      // Fail fast (10s) instead of hanging if another connection holds a lock
+      await queryInterface.sequelize.query("SET lock_timeout = '10s'", { transaction });
+
       // 1. Rename bank_branch_name → branch_name (idempotent: skip if already renamed)
       const columns = await queryInterface.describeTable('Beneficiaries');
       if (columns['bank_branch_name']) {
         await queryInterface.renameColumn('Beneficiaries', 'bank_branch_name', 'branch_name', { transaction });
       }
 
-      // 2. Relax the NOT NULL constraint on branch_name (it was created allowNull: false).
-      //    Use raw ALTER COLUMN to avoid the full table rewrite that changeColumn triggers in Postgres.
+      // 2. Relax the NOT NULL constraint on branch_name
+      //    Use raw SQL — lighter than changeColumn which triggers a full type rewrite.
       await queryInterface.sequelize.query(
         'ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" DROP NOT NULL',
         { transaction }
