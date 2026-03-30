@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const cron = require('node-cron');
 const { Op } = require('sequelize');
 const PayoutTransaction = require('../models/PayoutTransaction');
@@ -7,8 +9,20 @@ const ledgerService = require('../services/ledgerService');
 const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 
+const LOG_FILE = path.resolve(__dirname, '../logs/branchx-payout-cron.log');
+if (!fs.existsSync(path.dirname(LOG_FILE))) {
+  fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+}
+
+function appendLog(message) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] ${message}\n`;
+  fs.appendFile(LOG_FILE, line, (err) => { if (err) console.error('Failed to write cron log', err); });
+}
+
 async function resolvePending() {
   console.log('[cron] resolvePendingBranchx started');
+  appendLog('resolvePendingBranchx started');
   const cutoff = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes ago
 
   const pendingTxns = await PayoutTransaction.findAll({
@@ -20,7 +34,9 @@ async function resolvePending() {
 
   for (const tx of pendingTxns) {
     if (!tx.reference_id) {
-      console.warn(`[cron] skipping payoutTxn ${tx.id}: missing reference_id`);
+      const msg = `[cron] skipping payoutTxn ${tx.id}: missing reference_id`;
+      console.warn(msg);
+      appendLog(msg);
       continue;
     }
 
@@ -76,19 +92,29 @@ async function resolvePending() {
 
         await locked.save({ transaction: tr });
         await tr.commit();
-        console.log(`[cron] resolved BranchX payout ${locked.reference_id} -> ${transactionStatus}`);
+        const msg = `[cron] resolved BranchX payout ${locked.reference_id} -> ${transactionStatus}`;
+        console.log(msg);
+        appendLog(msg);
       } catch (err) {
         await tr.rollback();
-        console.error(`[cron] transaction failed for payout ${tx.id}`, err);
+        const msg = `[cron] transaction failed for payout ${tx.id} ${err.message || err}`;
+        console.error(msg, err);
+        appendLog(msg);
       }
     } catch (err) {
-      console.error(`[cron] status check failed for payout ${tx.id} (${tx.reference_id})`, err);
+      const msg = `[cron] status check failed for payout ${tx.id} (${tx.reference_id}) ${err.message || err}`;
+      console.error(msg, err);
+      appendLog(msg);
     }
   }
 }
 
 cron.schedule('*/5 * * * *', () => {
-  resolvePending().catch((err) => console.error('resolvePendingBranchx error', err));
+  resolvePending().catch((err) => {
+    const msg = `resolvePendingBranchx error ${err.message || err}`;
+    console.error(msg, err);
+    appendLog(msg);
+  });
 });
 
 module.exports = { resolvePending };
