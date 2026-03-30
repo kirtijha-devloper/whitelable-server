@@ -14,9 +14,19 @@
  */
 module.exports = {
   async up(queryInterface, Sequelize) {
+    // Terminate other idle connections to this DB so the ALTER TABLE can
+    // acquire its ACCESS EXCLUSIVE lock without waiting indefinitely.
+    await queryInterface.sequelize.query(`
+      SELECT pg_terminate_backend(pid)
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND pid <> pg_backend_pid()
+        AND state = 'idle'
+    `);
+
     const transaction = await queryInterface.sequelize.transaction();
     try {
-      // Fail fast (10s) instead of hanging if another connection holds a lock
+      // Fail fast (10s) instead of hanging if a non-idle connection still holds a lock
       await queryInterface.sequelize.query("SET lock_timeout = '10s'", { transaction });
 
       // 1. Rename bank_branch_name → branch_name (idempotent: skip if already renamed)
