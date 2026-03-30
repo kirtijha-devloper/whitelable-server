@@ -80,7 +80,6 @@ router.post('/payout', asyncHandler(async (req, res) => {
       const slab = await ChargeSlab.findOne({
         where: {
           charge_type_category: 'branchx_payout',
-          is_active: true,
           min_amount: { [Op.lte]: amount },
           max_amount: { [Op.gte]: amount }
         },
