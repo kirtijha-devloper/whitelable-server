@@ -3,107 +3,95 @@
 /**
  * Unifies Beneficiaries and payout_beneficiaries into a single Beneficiaries table.
  *
- * Changes:
- *  1. Renames bank_branch_name → branch_name in Beneficiaries.
- *  2. Adds state column (nullable; enforced at app level for Vimo, not required for BranchX).
- *  3. Copies all existing rows from payout_beneficiaries into Beneficiaries.
- *
- * After running this migration:
- *  - vimoController uses the Beneficiary model scoped by merchant_id (was user_id).
- *  - payout_beneficiaries table is left intact as a backup; drop it once confirmed.
+ * Uses a single raw SQL DO block so everything runs on one connection with
+ * the ACCESS EXCLUSIVE lock held for the minimum possible time.
  */
 module.exports = {
-  async up(queryInterface, Sequelize) {
-    // Terminate other idle connections to this DB so the ALTER TABLE can
-    // acquire its ACCESS EXCLUSIVE lock without waiting indefinitely.
+  async up(queryInterface) {
+    // Kill ALL other connections to this DB (not just idle) so the DDL lock
+    // can be acquired immediately.  The apps will reconnect after migration.
     await queryInterface.sequelize.query(`
       SELECT pg_terminate_backend(pid)
       FROM pg_stat_activity
       WHERE datname = current_database()
         AND pid <> pg_backend_pid()
-        AND state = 'idle'
     `);
 
-    const transaction = await queryInterface.sequelize.transaction();
-    try {
-      // Fail fast (10s) instead of hanging if a non-idle connection still holds a lock
-      await queryInterface.sequelize.query("SET lock_timeout = '10s'", { transaction });
+    // Run everything as raw SQL in a single statement so Sequelize doesn't
+    // open extra pool connections (which was causing the hang).
+    await queryInterface.sequelize.query(`
+      SET lock_timeout = '10s';
 
-      // 1. Rename bank_branch_name → branch_name (idempotent: skip if already renamed)
-      const columns = await queryInterface.describeTable('Beneficiaries');
-      if (columns['bank_branch_name']) {
-        await queryInterface.renameColumn('Beneficiaries', 'bank_branch_name', 'branch_name', { transaction });
-      }
+      DO $$
+      BEGIN
+        -- 1. Rename bank_branch_name → branch_name (idempotent)
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'Beneficiaries' AND column_name = 'bank_branch_name'
+        ) THEN
+          ALTER TABLE "Beneficiaries" RENAME COLUMN "bank_branch_name" TO "branch_name";
+        END IF;
 
-      // 2. Relax the NOT NULL constraint on branch_name
-      //    Use raw SQL — lighter than changeColumn which triggers a full type rewrite.
-      await queryInterface.sequelize.query(
-        'ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" DROP NOT NULL',
-        { transaction }
-      );
-      await queryInterface.sequelize.query(
-        'ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" SET DEFAULT NULL',
-        { transaction }
-      );
+        -- 2. Add state column (idempotent)
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'Beneficiaries' AND column_name = 'state'
+        ) THEN
+          ALTER TABLE "Beneficiaries" ADD COLUMN "state" VARCHAR(255) DEFAULT NULL;
+        END IF;
 
-      // 3. Add state column (idempotent: skip if already present)
-      const columnsAfter = await queryInterface.describeTable('Beneficiaries');
-      if (!columnsAfter['state']) {
-        await queryInterface.addColumn('Beneficiaries', 'state', {
-          type: Sequelize.STRING(255),
-          allowNull: true,
-          defaultValue: null,
-        }, { transaction });
-      }
-
-      // 4. Migrate rows from payout_beneficiaries → Beneficiaries
-      const rows = await queryInterface.sequelize.query(
-        'SELECT user_id, name, account_number, ifsc_code, bank_name, branch_name, state, mobile, email, is_verified, created_at, updated_at FROM payout_beneficiaries',
-        { type: queryInterface.sequelize.QueryTypes.SELECT, transaction }
-      );
-
-      if (rows.length > 0) {
-        const now = new Date();
-        await queryInterface.bulkInsert('Beneficiaries', rows.map(r => ({
-          merchant_id:      r.user_id,
-          beneficiary_name: r.name,
-          mobile_number:    r.mobile || '',
-          bank_name:        r.bank_name,
-          account_number:   r.account_number,
-          ifsc_code:        r.ifsc_code,
-          email:            r.email || '',
-          status:           r.is_verified ? 'verified' : 'active',
-          branch_name:      r.branch_name || null,
-          state:            r.state || null,
-          createdAt:        r.created_at || now,
-          updatedAt:        r.updated_at || now,
-        })), { transaction });
-      }
-
-      await transaction.commit();
-    } catch (err) {
-      await transaction.rollback();
-      throw err;
-    }
+        -- 3. Migrate rows from payout_beneficiaries → Beneficiaries
+        --    Skip rows that already exist (by account_number + ifsc_code + merchant_id).
+        INSERT INTO "Beneficiaries"
+          (merchant_id, beneficiary_name, mobile_number, bank_name, account_number,
+           ifsc_code, email, status, branch_name, state, "createdAt", "updatedAt")
+        SELECT
+          pb.user_id,
+          pb.name,
+          COALESCE(pb.mobile, ''),
+          pb.bank_name,
+          pb.account_number,
+          pb.ifsc_code,
+          COALESCE(pb.email, ''),
+          CASE WHEN pb.is_verified THEN 'verified'::"enum_Beneficiaries_status"
+               ELSE 'active'::"enum_Beneficiaries_status" END,
+          COALESCE(pb.branch_name, 'N/A'),
+          pb.state,
+          COALESCE(pb.created_at, NOW()),
+          COALESCE(pb.updated_at, NOW())
+        FROM payout_beneficiaries pb
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "Beneficiaries" b
+          WHERE b.merchant_id    = pb.user_id
+            AND b.account_number = pb.account_number
+            AND b.ifsc_code      = pb.ifsc_code
+        );
+      END $$;
+    `);
   },
 
-  async down(queryInterface, Sequelize) {
-    const transaction = await queryInterface.sequelize.transaction();
-    try {
-      await queryInterface.removeColumn('Beneficiaries', 'state', { transaction });
-      await queryInterface.sequelize.query(
-        `ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" SET NOT NULL`,
-        { transaction }
-      );
-      await queryInterface.sequelize.query(
-        `ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" SET DEFAULT 'N/A'`,
-        { transaction }
-      );
-      await queryInterface.renameColumn('Beneficiaries', 'branch_name', 'bank_branch_name', { transaction });
-      await transaction.commit();
-    } catch (err) {
-      await transaction.rollback();
-      throw err;
-    }
+  async down(queryInterface) {
+    await queryInterface.sequelize.query(`
+      SET lock_timeout = '10s';
+
+      DO $$
+      BEGIN
+        -- Remove state column
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'Beneficiaries' AND column_name = 'state'
+        ) THEN
+          ALTER TABLE "Beneficiaries" DROP COLUMN "state";
+        END IF;
+
+        -- Rename branch_name back to bank_branch_name
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'Beneficiaries' AND column_name = 'branch_name'
+        ) THEN
+          ALTER TABLE "Beneficiaries" RENAME COLUMN "branch_name" TO "bank_branch_name";
+        END IF;
+      END $$;
+    `);
   },
 };
