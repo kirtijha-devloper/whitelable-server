@@ -131,13 +131,75 @@ Possible values in `missing`: `beneficiaryBank`, `beneficiaryAccountNumber`, `be
 
 ## 5) Beneficiary CRUD
 
-- `POST /api/vimo/beneficiaries`
-  - required: `name`, `account_number`, `ifsc_code`, `bank_name`
-  - optional: `branch_name`, `mobile`, `email`
-- `GET /api/vimo/beneficiaries`
-  - returns current user's saved beneficiaries
-- `PUT /api/vimo/beneficiaries/:id`
-- `DELETE /api/vimo/beneficiaries/:id`
+Beneficiaries are stored in a **shared table** used by all payout providers (Vimo, BranchX, and future integrations). Records are scoped by user — each user only sees their own.
+
+### POST `/api/vimo/beneficiaries` — Add beneficiary
+
+#### Request body
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `name` | Yes | Beneficiary's full name |
+| `account_number` | Yes | Bank account number |
+| `ifsc_code` | Yes | Bank IFSC |
+| `bank_name` | Yes | Bank name |
+| `state` | **Yes** | State code required by Vimo (e.g. `"JH"` for Jharkhand) |
+| `branch_name` | No | Bank branch name |
+| `mobile` | No | Mobile number |
+| `email` | No | Email address |
+
+#### Success response `201`
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 7,
+    "merchant_id": 42,
+    "beneficiary_name": "John Doe",
+    "account_number": "1234567890",
+    "ifsc_code": "HDFC0001234",
+    "bank_name": "HDFC Bank",
+    "state": "JH",
+    "branch_name": null,
+    "mobile_number": "9876543210",
+    "email": "john@example.com",
+    "status": "active"
+  }
+}
+```
+
+> **Note:** Response field names are `beneficiary_name` and `mobile_number` (not `name` / `mobile`).
+
+#### Error `400` — missing `state`
+
+```json
+{ "success": false, "message": "Missing required fields" }
+```
+
+---
+
+### GET `/api/vimo/beneficiaries` — List beneficiaries
+
+Returns **all** beneficiaries belonging to the authenticated user regardless of which provider added them. Use `state` field presence to determine if a beneficiary is Vimo-compatible.
+
+---
+
+### PUT `/api/vimo/beneficiaries/:id` — Update beneficiary
+
+Pass any subset of fields to update.
+
+---
+
+### DELETE `/api/vimo/beneficiaries/:id` — Soft-delete beneficiary
+
+Sets `status` to `inactive`. The record is not removed from the database.
+
+#### Response `200`
+
+```json
+{ "success": true, "message": "Beneficiary deleted successfully" }
+```
 
 ---
 
