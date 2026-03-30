@@ -43,6 +43,19 @@ const Beneficiary = db.define(
       allowNull: false,
       defaultValue: 'active',
     },
+    // branch_name: optional; populated for Vimo beneficiaries.
+    // Was stored as bank_branch_name before migration 20260505000001.
+    branch_name: {
+      type: Sequelize.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+    // state: required by Vimo at the application level; nullable for BranchX beneficiaries.
+    state: {
+      type: Sequelize.STRING(255),
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     timestamps: true,

@@ -1,3 +1,9 @@
+/**
+ * @deprecated Replaced by the unified Beneficiary model (models/Beneficiary.js).
+ * Migration 20260505000001-unify-beneficiary-tables.js copied all rows from
+ * payout_beneficiaries into Beneficiaries. This file is kept only as a reference
+ * and for any legacy queries. Do not add new usages.
+ */
 const Sequelize = require('sequelize');
 const db = require('../config/database');
 

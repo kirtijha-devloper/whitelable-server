@@ -1,6 +1,6 @@
 const vimoService = require('../services/vimo.service');
 const User = require('../models/User');
-const PayoutBeneficiary = require('../models/PayoutBeneficiary');
+const Beneficiary = require('../models/Beneficiary');
 const { Op } = require('sequelize');
 const fs   = require('fs');
 const path = require('path');
@@ -105,7 +105,7 @@ async function createPayout(req, res) {
   let merchantRefId = incomingMerchantRefId;
   let selectedBeneficiary = null;
   if (beneficiary_id) {
-    selectedBeneficiary = await PayoutBeneficiary.findOne({ where: { id: beneficiary_id, user_id } });
+    selectedBeneficiary = await Beneficiary.findOne({ where: { id: beneficiary_id, merchant_id: user_id } });
     if (!selectedBeneficiary) {
       return res.status(404).json({ success: false, message: 'Beneficiary not found' });
     }
@@ -114,8 +114,8 @@ async function createPayout(req, res) {
   const resolvedBeneficiaryBank = beneficiaryBank || selectedBeneficiary?.bank_name || null;
   const resolvedBeneficiaryAccountNumber = beneficiaryAccountNumber || selectedBeneficiary?.account_number || null;
   const resolvedBeneficiaryIFSC = beneficiaryIFSC || selectedBeneficiary?.ifsc_code || null;
-  const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile || null;
-  const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.name || null;
+  const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile_number || null;
+  const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.beneficiary_name || null;
   // beneficiaryLocation = state code from DB (e.g. 'JH'); never use branch_name which may hold coordinates.
   const resolvedBeneficiaryLocation = selectedBeneficiary?.state || null;
 
@@ -650,21 +650,21 @@ async function createBeneficiary(req, res) {
   const { name, account_number, ifsc_code, bank_name, branch_name, state, mobile, email } = req.body;
   const userId = req.user?.id;
 
-  if (!userId || !name || !account_number || !ifsc_code || !bank_name) {
+  if (!userId || !name || !account_number || !ifsc_code || !bank_name || !state) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
 
-  const beneficiary = await PayoutBeneficiary.create({
-    user_id: userId,
-    name,
+  const beneficiary = await Beneficiary.create({
+    merchant_id:      userId,
+    beneficiary_name: name,
     account_number,
     ifsc_code,
     bank_name,
-    branch_name: branch_name || null,
-    state: state || null,
-    mobile: mobile || null,
-    email: email || null,
-    is_verified: false
+    branch_name:   branch_name || null,
+    state,
+    mobile_number: mobile || '',
+    email:         email || '',
+    status:        'active',
   });
 
   return res.status(201).json({ success: true, data: beneficiary });
@@ -677,13 +677,13 @@ async function listBeneficiaries(req, res) {
     return res.status(401).json({ success: false, message: 'User not authenticated' });
   }
 
-  const list = await PayoutBeneficiary.findAll({ where: { user_id: userIdFromToken } });
+  const list = await Beneficiary.findAll({ where: { merchant_id: userIdFromToken } });
   return res.status(200).json({ success: true, data: list });
 }
 
 async function updateBeneficiary(req, res) {
   const id = req.params.id;
-  const beneficiary = await PayoutBeneficiary.findByPk(id);
+  const beneficiary = await Beneficiary.findByPk(id);
 
   if (!beneficiary) {
     return res.status(404).json({ success: false, message: 'Beneficiary not found' });
@@ -695,14 +695,14 @@ async function updateBeneficiary(req, res) {
 
 async function deleteBeneficiary(req, res) {
   const id = req.params.id;
-  const beneficiary = await PayoutBeneficiary.findByPk(id);
+  const beneficiary = await Beneficiary.findByPk(id);
 
   if (!beneficiary) {
     return res.status(404).json({ success: false, message: 'Beneficiary not found' });
   }
 
-  await beneficiary.destroy();
-  return res.status(200).json({ success: true, message: 'Deleted' });
+  await beneficiary.update({ status: 'inactive' });
+  return res.status(200).json({ success: true, message: 'Beneficiary deleted successfully' });
 }
 
 module.exports = {
