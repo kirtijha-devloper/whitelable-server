@@ -14,8 +14,14 @@
  */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    // 1. Rename bank_branch_name → branch_name
+    // 1. Rename bank_branch_name → branch_name, then relax the NOT NULL constraint
+    //    (the original add-brancg-benef migration created it as allowNull: false).
     await queryInterface.renameColumn('Beneficiaries', 'bank_branch_name', 'branch_name');
+    await queryInterface.changeColumn('Beneficiaries', 'branch_name', {
+      type: Sequelize.STRING,
+      allowNull: true,
+      defaultValue: null,
+    });
 
     // 2. Add state column
     await queryInterface.addColumn('Beneficiaries', 'state', {
