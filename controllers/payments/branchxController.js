@@ -119,15 +119,6 @@ router.post('/payout', asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "Beneficiary is disabled" });
     }
 
-    wallet_transaction = await WalletTransaction.create({
-      type: "request",
-      amount: total_amount,
-      status: "pending",
-      reason: `${beneficiary.beneficiary_name} payout: ${purpose}`,
-      requested_by: beneficiary.id,
-      source: "branchx"
-    });
-
     currentDate = getCurrentDate();
     requestId = crypto.randomUUID()
 
@@ -155,7 +146,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
     const payoutTx = await PayoutTransaction.create({
       merchant_id: merchant_id,
       beneficiary_id: beneficiary_id,
-      reference_id: requestId || data.api_ref || wallet_transaction.id.toString(),
+      reference_id: requestId || data.api_ref,
       amount: amount,
       status: payoutStatus,
       purpose: purpose || null,
@@ -185,14 +176,6 @@ router.post('/payout', asyncHandler(async (req, res) => {
         }
       });
 
-      wallet_transaction.status = "completed";
-      wallet_transaction.reason = `${beneficiary.beneficiary_name} payout purpose: ${purpose} reference id: ${requestId}`;
-      await wallet_transaction.save();
-    } else {
-      // If failed, keep wallet transaction as pending or mark as failed
-      wallet_transaction.status = "failed";
-      wallet_transaction.reason = `BranchX payout failed: ${data.message || 'Unknown error'}`;
-      await wallet_transaction.save();
     }
 
     console.log(`branchx data: ${JSON.stringify(data)}`);
