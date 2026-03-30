@@ -6,9 +6,39 @@ const { Op } = require('sequelize');
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
 const PosMachineAssignmentLog = require('../models/PosMachineAssignmentLog');
+const PosRentalBilling = require('../models/PosRentalBilling');
 const { response } = require("express");
 const { parse } = require('csv-parse/sync');
 const fs = require('fs');
+
+// ---------------------------------------------------------------------------
+// Helper – create / refresh a PosRentalBilling record when a machine is
+// assigned to a user.  Any previously-active billing for this machine is
+// deactivated first so there is never more than one active record per machine.
+// ---------------------------------------------------------------------------
+async function upsertRentalBilling(posMachineId, assignedUser) {
+  // Deactivate any existing active billing for this machine
+  await PosRentalBilling.update(
+    { status: 'inactive' },
+    { where: { pos_machine_id: posMachineId, status: 'active' } }
+  );
+
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const nextChargeDate = new Date();
+  nextChargeDate.setDate(nextChargeDate.getDate() + 30);
+
+  await PosRentalBilling.create({
+    pos_machine_id:   posMachineId,
+    assigned_to:      assignedUser.id,
+    assigned_to_role: assignedUser.role,
+    // franchise_id is set when the assigned user is a merchant under a franchise
+    franchise_id:     assignedUser.role === 'merchant' ? (assignedUser.franchaise_id || null) : null,
+    rental_start_date: today,
+    next_charge_date:  nextChargeDate.toISOString().slice(0, 10),
+    status: 'active'
+  });
+}
+
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
   const { 
@@ -233,6 +263,12 @@ const deactivatePosMachine = asyncHandler(async (req, res) => {
     }
   }
 
+  // Stop the rental billing cycle for this machine
+  await PosRentalBilling.update(
+    { status: 'inactive' },
+    { where: { pos_machine_id: id, status: 'active' } }
+  );
+
   res.status(200).json(posMachineById);
 });
 
@@ -273,6 +309,12 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
     performed_by_user_id: req.user.id,
     details: { previous_assigned_to: previousAssignedTo }
   });
+
+  // Stop the rental billing cycle for this machine
+  await PosRentalBilling.update(
+    { status: 'inactive' },
+    { where: { pos_machine_id: posMachine.id, status: 'active' } }
+  );
 
   res.status(200).json(posMachine);
 });
@@ -358,7 +400,7 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
         { where: { id: ids } }
     );
 
-    // Create audit log entries for each machine updated
+    // Create audit log entries and rental billing records for each machine
     await Promise.all(posMachines.map(async (posMachine) => {
       const action = posMachine.assigned_to ? 'reassign' : 'assign';
       await PosMachineAssignmentLog.create({
@@ -369,6 +411,8 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
         performed_by_user_id: req.user.id,
         details: { previous_assigned_to: posMachine.assigned_to, new_assigned_to: userId }
       });
+      // Start / restart the 30-day rental billing cycle for this machine
+      await upsertRentalBilling(posMachine.id, user);
     }));
 
     if (assigneeRole === "merchant"){
@@ -452,6 +496,9 @@ const assignPosMachineToMerchant = asyncHandler(async (req, res) => {
       performed_by_user_id: req.user.id,
       details: { previous_assigned_to: previousAssignedTo, new_assigned_to: merchantId }
     });
+
+    // Start / restart the 30-day rental billing cycle for this merchant
+    await upsertRentalBilling(posMachineId, merchantUser);
 
     res.status(200).json({
         message: `POS Machine ${posMachineId} assigned to merchant ${merchantId}`,

@@ -16,6 +16,8 @@ require("./workers/razorpayWebhookWorker"); // Razorpay webhook worker
 require('./cron/resolvePendingBranchx');
 // start settlement hold releaser cron (next-day settlement)
 require('./cron/releaseSettlementHolds');
+// start POS machine rental charge cron (daily billing after 30-day cycles)
+require('./cron/chargeRentals');
 
 const app = express();
 
