@@ -22,12 +22,16 @@ module.exports = {
         await queryInterface.renameColumn('Beneficiaries', 'bank_branch_name', 'branch_name', { transaction });
       }
 
-      // 2. Relax the NOT NULL constraint on branch_name (it was created allowNull: false)
-      await queryInterface.changeColumn('Beneficiaries', 'branch_name', {
-        type: Sequelize.STRING,
-        allowNull: true,
-        defaultValue: null,
-      }, { transaction });
+      // 2. Relax the NOT NULL constraint on branch_name (it was created allowNull: false).
+      //    Use raw ALTER COLUMN to avoid the full table rewrite that changeColumn triggers in Postgres.
+      await queryInterface.sequelize.query(
+        'ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" DROP NOT NULL',
+        { transaction }
+      );
+      await queryInterface.sequelize.query(
+        'ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" SET DEFAULT NULL',
+        { transaction }
+      );
 
       // 3. Add state column (idempotent: skip if already present)
       const columnsAfter = await queryInterface.describeTable('Beneficiaries');
@@ -74,11 +78,14 @@ module.exports = {
     const transaction = await queryInterface.sequelize.transaction();
     try {
       await queryInterface.removeColumn('Beneficiaries', 'state', { transaction });
-      await queryInterface.changeColumn('Beneficiaries', 'branch_name', {
-        type: Sequelize.STRING,
-        allowNull: false,
-        defaultValue: 'N/A',
-      }, { transaction });
+      await queryInterface.sequelize.query(
+        `ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" SET NOT NULL`,
+        { transaction }
+      );
+      await queryInterface.sequelize.query(
+        `ALTER TABLE "Beneficiaries" ALTER COLUMN "branch_name" SET DEFAULT 'N/A'`,
+        { transaction }
+      );
       await queryInterface.renameColumn('Beneficiaries', 'branch_name', 'bank_branch_name', { transaction });
       await transaction.commit();
     } catch (err) {
