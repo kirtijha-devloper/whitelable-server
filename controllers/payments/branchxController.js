@@ -104,7 +104,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
     // Allow zero charge if no slab or service charge is intentionally zero
 
     const total_amount = amount + service_charge;
-    const availableBalance = await ledgerService.getAvailableBalance(user_id);
+    const availableBalance = await ledgerService.getAvailableBalance(merchant_id);
     if (availableBalance < total_amount) {
       return res.status(400).json({ message: "Insufficient wallet balance" });  
     }
