@@ -112,10 +112,14 @@ const listNotifications = asyncHandler(async (req, res) => {
         if (startDate || endDate) {
             where.createdAt = {};
             if (startDate) {
-                where.createdAt[Op.gte] = new Date(startDate);
+                const start = new Date(startDate);
+                start.setHours(0, 0, 0, 0);
+                where.createdAt[Op.gte] = start;
             }
             if (endDate) {
-                where.createdAt[Op.lte] = new Date(endDate);
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                where.createdAt[Op.lte] = end;
             }
         }
 
