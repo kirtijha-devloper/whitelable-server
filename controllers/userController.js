@@ -406,18 +406,28 @@ const getUserByID = asyncHandler(async (req, res) => {
       }));
 
       // 3. Rentals
+      // merchant_id and is_default were removed from Rentals in the refactor migration.
+      // Fetch applicable rate configs based on the searched user's role and franchise.
+      const rentalTargetType = searchedUser.role === 'franchaise' ? 'franchise' : 'merchant';
+      const rentalWhere = { target_user_type: rentalTargetType };
+      if (rentalTargetType === 'merchant' && searchedUser.franchaise_id) {
+        // Franchise merchant: show franchise-specific rate AND admin fallback rate
+        rentalWhere.franchaise_id = { [Op.or]: [searchedUser.franchaise_id, null] };
+      } else {
+        // Standalone merchant or franchise user: only admin-defined rates apply
+        rentalWhere.franchaise_id = null;
+      }
       const rentals = await Rental.findAll({
-        where: { merchant_id: searchedId },
-        order: [['is_default', 'DESC'], ['createdAt', 'DESC']]
+        where: rentalWhere,
+        order: [['createdAt', 'DESC']]
       });
       charges.rentals = rentals.map(rental => ({
         id: rental.id,
-        merchant_id: rental.merchant_id,
         franchaise_id: rental.franchaise_id,
+        target_user_type: rental.target_user_type,
         amount: parseFloat(rental.amount) || 0,
         status: rental.status,
         type: rental.type,
-        is_default: rental.is_default,
         createdAt: rental.createdAt,
         updatedAt: rental.updatedAt
       }));
