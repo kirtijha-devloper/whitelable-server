@@ -4,7 +4,9 @@ const router = express.Router();
 const { 
     handleRzpNotification,
     listNotifications,
-    getNotificationById
+    getNotificationById,
+    adminProcessNotification,
+    adminProcessNotificationWithCustomCharge
 } = require("../../../controllers/razorpay/webhook/notificationController");
 const { verifyRzpAuth } = require("../../../utils/razorpay/auth");
 const validateToken = require("../../../middleware/validateTokenHandler");
