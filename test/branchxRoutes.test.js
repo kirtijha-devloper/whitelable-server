@@ -7,8 +7,13 @@ process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secre
 
 const branchxRoutes = require('../routes/payments/branchxRoutes');
 const branchxService = require('../services/payments/branchxService');
+const User = require('../models/User');
 const ServiceFee = require('../models/ServiceFee');
 const ChargeSlab = require('../models/ChargeSlab');
+const PayoutTransaction = require('../models/PayoutTransaction');
+const PayoutAuditLog = require('../models/PayoutAuditLog');
+const Ledger = require('../models/Ledger');
+const WalletTransaction = require('../models/WalletTransaction');
 const ledgerService = require('../services/ledgerService');
 
 // setup mini app
@@ -87,6 +92,82 @@ describe('POST /api/payment/v2/bank/validation', () => {
       .send({ accountNumber: '123', ifscCode: 'IFSC' });
     expect(res.status).to.equal(200);
     expect(called).to.be.false;
+  });
+});
+
+describe('BranchX webhook callback', () => {
+  let origPayoutFindOne;
+  let origPayoutFindByPk;
+  let origUserFindByPk;
+  let origWalletFindOne;
+  let origLedgerUpdate;
+  let origPayoutAuditCreate;
+
+  beforeEach(() => {
+    origPayoutFindOne = PayoutTransaction.findOne;
+    origPayoutFindByPk = PayoutTransaction.findByPk;
+    origUserFindByPk = User.findByPk;
+    origWalletFindOne = WalletTransaction.findOne;
+    origLedgerUpdate = Ledger.update;
+    origPayoutAuditCreate = PayoutAuditLog.create;
+  });
+
+  afterEach(() => {
+    PayoutTransaction.findOne = origPayoutFindOne;
+    PayoutTransaction.findByPk = origPayoutFindByPk;
+    User.findByPk = origUserFindByPk;
+    WalletTransaction.findOne = origWalletFindOne;
+    Ledger.update = origLedgerUpdate;
+    PayoutAuditLog.create = origPayoutAuditCreate;
+  });
+
+  it('updates payout transaction and refunds wallet when callback status is FAILED', async () => {
+    const payoutTx = {
+      id: 1,
+      merchant_id: 9,
+      amount: 49000.0,
+      service_charge: 0,
+      reference_id: 'AP0000013224',
+      status: 'PENDING',
+      data: JSON.stringify({ initial: 'x' }),
+      update: async function(fields) { Object.assign(this, fields); return this; }
+    };
+
+    const user = {
+      id: 9,
+      wallet: 100,
+      save: async function() { return this; }
+    };
+
+    const walletTx = {
+      status: 'pending',
+      reason: null,
+      save: async function() { return this; }
+    };
+
+    PayoutTransaction.findOne = async () => payoutTx;
+    PayoutTransaction.findByPk = async () => payoutTx;
+    User.findByPk = async () => user;
+    WalletTransaction.findOne = async () => walletTx;
+    Ledger.update = async () => [1];
+    PayoutAuditLog.create = async () => ({});
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/callback')
+      .send({
+        status: 'FAILED',
+        message: 'Transaction Failed',
+        requestId: 'AP0000013224',
+        amount: '49000.0'
+      });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.be.true;
+    expect(payoutTx.status).to.equal('FAILED');
+    expect(payoutTx.callback_status).to.equal('FAILED');
+    expect(user.wallet).to.equal(49100); // 100 + 49000 refund
+    expect(walletTx.status).to.equal('failed');
+    expect(walletTx.reason).to.include('BranchX payout failed');
   });
 });
 

@@ -1,6 +1,13 @@
 const fs = require('fs');
 const path = require('path');
-const asyncHandler = require("express-async-handler");
+const asyncHandler = require('express-async-handler');
+const { Op } = require('sequelize');
+const db = require('../../config/database');
+const PayoutTransaction = require('../../models/PayoutTransaction');
+const PayoutAuditLog = require('../../models/PayoutAuditLog');
+const User = require('../../models/User');
+const WalletTransaction = require('../../models/WalletTransaction');
+const Ledger = require('../../models/Ledger');
 
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
 
@@ -13,24 +20,125 @@ function logBranchxCallback(data) {
   }
 }
 
-// BranchX payout callback notifications are sent by BranchX after payout processing.
-// This endpoint is intentionally implemented with minimal logic for now. Business
-// logic will be added in a follow-up task.
+function normalizeBranchxStatus(statusRaw) {
+  if (!statusRaw) return 'PENDING';
+  const s = statusRaw.toString().trim().toUpperCase();
+  if (['SUCCESS', 'COMPLETED'].includes(s)) return 'SUCCESS';
+  if (['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'].includes(s)) return 'FAILED';
+  if (['PENDING', 'PROCESSING', 'IN_PROGRESS'].includes(s)) return 'PENDING';
+  return s;
+}
+
 const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
-  // TODO: Add BranchX payout callback processing:
-  // - verify the payload signature if applicable
-  // - validate required fields
-  // - update payout transactions and ledger status
-  // - ack with 200 OK
+  const payload = (req.method === 'GET' ? req.query : req.body) || {};
+  logBranchxCallback(payload);
 
-  console.log('[BranchX callback] payload:', req.body);
-  logBranchxCallback(req.body);
+  if (!payload || typeof payload !== 'object' || Object.keys(payload).length === 0) {
+    return res.status(400).json({ success: false, message: 'Empty callback payload' });
+  }
 
-  return res.status(200).json({
-    success: true,
-    message: 'BranchX payout callback received',
-    receivedData: req.body
-  });
+  const status = normalizeBranchxStatus(payload.status || payload.Status);
+  const referenceCandidates = [payload.requestId, payload.requestid, payload.opRefId, payload.oprefid, payload.apiTxnId, payload.apitxnid].filter(Boolean);
+
+  if (!referenceCandidates.length) {
+    return res.status(400).json({ success: false, message: 'Missing identifier in callback payload' });
+  }
+
+  let payoutTransaction = null;
+  for (const ref of referenceCandidates) {
+    if (payoutTransaction) break;
+    payoutTransaction = await PayoutTransaction.findOne({ where: { reference_id: ref } });
+  }
+
+  if (!payoutTransaction) {
+    return res.status(404).json({ success: false, message: 'Payout transaction not found for callback payload', callbackPayload: payload });
+  }
+
+  const trx = await db.transaction();
+  try {
+    const locked = await PayoutTransaction.findByPk(payoutTransaction.id, { transaction: trx, lock: trx.LOCK.UPDATE });
+    if (!locked) {
+      await trx.rollback();
+      return res.status(500).json({ success: false, message: 'Failed to lock payout transaction' });
+    }
+
+    const previousStatus = (locked.status || '').toString().toUpperCase();
+    const newStatus = status;
+
+    let parsedData = {};
+    try {
+      parsedData = locked.data ? JSON.parse(locked.data) : {};
+    } catch (ignore) {
+      parsedData = { original: locked.data };
+    }
+
+    parsedData.callback = payload;
+
+    const payloadStr = JSON.stringify(payload);
+
+    const ledgerStatus = newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending';
+    await Ledger.update(
+      { status: ledgerStatus },
+      { where: { reference_id: locked.id, reference_table: 'PayoutTransactions', status: 'pending' }, transaction: trx }
+    );
+
+    await locked.update({
+      status: newStatus,
+      callback_status: newStatus,
+      callback_data: payloadStr,
+      callback_received_at: new Date(),
+      data: JSON.stringify(parsedData)
+    }, { transaction: trx });
+
+    if ((previousStatus === 'PENDING' || previousStatus === 'SUCCESS') && newStatus === 'FAILED') {
+      const user = await User.findByPk(locked.merchant_id, { transaction: trx });
+      if (user) {
+        const amountToRefund = parseFloat(locked.amount || 0);
+        user.wallet = parseFloat(user.wallet || 0) + amountToRefund;
+        await user.save({ transaction: trx });
+      }
+
+      const walletTx = await WalletTransaction.findOne({
+        where: {
+          source: 'branchx',
+          reference_id: locked.reference_id
+        },
+        order: [['createdAt', 'DESC']],
+        transaction: trx
+      });
+
+      if (walletTx) {
+        walletTx.status = 'failed';
+        walletTx.reason = `BranchX payout failed: ${payload.message || payload.msg || 'Transaction failed'}`;
+        await walletTx.save({ transaction: trx });
+      }
+    }
+
+    if (previousStatus !== newStatus) {
+      await PayoutAuditLog.create({
+        payout_id: locked.id,
+        action: 'BRANCHX_CALLBACK_STATUS_UPDATE',
+        details: {
+          from: previousStatus,
+          to: newStatus,
+          callback: payload
+        }
+      }, { transaction: trx });
+    }
+
+    await trx.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: 'BranchX callback processed successfully',
+      payoutTransactionId: locked.id,
+      status: newStatus
+    });
+  } catch (error) {
+    await trx.rollback();
+    console.error('[BranchX callback] error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Callback processing failed', error });
+  }
 });
 
 module.exports = {
