@@ -3,12 +3,6 @@ const NodeCache = require('node-cache');
 const fs = require('fs');
 const path = require('path');
 const { parse } = require('csv-parse/sync');
-let xlsx;
-try {
-  xlsx = require('xlsx');
-} catch (err) {
-  console.warn('[billAvenue] xlsx dependency is missing; XLS/XLSX import support is disabled. Install with `npm install xlsx`.');
-}
 const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
@@ -265,18 +259,8 @@ async function importBillerListFromFile(filePath) {
       trim: true,
       relax_column_count: true,
     });
-  } else if (ext === '.xls' || ext === '.xlsx') {
-    if (!xlsx) {
-      throw new Error('XLS/XLSX import is unavailable because dependency `xlsx` is not installed. Run `npm install xlsx`.');
-    }
-    const workbook = xlsx.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    if (!sheetName) {
-      throw new Error('No sheet found in Excel file');
-    }
-    rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: null });
   } else {
-    throw new Error('Unsupported file type. Use .csv, .xls, or .xlsx');
+    throw new Error('Unsupported file type. Use .csv only');
   }
 
   const result = {

@@ -49,7 +49,7 @@ GET /api/bill-avenue/billers
 ---
 ### 1.1 Upload BillAvenue Biller List (Admin)
 
-Uploads a list of billers (`CSV` / `XLS` / `XLSX`) and imports them into the admin store.
+Uploads a list of billers (CSV only) and imports them into the admin store.
 
 **Request**
 ```http
@@ -59,7 +59,7 @@ Authorization: Bearer <jwt_token>
 ```
 
 Form field:
-- `file` (required): CSV/XLS/XLSX file containing biller rows
+- `file` (required): CSV file containing biller rows
 
 Accepted columns (case-insensitive):
 - `billerId`, `billerName`, `category`, `serviceType`, `circle`, `state`, `isActive`
