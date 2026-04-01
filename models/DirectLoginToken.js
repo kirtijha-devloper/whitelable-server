@@ -2,7 +2,7 @@
  * DirectLoginToken model
  *
  * Stores a hashed, short-lived token that allows an authenticated admin
- * to impersonate (direct-login as) any merchant or franchisee.
+ * to impersonate (direct-login as) any merchant, franchisee, or employee.
  *
  * One active token per admin at any time.
  * Re-generating invalidates the previous token immediately.

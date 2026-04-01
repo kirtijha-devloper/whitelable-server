@@ -4,6 +4,8 @@ const router = express.Router();
 const Complaint = require('../models/Complaint');
 const User = require('../models/User');
 const validateToken = require("../middleware/validateTokenHandler");
+const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
+const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 router.use(validateToken);
 
 router.post('/submit', async (req, res) => {
@@ -23,7 +25,10 @@ console.log
   }
 });
 
-router.put('/:id/status', async (req, res) => {
+router.put('/:id/status', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.COMPLAINTS_MANAGE, {
+  message: 'You do not have permission to manage complaints.',
+  elevateRole: 'admin',
+}), async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -55,7 +60,10 @@ router.put('/:id/status', async (req, res) => {
 });
 
 
-router.get('/', async (req, res) => {
+router.get('/', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.COMPLAINTS_READ, {
+  message: 'You do not have permission to view complaints.',
+  elevateRole: 'admin',
+}), async (req, res) => {
   try {
     const role = req.user.role;
     const userId = req.user.id;

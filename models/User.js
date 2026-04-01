@@ -36,6 +36,12 @@ const User = db.define('User', {
         allowNull: false,
         defaultValue: 'merchant'
       },
+      permissions: {
+        type: Sequelize.JSON,
+        allowNull: false,
+        defaultValue: [],
+        comment: 'Action-based permissions for employee users.'
+      },
       abheepay_id: {
       type: Sequelize.STRING
       },
