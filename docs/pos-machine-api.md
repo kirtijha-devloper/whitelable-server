@@ -132,3 +132,89 @@ Authorization: Bearer <token>
 2. Bulk create accepts Excel (.xlsx, .xls) or CSV files
 3. The `/list` endpoint returns paginated results based on user role
 4. ID parameters in URLs should be numeric integers
+
+---
+## Upload Excel/CSV from Frontend (POS Machine Bulk Create)
+
+### Endpoint
+- POST `/api/pos-machine/bulk-create`
+- Header: `Authorization: Bearer <token>`
+- Content-Type: `multipart/form-data`
+- Form field: `file` (Excel or CSV file)
+
+### Supported file formats
+- `text/csv`, `.csv` (standard)
+- `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `.xlsx`
+- `application/vnd.ms-excel`, `.xls`
+
+### Required columns (case-insensitive mapping)
+- `tid_number` (required)
+- `mid_number` (required)
+- `device_serial_number` (required)
+- `company_name` (optional)
+- `bank_name` (optional)
+- `razorpay_id` (optional)
+- `remarks` (optional, default `added`)
+
+### Example using fetch()
+```js
+const fileInput = document.querySelector('#machineFile');
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+
+fetch('/api/pos-machine/bulk-create', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${authToken}`
+  },
+  body: formData
+})
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      console.log('Created:', data.createdCount);
+      console.log('Skipped:', data.skipped);
+    } else {
+      console.error('Bulk upload failure:', data.message);
+    }
+  })
+  .catch(err => console.error('Upload error:', err));
+```
+
+### Example using Axios
+```js
+const fileInput = document.querySelector('#machineFile');
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+
+axios.post('/api/pos-machine/bulk-create', formData, {
+  headers: {
+    'Authorization': `Bearer ${authToken}`,
+    'Content-Type': 'multipart/form-data'
+  }
+})
+.then(res => {
+  console.log('Created:', res.data.createdCount);
+  console.log('Skipped:', res.data.skipped);
+})
+.catch(err => {
+  console.error('Upload failed:', err.response?.data || err.message);
+});
+```
+
+### Notes
+- Server-side route currently reads file with `fs.readFileSync(req.file.path, 'utf-8')` and parses as CSV. For `.xlsx` files, convert to CSV first or extend backend to use `xlsx` and `sheet_to_json`.
+- The upload response returns detailed `skipped` rows with per-row errors so user can fix and re-upload.
+- Uploaded file is removed after processing.
+
+### Sample response
+```json
+{
+  "success": true,
+  "message": "Created 10 machines, skipped 2 rows",
+  "createdCount": 10,
+  "created": [ ... ],
+  "skipped": [{ "row": 3, "data": ..., "error": "Duplicate" }]
+}
+```
+

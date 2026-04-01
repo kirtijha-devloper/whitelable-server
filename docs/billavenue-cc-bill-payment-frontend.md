@@ -46,6 +46,78 @@ Fetches the list of supported CC billers. The response is cached server-side for
 GET /api/bill-avenue/billers
 ```
 
+---
+### 1.1 Upload BillAvenue Biller List (Admin)
+
+Uploads a list of billers (`CSV` / `XLS` / `XLSX`) and imports them into the admin store.
+
+**Request**
+```http
+POST /api/bill-avenue/billers/upload
+Content-Type: multipart/form-data
+Authorization: Bearer <jwt_token>
+```
+
+Form field:
+- `file` (required): CSV/XLS/XLSX file containing biller rows
+
+Accepted columns (case-insensitive):
+- `billerId`, `billerName`, `category`, `serviceType`, `circle`, `state`, `isActive`
+
+**Success Response 200**
+```json
+{
+  "success": true,
+  "message": "Imported 120 billers, skipped 3",
+  "imported": 120,
+  "skipped": 3,
+  "errors": [
+    { "row": 5, "error": "Missing billerId or billerName", "data": { ... } }
+  ]
+}
+```
+
+**Example front-end (fetch)**
+```js
+const fileInput = document.querySelector('#billerFile');
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+
+fetch('/api/bill-avenue/billers/upload', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${jwtToken}` },
+  body: formData,
+})
+  .then(r => r.json())
+  .then(result => {
+    if (result.success) {
+      console.log('Imported', result.imported);
+      console.log('Skipped', result.skipped);
+    } else {
+      console.error('Upload failed', result.message);
+    }
+  })
+  .catch(err => console.error('Network error', err));
+```
+
+**Example front-end (axios)**
+```js
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+
+axios.post('/api/bill-avenue/billers/upload', formData, {
+  headers: {
+    Authorization: `Bearer ${jwtToken}`,
+    'Content-Type': 'multipart/form-data',
+  },
+})
+  .then(res => {
+    console.log('Imported', res.data.imported);
+    console.log('Skipped', res.data.skipped);
+  })
+  .catch(err => console.error('Upload failed', err.response?.data || err.message));
+```
+
 **Success Response `200`**
 ```json
 {

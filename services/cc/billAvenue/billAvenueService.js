@@ -1,5 +1,9 @@
 const xml2js = require('xml2js');
 const NodeCache = require('node-cache');
+const fs = require('fs');
+const path = require('path');
+const { parse } = require('csv-parse/sync');
+const xlsx = require('xlsx');
 const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
@@ -240,10 +244,79 @@ async function getTransactionStatus({ transactionRefId }) {
   return callBillAvenue('/transactionStatusCntrl/transactionStatusRequest/xml', xml);
 }
 
+async function importBillerListFromFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new Error('File path does not exist');
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  let rows = [];
+
+  if (ext === '.csv') {
+    const csvText = fs.readFileSync(filePath, 'utf-8');
+    rows = parse(csvText, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+    });
+  } else if (ext === '.xls' || ext === '.xlsx') {
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      throw new Error('No sheet found in Excel file');
+    }
+    rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: null });
+  } else {
+    throw new Error('Unsupported file type. Use .csv, .xls, or .xlsx');
+  }
+
+  const result = {
+    imported: 0,
+    skipped: 0,
+    errors: [],
+  };
+
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    const billerId = String(row.billerId || row.biller_id || row.blr_id || row.BLR_ID || '').trim();
+    const billerName = String(row.billerName || row.biller_name || row.blr_name || row.BLR_NAME || '').trim();
+    const aliasName = String(row.blr_alias_name || row.BLR_ALIAS_NAME || '').trim();
+    const categoryName = String(row.blr_category_name || row.BLR_CATEGORY_NAME || '').trim();
+    const coverage = String(row.blr_coverage || row.BLR_COVERAGE || '').trim();
+
+    if (!billerId || !billerName) {
+      result.skipped += 1;
+      result.errors.push({ row: index + 2, error: 'Missing billerId or billerName', data: row });
+      continue;
+    }
+
+    try {
+      await BillAvenueBiller.upsert({
+        biller_id: billerId,
+        biller_name: billerName,
+        category: categoryName || row.category || row.Category || null,
+        service_type: coverage || row.serviceType || row.service_type || row.ServiceType || null,
+        circle: aliasName || row.circle || row.Circle || null,
+        state: row.state || row.State || null,
+        is_active: String(row.isActive || row.is_active || row.Active || 'true').toLowerCase() !== 'false',
+        metadata: row,
+      });
+      result.imported += 1;
+    } catch (err) {
+      result.skipped += 1;
+      result.errors.push({ row: index + 2, error: err.message || 'Upsert failed', data: row });
+    }
+  }
+
+  return result;
+}
+
 module.exports = {
   getBillerInfo,
   fetchBill,
   payBill,
   registerComplaint,
   getTransactionStatus,
+  importBillerListFromFile,
 };

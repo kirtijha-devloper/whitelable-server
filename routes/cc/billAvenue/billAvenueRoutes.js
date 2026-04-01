@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
+const upload = require('../../../middleware/uploadMiddleware');
 const {
   getBillers,
+  uploadBillersFromFile,
   fetchBill,
   payBill,
   getPayments,
@@ -17,6 +19,9 @@ router.use(validateToken);
 
 // GET  /api/bill-avenue/billers              – Cached biller list
 router.get('/billers', getBillers);
+
+// POST /api/bill-avenue/billers/upload       – Upload Excel/CSV biller list
+router.post('/billers/upload', upload.single('file'), uploadBillersFromFile);
 
 // POST /api/bill-avenue/fetch-bill           – Fetch/validate a bill
 router.post('/fetch-bill', fetchBill);
