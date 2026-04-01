@@ -1,7 +1,7 @@
 /**
  * directLoginController.js
  *
- * Allows an authenticated admin to log in AS any merchant or franchisee
+ * Allows an authenticated admin to log in AS any merchant, franchisee, or employee
  * without knowing their password — for support and debugging purposes.
  *
  * ── Endpoints ──────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@
  *  • Token lifetime: DL_TOKEN_TTL_MINUTES env var (default 120 min / 2 h).
  *  • Each (dl_token, user_id) pair is single-use — replayed requests
  *    (double-click, tab reload) return the original JWT without re-issuing.
- *  • Only merchants and franchisees can be targeted; admin accounts are blocked.
+ *  • Only merchants, franchisees, and employees can be targeted; admin accounts are blocked.
  *  • Inactive user accounts are rejected.
  */
 
@@ -40,6 +40,8 @@ const { Op } = require('sequelize');
 
 const User = require('../models/User');
 const DirectLoginToken = require('../models/DirectLoginToken');
+
+const IMPERSONATABLE_ROLES = ['merchant', 'franchaise', 'franchise', 'employee'];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -231,7 +233,7 @@ const directLogin = asyncHandler(async (req, res) => {
   const targetUser = await User.findOne({
     where: {
       id:   targetUserId,
-      role: { [Op.in]: ['merchant', 'franchaise'] }, // admin accounts cannot be impersonated
+      role: { [Op.in]: IMPERSONATABLE_ROLES }, // admin accounts cannot be impersonated
     },
   });
 

@@ -85,9 +85,10 @@
 | `email` | string | Yes | Email address |
 | `password` | string | Yes | Password |
 | `mobile_number` | string | Yes | Mobile number |
-| `role` | string | Yes | `merchant` \| `franchise` \| `admin` |
+| `role` | string | Yes | `merchant` \| `franchise` \| `admin` \| `employee` |
+| `permissions` | string | No | Admin-only JSON array string. Supported for `employee` role only. |
 | `company_or_shop_name` | string | No | Business name |
-| `bank_passbook` | file | Yes | Bank passbook/statement image |
+| `bank_passbook` | file | Yes | Bank passbook/statement image. Not required for `employee`. |
 | `pan_photo` | file | No | PAN card image |
 | `aadhar_photo` | file | No | Aadhaar front image |
 | `aadhar_back_photo` | file | No | Aadhaar back image |
@@ -102,7 +103,8 @@
     "id": 5,
     "username": "APM00005",
     "abheepay_id": "APM00005",
-    "role": "merchant"
+    "role": "merchant",
+    "permissions": []
   }
 }
 ```
@@ -183,9 +185,9 @@
 | `page` | number | No | Page number (default: 1) |
 | `limit` | number | No | Records per page (default: 10) |
 | `status` | string | No | Filter by status (`active`, `inactive`) |
-| `role` | string | No | Filter by role (`merchant`, `franchaise`, `admin`) |
+| `role` | string | No | Filter by role (`merchant`, `franchaise`, `admin`, `employee`) |
 
-> Franchise users only see their own merchants. Admin sees all.
+> Franchise users only see their own merchants. Admin sees all. Employee users need explicit permissions for list/search access.
 
 **Response `200`:**
 ```json
@@ -228,7 +230,8 @@ Returns the currently authenticated user's profile.
   "email": "john@example.com",
   "mobile_number": "9876543210",
   "role": "merchant",
-  "wallet": "1500.00"
+  "wallet": "1500.00",
+  "permissions": []
 }
 ```
 
@@ -236,6 +239,8 @@ Returns the currently authenticated user's profile.
 
 ### GET `/api/user/:id`
 **Auth:** `Bearer token`
+
+Employee users require the `users.read` permission.
 
 **Path Params:** `id` — User ID
 
@@ -280,7 +285,7 @@ Returns the currently authenticated user's profile.
 **Auth:** `Bearer token`  
 **Content-Type:** `multipart/form-data`
 
-> Admin can edit any user. Franchise can edit self or own merchants. Merchant can only edit self.
+> Admin can edit any user. Franchise can edit self or own merchants. Merchant can only edit self. Employee requires `users.update`.
 
 **Form Fields (all optional):**
 | Field | Type | Description |
@@ -304,6 +309,8 @@ Returns the currently authenticated user's profile.
 | `aadhar_photo` | file | Aadhaar image |
 | `bank_passbook` | file | Bank passbook image |
 | `settlement_type` | string | Admin-only: `default` \| `instant` |
+| `role` | string | Admin-only role update (`merchant` \| `franchise` \| `admin` \| `employee`) |
+| `permissions` | string/array | Admin-only employee permission slugs |
 
 **Response `200`:**
 ```json
@@ -514,6 +521,10 @@ Revokes the active direct-login token immediately.
 **Auth:** Public (DL token is the credential)
 
 Exchanges a DL token for a standard user JWT without knowing the user's password.
+
+Target roles allowed for direct login: `merchant`, `franchaise`, `employee`
+
+Admin accounts are still protected and cannot be direct-logged-in.
 
 **Request Body:**
 | Field | Type | Required | Description |
@@ -2834,7 +2845,9 @@ Webhook endpoint called by Razorpay for transaction events. Stores the notificat
 ### GET `/api/razorpay/notification`
 **Auth:** `Bearer token`
 
-List Razorpay transaction notifications (role-scoped).
+List Razorpay transaction notifications.
+
+> Access is limited to admin users and employee users with `razorpay.notifications.list`.
 
 **Query Parameters:**
 | Param | Type | Required | Description |
@@ -2872,6 +2885,8 @@ List Razorpay transaction notifications (role-scoped).
 **Auth:** `Bearer token`
 
 Get a single Razorpay notification by ID.
+
+> Access is limited to admin users and employee users with `razorpay.notifications.read`.
 
 **Response `200`:** Full notification object with all payment details.
 

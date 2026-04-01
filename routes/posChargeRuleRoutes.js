@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../middleware/validateTokenHandler');
+const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
+const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
   createPosChargeRule,
   getPosChargeRule,
@@ -16,19 +18,37 @@ const {
 router.use(validateToken);
 
 // create / update / list / delete rules
-router.post('/', createPosChargeRule);
+router.post('/', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: 'You do not have permission to manage rate settings.',
+  elevateRole: 'admin',
+}), createPosChargeRule);
 // existing generic list remains for backward compatibility
-router.get('/list', listPosChargeRules);
+router.get('/list', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: 'You do not have permission to view rate settings.',
+  elevateRole: 'admin',
+}), listPosChargeRules);
 // merchant-specific grouped list
 router.get('/list/merchant', listMerchantChargeRules);
 // franchise helpers
 router.get('/list/admin', listFranchiseAdminRules);
 router.get('/list/franchise', listFranchiseCustomRules);
-router.get('/:id', getPosChargeRule);
-router.put('/:id', updatePosChargeRule);
-router.delete('/:id', deletePosChargeRule);
+router.get('/:id', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: 'You do not have permission to view rate settings.',
+  elevateRole: 'admin',
+}), getPosChargeRule);
+router.put('/:id', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: 'You do not have permission to manage rate settings.',
+  elevateRole: 'admin',
+}), updatePosChargeRule);
+router.delete('/:id', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: 'You do not have permission to manage rate settings.',
+  elevateRole: 'admin',
+}), deletePosChargeRule);
 
 // calculation endpoint
-router.post('/calculate', calculateCharge);
+router.post('/calculate', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: 'You do not have permission to view rate settings.',
+  elevateRole: 'admin',
+}), calculateCharge);
 
 module.exports = router;

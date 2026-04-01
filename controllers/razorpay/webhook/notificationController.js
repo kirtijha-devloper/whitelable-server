@@ -11,6 +11,7 @@ const PosMachine = require("../../../models/posMachine");
 const User = require("../../../models/User");
 const MerchantTransactionCharge = require("../../../models/MerchantTransactionCharge");
 const { Op } = require("sequelize");
+const { EMPLOYEE_PERMISSIONS, hasPermission } = require("../../../utils/permissions");
 
 // ── Minimal file logger for incoming webhook notifications ────────────────────
 const LOG_FILE = path.join(__dirname, "../../../logs/webhookNotifications.log");
@@ -89,6 +90,13 @@ async function handleRzpNotification(req, res) {
  */
 const listNotifications = asyncHandler(async (req, res) => {
     try {
+        if (!hasPermission(req.user, EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_LIST)) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to view Razorpay notifications'
+            });
+        }
+
         const { 
             status,
             txn_id,
@@ -218,6 +226,13 @@ const listNotifications = asyncHandler(async (req, res) => {
  */
 const getNotificationById = asyncHandler(async (req, res) => {
     try {
+        if (!hasPermission(req.user, EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_READ)) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to view Razorpay notification details'
+            });
+        }
+
         const { id } = req.params;
 
         if (!id) {

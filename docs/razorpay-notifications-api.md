@@ -20,7 +20,9 @@ filtering and reporting.
 ```
 
 (Note: the webhook POST endpoint itself is unauthenticated and receives
-requests from Razorpay.  The endpoints below require a valid JWT token.)
+requests from Razorpay.  The endpoints below require a valid JWT token.
+Read access is limited to `admin` users and `employee` users with explicit
+notification permissions.)
 
 ---
 
@@ -29,6 +31,9 @@ requests from Razorpay.  The endpoints below require a valid JWT token.)
 ```
 GET /api/razorpay/webhook/notification
 ```
+
+Requires `razorpay.notifications.list` when the authenticated user role is
+`employee`.
 
 **Query parameters** (all optional):
 
@@ -67,8 +72,9 @@ details).
 GET /api/razorpay/webhook/notification/:id
 ```
 
-Requires authentication.  Returns the raw notification record along with the
-`source` field so you can tell whether it came from Razorpay or Everlife.
+Requires authentication. Employee users also need
+`razorpay.notifications.read`. Returns the raw notification record along with
+the `source` field so you can tell whether it came from Razorpay or Everlife.
 
 ---
 
@@ -76,6 +82,9 @@ Requires authentication.  Returns the raw notification record along with the
 
 * Always include the `Authorization: Bearer <token>` header when calling the
   `/notification` endpoints.
+* Employee menu access should be driven by the same backend slugs:
+  `razorpay.notifications.list` for the page and
+  `razorpay.notifications.read` for detail view.
 * Use the `source` query parameter to quickly switch between raw Razorpay and
   Everlife-origin notifications for debugging or reporting.
 * The backend automatically returns dates and amounts from the parsed
