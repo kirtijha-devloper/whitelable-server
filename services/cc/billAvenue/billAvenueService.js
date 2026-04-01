@@ -1,6 +1,7 @@
 const xml2js = require('xml2js');
 const NodeCache = require('node-cache');
 const billAvenueConfig = require('../../../config/billavenue');
+const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
 const { postForm } = require('./billAvenueRequestService');
 
@@ -93,6 +94,22 @@ async function getBillerInfo() {
   const cached = billerCache.get(cacheKey);
   if (cached) return cached;
 
+  // Check local DB first and continue to use as source-of-truth when available.
+  const dbBillers = await BillAvenueBiller.findAll({ where: { is_active: true } });
+  if (dbBillers?.length) {
+    const data = { billers: dbBillers.map(b => ({
+      billerId: b.biller_id,
+      billerName: b.biller_name,
+      category: b.category,
+      serviceType: b.service_type,
+      circle: b.circle,
+      state: b.state,
+      metadata: b.metadata,
+    })) };
+    billerCache.set(cacheKey, data);
+    return data;
+  }
+
   // Staging environment uses hardcoded test billers (BillAvenue staging API
   // does not serve a real biller list)
   const isStaging = billAvenueConfig.apiUrl && billAvenueConfig.apiUrl.includes('stgapi');
@@ -109,11 +126,37 @@ async function getBillerInfo() {
   }
 
   const xml = buildXml('billerInfoRequest', {});
-
   const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
+
+  const billersFromApi =
+    (result?.billers?.biller || result?.billers || result?.BillerInfo?.biller || result?.BillerInfo) || [];
+  const normalized = Array.isArray(billersFromApi) ? billersFromApi : [billersFromApi];
+
+  await Promise.all(normalized.map(async (biller) => {
+    if (!biller || !biller.billerId) return;
+
+    // BillAvenue API fields could be lowercase or uppercase variants.
+    const billerId = biller.billerId || biller.biller_id || biller.id;
+    const billerName = biller.billerName || biller.biller_name || biller.name;
+
+    if (!billerId || !billerName) return;
+
+    await BillAvenueBiller.upsert({
+      biller_id: billerId,
+      biller_name: billerName,
+      category: biller.category || biller.billerCategory || null,
+      service_type: biller.serviceType || null,
+      circle: biller.circle || null,
+      state: biller.state || null,
+      metadata: biller,
+      is_active: true,
+    });
+  }));
+
   billerCache.set(cacheKey, result);
   return result;
 }
+
 
 /**
  * Fetch a bill (bill fetch / validation).
