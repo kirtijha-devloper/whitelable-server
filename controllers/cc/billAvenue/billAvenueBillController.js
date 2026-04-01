@@ -485,6 +485,7 @@ const getTransactionStatus = asyncHandler(async (req, res) => {
 
 module.exports = {
   getBillers,
+  uploadBillersFromFile,
   fetchBill,
   payBill,
   getPayments,

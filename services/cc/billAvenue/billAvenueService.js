@@ -3,7 +3,12 @@ const NodeCache = require('node-cache');
 const fs = require('fs');
 const path = require('path');
 const { parse } = require('csv-parse/sync');
-const xlsx = require('xlsx');
+let xlsx;
+try {
+  xlsx = require('xlsx');
+} catch (err) {
+  console.warn('[billAvenue] xlsx dependency is missing; XLS/XLSX import support is disabled. Install with `npm install xlsx`.');
+}
 const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
@@ -261,6 +266,9 @@ async function importBillerListFromFile(filePath) {
       relax_column_count: true,
     });
   } else if (ext === '.xls' || ext === '.xlsx') {
+    if (!xlsx) {
+      throw new Error('XLS/XLSX import is unavailable because dependency `xlsx` is not installed. Run `npm install xlsx`.');
+    }
     const workbook = xlsx.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) {
