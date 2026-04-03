@@ -11,12 +11,31 @@ const Ledger = require('../../models/Ledger');
 
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
 
+function ensureLogDir() {
+  const logDir = path.dirname(callbackLogFile);
+  try {
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+  } catch (err) {
+    console.error('Failed to ensure callback log directory exists:', err);
+  }
+}
+
 function logBranchxCallback(data) {
   try {
+    ensureLogDir();
     const line = `${new Date().toISOString()} - ${JSON.stringify(data)}\n`;
     fs.appendFileSync(callbackLogFile, line, 'utf8');
   } catch (err) {
     console.error('Failed to write BranchX callback log:', err);
+    // fallback to webhook auth log if branchx callback log can't be written
+    try {
+      const fallback = path.join(__dirname, '../../logs/webhookAuth.log');
+      fs.appendFileSync(fallback, `${new Date().toISOString()} - [branchx-callback-fallback] ${JSON.stringify(data)}\n`, 'utf8');
+    } catch (fallbackErr) {
+      console.error('Failed to write fallback webhookAuth log:', fallbackErr);
+    }
   }
 }
 

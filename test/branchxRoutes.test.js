@@ -8,11 +8,14 @@ process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secre
 const branchxRoutes = require('../routes/payments/branchxRoutes');
 const branchxService = require('../services/payments/branchxService');
 const User = require('../models/User');
+const Beneficiary = require('../models/Beneficiary');
+const Tpin = require('../models/Tpin');
 const ServiceFee = require('../models/ServiceFee');
-const ChargeSlab = require('../models/ChargeSlab');
+const PayoutCharge = require('../models/PayoutCharge');
 const PayoutTransaction = require('../models/PayoutTransaction');
 const PayoutAuditLog = require('../models/PayoutAuditLog');
 const Ledger = require('../models/Ledger');
+const bcrypt = require('bcrypt');
 const WalletTransaction = require('../models/WalletTransaction');
 const ledgerService = require('../services/ledgerService');
 
@@ -29,18 +32,47 @@ const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const merchantToken = jwt.sign({ user: { id: 9, role: 'merchant' } }, SECRET);
 
 let stubs;
+let userFindByPkOrig;
+let beneficiaryFindByPkOrig;
+let tpinFindOneOrig;
+let bcryptCompareOrig;
+
 beforeEach(() => {
   stubs = {
     branchx: { bankValidation: branchxService.bankValidation, payout: branchxService.payout },
     serviceFeeFindOne: ServiceFee.findOne,
-    slabFindOne: ChargeSlab.findOne,
-    ledgerEntry: ledgerService.createLedgerEntry
+    payoutChargeFindOne: PayoutCharge.findOne,
+    payoutTransactionCreate: PayoutTransaction.create,
+    ledgerEntry: ledgerService.createLedgerEntry,
+    payoutEntry: ledgerService.createPayoutEntry,
+    availableBalance: ledgerService.getAvailableBalance
   };
+
+  userFindByPkOrig = User.findByPk;
+  beneficiaryFindByPkOrig = Beneficiary.findByPk;
+  tpinFindOneOrig = Tpin.findOne;
+  bcryptCompareOrig = bcrypt.compare;
+
+  User.findByPk = async (id) => ({ id, is_payout_enabled: true, wallet: 100000, role: 'merchant', name: 'TestMerchant' });
+  Beneficiary.findByPk = async (id) => ({ id, mobile_number: '9999999999', account_number: '1234567890', ifsc_code: 'IFSC0001', beneficiary_name: 'Test', bank_name: 'Test Bank', status: 'active' });
+  Tpin.findOne = async () => ({ user_id: 9, tpin: '$2b$10$saltsaltsaltsalt0000000000000000000000', expires_at: new Date(Date.now() + 3600000).toISOString() });
+  bcrypt.compare = async () => true;
+  ledgerService.getAvailableBalance = async () => 100000;
+  PayoutTransaction.create = async (payload) => ({ id: 1, ...payload });
 });
 afterEach(() => {
   branchxService.bankValidation = stubs.branchx.bankValidation;
+  PayoutCharge.findOne = stubs.payoutChargeFindOne;
   ServiceFee.findOne = stubs.serviceFeeFindOne;
+  PayoutTransaction.create = stubs.payoutTransactionCreate;
   ledgerService.createLedgerEntry = stubs.ledgerEntry;
+  ledgerService.createPayoutEntry = stubs.payoutEntry;
+  ledgerService.getAvailableBalance = stubs.availableBalance;
+
+  User.findByPk = userFindByPkOrig;
+  Beneficiary.findByPk = beneficiaryFindByPkOrig;
+  Tpin.findOne = tpinFindOneOrig;
+  bcrypt.compare = bcryptCompareOrig;
 });
 
 describe('POST /api/payment/v2/bank/validation', () => {
@@ -190,7 +222,7 @@ describe('POST /api/payment/v2/payout', () => {
 
   it('uses provided service_charge when present', async () => {
     let ledgerArgs;
-    ledgerService.createLedgerEntry = async (args) => { ledgerArgs = args; return {}; };
+    ledgerService.createPayoutEntry = async (args) => { ledgerArgs = args; return {}; };
 
     const res = await request(app)
       .post('/api/payment/v2/payout')
@@ -198,14 +230,14 @@ describe('POST /api/payment/v2/payout', () => {
       .send({ merchant_id: 9, beneficiary_id: 1, amount: 100, service_charge: 7, tpin: '0000' });
 
     expect(res.status).to.not.equal(400);
-    expect(ledgerArgs.debit).to.equal(107);
+    expect(ledgerArgs.amount).to.equal(107);
   });
 
-  it('calculates service_charge from slab when none provided', async () => {
+  it('calculates service_charge from payout rules when none provided', async () => {
     let ledgerArgs;
     // slab returns 10 flat fee for amount range
-    ChargeSlab.findOne = async () => ({ flat_fee: '10.00', percent_fee: '0' });
-    ledgerService.createLedgerEntry = async (args) => { ledgerArgs = args; return {}; };
+    PayoutCharge.findOne = async () => ({ rate_type: 'flat', rate: '10.00', is_active: true });
+    ledgerService.createPayoutEntry = async (args) => { ledgerArgs = args; return {}; };
 
     const res = await request(app)
       .post('/api/payment/v2/payout')
@@ -213,6 +245,6 @@ describe('POST /api/payment/v2/payout', () => {
       .send({ merchant_id: 9, beneficiary_id: 1, amount: 200, tpin: '0000' });
 
     expect(res.status).to.not.equal(400);
-    expect(ledgerArgs.debit).to.equal(210);
+    expect(ledgerArgs.amount).to.equal(210);
   });
 });

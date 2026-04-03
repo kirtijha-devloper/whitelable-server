@@ -11,9 +11,44 @@ const PayoutTransaction = require('../../models/PayoutTransaction');
 const crypto = require('crypto');
 const ledgerService = require('../../services/ledgerService');
 const ServiceFee = require('../../models/ServiceFee');
-const ChargeSlab = require('../../models/ChargeSlab');
+const PayoutCharge = require('../../models/PayoutCharge');
 const { serviceNames } = require('../../constants');
 const { Op } = require('sequelize');
+
+function normalizeBranchxStatus(statusRaw) {
+  if (!statusRaw) return 'PENDING';
+  const status = statusRaw.toString().trim().toUpperCase();
+  if (['SUCCESS', 'COMPLETED'].includes(status)) return 'SUCCESS';
+  if (['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'].includes(status)) return 'FAILED';
+  if (['PENDING', 'PROCESSING', 'IN_PROGRESS'].includes(status)) return 'PENDING';
+  return 'PENDING';
+}
+
+async function resolvePayoutServiceCharge(amount) {
+  const slab = await PayoutCharge.findOne({
+    where: {
+      is_active: true,
+      from_amount: { [Op.lte]: amount },
+      to_amount: { [Op.gte]: amount }
+    },
+    order: [['from_amount', 'DESC']]
+  });
+
+  if (!slab) {
+    return 0;
+  }
+
+  if (slab.rate_type === 'flat') {
+    return parseFloat(slab.rate || 0);
+  }
+
+  const percent = parseFloat(slab.rate || 0);
+  if (isNaN(percent) || percent < 0) {
+    return 0;
+  }
+
+  return parseFloat(((amount * percent) / 100).toFixed(2));
+}
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
@@ -71,25 +106,11 @@ router.post('/payout', asyncHandler(async (req, res) => {
     }
 
     // service_charge may be sent by client, but if not provided (or zero) we
-    // calculate it from slabs defined by the admin.  Slabs use the existing
-    // ChargeSlab model; category 'branchx_payout' is used so administrators
-    // can create/update them via /api/charge routes.
+    // calculate it from admin payout rules (PayoutCharge table). This unifies
+    // branchx and vimo payout charge logic under a single source of truth.
     let service_charge = parseFloat(req.body.service_charge || 0);
     if (!service_charge || isNaN(service_charge) || service_charge <= 0) {
-      // find applicable slab for the amount
-      const slab = await ChargeSlab.findOne({
-        where: {
-          charge_type_category: 'branchx_payout',
-          min_amount: { [Op.lte]: amount },
-          max_amount: { [Op.gte]: amount }
-        },
-        order: [['min_amount', 'DESC']]
-      });
-      if (slab) {
-        const flat = parseFloat(slab.flat_fee || 0);
-        const pct = parseFloat(slab.percent_fee || 0);
-        service_charge = pct > 0 ? parseFloat(((pct/100) * amount).toFixed(2)) : flat;
-      }
+      service_charge = await resolvePayoutServiceCharge(amount);
     }
 
     if (service_charge === null || service_charge === undefined || isNaN(service_charge)) {
@@ -140,8 +161,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     const data = await branchxService.payout(payload);
 
-    // Save payout transaction with status from response
-    const payoutStatus = data.status || 'PENDING';
+    // Save payout transaction with normalized status from response
+    const payoutStatus = normalizeBranchxStatus(data.status || data.Status || 'PENDING');
     const payoutTx = await PayoutTransaction.create({
       merchant_id: merchant_id,
       beneficiary_id: beneficiary_id,
@@ -180,7 +201,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
     console.log(`branchx data: ${JSON.stringify(data)}`);
 
     // Check BranchX response status
-    if (data.status === 'FAILED') {
+    if (payoutStatus === 'FAILED') {
       return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
         success: false,
         message: data.message || 'Payout request failed',
@@ -199,7 +220,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
     const message = isHtml
       ? 'Payout gateway error. Please try again later.'
       : (error.message || error.msg || 'Something went wrong');
-    res.status(error.status || 500).json({ 
+    const statusCode = error.status || res.statusCode || 500;
+    res.status(statusCode).json({ 
       success: false, 
       message
     });
