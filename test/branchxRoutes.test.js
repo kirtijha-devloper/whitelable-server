@@ -16,7 +16,6 @@ const PayoutTransaction = require('../models/PayoutTransaction');
 const PayoutAuditLog = require('../models/PayoutAuditLog');
 const Ledger = require('../models/Ledger');
 const bcrypt = require('bcrypt');
-const WalletTransaction = require('../models/WalletTransaction');
 const ledgerService = require('../services/ledgerService');
 
 // setup mini app
@@ -131,7 +130,6 @@ describe('BranchX webhook callback', () => {
   let origPayoutFindOne;
   let origPayoutFindByPk;
   let origUserFindByPk;
-  let origWalletFindOne;
   let origLedgerUpdate;
   let origPayoutAuditCreate;
 
@@ -139,7 +137,6 @@ describe('BranchX webhook callback', () => {
     origPayoutFindOne = PayoutTransaction.findOne;
     origPayoutFindByPk = PayoutTransaction.findByPk;
     origUserFindByPk = User.findByPk;
-    origWalletFindOne = WalletTransaction.findOne;
     origLedgerUpdate = Ledger.update;
     origPayoutAuditCreate = PayoutAuditLog.create;
   });
@@ -148,7 +145,6 @@ describe('BranchX webhook callback', () => {
     PayoutTransaction.findOne = origPayoutFindOne;
     PayoutTransaction.findByPk = origPayoutFindByPk;
     User.findByPk = origUserFindByPk;
-    WalletTransaction.findOne = origWalletFindOne;
     Ledger.update = origLedgerUpdate;
     PayoutAuditLog.create = origPayoutAuditCreate;
   });
@@ -171,16 +167,9 @@ describe('BranchX webhook callback', () => {
       save: async function() { return this; }
     };
 
-    const walletTx = {
-      status: 'pending',
-      reason: null,
-      save: async function() { return this; }
-    };
-
     PayoutTransaction.findOne = async () => payoutTx;
     PayoutTransaction.findByPk = async () => payoutTx;
     User.findByPk = async () => user;
-    WalletTransaction.findOne = async () => walletTx;
     Ledger.update = async () => [1];
     PayoutAuditLog.create = async () => ({});
 
@@ -198,8 +187,6 @@ describe('BranchX webhook callback', () => {
     expect(payoutTx.status).to.equal('FAILED');
     expect(payoutTx.callback_status).to.equal('FAILED');
     expect(user.wallet).to.equal(49100); // 100 + 49000 refund
-    expect(walletTx.status).to.equal('failed');
-    expect(walletTx.reason).to.include('BranchX payout failed');
   });
 });
 

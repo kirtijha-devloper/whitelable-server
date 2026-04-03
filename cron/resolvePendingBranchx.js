@@ -7,7 +7,7 @@ const branchxService = require('../services/payments/branchxService');
 const db = require('../config/database');
 const ledgerService = require('../services/ledgerService');
 const User = require('../models/User');
-const WalletTransaction = require('../models/WalletTransaction');
+const Ledger = require('../models/Ledger');
 
 const LOG_FILE = path.resolve(__dirname, '../logs/branchx-payout-cron.log');
 if (!fs.existsSync(path.dirname(LOG_FILE))) {
@@ -72,22 +72,19 @@ async function resolvePending() {
           if (user) {
             user.wallet = parseFloat(user.wallet || 0) + parseFloat(locked.amount || 0);
             await user.save({ transaction: tr });
-
-            const walletTx = await WalletTransaction.findOne({
-              where: {
-                source: 'branchx',
-                reference_id: locked.reference_id
-              },
-              order: [['createdAt', 'DESC']],
-              transaction: tr
-            });
-
-            if (walletTx) {
-              walletTx.status = 'failed';
-              walletTx.reason = `BranchX payout failed: ${response?.data?.message || response?.message || 'Transaction failed'}`;
-              await walletTx.save({ transaction: tr });
-            }
           }
+
+          await Ledger.update(
+            { status: 'failed' },
+            {
+              where: {
+                reference_id: locked.id,
+                reference_table: 'PayoutTransactions',
+                status: 'pending'
+              },
+              transaction: tr
+            }
+          );
         }
 
         await locked.save({ transaction: tr });

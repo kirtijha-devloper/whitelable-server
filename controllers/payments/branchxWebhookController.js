@@ -6,7 +6,6 @@ const db = require('../../config/database');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const User = require('../../models/User');
-const WalletTransaction = require('../../models/WalletTransaction');
 const Ledger = require('../../models/Ledger');
 
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
@@ -117,20 +116,17 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
         await user.save({ transaction: trx });
       }
 
-      const walletTx = await WalletTransaction.findOne({
-        where: {
-          source: 'branchx',
-          reference_id: locked.reference_id
-        },
-        order: [['createdAt', 'DESC']],
-        transaction: trx
-      });
-
-      if (walletTx) {
-        walletTx.status = 'failed';
-        walletTx.reason = `BranchX payout failed: ${payload.message || payload.msg || 'Transaction failed'}`;
-        await walletTx.save({ transaction: trx });
-      }
+      await Ledger.update(
+        { status: 'failed' },
+        {
+          where: {
+            reference_id: locked.id,
+            reference_table: 'PayoutTransactions',
+            status: 'pending'
+          },
+          transaction: trx
+        }
+      );
     }
 
     if (previousStatus !== newStatus) {

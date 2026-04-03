@@ -6,8 +6,8 @@ const Beneficiary = require('../../models/Beneficiary');
 const Tpin = require('../../models/Tpin');
 const User = require('../../models/User');
 const bcrypt = require('bcrypt');
-const WalletTransaction = require('../../models/WalletTransaction');
 const PayoutTransaction = require('../../models/PayoutTransaction');
+const Ledger = require('../../models/Ledger');
 const crypto = require('crypto');
 const ledgerService = require('../../services/ledgerService');
 const ServiceFee = require('../../models/ServiceFee');
@@ -720,22 +720,18 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
               // Refund the amount back to wallet
               user.wallet = parseFloat(user.wallet) + parseFloat(payoutTransaction.amount);
               await user.save();
-              
-              // Update wallet transaction status
-              const walletTransaction = await WalletTransaction.findOne({
-                where: {
-                  source: 'branchx',
-                  reference_id: payoutTransaction.reference_id
-                },
-                order: [['createdAt', 'DESC']]
-              });
-              
-              if (walletTransaction) {
-                walletTransaction.status = 'failed';
-                walletTransaction.reason = `BranchX payout failed: ${data?.data?.message || 'Transaction failed'}`;
-                await walletTransaction.save();
-              }
             }
+
+            await Ledger.update(
+              { status: 'failed' },
+              {
+                where: {
+                  reference_id: payoutTransaction.id,
+                  reference_table: 'PayoutTransactions',
+                  status: 'pending'
+                }
+              }
+            );
           }
         } else {
           // Update data field even if status hasn't changed
