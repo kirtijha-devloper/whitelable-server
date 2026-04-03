@@ -30,7 +30,7 @@ const requestFund = asyncHandler(async (req, res) =>{
     requested_by: user_id,
   });
 
-  res.status(200).json({ message: "Fund Requested", balance: user.wallet,hold: user.wallet_hold, id: wallet.id });
+  res.status(200).json({ message: "Fund Requested", balance: user.wallet, id: wallet.id });
 });
 
 const transferFund = asyncHandler(async (req, res) =>{
@@ -129,7 +129,7 @@ const transferFund = asyncHandler(async (req, res) =>{
       //     { account_id: platformIncomeAccountId, type: 'credit', amount: walletTransaction.amount }
       //   ])
 
-    res.status(200).json({ message: "Amount Transfered", balance: receiver.wallet, hold: receiver.wallet_hold });
+      res.status(200).json({ message: "Amount Transfered", balance: receiver.wallet });
   }
     catch (err) { console.error(err); 
       res.status(500).json({
@@ -156,8 +156,6 @@ const holdFund = asyncHandler(async (req, res) => {
   const user = await User.findByPk(walletTransaction.requested_by);
 
   if (!user) throw new Error("Requested User not found");
-  user.wallet_hold = parseFloat(user.wallet_hold) +  parseFloat(walletTransaction.amount);
-  await user.save();
 
   walletTransaction.approved_by = req.user.id
   walletTransaction.status = "completed"
@@ -189,7 +187,7 @@ const holdFund = asyncHandler(async (req, res) => {
     console.error('Error creating ledger entry for hold:', ledgerError);
   }
   
-  res.status(200).json({ message: "Amount held", balance: user.wallet, hold: user.wallet_hold });
+  res.status(200).json({ message: "Amount held", balance: user.wallet });
 });
 
 const unholdFund = asyncHandler(async (req, res) => {
@@ -220,9 +218,6 @@ const unholdFund = asyncHandler(async (req, res) => {
     throw new Error("Insufficient balance to transfer funds");
   }
 
-  // if parseFloat(user.wallet_hold) < parseFloat(walletTransaction.amount)){
-  // }
-  receiver.wallet_hold = parseFloat(receiver.wallet_hold) -  parseFloat(walletTransaction.amount);
   receiver.wallet = parseFloat(receiver.wallet) +  parseFloat(walletTransaction.amount);
   await receiver.save();
 
@@ -272,7 +267,7 @@ const unholdFund = asyncHandler(async (req, res) => {
     console.error('Error creating ledger entries for unhold:', ledgerError);
   }
   
-  res.status(200).json({ message: "Amount held", balance: receiver.wallet, hold: receiver.wallet_hold });
+  res.status(200).json({ message: "Amount held", balance: receiver.wallet });
 });
 
 const getUserWalletTransactions = asyncHandler(async (req, res) => {

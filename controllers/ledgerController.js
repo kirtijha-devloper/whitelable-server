@@ -206,7 +206,6 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
       } : null,
       current_balance: currentBalance,
       available_balance: availableBalance,
-      settlement_hold: parseFloat((currentBalance - availableBalance).toFixed(2)),
       data: formattedEntries,
       pagination: pagination
     });
