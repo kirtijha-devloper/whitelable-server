@@ -490,7 +490,13 @@ const getLedgerReport = asyncHandler(async (req, res) => {
   try {
     const userRole = req.user?.role;
     const currentUserId = req.user?.id;
-    const { from_date, to_date, user_id } = req.query;
+    const { from_date, to_date, user_id, status } = req.query;
+
+    // status filter is intentionally ignored for ledger report (show all statuses)
+    // because payout entries may be pending/failed and should still be visible.
+    if (status) {
+      // no-op intentionally
+    }
 
     // default date range = today
     const today = new Date();
