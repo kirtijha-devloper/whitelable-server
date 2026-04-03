@@ -132,6 +132,7 @@ describe('BranchX webhook callback', () => {
   let origUserFindByPk;
   let origLedgerUpdate;
   let origPayoutAuditCreate;
+  let origLedgerServiceCreateLedgerEntry;
 
   beforeEach(() => {
     origPayoutFindOne = PayoutTransaction.findOne;
@@ -139,6 +140,7 @@ describe('BranchX webhook callback', () => {
     origUserFindByPk = User.findByPk;
     origLedgerUpdate = Ledger.update;
     origPayoutAuditCreate = PayoutAuditLog.create;
+    origLedgerServiceCreateLedgerEntry = ledgerService.createLedgerEntry;
   });
 
   afterEach(() => {
@@ -147,6 +149,7 @@ describe('BranchX webhook callback', () => {
     User.findByPk = origUserFindByPk;
     Ledger.update = origLedgerUpdate;
     PayoutAuditLog.create = origPayoutAuditCreate;
+    ledgerService.createLedgerEntry = origLedgerServiceCreateLedgerEntry;
   });
 
   it('updates payout transaction and refunds wallet when callback status is FAILED', async () => {
@@ -171,6 +174,7 @@ describe('BranchX webhook callback', () => {
     PayoutTransaction.findByPk = async () => payoutTx;
     User.findByPk = async () => user;
     Ledger.update = async () => [1];
+    ledgerService.createLedgerEntry = async () => ({ id: 999 });
     PayoutAuditLog.create = async () => ({});
 
     const res = await request(app)

@@ -68,10 +68,24 @@ async function resolvePending() {
         locked.data = JSON.stringify(response);
 
         if ((tx.status === 'SUCCESS' || tx.status === 'PENDING') && transactionStatus === 'FAILED') {
-          const user = await User.findByPk(locked.merchant_id, { transaction: tr });
-          if (user) {
-            user.wallet = parseFloat(user.wallet || 0) + parseFloat(locked.amount || 0);
-            await user.save({ transaction: tr });
+          const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
+
+          if (refundAmount > 0) {
+            await ledgerService.createLedgerEntry({
+              userId: locked.merchant_id,
+              transactionType: 'payout_refund',
+              referenceId: locked.id,
+              referenceTable: 'PayoutTransactions',
+              description: `BranchX payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
+              credit: refundAmount,
+              status: 'completed',
+              metadata: {
+                payout_reference: locked.reference_id,
+                branchx_status: transactionStatus,
+                original_payout_amount: locked.amount,
+                original_service_charge: locked.service_charge
+              }
+            }, { transaction: tr });
           }
 
           await Ledger.update(

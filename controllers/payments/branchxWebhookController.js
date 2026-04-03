@@ -7,6 +7,7 @@ const PayoutTransaction = require('../../models/PayoutTransaction');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const User = require('../../models/User');
 const Ledger = require('../../models/Ledger');
+const ledgerService = require('../../services/ledgerService');
 
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
 
@@ -109,11 +110,24 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
     }, { transaction: trx });
 
     if ((previousStatus === 'PENDING' || previousStatus === 'SUCCESS') && newStatus === 'FAILED') {
-      const user = await User.findByPk(locked.merchant_id, { transaction: trx });
-      if (user) {
-        const amountToRefund = parseFloat(locked.amount || 0);
-        user.wallet = parseFloat(user.wallet || 0) + amountToRefund;
-        await user.save({ transaction: trx });
+      const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
+
+      if (refundAmount > 0) {
+        await ledgerService.createLedgerEntry({
+          userId: locked.merchant_id,
+          transactionType: 'payout_refund',
+          referenceId: locked.id,
+          referenceTable: 'PayoutTransactions',
+          description: `BranchX payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
+          credit: refundAmount,
+          status: 'completed',
+          metadata: {
+            payout_reference: locked.reference_id,
+            branchx_status: newStatus,
+            original_payout_amount: locked.amount,
+            original_service_charge: locked.service_charge
+          }
+        }, { transaction: trx });
       }
 
       await Ledger.update(
