@@ -7,8 +7,8 @@ const Tpin = require('../../models/Tpin');
 const User = require('../../models/User');
 const bcrypt = require('bcrypt');
 const PayoutTransaction = require('../../models/PayoutTransaction');
+const payoutReferenceService = require('../../services/payoutReferenceService');
 const Ledger = require('../../models/Ledger');
-const crypto = require('crypto');
 const ledgerService = require('../../services/ledgerService');
 const ServiceFee = require('../../models/ServiceFee');
 const PayoutCharge = require('../../models/PayoutCharge');
@@ -140,7 +140,10 @@ router.post('/payout', asyncHandler(async (req, res) => {
     }
 
     currentDate = getCurrentDate();
-    requestId = crypto.randomUUID()
+    let requestId = req.body.requestId || null;
+    if (!requestId) {
+      requestId = await payoutReferenceService.getNextPayoutReference();
+    }
 
     const payload = {
       amount,
