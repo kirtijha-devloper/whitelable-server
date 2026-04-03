@@ -479,6 +479,19 @@ describe('GET /api/report/ledger', () => {
     expect(capturedWhere.user_id).to.equal(2);
   });
 
+  it('ignores status query parameter (show all statuses)', async () => {
+    let capturedWhere;
+    Ledger.findAll = async ({ where }) => { capturedWhere = where; return [ledgerEntry()]; };
+
+    const res = await request(app)
+      .get('/api/report/ledger?status=completed')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(capturedWhere.status).to.be.undefined;
+    expect(res.body.count).to.equal(1);
+  });
+
   it('returns 400 for invalid date', async () => {
     const res = await request(app)
       .get('/api/report/ledger?from_date=2026-13-01')

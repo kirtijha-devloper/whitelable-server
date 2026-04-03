@@ -42,6 +42,21 @@ const PayoutTransaction = db.define('PayoutTransaction', {
     allowNull: true,
     comment: 'Service charge for the payout transaction'
   },
+  callback_status: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    comment: 'Latest status received in BranchX callback'
+  },
+  callback_data: {
+    type: Sequelize.TEXT,
+    allowNull: true,
+    comment: 'Raw callback payload JSON from BranchX'
+  },
+  callback_received_at: {
+    type: Sequelize.DATE,
+    allowNull: true,
+    comment: 'Timestamp when callback was processed'
+  },
   createdAt: {
     allowNull: false,
     type: Sequelize.DATE,

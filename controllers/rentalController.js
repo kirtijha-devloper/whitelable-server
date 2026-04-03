@@ -2,64 +2,96 @@ const asyncHandler = require("express-async-handler");
 const Rental = require('../models/Rental');
 const User = require('../models/User');
 
-// Create Rental
+/**
+ * Rental rate configuration endpoints.
+ *
+ * Rate scopes:
+ *   franchaise_id IS NULL + target_user_type 'franchise'  → admin rate charged to all franchises
+ *   franchaise_id IS NULL + target_user_type 'merchant'   → admin rate charged to standalone merchants
+ *   franchaise_id = X    + target_user_type 'merchant'   → franchise X’s rate for all their merchants
+ *
+ * One active rate is allowed per (franchaise_id, target_user_type) pair.
+ */
+
+// ---------------------------------------------------------------------------
+// Create Rental Rate
+// ---------------------------------------------------------------------------
+// Admin   → must supply target_user_type ('franchise' | 'merchant')
+//           'franchise' rate = what franchises are billed by the platform
+//           'merchant'  rate = what standalone merchants are billed by the platform
+// Franchise → always targets 'merchant' (all merchants under them get this rate)
+//
+// One active rate per (franchaise_id, target_user_type) scope is allowed.
+// ---------------------------------------------------------------------------
 const createRental = asyncHandler(async (req, res) => {
   try {
-    const { merchant_id, franchaise_id, amount, status, type, is_default } = req.body;
+    const role   = req.user.role;
+    const userId = req.user.id;
 
-    // Validate required fields
-    if (!merchant_id || !amount) {
-      return res.status(400).json({
+    if (role !== 'admin' && role !== 'franchaise') {
+      return res.status(403).json({
         success: false,
-        message: 'merchant_id and amount are required'
+        message: 'Only admin or franchise can create rental rates'
       });
     }
 
-    // Validate amount is positive
-    if (parseFloat(amount) <= 0) {
+    const { amount, type, status, target_user_type } = req.body;
+
+    if (!amount || parseFloat(amount) <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'Amount must be greater than 0'
+        message: 'A valid positive amount is required'
       });
     }
 
-    const rentalType = type || 'pos';
-    const finalFranchaiseId = franchaise_id || null;
+    let franchaise_id;
+    let targetType;
 
-    // Check for uniqueness - one rental per merchant_id and franchaise_id combination
-    const whereClause = {
-      merchant_id: merchant_id
-    };
-    
-    // Include franchaise_id in uniqueness check (handle null properly)
-    if (finalFranchaiseId) {
-      whereClause.franchaise_id = finalFranchaiseId;
+    if (role === 'admin') {
+      if (!target_user_type || !['franchise', 'merchant'].includes(target_user_type)) {
+        return res.status(400).json({
+          success: false,
+          message: 'target_user_type is required for admin ("franchise" or "merchant")'
+        });
+      }
+      franchaise_id = null;
+      targetType    = target_user_type;
     } else {
-      whereClause.franchaise_id = null;
+      // Franchise always sets the rate for their merchants
+      franchaise_id = userId;
+      targetType    = 'merchant';
     }
 
-    const [rental, created] = await Rental.findOrCreate({
-      where: whereClause,
-      defaults: {
-        merchant_id,
-        franchaise_id: finalFranchaiseId,
-        amount: parseFloat(amount),
-        status: status || 'active',
-        type: rentalType,
-        is_default: is_default !== undefined ? Boolean(is_default) : false
+    // One rate per scope
+    const existing = await Rental.findOne({
+      where: {
+        franchaise_id: franchaise_id === null ? null : franchaise_id,
+        target_user_type: targetType
       }
     });
 
-    if (!created) {
+    if (existing) {
+      const scope = role === 'admin'
+        ? `admin rate for ${targetType}s`
+        : 'your franchise merchant rate';
       return res.status(400).json({
         success: false,
-        message: 'Rental already exists for this merchant and franchaise combination'
+        message: `A ${scope} already exists. Update the existing one.`
       });
     }
 
+    const rental = await Rental.create({
+      franchaise_id,
+      target_user_type: targetType,
+      amount: parseFloat(amount),
+      status: status || 'active',
+      type:   type   || 'pos',
+      created_by: userId
+    });
+
     res.status(201).json({
       success: true,
-      message: 'Rental created successfully',
+      message: 'Rental rate created successfully',
       data: rental
     });
   } catch (error) {
@@ -75,108 +107,65 @@ const createRental = asyncHandler(async (req, res) => {
 const getRental = asyncHandler(async (req, res) => {
   try {
     const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Rental ID is required'
-      });
-    }
+    const role   = req.user.role;
+    const userId = req.user.id;
 
     const rental = await Rental.findByPk(id);
 
     if (!rental) {
-      return res.status(404).json({
-        success: false,
-        message: 'Rental not found'
-      });
+      return res.status(404).json({ success: false, message: 'Rental not found' });
     }
 
-    res.status(200).json({
-      success: true,
-      data: rental
-    });
+    // Franchise can only view their own rate
+    if (role === 'franchaise' && rental.franchaise_id !== userId) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    // Merchants do not have direct access to rate configs
+    if (role === 'merchant') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    res.status(200).json({ success: true, data: rental });
   } catch (error) {
     console.error('Get rental error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Something went wrong'
-    });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
-// List Rentals with filters and pagination
+// List Rentals (scoped by role)
 const listRentals = asyncHandler(async (req, res) => {
   try {
-    const { 
-      merchant_id, 
-      franchaise_id, 
-      status, 
-      type,
-      is_default,
-      page = 1, 
-      limit = 10 
-    } = req.query;
+    const role   = req.user.role;
+    const userId = req.user.id;
 
+    if (role === 'merchant') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const { status, type, page = 1, limit = 10 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    const where = {};
+    const where  = {};
 
-    // Apply filters
-    if (merchant_id) {
-      where.merchant_id = merchant_id;
+    // Franchise only sees their own rate; admin sees everything
+    if (role === 'franchaise') {
+      where.franchaise_id = userId;
     }
 
-    if (franchaise_id) {
-      where.franchaise_id = franchaise_id;
-    }
+    if (status) where.status = status;
+    if (type)   where.type   = type;
 
-    if (status) {
-      where.status = status;
-    }
-
-    if (type) {
-      where.type = type;
-    }
-
-    if (is_default !== undefined) {
-      where.is_default = is_default === 'true' || is_default === true;
-    }
-
-    // Get total count and paginated results
     const { count, rows: rentals } = await Rental.findAndCountAll({
       where,
       limit: parseInt(limit),
-      offset: parseInt(offset),
+      offset,
       order: [['createdAt', 'DESC']]
     });
-
-    // Fetch merchant details for each rental
-    const formattedRentals = await Promise.all(rentals.map(async (rental) => {
-      let merchantDetails = null;
-      
-      if (rental.merchant_id) {
-        merchantDetails = await User.findByPk(rental.merchant_id, {
-          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name']
-        });
-      }
-
-      return {
-        ...rental.toJSON(),
-        merchant: merchantDetails ? {
-          id: merchantDetails.id,
-          name: merchantDetails.name,
-          email: merchantDetails.email,
-          mobile_number: merchantDetails.mobile_number,
-          abheepay_id: merchantDetails.abheepay_id,
-          organization_name: merchantDetails.organization_name
-        } : null
-      };
-    }));
 
     res.status(200).json({
       success: true,
       message: 'Rentals retrieved successfully',
-      data: formattedRentals,
+      data: rentals,
       pagination: {
         total: count,
         page: parseInt(page),
@@ -186,103 +175,79 @@ const listRentals = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('List rentals error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Something went wrong'
-    });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
-// Update Rental
+// Update Rental Rate
 const updateRental = asyncHandler(async (req, res) => {
   try {
-    const { id } = req.params;
-    const { merchant_id, franchaise_id, amount, status, type, is_default } = req.body;
+    const { id }   = req.params;
+    const role     = req.user.role;
+    const userId   = req.user.id;
+    const { amount, status, type } = req.body;
 
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Rental ID is required'
-      });
+    if (role === 'merchant') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
     const rental = await Rental.findByPk(id);
 
     if (!rental) {
-      return res.status(404).json({
-        success: false,
-        message: 'Rental not found'
-      });
+      return res.status(404).json({ success: false, message: 'Rental not found' });
     }
 
-    // Validate amount if provided
-    if (amount !== undefined) {
-      if (parseFloat(amount) <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Amount must be greater than 0'
-        });
-      }
+    // Franchise can only update their own rate
+    if (role === 'franchaise' && rental.franchaise_id !== userId) {
+      return res.status(403).json({ success: false, message: 'You can only update your own rental rate' });
     }
 
-    // Update only provided fields
+    if (amount !== undefined && parseFloat(amount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+    }
+
     const updateData = {};
-    if (merchant_id !== undefined) updateData.merchant_id = merchant_id;
-    if (franchaise_id !== undefined) updateData.franchaise_id = franchaise_id;
     if (amount !== undefined) updateData.amount = parseFloat(amount);
     if (status !== undefined) updateData.status = status;
-    if (type !== undefined) updateData.type = type;
-    if (is_default !== undefined) updateData.is_default = Boolean(is_default);
+    if (type   !== undefined) updateData.type   = type;
 
     await rental.update(updateData);
 
-    res.status(200).json({
-      success: true,
-      message: 'Rental updated successfully',
-      data: rental
-    });
+    res.status(200).json({ success: true, message: 'Rental rate updated successfully', data: rental });
   } catch (error) {
     console.error('Update rental error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Something went wrong'
-    });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 
-// Delete Rental
+// Delete Rental Rate
 const deleteRental = asyncHandler(async (req, res) => {
   try {
     const { id } = req.params;
+    const role   = req.user.role;
+    const userId = req.user.id;
 
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Rental ID is required'
-      });
+    if (role === 'merchant') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
     const rental = await Rental.findByPk(id);
 
     if (!rental) {
-      return res.status(404).json({
-        success: false,
-        message: 'Rental not found'
-      });
+      return res.status(404).json({ success: false, message: 'Rental not found' });
+    }
+
+    // Franchise can only delete their own rate
+    if (role === 'franchaise' && rental.franchaise_id !== userId) {
+      return res.status(403).json({ success: false, message: 'You can only delete your own rental rate' });
     }
 
     await rental.destroy();
 
-    res.status(200).json({
-      success: true,
-      message: 'Rental deleted successfully'
-    });
+    res.status(200).json({ success: true, message: 'Rental rate deleted successfully' });
   } catch (error) {
     console.error('Delete rental error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Something went wrong'
-    });
+    res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
 

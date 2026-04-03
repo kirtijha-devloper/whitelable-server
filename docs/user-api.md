@@ -238,6 +238,63 @@ Role-based access:
   merchants.
 - Admins have unrestricted access.
 
+#### `charges.rentals` — Breaking Change (as of 2026-03-31)
+
+The `rentals` array inside `charges` **no longer contains `merchant_id` or `is_default`**. These columns were removed from the database. The response now reflects the refactored rental rate model.
+
+**Old shape (removed — do not use):**
+```jsonc
+{
+  "id": 1,
+  "merchant_id": 99,       // REMOVED
+  "franchaise_id": null,
+  "amount": 300.00,
+  "status": "active",
+  "type": "pos",
+  "is_default": true,      // REMOVED
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+**New shape:**
+```json
+{
+  "id": 1,
+  "franchaise_id": null,
+  "target_user_type": "merchant",
+  "amount": 300.00,
+  "status": "active",
+  "type": "pos",
+  "createdAt": "2026-03-31T00:00:00.000Z",
+  "updatedAt": "2026-03-31T00:00:00.000Z"
+}
+```
+
+#### How to interpret `target_user_type`
+
+| `franchaise_id` | `target_user_type` | Meaning |
+|---|---|---|
+| `null` | `"franchise"` | Platform rate applied to all franchises |
+| `null` | `"merchant"` | Platform rate applied to standalone merchants |
+| `<franchise user ID>` | `"merchant"` | Rate set by that specific franchise for all their merchants |
+
+#### Which rates are returned per user
+
+| Viewed user's role | Rates returned |
+|---|---|
+| `merchant` with a franchise (`franchaise_id` set) | Franchise-specific rate **and** admin fallback rate (both with `target_user_type: "merchant"`) |
+| `merchant` without a franchise (standalone) | Admin rate only (`franchaise_id: null, target_user_type: "merchant"`) |
+| `franchaise` | Admin rate for franchises (`franchaise_id: null, target_user_type: "franchise"`) |
+
+#### Frontend migration checklist
+
+1. **Remove** any code that reads `rental.merchant_id` — this field no longer exists.
+2. **Remove** any code that reads or sorts by `rental.is_default` — this field no longer exists. Rates are ordered by `createdAt DESC`.
+3. **Add** display of `rental.target_user_type` where relevant (e.g. to label whether the rate is a franchise or merchant rate).
+4. **Use** `rental.franchaise_id` to distinguish between admin-defined rates (`null`) and franchise-defined rates (non-null ID).
+5. When multiple rates are returned for a merchant user, the one with `franchaise_id` matching the user's `franchaise_id` is the franchise-specific rate; the one with `franchaise_id: null` is the platform fallback.
+
 
 ## Password Endpoints
 

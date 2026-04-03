@@ -1,6 +1,10 @@
 const xml2js = require('xml2js');
 const NodeCache = require('node-cache');
+const fs = require('fs');
+const path = require('path');
+const { parse } = require('csv-parse/sync');
 const billAvenueConfig = require('../../../config/billavenue');
+const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
 const { postForm } = require('./billAvenueRequestService');
 
@@ -93,6 +97,22 @@ async function getBillerInfo() {
   const cached = billerCache.get(cacheKey);
   if (cached) return cached;
 
+  // Check local DB first and continue to use as source-of-truth when available.
+  const dbBillers = await BillAvenueBiller.findAll({ where: { is_active: true } });
+  if (dbBillers?.length) {
+    const data = { billers: dbBillers.map(b => ({
+      billerId: b.biller_id,
+      billerName: b.biller_name,
+      category: b.category,
+      serviceType: b.service_type,
+      circle: b.circle,
+      state: b.state,
+      metadata: b.metadata,
+    })) };
+    billerCache.set(cacheKey, data);
+    return data;
+  }
+
   // Staging environment uses hardcoded test billers (BillAvenue staging API
   // does not serve a real biller list)
   const isStaging = billAvenueConfig.apiUrl && billAvenueConfig.apiUrl.includes('stgapi');
@@ -109,11 +129,37 @@ async function getBillerInfo() {
   }
 
   const xml = buildXml('billerInfoRequest', {});
-
   const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
+
+  const billersFromApi =
+    (result?.billers?.biller || result?.billers || result?.BillerInfo?.biller || result?.BillerInfo) || [];
+  const normalized = Array.isArray(billersFromApi) ? billersFromApi : [billersFromApi];
+
+  await Promise.all(normalized.map(async (biller) => {
+    if (!biller || !biller.billerId) return;
+
+    // BillAvenue API fields could be lowercase or uppercase variants.
+    const billerId = biller.billerId || biller.biller_id || biller.id;
+    const billerName = biller.billerName || biller.biller_name || biller.name;
+
+    if (!billerId || !billerName) return;
+
+    await BillAvenueBiller.upsert({
+      biller_id: billerId,
+      biller_name: billerName,
+      category: biller.category || biller.billerCategory || null,
+      service_type: biller.serviceType || null,
+      circle: biller.circle || null,
+      state: biller.state || null,
+      metadata: biller,
+      is_active: true,
+    });
+  }));
+
   billerCache.set(cacheKey, result);
   return result;
 }
+
 
 /**
  * Fetch a bill (bill fetch / validation).
@@ -197,10 +243,72 @@ async function getTransactionStatus({ transactionRefId }) {
   return callBillAvenue('/transactionStatusCntrl/transactionStatusRequest/xml', xml);
 }
 
+async function importBillerListFromFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new Error('File path does not exist');
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  let rows = [];
+
+  if (ext === '.csv') {
+    const csvText = fs.readFileSync(filePath, 'utf-8');
+    rows = parse(csvText, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+    });
+  } else {
+    throw new Error('Unsupported file type. Use .csv only');
+  }
+
+  const result = {
+    imported: 0,
+    skipped: 0,
+    errors: [],
+  };
+
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    const billerId = String(row.billerId || row.biller_id || row.blr_id || row.BLR_ID || '').trim();
+    const billerName = String(row.billerName || row.biller_name || row.blr_name || row.BLR_NAME || '').trim();
+    const aliasName = String(row.blr_alias_name || row.BLR_ALIAS_NAME || '').trim();
+    const categoryName = String(row.blr_category_name || row.BLR_CATEGORY_NAME || '').trim();
+    const coverage = String(row.blr_coverage || row.BLR_COVERAGE || '').trim();
+
+    if (!billerId || !billerName) {
+      result.skipped += 1;
+      result.errors.push({ row: index + 2, error: 'Missing billerId or billerName', data: row });
+      continue;
+    }
+
+    try {
+      await BillAvenueBiller.upsert({
+        biller_id: billerId,
+        biller_name: billerName,
+        category: categoryName || row.category || row.Category || null,
+        service_type: coverage || row.serviceType || row.service_type || row.ServiceType || null,
+        circle: aliasName || row.circle || row.Circle || null,
+        state: row.state || row.State || null,
+        is_active: String(row.isActive || row.is_active || row.Active || 'true').toLowerCase() !== 'false',
+        metadata: row,
+      });
+      result.imported += 1;
+    } catch (err) {
+      result.skipped += 1;
+      result.errors.push({ row: index + 2, error: err.message || 'Upsert failed', data: row });
+    }
+  }
+
+  return result;
+}
+
 module.exports = {
   getBillerInfo,
   fetchBill,
   payBill,
   registerComplaint,
   getTransactionStatus,
+  importBillerListFromFile,
 };

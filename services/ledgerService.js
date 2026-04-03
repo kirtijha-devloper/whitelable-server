@@ -12,6 +12,7 @@ const REFERENCE_TABLE_MODEL_MAP = {
   MerchantTransactionCharges: () => require('../models/MerchantTransactionCharge'),
   PayoutTransactions: () => require('../models/PayoutTransaction'),
   Rentals: () => require('../models/Rental'),
+  PosRentalBillings: () => require('../models/PosRentalBilling'),
   BillAvenuePayments: () => require('../models/BillAvenuePayment'),
 };
 
@@ -412,7 +413,7 @@ async function createFranchiseEarningEntry({
  *
  * @param {Object} params
  * @param {number}  params.userId       - ID of the user being debited
- * @param {number}  params.rentalId     - FK to Rentals table
+ * @param {number}  params.billingId    - FK to PosRentalBillings table
  * @param {number}  params.amount       - Rental charge amount
  * @param {string}  [params.description]
  * @param {Object}  [params.metadata]
@@ -420,7 +421,7 @@ async function createFranchiseEarningEntry({
  */
 async function createRentalChargeEntry({
   userId,
-  rentalId,
+  billingId,
   amount,
   description = null,
   metadata = null,
@@ -428,10 +429,41 @@ async function createRentalChargeEntry({
   return await createLedgerEntry({
     userId,
     transactionType: 'rental_charge',
-    referenceId: rentalId,
-    referenceTable: 'Rentals',
+    referenceId: billingId,
+    referenceTable: 'PosRentalBillings',
     description: description || `Rental charge: ₹${amount}`,
     debit: amount,
+    status: 'completed',
+    metadata,
+  });
+}
+
+/**
+ * Create a ledger credit entry for a rental income (franchise receiving
+ * payment from a merchant's rental charge).
+ *
+ * @param {Object} params
+ * @param {number}  params.userId        - ID of the franchise being credited
+ * @param {number}  params.billingId     - FK to PosRentalBillings table
+ * @param {number}  params.amount        - Rental income amount
+ * @param {string}  [params.description]
+ * @param {Object}  [params.metadata]
+ * @returns {Promise<Object>} Created ledger entry
+ */
+async function createRentalCreditEntry({
+  userId,
+  billingId,
+  amount,
+  description = null,
+  metadata = null,
+}) {
+  return await createLedgerEntry({
+    userId,
+    transactionType: 'rental_income',
+    referenceId: billingId,
+    referenceTable: 'PosRentalBillings',
+    description: description || `Rental income: ₹${amount}`,
+    credit: amount,
     status: 'completed',
     metadata,
   });
@@ -609,6 +641,7 @@ module.exports = {
   createCommissionEntry,
   createFranchiseEarningEntry,
   createRentalChargeEntry,
+  createRentalCreditEntry,
   createPayoutEntry,
   getLedgerEntries,
   getLedgerEntryWithLinkedRecord,

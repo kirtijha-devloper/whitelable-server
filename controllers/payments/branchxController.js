@@ -80,7 +80,6 @@ router.post('/payout', asyncHandler(async (req, res) => {
       const slab = await ChargeSlab.findOne({
         where: {
           charge_type_category: 'branchx_payout',
-          is_active: true,
           min_amount: { [Op.lte]: amount },
           max_amount: { [Op.gte]: amount }
         },
@@ -105,7 +104,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
     // Allow zero charge if no slab or service charge is intentionally zero
 
     const total_amount = amount + service_charge;
-    const availableBalance = await ledgerService.getAvailableBalance(user_id);
+    const availableBalance = await ledgerService.getAvailableBalance(merchant_id);
     if (availableBalance < total_amount) {
       return res.status(400).json({ message: "Insufficient wallet balance" });  
     }
@@ -115,7 +114,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
       return res.status(404).json({ message: "Beneficiary not found" });
     }
 
-    if (beneficiary.status === 0) {
+    if (beneficiary.status === 'inactive') {
       return res.status(400).json({ message: "Beneficiary is disabled" });
     }
 
@@ -125,17 +124,17 @@ router.post('/payout', asyncHandler(async (req, res) => {
     const payload = {
       amount,
       mobileNumber: beneficiary.mobile_number,
-      merchantId: merchant_id,
       requestId: requestId,
       accountNumber: beneficiary.account_number,
       ifscCode: beneficiary.ifsc_code,
       beneficiaryName: beneficiary.beneficiary_name,
+      remitterName: user.name || '',
       bankName: beneficiary.bank_name,
       transferMode: 'IMPS',
-      latitude: latitude || null,
-      longitude: longitude || null,
-      emailId: beneficiary.email || null,
-      purpose: purpose || null
+      latitude: latitude || '',
+      longitude: longitude || '',
+      emailId: beneficiary.email || '',
+      purpose: purpose || 'Payout Request'
     };
 
 
@@ -196,10 +195,13 @@ router.post('/payout', asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('Payout error:', error);
+    const isHtml = typeof error === 'string' && error.trim().startsWith('<');
+    const message = isHtml
+      ? 'Payout gateway error. Please try again later.'
+      : (error.message || error.msg || 'Something went wrong');
     res.status(error.status || 500).json({ 
       success: false, 
-      message: error.message || 'Something went wrong',
-      error: error 
+      message
     });
   }
 }));

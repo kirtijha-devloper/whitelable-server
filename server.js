@@ -12,10 +12,12 @@ const fileUpload = require('express-fileupload');
 // Import workers to start processing queues
 require("./workers/walletWorker"); // Existing wallet worker
 require("./workers/razorpayWebhookWorker"); // Razorpay webhook worker
-// start CredXPay pending resolver cron
-require('./cron/resolvePendingCredxpay');
+// start BranchX pending resolver cron (scheduled status-check polling)
+require('./cron/resolvePendingBranchx');
 // start settlement hold releaser cron (next-day settlement)
 require('./cron/releaseSettlementHolds');
+// start POS machine rental charge cron (daily billing after 30-day cycles)
+require('./cron/chargeRentals');
 
 const app = express();
 

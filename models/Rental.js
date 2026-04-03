@@ -8,11 +8,21 @@ const Rental = db.define('Rental', {
     primaryKey: true,
     type: Sequelize.INTEGER
   },
-  merchant_id: {
+  // null  → admin-defined rate
+  // non-null → franchise-defined rate (value = franchise user ID)
+  franchaise_id: {
     type: Sequelize.INTEGER,
+    allowNull: true
+  },
+  // Who this rate is charged to:
+  //   'franchise' – admin charges franchises at this rate
+  //   'merchant'  – admin charges standalone merchants, OR franchise charges their merchants
+  target_user_type: {
+    type: Sequelize.STRING(50),
     allowNull: false
   },
-  franchaise_id: {
+  // who created this rate record
+  created_by: {
     type: Sequelize.INTEGER,
     allowNull: true
   },
@@ -23,17 +33,12 @@ const Rental = db.define('Rental', {
   status: {
     type: Sequelize.STRING,
     allowNull: false,
-    defaultValue: 'pending'
+    defaultValue: 'active'
   },
   type: {
     type: Sequelize.STRING,
     allowNull: false,
     defaultValue: 'pos'
-  },
-  is_default: {
-    type: Sequelize.BOOLEAN,
-    allowNull: false,
-    defaultValue: false
   },
   createdAt: {
     allowNull: false,

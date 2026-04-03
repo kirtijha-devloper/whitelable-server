@@ -102,6 +102,39 @@ const getBillers = asyncHandler(async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// POST /api/bill-avenue/billers/upload
+// Body: multipart/form-data with field `file` (CSV/XLS/XLSX)
+// ═══════════════════════════════════════════════════════════════════════════
+const uploadBillersFromFile = asyncHandler(async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Please upload a file' });
+    }
+
+    const filePath = req.file.path;
+    const result = await billAvenueService.importBillerListFromFile(filePath);
+
+    // Remove uploaded file after processing
+    try {
+      fs.unlinkSync(filePath);
+    } catch (unloadError) {
+      console.error('[billAvenue] failed to delete temp file', unloadError);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Imported ${result.imported} billers, skipped ${result.skipped}`,
+      imported: result.imported,
+      skipped: result.skipped,
+      errors: result.errors,
+    });
+  } catch (error) {
+    console.error('[billAvenue] uploadBillersFromFile error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // POST /api/bill-avenue/fetch-bill
 // Body: { billerId, customerParams: { param1: value, ... }, amount }
 // ═══════════════════════════════════════════════════════════════════════════
@@ -452,6 +485,7 @@ const getTransactionStatus = asyncHandler(async (req, res) => {
 
 module.exports = {
   getBillers,
+  uploadBillersFromFile,
   fetchBill,
   payBill,
   getPayments,
