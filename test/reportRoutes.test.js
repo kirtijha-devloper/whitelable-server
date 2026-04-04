@@ -23,6 +23,7 @@ const WalletTransaction    = require('../models/WalletTransaction');
 const RazorpayNotification = require('../models/RazorpayNotification');
 const Ledger               = require('../models/Ledger');
 const PayoutTransaction    = require('../models/PayoutTransaction');
+const Beneficiary          = require('../models/Beneficiary');
 
 // ── minimal Express app ───────────────────────────────────────────────────────
 const app = express();
@@ -535,15 +536,22 @@ describe('GET /api/report/ledger', () => {
 // 6. GET /report/payout
 // ============================================================================
 describe('GET /api/report/payout', () => {
-  let origFindAndCountAll, origLedgerFindAll;
+  let origFindAndCountAll, origLedgerFindAll, origUserFindAll, origBeneficiaryFindAll;
 
   beforeEach(() => {
-    origFindAndCountAll = PayoutTransaction.findAndCountAll;
-    origLedgerFindAll   = Ledger.findAll;
+    origFindAndCountAll     = PayoutTransaction.findAndCountAll;
+    origLedgerFindAll       = Ledger.findAll;
+    origUserFindAll         = User.findAll;
+    origBeneficiaryFindAll  = Beneficiary.findAll;
+
+    User.findAll = async () => [];
+    Beneficiary.findAll = async () => [];
   });
   afterEach(() => {
     PayoutTransaction.findAndCountAll = origFindAndCountAll;
     Ledger.findAll                    = origLedgerFindAll;
+    User.findAll                      = origUserFindAll;
+    Beneficiary.findAll               = origBeneficiaryFindAll;
   });
 
   const payoutRow = () => ({
@@ -559,6 +567,9 @@ describe('GET /api/report/payout', () => {
       { reference_id: 12, balance_before: '10000.00', balance: '4975.00', debit: '5025.00' }
     ];
 
+    User.findAll = async () => [{ id: 2, name: 'Merchant Name', email: 'merchant@example.com', mobile_number: '9999999999' }];
+    Beneficiary.findAll = async () => [{ id: 9, beneficiary_name: 'Vendor A', account_number: '1234567890', ifsc_code: 'HDFC0000123', bank_name: 'HDFC', mobile_number: '9876543210', email: 'vendor@example.com', status: 'active' }];
+
     const res = await request(app)
       .get('/api/report/payout')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -568,6 +579,8 @@ describe('GET /api/report/payout', () => {
     expect(res.body.data[0].total_deducted).to.equal(5025);
     expect(res.body.data[0].balance_before).to.equal(10000);
     expect(res.body.data[0].balance_after).to.equal(4975);
+    expect(res.body.data[0].merchant).to.deep.equal({ id: 2, name: 'Merchant Name', email: 'merchant@example.com', mobile_number: '9999999999' });
+    expect(res.body.data[0].beneficiary).to.deep.equal({ id: 9, beneficiary_name: 'Vendor A', account_number: '1234567890', ifsc_code: 'HDFC0000123', bank_name: 'HDFC', mobile_number: '9876543210', email: 'vendor@example.com', status: 'active' });
   });
 
   it('rows with no matching ledger entry get null balance fields', async () => {
