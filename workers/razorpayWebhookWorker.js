@@ -466,7 +466,6 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           transactionId: txnId,
           description: desc,
           debit: franchiseChargeAmount,
-          status: "completed",
           metadata: {
             merchant_id: posOperator.id,
             transaction_amount: transactionAmount,
@@ -485,7 +484,6 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           transactionId: txnId,
           description: desc2,
           credit: chargeAmount,
-          status: "completed",
           metadata: {
             merchant_id: posOperator.id,
             transaction_amount: transactionAmount,
