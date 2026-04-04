@@ -39,6 +39,16 @@ function logBranchxCallback(data) {
   }
 }
 
+function logBranchxEvent(message) {
+  try {
+    ensureLogDir();
+    const line = `${new Date().toISOString()} - [EVENT] ${message}\n`;
+    fs.appendFileSync(callbackLogFile, line, 'utf8');
+  } catch (err) {
+    console.error('Failed to write BranchX event log:', err);
+  }
+}
+
 function normalizeBranchxStatus(statusRaw) {
   if (!statusRaw) return 'PENDING';
   const s = statusRaw.toString().trim().toUpperCase();
@@ -70,8 +80,11 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
   }
 
   if (!payoutTransaction) {
+    logBranchxEvent(`NOT PROCESSED — no payout transaction found for refs: ${referenceCandidates.join(', ')}`);
     return res.status(404).json({ success: false, message: 'Payout transaction not found for callback payload', callbackPayload: payload });
   }
+
+  logBranchxEvent(`Found payout transaction id=${payoutTransaction.id} ref=${payoutTransaction.reference_id} currentStatus=${payoutTransaction.status} incomingStatus=${status}`);
 
   const trx = await db.transaction();
   try {
@@ -83,6 +96,12 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
     const previousStatus = (locked.status || '').toString().toUpperCase();
     const newStatus = status;
+
+    if (previousStatus === newStatus) {
+      logBranchxEvent(`SKIPPED — payout id=${locked.id} already in status=${previousStatus}`);
+    } else {
+      logBranchxEvent(`PROCESSING — payout id=${locked.id} status change: ${previousStatus} → ${newStatus}`);
+    }
 
     let parsedData = {};
     try {
@@ -113,6 +132,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
       const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
 
       if (refundAmount > 0) {
+        logBranchxEvent(`REFUND issued — payout id=${locked.id} amount=₹${refundAmount} to merchant_id=${locked.merchant_id}`);
         await ledgerService.createLedgerEntry({
           userId: locked.merchant_id,
           transactionType: 'payout_refund',
@@ -157,6 +177,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
     await trx.commit();
 
+    logBranchxEvent(`PROCESSED successfully — payout id=${locked.id} finalStatus=${newStatus}`);
     return res.status(200).json({
       success: true,
       message: 'BranchX callback processed successfully',
@@ -165,7 +186,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     await trx.rollback();
-    console.error('[BranchX callback] error:', error);
+    logBranchxEvent(`FAILED — payout id=${payoutTransaction.id} error: ${error.message || error}`);
     return res.status(500).json({ success: false, message: error.message || 'Callback processing failed', error });
   }
 });
