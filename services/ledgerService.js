@@ -588,15 +588,16 @@ async function rebuildBalanceChain(userId) {
     { replacements: { userId }, type: Ledger.sequelize.QueryTypes.UPDATE }
   );
 
-  // True balance = only completed entries count toward the spendable wallet
-  const rows = await Ledger.sequelize.query(
-    `SELECT COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0) AS true_balance
-     FROM "Ledgers"
-     WHERE user_id = :userId AND status = 'completed'`,
-    { replacements: { userId }, type: Ledger.sequelize.QueryTypes.SELECT }
-  );
+  // Sync user.wallet to the last ledger row's running balance (same as
+  // createLedgerEntry does on every write). Pending debits ARE included, which
+  // is intentional: an in-flight payout must reduce the spendable balance to
+  // prevent double-spending, even before it is confirmed via webhook.
+  const lastRow = await Ledger.findOne({
+    where: { user_id: userId },
+    order: [['createdAt', 'DESC'], ['id', 'DESC']]
+  });
 
-  const trueBalance = parseFloat(rows[0].true_balance) || 0;
+  const trueBalance = lastRow ? parseFloat(lastRow.balance) || 0 : 0;
   user.wallet = trueBalance;
   await user.save();
 
@@ -608,7 +609,8 @@ async function rebuildBalanceChain(userId) {
  * syncing user.wallet.  Returns a diff report useful for the reconcile endpoint.
  *
  * Fixes both:
- *   1. user.wallet drift (was: SUM approach only)
+ *   1. user.wallet drift — synced to the last ledger row's running balance
+ *      (includes pending debits, consistent with createLedgerEntry behaviour)
  *   2. balance_before / balance column drift on every Ledger row
  *
  * @param {number} userId
