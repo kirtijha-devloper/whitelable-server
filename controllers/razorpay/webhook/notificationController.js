@@ -471,7 +471,6 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                     transactionId: notification.txn_id,
                     description: `Admin charge for Razorpay txn ${notification.txn_id}`,
                     debit: franchiseChargeAmount,
-                    status: 'completed',
                     metadata: {
                         merchant_id: posOperator.id,
                         transaction_amount: transactionAmount,
@@ -488,7 +487,6 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                     transactionId: notification.txn_id,
                     description: `Merchant charge for Razorpay txn ${notification.txn_id}`,
                     credit: chargeAmount,
-                    status: 'completed',
                     metadata: {
                         merchant_id: posOperator.id,
                         transaction_amount: transactionAmount,
