@@ -627,6 +627,18 @@ async function recalculateBalance(userId) {
 
   const previousWallet = parseFloat(user.wallet) || 0;
 
+  // If this is a today_settlement user, any unreleased SettlementHold records
+  // are stale (e.g. the user was previously next_day_settlement). Release them
+  // so they no longer appear as "On Settlement Hold" in the dashboard.
+  let releasedHolds = 0;
+  if (user.settlement_type !== 'next_day_settlement') {
+    const [count] = await SettlementHold.update(
+      { released: true },
+      { where: { user_id: userId, released: false } }
+    );
+    releasedHolds = count;
+  }
+
   // rebuildBalanceChain fixes ALL row-level balance fields AND syncs user.wallet
   const trueBalance = await rebuildBalanceChain(userId);
 
@@ -638,6 +650,7 @@ async function recalculateBalance(userId) {
     previous_wallet: previousWallet,
     drifted,
     corrected:       drifted,
+    released_stale_holds: releasedHolds,
   };
 }
 

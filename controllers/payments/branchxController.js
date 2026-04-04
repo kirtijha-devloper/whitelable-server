@@ -718,13 +718,9 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
 
           // Handle wallet refund if status changes from SUCCESS/PENDING to FAILED
           if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && newStatus === 'FAILED') {
-            const user = await User.findByPk(payoutTransaction.merchant_id);
-            if (user) {
-              // Refund the amount back to wallet
-              user.wallet = parseFloat(user.wallet) + parseFloat(payoutTransaction.amount);
-              await user.save();
-            }
+            const refundAmount = parseFloat(payoutTransaction.amount || 0);
 
+            // Mark the pending ledger debit as failed first
             await Ledger.update(
               { status: 'failed' },
               {
@@ -735,6 +731,29 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
                 }
               }
             );
+
+            // Create a ledger credit entry for the refund so user.wallet stays in
+            // sync with the ledger (direct wallet mutation causes drift).
+            if (refundAmount > 0) {
+              try {
+                await ledgerService.createLedgerEntry({
+                  userId: payoutTransaction.merchant_id,
+                  transactionType: 'payout_refund',
+                  referenceId: payoutTransaction.id,
+                  referenceTable: 'PayoutTransactions',
+                  description: `Payout failed (status check): refund ₹${refundAmount} for ${payoutTransaction.reference_id}`,
+                  credit: refundAmount,
+                  status: 'completed',
+                  metadata: {
+                    payout_reference: payoutTransaction.reference_id,
+                    previous_status: previousStatus,
+                    new_status: newStatus
+                  }
+                });
+              } catch (ledgerErr) {
+                console.error('[branchx statusCheck] Failed to create refund ledger entry:', ledgerErr.message);
+              }
+            }
           }
         } else {
           // Update data field even if status hasn't changed
