@@ -537,7 +537,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         customerName ? `Customer: ${customerName}` : ''
       ].filter(Boolean).join(' | ');
 
-      await ledgerService.createRazorpayChargeEntry({
+      const ledgerChargeEntry = await ledgerService.createRazorpayChargeEntry({
         userId: posOperator.id,
         razorpayTransactionId: txnId,
         transactionAmount: transactionAmount,
@@ -562,7 +562,11 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         }
       });
 
-      logger.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for user: ${posOperator.id}, txn: ${txnId}`);
+      if (!ledgerChargeEntry) {
+        logger.warn(`[Razorpay Webhook Worker] ⚠️ Ledger entries skipped for user: ${posOperator.id}, txn: ${txnId}. Check start_ledger on the user record.`);
+      } else {
+        logger.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for user: ${posOperator.id}, txn: ${txnId}`);
+      }
     } catch (ledgerError) {
       logger.error(`[Razorpay Webhook Worker] ⚠️ Error creating ledger entry for txn: ${txnId}`, ledgerError);
       // Don't throw - ledger is for tracking, transaction is already processed
