@@ -1228,7 +1228,10 @@ Role-scoped dashboard statistics (today's data).
 {
   "data": {
     "assigned_merchants": { "count": 10 },
-    "pos_machines": { "count": 8 },
+    "pos_machines": {
+      "assigned_to_franchise": 5,
+      "assigned_to_merchants": 8
+    },
     "pos_transactions": { "total": 50000, "success": 48000, "fail": 2000 },
     "today_total_payout": 5000
   }
@@ -1239,6 +1242,7 @@ Role-scoped dashboard statistics (today's data).
 ```json
 {
   "data": {
+    "pos_machines": { "count": 3 },
     "pos_transactions": { "total": 10000, "success": 9500, "fail": 500 },
     "today_total_payout": 1000
   }
