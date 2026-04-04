@@ -49,6 +49,11 @@ async function getLatestBalance(userId) {
 async function getAvailableBalance(userId) {
   const totalBalance = await getLatestBalance(userId);
 
+  const user = await User.findByPk(userId, { attributes: ['id', 'settlement_type'] });
+  if (!user || user.settlement_type !== 'next_day_settlement') {
+    return totalBalance;
+  }
+
   const totalHeld = await SettlementHold.sum('amount', {
     where: { user_id: userId, released: false }
   }) || 0;
