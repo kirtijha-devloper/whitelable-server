@@ -79,7 +79,6 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
       start_date,
       end_date,
       transaction_type,
-      status,
       page = 1,
       limit = 50
     } = req.query;
@@ -142,7 +141,6 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
       startDate: start_date,
       endDate: end_date,
       transactionType: transaction_type,
-      status: status,
       page: parseInt(page),
       limit: parseInt(limit)
     });

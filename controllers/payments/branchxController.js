@@ -8,7 +8,6 @@ const User = require('../../models/User');
 const bcrypt = require('bcrypt');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const payoutReferenceService = require('../../services/payoutReferenceService');
-const Ledger = require('../../models/Ledger');
 const ledgerService = require('../../services/ledgerService');
 const ServiceFee = require('../../models/ServiceFee');
 const PayoutCharge = require('../../models/PayoutCharge');
@@ -177,34 +176,36 @@ router.post('/payout', asyncHandler(async (req, res) => {
       service_charge: service_charge
     });
 
-    // Update wallet balance if status is SUCCESS or PENDING
-    if (payoutStatus === 'SUCCESS' || payoutStatus === 'PENDING') {
-      // Write ledger entry for payout debit
-      // NOTE: createPayoutEntry() calls createLedgerEntry() which syncs user.wallet as its last step.
-      await ledgerService.createPayoutEntry({
-        userId: merchant_id,
-        payoutTransactionId: payoutTx.id,
-        amount: total_amount,
-        description: `Payout to ${beneficiary.beneficiary_name} (${purpose || 'N/A'}) — ref: ${requestId}`,
-        status: payoutStatus === 'SUCCESS' ? 'completed' : 'pending',
-        metadata: {
-          beneficiary_name: beneficiary.beneficiary_name,
-          account_number: beneficiary.account_number,
-          ifsc_code: beneficiary.ifsc_code,
-          bank_name: beneficiary.bank_name,
-          payout_amount: amount,
-          service_charge: service_charge,
-          reference_id: requestId,
-          branchx_status: payoutStatus
-        }
-      });
+    // Always write the payout debit ledger entry immediately.
+    // If the API returned FAILED right away, we also create a credit refund.
+    await ledgerService.createPayoutEntry({
+      userId: merchant_id,
+      payoutTransactionId: payoutTx.id,
+      amount: total_amount,
+      description: `Payout to ${beneficiary.beneficiary_name} (${purpose || 'N/A'}) — ref: ${requestId}`,
+      metadata: {
+        beneficiary_name: beneficiary.beneficiary_name,
+        account_number: beneficiary.account_number,
+        ifsc_code: beneficiary.ifsc_code,
+        bank_name: beneficiary.bank_name,
+        payout_amount: amount,
+        service_charge: service_charge,
+        reference_id: requestId,
+        branchx_status: payoutStatus
+      }
+    });
 
-    }
-
-    console.log(`branchx data: ${JSON.stringify(data)}`);
-
-    // Check BranchX response status
     if (payoutStatus === 'FAILED') {
+      // API returned FAILED immediately — refund the debit right away
+      await ledgerService.createLedgerEntry({
+        userId: merchant_id,
+        transactionType: 'payout_refund',
+        referenceId: payoutTx.id,
+        referenceTable: 'PayoutTransactions',
+        description: `Payout failed immediately: refund ₹${total_amount} for ref: ${requestId}`,
+        credit: total_amount,
+        metadata: { branchx_status: payoutStatus, reference_id: requestId }
+      });
       return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
         success: false,
         message: data.message || 'Payout request failed',
@@ -687,9 +688,9 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
     // Call BranchX status check API
     const data = await branchxService.statusCheck(referenceId);
 
-    // Extract the actual transaction status from nested response
+    // Extract and normalize the actual transaction status from nested response
     // Response structure: { data: { data: { status: "FAILED" }, status: "SUCCESS" } }
-    const transactionStatus = data?.data?.status || data?.status || 'PENDING';
+    const transactionStatus = normalizeBranchxStatus(data?.data?.status || data?.status || 'PENDING');
 
     // Find PayoutTransaction to update
     let payoutTransaction = null;
@@ -716,43 +717,27 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
             data: JSON.stringify(data)
           });
 
-          // Handle wallet refund if status changes from SUCCESS/PENDING to FAILED
+          // Handle wallet refund if payout transitions to FAILED
           if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && newStatus === 'FAILED') {
-            const refundAmount = parseFloat(payoutTransaction.amount || 0);
+            // Refund = payout amount + service charge (mirrors what was debited)
+            const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
 
-            // Mark the pending ledger debit as failed first
-            await Ledger.update(
-              { status: 'failed' },
-              {
-                where: {
-                  reference_id: payoutTransaction.id,
-                  reference_table: 'PayoutTransactions',
-                  status: 'pending'
-                }
-              }
-            );
-
-            // Create a ledger credit entry for the refund so user.wallet stays in
-            // sync with the ledger (direct wallet mutation causes drift).
             if (refundAmount > 0) {
-              try {
-                await ledgerService.createLedgerEntry({
-                  userId: payoutTransaction.merchant_id,
-                  transactionType: 'payout_refund',
-                  referenceId: payoutTransaction.id,
-                  referenceTable: 'PayoutTransactions',
-                  description: `Payout failed (status check): refund ₹${refundAmount} for ${payoutTransaction.reference_id}`,
-                  credit: refundAmount,
-                  status: 'completed',
-                  metadata: {
-                    payout_reference: payoutTransaction.reference_id,
-                    previous_status: previousStatus,
-                    new_status: newStatus
-                  }
-                });
-              } catch (ledgerErr) {
-                console.error('[branchx statusCheck] Failed to create refund ledger entry:', ledgerErr.message);
-              }
+              await ledgerService.createLedgerEntry({
+                userId: payoutTransaction.merchant_id,
+                transactionType: 'payout_refund',
+                referenceId: payoutTransaction.id,
+                referenceTable: 'PayoutTransactions',
+                description: `Payout failed (status check): refund ₹${refundAmount} for ${payoutTransaction.reference_id}`,
+                credit: refundAmount,
+                metadata: {
+                  payout_reference: payoutTransaction.reference_id,
+                  previous_status: previousStatus,
+                  new_status: newStatus,
+                  payout_amount: payoutTransaction.amount,
+                  service_charge: payoutTransaction.service_charge
+                }
+              });
             }
           }
         } else {

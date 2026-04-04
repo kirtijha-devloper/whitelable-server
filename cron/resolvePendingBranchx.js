@@ -7,7 +7,6 @@ const branchxService = require('../services/payments/branchxService');
 const db = require('../config/database');
 const ledgerService = require('../services/ledgerService');
 const User = require('../models/User');
-const Ledger = require('../models/Ledger');
 
 const LOG_FILE = path.resolve(__dirname, '../logs/branchx-payout-cron.log');
 if (!fs.existsSync(path.dirname(LOG_FILE))) {
@@ -18,6 +17,15 @@ function appendLog(message) {
   const ts = new Date().toISOString();
   const line = `[${ts}] ${message}\n`;
   fs.appendFile(LOG_FILE, line, (err) => { if (err) console.error('Failed to write cron log', err); });
+}
+
+function normalizeBranchxStatus(statusRaw) {
+  if (!statusRaw) return 'PENDING';
+  const s = statusRaw.toString().trim().toUpperCase();
+  if (['SUCCESS', 'COMPLETED'].includes(s)) return 'SUCCESS';
+  if (['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'].includes(s)) return 'FAILED';
+  if (['PENDING', 'PROCESSING', 'IN_PROGRESS'].includes(s)) return 'PENDING';
+  return 'PENDING';
 }
 
 async function resolvePending() {
@@ -42,7 +50,8 @@ async function resolvePending() {
 
     try {
       const response = await branchxService.statusCheck(tx.reference_id);
-      const transactionStatus = response?.data?.status || response?.status || 'PENDING';
+      const rawStatus = response?.data?.status || response?.status || 'PENDING';
+      const transactionStatus = normalizeBranchxStatus(rawStatus);
 
       if (transactionStatus === tx.status) {
         // update data payload for audit (in case BranchX returned new details)
@@ -59,10 +68,9 @@ async function resolvePending() {
         }
 
         // If status already transitioned by another process, skip
-        if (['SUCCESS', 'FAILED', 'REVERSED'].includes(locked.status) && locked.status !== transactionStatus) {
-          locked.status = transactionStatus;
-        } else {
-          locked.status = transactionStatus;
+        if (['SUCCESS', 'FAILED', 'REVERSED'].includes(locked.status)) {
+          await tr.commit();
+          continue;
         }
 
         locked.data = JSON.stringify(response);
@@ -78,7 +86,6 @@ async function resolvePending() {
               referenceTable: 'PayoutTransactions',
               description: `BranchX payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
               credit: refundAmount,
-              status: 'completed',
               metadata: {
                 payout_reference: locked.reference_id,
                 branchx_status: transactionStatus,
@@ -87,18 +94,6 @@ async function resolvePending() {
               }
             }, { transaction: tr });
           }
-
-          await Ledger.update(
-            { status: 'failed' },
-            {
-              where: {
-                reference_id: locked.id,
-                reference_table: 'PayoutTransactions',
-                status: 'pending'
-              },
-              transaction: tr
-            }
-          );
         }
 
         await locked.save({ transaction: tr });

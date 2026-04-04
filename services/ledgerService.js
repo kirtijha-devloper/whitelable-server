@@ -110,7 +110,6 @@ async function createSettlementHold(userId, amount, ledgerId = null) {
  * @param {string}  [params.description]     – Human-readable label
  * @param {number}  [params.debit]           – Amount going OUT  (default 0)
  * @param {number}  [params.credit]          – Amount coming IN  (default 0)
- * @param {string}  [params.status]          – completed | pending | failed | cancelled
  * @param {Object}  [params.metadata]        – Extra JSON context
  * @returns {Promise<Object>} Created ledger entry
  */
@@ -123,7 +122,6 @@ async function createLedgerEntry({
   description = null,
   debit = 0,
   credit = 0,
-  status = 'completed',
   metadata = null
 }, opts = {}) {
   // Check if ledger tracking is enabled for this user
@@ -165,7 +163,6 @@ async function createLedgerEntry({
     debit: parseFloat(debit) || 0,
     credit: parseFloat(credit) || 0,
     balance: balanceAfter,
-    status: status,
     metadata: metadataString
   }, opts);
 
@@ -203,7 +200,6 @@ async function createRazorpayChargeEntry({
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description: description || `Razorpay transaction: ${razorpayTransactionId} - Amount: ₹${transactionAmount}`,
     credit: transactionAmount,
-    status: 'completed',
     metadata: {
       transaction_amount: transactionAmount,
       ...metadata
@@ -219,7 +215,6 @@ async function createRazorpayChargeEntry({
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description: description || `Transaction charge deducted: ${razorpayTransactionId} - Charge: ₹${chargeAmount}`,
     debit: chargeAmount,
-    status: 'completed',
     metadata: {
       transaction_amount: transactionAmount,
       charge_amount: chargeAmount,
@@ -256,7 +251,6 @@ async function createWalletTransactionEntry({
   transactionType,
   amount,
   description = null,
-  status = 'completed',
   metadata = null
 }) {
   // Determine if it's debit or credit based on transaction type
@@ -272,18 +266,13 @@ async function createWalletTransactionEntry({
       ledgerTransactionType = 'wallet_credit';
       break;
     case 'request':
-      // Request doesn't change balance until approved
-      if (status === 'completed') {
-        credit = amount;
-        ledgerTransactionType = 'wallet_credit';
-      }
-      break;
+      // Request is a pending ask — no money moves until approved (transfer/unhold)
+      return null;
     case 'hold':
       debit = amount;
       ledgerTransactionType = 'wallet_debit';
       break;
     default:
-      // Default to credit for unknown types
       credit = amount;
   }
 
@@ -296,7 +285,6 @@ async function createWalletTransactionEntry({
     description: description || `Wallet transaction: ${transactionType}`,
     debit,
     credit,
-    status,
     metadata
   });
 }
@@ -311,7 +299,6 @@ async function getLedgerEntries({
   startDate = null,
   endDate = null,
   transactionType = null,
-  status = null,
   page = 1,
   limit = 50
 }) {
@@ -332,10 +319,6 @@ async function getLedgerEntries({
 
   if (transactionType) {
     where.transaction_type = transactionType;
-  }
-
-  if (status) {
-    where.status = status;
   }
 
   const { count, rows: entries } = await Ledger.findAndCountAll({
@@ -389,7 +372,6 @@ async function createCommissionEntry({
       description ||
       `Commission earned on Razorpay txn: ${razorpayTransactionId} — ₹${commissionAmount}`,
     credit: commissionAmount,
-    status: 'completed',
     metadata,
   });
 }
@@ -408,7 +390,6 @@ async function createFranchiseEarningEntry({
     transactionId: razorpayTransactionId,
     description: description || `Franchise earning on txn: ${razorpayTransactionId} — ₹${amount}`,
     credit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -438,7 +419,6 @@ async function createRentalChargeEntry({
     referenceTable: 'PosRentalBillings',
     description: description || `Rental charge: ₹${amount}`,
     debit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -469,7 +449,6 @@ async function createRentalCreditEntry({
     referenceTable: 'PosRentalBillings',
     description: description || `Rental income: ₹${amount}`,
     credit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -482,7 +461,6 @@ async function createRentalCreditEntry({
  * @param {number}  params.payoutTransactionId - FK to PayoutTransactions table
  * @param {number}  params.amount             - Payout amount (including service charge)
  * @param {string}  [params.description]
- * @param {string}  [params.status]
  * @param {Object}  [params.metadata]
  * @returns {Promise<Object>} Created ledger entry
  */
@@ -491,7 +469,6 @@ async function createPayoutEntry({
   payoutTransactionId,
   amount,
   description = null,
-  status = 'completed',
   metadata = null,
 }, opts = {}) {
   return await createLedgerEntry({
@@ -501,7 +478,6 @@ async function createPayoutEntry({
     referenceTable: 'PayoutTransactions',
     description: description || `Payout: ₹${amount}`,
     debit: amount,
-    status,
     metadata,
   }, opts);
 }

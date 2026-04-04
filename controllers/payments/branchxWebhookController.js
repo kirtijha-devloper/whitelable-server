@@ -6,7 +6,6 @@ const db = require('../../config/database');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const User = require('../../models/User');
-const Ledger = require('../../models/Ledger');
 const ledgerService = require('../../services/ledgerService');
 
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
@@ -114,12 +113,6 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
     const payloadStr = JSON.stringify(payload);
 
-    const ledgerStatus = newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending';
-    await Ledger.update(
-      { status: ledgerStatus },
-      { where: { reference_id: locked.id, reference_table: 'PayoutTransactions', status: 'pending' }, transaction: trx }
-    );
-
     await locked.update({
       status: newStatus,
       callback_status: newStatus,
@@ -140,7 +133,6 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
           referenceTable: 'PayoutTransactions',
           description: `BranchX payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
           credit: refundAmount,
-          status: 'completed',
           metadata: {
             payout_reference: locked.reference_id,
             branchx_status: newStatus,
@@ -149,18 +141,6 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
           }
         }, { transaction: trx });
       }
-
-      await Ledger.update(
-        { status: 'failed' },
-        {
-          where: {
-            reference_id: locked.id,
-            reference_table: 'PayoutTransactions',
-            status: 'pending'
-          },
-          transaction: trx
-        }
-      );
     }
 
     if (previousStatus !== newStatus) {

@@ -281,7 +281,6 @@ async function createPayout(req, res) {
       payoutTransactionId: payoutTransaction.id,
       amount: total_amount,
       description: `Vimo payout ${merchantRefId || payoutTransaction.id}`,
-      status: 'pending',
       metadata: {
         service: 'vimo',
         beneficiaryBank: resolvedBeneficiaryBank,
@@ -566,13 +565,7 @@ async function handleCallback(req, res) {
           }
         }, { transaction: tr });
 
-        // Update matching pending ledger entry.
-        const ledgerStatus = newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending';
-        const [ledgerRowsUpdated] = await Ledger.update(
-          { status: ledgerStatus },
-          { where: { reference_id: txn.id, reference_table: 'PayoutTransactions', status: 'pending' }, transaction: tr }
-        );
-        vimoLog('INFO', `Ledger entries updated`, { rowsUpdated: ledgerRowsUpdated, newLedgerStatus: ledgerStatus });
+        await txn.save({ transaction: tr });
 
         // On failure: refund only if no refund has been issued yet.
         if (newStatus === 'FAILED') {
@@ -603,7 +596,6 @@ async function handleCallback(req, res) {
               referenceTable: 'PayoutTransactions',
               description: `Refund for failed Vimo payout ${merchantRefId}`,
               credit: refundAmount,
-              status: 'completed',
             }, { transaction: tr });
             vimoLog('INFO', `Refund credit created for merchant ${txn.merchant_id}, amount ₹${refundAmount}`);
             // ── DB audit: refund issued ────────────────────────────────────
