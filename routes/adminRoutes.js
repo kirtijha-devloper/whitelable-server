@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { getAdminDashboard, getUnassignedMerchants } = require("../controllers/adminController");
+const { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId } = require("../controllers/adminController");
 const { adminDirectCredit, adminDirectDebit, reconcileWallet, reconcileAllWallets } = require("../controllers/adminWalletController");
 const validateToken = require("../middleware/validateTokenHandler");
 
@@ -19,6 +19,10 @@ router.post("/wallet/credit", validateToken, adminDirectCredit);
 // POST /api/admin/wallet/debit
 //   Body: { user_id, amount, reason?, idempotency_key }
 router.post("/wallet/debit", validateToken, adminDirectDebit);
+
+// PUT /api/admin/user/:id/ipay-outlet
+//   Admin-only: set or update the InstantPay outlet ID for any user.
+router.put("/user/:id/ipay-outlet", validateToken, setUserIpayOutletId);
 
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.
