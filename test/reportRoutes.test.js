@@ -439,7 +439,7 @@ describe('GET /api/report/ledger', () => {
   const ledgerEntry = () => ({
     id: 301, createdAt: new Date(), user_id: 2,
     user: { id: 2, name: 'Merch', mobile_number: '9', abheepay_id: 'AP1', organization_name: 'Org' },
-    transaction_type: 'razorpay_charge',
+    transaction_type: 'pos_charge',
     description: 'charge deducted',
     debit: '30.00', credit: '0',
     balance_before: '1000.00', balance: '970.00',
@@ -459,7 +459,7 @@ describe('GET /api/report/ledger', () => {
     expect(res.body.success).to.be.true;
     expect(res.body.count).to.equal(1);
     expect(res.body.data[0]).to.include({
-      transaction_type: 'razorpay_charge',
+      transaction_type: 'pos_charge',
       debit: 30,
       credit: 0,
       amount: 30,
@@ -766,7 +766,7 @@ describe('GET /api/report/all-transactions', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.supported_types).to.include.members([
-      'razorpay_credit', 'razorpay_charge', 'razorpay_commission',
+      'pos_credit', 'pos_charge', 'razorpay_commission',
       'payout', 'bbps_payment', 'direct_transfer',
       'wallet_credit', 'wallet_debit'
     ]);

@@ -590,7 +590,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           userId: posOperator.franchaise_id,
           razorpayTransactionId: txnId,
           amount: franchiseEarning,
-          transactionType: "razorpay_franchise_earning",
+          transactionType: "pos_franchise_earning",
           description: `Franchise earning ₹${franchiseEarning} | Merchant: ${posOperator.id}`,
           metadata: {
             merchant_id: posOperator.id,

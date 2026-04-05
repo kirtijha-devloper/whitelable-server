@@ -1156,7 +1156,7 @@ Passbook-style ledger with running balance (debit / credit / balance per entry).
 | `user_id` | number | Yes (Admin) | Target user ID (admin required; merchant uses own) |
 | `start_date` | string | No | `YYYY-MM-DD` |
 | `end_date` | string | No | `YYYY-MM-DD` |
-| `transaction_type` | string | No | e.g. `razorpay_charge`, `wallet_transfer_credit`, etc. |
+| `transaction_type` | string | No | e.g. `pos_charge`, `wallet_transfer_credit`, etc. |
 | `status` | string | No | `completed` \| `pending` |
 | `page` | number | No | Default: 1 |
 | `limit` | number | No | Default: 50 |
@@ -1169,7 +1169,7 @@ Passbook-style ledger with running balance (debit / credit / balance per entry).
     "entries": [
       {
         "id": 1,
-        "transaction_type": "razorpay_charge",
+        "transaction_type": "pos_charge",
         "description": "...",
         "debit": "20.00",
         "credit": "0.00",

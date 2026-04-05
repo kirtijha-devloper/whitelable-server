@@ -194,7 +194,7 @@ async function createRazorpayChargeEntry({
   // First, credit the full transaction amount
   const creditEntry = await createLedgerEntry({
     userId,
-    transactionType: 'razorpay_credit',
+    transactionType: 'pos_credit',
     transactionId: razorpayTransactionId,
     referenceId: merchantTransactionChargeId,
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
@@ -209,7 +209,7 @@ async function createRazorpayChargeEntry({
   // Then, debit the charge amount (deduction)
   const chargeEntry = await createLedgerEntry({
     userId,
-    transactionType: 'razorpay_charge',
+    transactionType: 'pos_charge',
     transactionId: razorpayTransactionId,
     referenceId: merchantTransactionChargeId,
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
@@ -386,7 +386,7 @@ async function createFranchiseEarningEntry({
 }) {
   return await createLedgerEntry({
     userId,
-    transactionType: 'razorpay_franchise_earning',
+    transactionType: 'pos_franchise_earning',
     transactionId: razorpayTransactionId,
     description: description || `Franchise earning on txn: ${razorpayTransactionId} — ₹${amount}`,
     credit: amount,

@@ -280,7 +280,7 @@ Full Ledger passbook — every credited and debited entry with
         "abheepay_id": "ABPAY001",
         "organization_name": "Merchant Org"
       },
-      "transaction_type": "razorpay_charge",
+      "transaction_type": "pos_charge",
       "description": "Transaction charge deducted: TXN_abc123 - Charge: ₹30.00",
       "debit": 30.00,            // 0 if credit entry
       "credit": 0,               // 0 if debit entry
@@ -305,8 +305,8 @@ Full Ledger passbook — every credited and debited entry with
 
 | Value | Direction | Meaning |
 |-------|-----------|---------|
-| `razorpay_credit` | credit | Full Razorpay payment amount received |
-| `razorpay_charge` | debit | Platform charge deducted from Razorpay amount |
+| `pos_credit` | credit | Full Razorpay payment amount received |
+| `pos_charge` | debit | Platform charge deducted from Razorpay amount |
 | `razorpay_commission` | credit | Commission earned (merchant / franchise) |
 | `payout` | debit | BranchX payout (amount + service charge) |
 | `direct_transfer` | debit | SDDS IMPS transfer |
@@ -477,7 +477,7 @@ Same role-scoping as Ledger.
     "to":   "2026-02-27T23:59:59.999Z"
   },
   "supported_types": [
-    "razorpay_credit", "razorpay_charge", "razorpay_commission",
+    "pos_credit", "pos_charge", "razorpay_commission",
     "payout", "bbps_payment", "direct_transfer",
     "wallet_credit", "wallet_debit"
   ],

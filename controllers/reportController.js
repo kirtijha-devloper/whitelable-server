@@ -403,13 +403,13 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       subQuery: false
     });
 
-    // Bulk-fetch Ledger entries for balance figures (razorpay_charge = final debit row)
+    // Bulk-fetch Ledger entries for balance figures (pos_charge = final debit row)
     const txnIds = rows.map(n => n.txn_id).filter(Boolean);
     const razorpayLedgerRows = txnIds.length
       ? await Ledger.findAll({
           where: {
             transaction_id: { [Op.in]: txnIds },
-            transaction_type: 'razorpay_charge'
+            transaction_type: 'pos_charge'
           },
           attributes: ['transaction_id', 'balance_before', 'balance', 'debit']
         })
@@ -822,7 +822,7 @@ const getAllTransactionsReport = asyncHandler(async (req, res) => {
     }
 
     const MONEY_TYPES = [
-      'razorpay_credit', 'razorpay_charge', 'razorpay_commission',
+      'pos_credit', 'pos_charge', 'razorpay_commission',
       'payout', 'bbps_payment', 'direct_transfer',
       'wallet_credit', 'wallet_debit'
     ];

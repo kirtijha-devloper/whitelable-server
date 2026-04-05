@@ -549,7 +549,7 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                     userId: posOperator.franchaise_id,
                     razorpayTransactionId: notification.txn_id,
                     amount: franchiseEarning,
-                    transactionType: 'razorpay_franchise_earning',
+                    transactionType: 'pos_franchise_earning',
                     description: `Franchise earning ₹${franchiseEarning} for merchant ${posOperator.id}`,
                     metadata: {
                         merchant_id: posOperator.id,
