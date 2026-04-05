@@ -913,10 +913,6 @@ const getUserReport = asyncHandler(async (req, res) => {
       where.status = status;
     }
 
-    if (source) {
-      where.source = source;
-    }
-
     if (role) {
       where.role = role;
     }

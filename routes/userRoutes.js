@@ -4,6 +4,8 @@ const router = express.Router();
 
 const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, searchUsers, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger} = require("../controllers/userController");
 const validateToken = require("../middleware/validateTokenHandler");
+const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
+const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 
 // @public access
 
@@ -16,7 +18,14 @@ router.post("/send-otp", validateToken, sendOtp);
 router.post("/reset-password", resetPassword);
 
 // 📌 User Registration & Info
-router.post("/register", validateToken, registerUser);
+router.post(
+  "/register",
+  validateToken,
+  ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_CREATE, {
+    message: "You do not have permission to create users.",
+  }),
+  registerUser
+);
 router.post("/forgot-password", forgotPassword);
 
 // test-only public endpoint; no authentication required
@@ -52,7 +61,15 @@ router.post("/:id/promote-to-franchise", validateToken, promoteUserToFranchise);
 router.put("/:id/promote-to-franchise", validateToken, promoteUserToFranchise); // fallback for PUT calls
 
 // 📌 Admin-only: enable ledger tracking for a user (one-way; cannot be disabled via API)
-router.put("/:id/enable-ledger", validateToken, enableLedger);
+router.put(
+  "/:id/enable-ledger",
+  validateToken,
+  ensureEmployeePermission(EMPLOYEE_PERMISSIONS.LEDGER_MANAGE, {
+    message: "You do not have permission to manage ledger settings.",
+    elevateRole: "admin",
+  }),
+  enableLedger
+);
 
 // 📌 TPIN Routes
 router.post("/tpin", validateToken, generateTpin);

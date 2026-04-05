@@ -48,6 +48,15 @@ const PosTransactionCharge = require('../models/PosTransactionCharge');
 const PayoutCharge = require('../models/PayoutCharge');
 const Rental = require('../models/Rental');
 const ledgerService = require('../services/ledgerService');
+const {
+  EMPLOYEE_PERMISSIONS,
+  normalizeRole,
+  normalizePermissions,
+  parsePermissionsInput,
+  isEmployee,
+  hasPermission,
+  canFranchiseAccessTarget,
+} = require('../utils/permissions');
 
 // helper used during registration to allocate a unique username
 function prefixForRole(role) {
@@ -55,6 +64,7 @@ function prefixForRole(role) {
     case 'merchant': return 'APM';
     case 'franchaise': return 'APF';
     case 'admin': return 'APA';
+    case 'employee': return 'APE';
     default: return 'APX';
   }
 }
@@ -79,6 +89,22 @@ async function allocateUsernameForRole(role, transaction) {
   return `${prefix}${String(seq.current_value).padStart(5, '0')}`;
 }
 
+function buildLoginToken(user) {
+  return jwt.sign(
+    {
+      user: {
+        id: user.id,
+        name: user.name,
+        mobile_number: user.mobile_number,
+        role: normalizeRole(user.role),
+        ipay_outlet_id: user.ipay_outlet_id || null,
+      }
+    },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: "5h" }
+  );
+}
+
 const cloudinary = require("cloudinary").v2;
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -101,8 +127,23 @@ const getUsers = asyncHandler(async (req, res) => {
             limit = 10 
         } = req.query;
 
-        const userRole = req.user?.role;
+        const userRole = normalizeRole(req.user?.role);
         const userId = req.user?.id;
+        const requestedRole = role ? normalizeRole(role) : null;
+
+        if (userRole === 'merchant') {
+            return res.status(403).json({
+                success: false,
+                message: 'Merchant users are not allowed to list users.',
+            });
+        }
+
+        if (isEmployee(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_LIST)) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to list users.',
+            });
+        }
 
         const offset = (parseInt(page) - 1) * parseInt(limit);
         const where = {};
@@ -118,8 +159,8 @@ const getUsers = asyncHandler(async (req, res) => {
             where.status = status;
         }
 
-        if (role) {
-            where.role = role;
+        if (requestedRole) {
+            where.role = requestedRole;
         }
 
         // Get total count and paginated results
@@ -192,8 +233,23 @@ const searchUsers = asyncHandler(async (req, res) => {
             limit = 10
         } = req.query;
 
-        const userRole = req.user?.role;
+        const userRole = normalizeRole(req.user?.role);
         const userId = req.user?.id;
+        const requestedRole = role ? normalizeRole(role) : null;
+
+        if (userRole === 'merchant') {
+            return res.status(403).json({
+                success: false,
+                message: 'Merchant users are not allowed to search users.',
+            });
+        }
+
+        if (isEmployee(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SEARCH)) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to search users.',
+            });
+        }
 
         const offset = (parseInt(page) - 1) * parseInt(limit);
         const where = {};
@@ -206,8 +262,8 @@ const searchUsers = asyncHandler(async (req, res) => {
             where.status = status;
         }
 
-        if (role) {
-            where.role = role;
+        if (requestedRole) {
+            where.role = requestedRole;
         }
 
         if (q) {
@@ -294,11 +350,14 @@ const updateUserStatus = asyncHandler(async (req, res) => {
     throw new Error('Either status or is_payout_enabled is required');
   }
 
-  const requesterRole = req.user.role;
+  const requesterRole = normalizeRole(req.user.role);
   const requesterId = req.user.id;
 
-  // Only admin and franchise can update user status/payout permission for plugged users
-  if (requesterRole !== 'admin' && requesterRole !== 'franchaise') {
+  if (
+    requesterRole !== 'admin'
+    && requesterRole !== 'franchaise'
+    && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_STATUS_UPDATE)
+  ) {
     res.status(403);
     throw new Error('Permission denied');
   }
@@ -332,33 +391,43 @@ const updateUserStatus = asyncHandler(async (req, res) => {
 
 const getUserByID = asyncHandler(async (req, res) => {
   try {
-    const role = req.user.role;
+    const role = normalizeRole(req.user.role);
     const searchedId = req.params.id;
     const isPosDetailRequired = req.query.is_pos_detail_required === 'true';
+
+    if (isEmployee(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_READ)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view user details.',
+      });
+    }
 
     const searchedUser = await User.findByPk(searchedId);
 
     if (!searchedUser) {
-      res.status(404);
-      throw new Error("User Not Found.");
+      return res.status(404).json({
+        success: false,
+        message: "User Not Found.",
+      });
     }
 
+    const searchedUserRole = normalizeRole(searchedUser.role);
+
     if (role === "franchaise") {
-      if (searchedUser.role === "franchaise" && searchedUser.id !== req.user.id) {
-        res.status(403);
-        throw new Error("You are not allowed to view this user.");
+      if (!canFranchiseAccessTarget(req.user, searchedUser)) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to view this user.",
+        });
       }
-      // Additional check: franchise can only see their merchants
-      // if (searchedUser.role === "merchant" && searchedUser.franchaise_id !== req.user.id) {
-      //   res.status(403);
-      //   throw new Error("You are not allowed to view this user.");
-      // }
     }
 
     if (role === "merchant") {
       if (req.user.id !== Number(searchedId)) {
-        res.status(403);
-        throw new Error("You are not allowed to view this user.");
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to view this user.",
+        });
       }
     }
 
@@ -366,7 +435,7 @@ const getUserByID = asyncHandler(async (req, res) => {
     response.user = searchedUser;
 
     // Fetch charges associated with merchant (if merchant role)
-    if (searchedUser.role === "merchant" || role === "admin") {
+    if (searchedUserRole === "merchant" || role === "admin") {
       const charges = {};
 
       // 1. POS Transaction Charges
@@ -406,7 +475,7 @@ const getUserByID = asyncHandler(async (req, res) => {
       // 3. Rentals
       // merchant_id and is_default were removed from Rentals in the refactor migration.
       // Fetch applicable rate configs based on the searched user's role and franchise.
-      const rentalTargetType = searchedUser.role === 'franchaise' ? 'franchise' : 'merchant';
+      const rentalTargetType = searchedUserRole === 'franchaise' ? 'franchise' : 'merchant';
       const rentalWhere = { target_user_type: rentalTargetType };
       if (rentalTargetType === 'merchant' && searchedUser.franchaise_id) {
         // Franchise merchant: show franchise-specific rate AND admin fallback rate
@@ -459,6 +528,11 @@ const registerUser = asyncHandler(async (req, res) => {
         // pull off company/shop name as well (optional)
         const { email, password, role, company_or_shop_name } = req.body;
         const mobileNumber = req.body.mobile_number;
+        const requesterRole = normalizeRole(req.user?.role);
+        const requesterIsAdmin = requesterRole === 'admin';
+        const requesterCanCreateUsers = requesterIsAdmin
+            || requesterRole === 'franchaise'
+            || hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_CREATE);
 
         // validate required fields with explicit error messages
         const missingFields = [];
@@ -474,7 +548,7 @@ const registerUser = asyncHandler(async (req, res) => {
             });
         }
 
-        const allowedRoles = ['merchant', 'franchise', 'admin'];
+        const allowedRoles = ['merchant', 'franchise', 'admin', 'employee'];
         if (!allowedRoles.includes(role)) {
             return res.status(400).json({
                 success: false,
@@ -482,9 +556,72 @@ const registerUser = asyncHandler(async (req, res) => {
             });
         }
 
-        // bank passbook must be uploaded by requirement
+        const normalizedRole = normalizeRole(role);
+        const parsedPermissions = parsePermissionsInput(req.body.permissions);
+        if (parsedPermissions.error) {
+            return res.status(400).json({
+                success: false,
+                message: parsedPermissions.error,
+            });
+        }
+
+        if (!requesterCanCreateUsers) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to create users.',
+            });
+        }
+
+        if (requesterRole === 'franchaise') {
+            if (normalizedRole !== 'merchant') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Franchise users can create merchant users only.',
+                });
+            }
+
+            if (parsedPermissions.provided) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only admins can assign employee permissions.',
+                });
+            }
+        }
+
+        if (normalizedRole === 'employee' && !requesterIsAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can create employee users.',
+            });
+        }
+
+        if (normalizedRole === 'admin' && !requesterIsAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can create admin users.',
+            });
+        }
+
+        if (parsedPermissions.provided && !requesterIsAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can assign employee permissions.',
+            });
+        }
+
+        if (parsedPermissions.provided && normalizedRole !== 'employee') {
+            return res.status(400).json({
+                success: false,
+                message: 'permissions can only be set for employee users.',
+            });
+        }
+
+        const employeePermissions = normalizedRole === 'employee'
+            ? parsedPermissions.permissions
+            : [];
+
         const bankPassbookFile = req.files?.bank_passbook;
-        if (!bankPassbookFile) {
+        if (normalizedRole !== 'employee' && !bankPassbookFile) {
             return res.status(400).json({
                 success: false,
                 message: "Bank passbook file is required for registration",
@@ -513,9 +650,6 @@ const registerUser = asyncHandler(async (req, res) => {
         }
 
         const hashPassword = await bcrypt.hash(password, 10);
-
-        // Normalise role: frontend sends "franchise", DB stores "franchaise"
-        const normalizedRole = role === 'franchise' ? 'franchaise' : role;
 
         // abheepay_id is the same as the generated username (token) for this user.
         // This makes the identifier consistent between the user record and login username.
@@ -568,6 +702,7 @@ const registerUser = asyncHandler(async (req, res) => {
                 settlement_type: req.body.settlement_type || 'today_settlement',
                 is_approved: false,
                 status: 'active',
+                permissions: employeePermissions,
                 company_or_shop_name: company_or_shop_name || null,
                 username,
                 ...(req.user && req.user.role === 'franchaise' && normalizedRole === 'merchant' && { franchaise_id: req.user.id }),
@@ -660,6 +795,9 @@ const registerUser = asyncHandler(async (req, res) => {
             mobile_number: user.mobile_number,
             abheepay_id: user.abheepay_id,
             role: user.role,
+            username: user.username,
+            company_or_shop_name: user.company_or_shop_name || null,
+            permissions: normalizePermissions(user.permissions),
         };
 
         res.status(201).json({
@@ -814,7 +952,14 @@ const approveUser = asyncHandler( async (req, res) => {
 
     const currentUser = asyncHandler( async (req, res) => {
         try {
-                const user = await User.findOne({ where: { mobile_number: req.user.mobile_number } })
+                const user = await User.findByPk(req.user.id);
+
+                if (!user) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'User not found.',
+                    });
+                }
 
                 const tpinRecord = await Tpin.findOne({
                   where: { user_id: user.id }
@@ -838,6 +983,7 @@ const approveUser = asyncHandler( async (req, res) => {
                     tpin_set: !!tpinRecord,
                     ipay_outlet_id: user.ipay_outlet_id || null,
                     is_payout_enabled: user.is_payout_enabled,
+                    permissions: normalizePermissions(user.permissions),
 
                     id: user.id
             });
@@ -1067,19 +1213,7 @@ const sendOtp = asyncHandler(async (req, res) => {
             throw new Error("User not found");
         }
 
-        const accessToken = jwt.sign(
-            { 
-                user: { 
-                    id: user.id,  
-                    name: user.name, 
-                    mobile_number: user.mobile_number, 
-                    role: user.role,
-                    ipay_outlet_id: user.ipay_outlet_id || null
-                } 
-            },
-            process.env.ACCESS_TOKEN_SECRET,
-            { expiresIn: "5h" }
-        );
+        const accessToken = buildLoginToken(user);
 
         res.status(200).json({ 
             success: true,
@@ -1160,19 +1294,7 @@ const sendOtp = asyncHandler(async (req, res) => {
             throw new Error("User not found");
         }
 
-        const accessToken = jwt.sign(
-            { 
-                user: { 
-                    id: user.id,  
-                    name: user.name, 
-                    mobile_number: user.mobile_number, 
-                    role: user.role,
-                    ipay_outlet_id: user.ipay_outlet_id || null
-                } 
-            },
-            process.env.ACCESS_TOKEN_SECRET,
-            { expiresIn: "5h" }
-        );
+        const accessToken = buildLoginToken(user);
 
         res.status(200).json({ 
             success: true,
@@ -1363,16 +1485,55 @@ const forgotPassword = asyncHandler(async (req, res) => {
 const updateUser = asyncHandler(async (req, res) => {
   try {
     const requesterId = req.user.id;
-    const requesterRole = req.user.role;
+    const requesterRole = normalizeRole(req.user.role);
     const targetId = parseInt(req.params.id);
 
     if (!targetId || isNaN(targetId)) {
       return res.status(400).json({ success: false, message: 'Valid user id is required.' });
     }
 
+    if (isEmployee(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_UPDATE)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to update users.',
+      });
+    }
+
     const targetUser = await User.findByPk(targetId);
     if (!targetUser) {
       return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const parsedPermissions = parsePermissionsInput(req.body.permissions);
+    if (parsedPermissions.error) {
+      return res.status(400).json({ success: false, message: parsedPermissions.error });
+    }
+
+    const roleFieldProvided = req.body.role !== undefined;
+    const permissionsFieldProvided = parsedPermissions.provided;
+    const currentTargetRole = normalizeRole(targetUser.role);
+    const requestedRole = roleFieldProvided ? normalizeRole(req.body.role) : currentTargetRole;
+    const allowedRoles = ['merchant', 'franchaise', 'admin', 'employee'];
+
+    if (roleFieldProvided && !allowedRoles.includes(requestedRole)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid role: '${req.body.role}'. Allowed values are: merchant, franchise, admin, employee`,
+      });
+    }
+
+    if (requesterRole !== 'admin' && (roleFieldProvided || permissionsFieldProvided)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only admins can update role or permissions.',
+      });
+    }
+
+    if (permissionsFieldProvided && requestedRole !== 'employee') {
+      return res.status(400).json({
+        success: false,
+        message: 'permissions can only be set for employee users.',
+      });
     }
 
     // username is system-generated; ignore any attempt to set it via API
@@ -1388,10 +1549,7 @@ const updateUser = asyncHandler(async (req, res) => {
     }
 
     if (requesterRole === 'franchaise') {
-      const isSelf = requesterId === targetId;
-      const isOwnMerchant =
-        targetUser.role === 'merchant' && targetUser.franchaise_id === requesterId;
-      if (!isSelf && !isOwnMerchant) {
+      if (!canFranchiseAccessTarget(req.user, targetUser)) {
         return res.status(403).json({
           success: false,
           message: 'You can only edit your own profile or your own merchants.',
@@ -1426,8 +1584,16 @@ const updateUser = asyncHandler(async (req, res) => {
     if (requesterRole === 'admin') {
       for (const field of adminOnlyFields) {
         if (req.body[field] !== undefined) {
-          updates[field] = req.body[field];
+          updates[field] = field === 'role' ? requestedRole : req.body[field];
         }
+      }
+
+      if (permissionsFieldProvided) {
+        updates.permissions = parsedPermissions.permissions;
+      } else if (requestedRole === 'employee' && currentTargetRole !== 'employee') {
+        updates.permissions = [];
+      } else if (requestedRole !== 'employee' && normalizePermissions(targetUser.permissions).length > 0) {
+        updates.permissions = [];
       }
     }
 

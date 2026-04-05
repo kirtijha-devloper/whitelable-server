@@ -1,6 +1,6 @@
 # Admin Direct Login API
 
-Allows an admin to open any merchant or franchisee account in a new tab **without knowing their password**. The admin's own session is unaffected.
+Allows an admin to open any merchant, franchisee, or employee account in a new tab **without knowing their password**. The admin's own session is unaffected.
 
 ---
 
@@ -37,6 +37,14 @@ Admin's tab keeps its own admin session — completely separate.
 | `POST` | `/api/admin/direct-login` | Admin UI on "Login as" click | `dl_token` in body |
 
 ---
+
+Target users allowed for direct login:
+- `merchant`
+- `franchaise`
+- `employee`
+
+Target users still blocked:
+- `admin`
 
 ## Step-by-Step Integration
 

@@ -21,6 +21,13 @@ app.use((err, req, res, _next) => {
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const adminToken      = jwt.sign({ user: { id: 1, role: 'admin' } }, SECRET);
 const merchantToken   = jwt.sign({ user: { id: 9, role: 'merchant' } }, SECRET);
+const employeeRateManageToken = jwt.sign({
+  user: {
+    id: 7,
+    role: 'employee',
+    permissions: ['rate.settings.manage'],
+  }
+}, SECRET);
 
 let stubs = {};
 beforeEach(() => {
@@ -88,6 +95,17 @@ describe('POST /api/service-fee', () => {
       .send({ serviceName: serviceNames.ACTIVATION, flat_fee: 10 });
     expect(res.status).to.equal(201);
     expect(res.body.record.id).to.equal(10);
+  });
+
+  it('allows an employee with rate.settings.manage to create a service fee', async () => {
+    ServiceFee.findOne = async () => null;
+    ServiceFee.create = async (data) => ({ id: 11, ...data });
+    const res = await request(app)
+      .post('/api/service-fee')
+      .set('Authorization', `Bearer ${employeeRateManageToken}`)
+      .send({ serviceName: serviceNames.ACTIVATION, flat_fee: 12 });
+    expect(res.status).to.equal(201);
+    expect(res.body.record.id).to.equal(11);
   });
 });
 
