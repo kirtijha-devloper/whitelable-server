@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 
 const validateToken = require("../middleware/validateTokenHandler");
+const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
+const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 const {
   createChargeType,
   getChargeTypes,
@@ -17,17 +19,44 @@ const {
 router.use(validateToken);
 
 // 🔁 Charge Type routes
-router.post("/type", createChargeType);          // Create new charge type
-router.get("/type", getChargeTypes);             // Get all charge types
-router.delete("/type/:id", deleteChargeType);    // Delete a charge type by ID
+router.post("/type", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: "You do not have permission to manage rate settings.",
+  elevateRole: "admin",
+}), createChargeType);          // Create new charge type
+router.get("/type", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: "You do not have permission to view rate settings.",
+  elevateRole: "admin",
+}), getChargeTypes);             // Get all charge types
+router.delete("/type/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: "You do not have permission to manage rate settings.",
+  elevateRole: "admin",
+}), deleteChargeType);    // Delete a charge type by ID
 
 // 📦 Charge Slab routes
-router.post("/slab", createChargeSlab);          // Create new slab
-router.post("/slab/list", getSlabsByCategory);   // Get slabs by category + user_id from body
-router.get("/slab/:id", getSlabsById);     // Get slab by ID
-router.put("/slab/:id", updateChargeSlab);       // Update slab
-router.delete("/slab/:id", deleteChargeSlab);    // Delete slab
-router.get("/slab/user/:id", getChargeSlabByUserId); // Get slabs on basis of user
+router.post("/slab", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: "You do not have permission to manage rate settings.",
+  elevateRole: "admin",
+}), createChargeSlab);          // Create new slab
+router.post("/slab/list", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: "You do not have permission to view rate settings.",
+  elevateRole: "admin",
+}), getSlabsByCategory);   // Get slabs by category + user_id from body
+router.get("/slab/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: "You do not have permission to view rate settings.",
+  elevateRole: "admin",
+}), getSlabsById);     // Get slab by ID
+router.put("/slab/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: "You do not have permission to manage rate settings.",
+  elevateRole: "admin",
+}), updateChargeSlab);       // Update slab
+router.delete("/slab/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: "You do not have permission to manage rate settings.",
+  elevateRole: "admin",
+}), deleteChargeSlab);    // Delete slab
+router.get("/slab/user/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: "You do not have permission to view rate settings.",
+  elevateRole: "admin",
+}), getChargeSlabByUserId); // Get slabs on basis of user
 
 module.exports = router;
 

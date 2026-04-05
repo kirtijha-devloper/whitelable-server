@@ -22,43 +22,93 @@ const {
 } = require("../controllers/posMachineController");
 
 const validateToken = require("../middleware/validateTokenHandler");
+const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
+const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 
 // 🛡️ Protect routes below this line (if needed)
 router.use(validateToken);
 
 // 🔍 Get all + paginated list
-router.get("/", getAllPosMachine);                 // admin use
-router.get("/list", getPosMachineList);            // role-based filtered list with pagination
+router.get("/", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_READ, {
+  message: "You do not have permission to view stock POS data.",
+  elevateRole: "admin",
+}), getAllPosMachine);                 // admin use
+router.get("/list", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_READ, {
+  message: "You do not have permission to view stock POS data.",
+  elevateRole: "admin",
+}), getPosMachineList);            // role-based filtered list with pagination
 
 // 🔎 Get POS machines assigned to a specific user (admin only)
-router.get("/assigned/:userId", getPosMachinesByUserId);
+router.get("/assigned/:userId", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_READ, {
+  message: "You do not have permission to view stock POS data.",
+  elevateRole: "admin",
+}), getPosMachinesByUserId);
 
 // ➕ Create
-router.post("/", createPosMachine);
-router.post("/bulk-create", upload.single('file'), bulkCreatePosMachines); // Updated route with file upload
+router.post("/", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), createPosMachine);
+router.post("/bulk-create", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), upload.single('file'), bulkCreatePosMachines); // Updated route with file upload
 
 // 🔄 Activate/Deactivate
-router.put("/activate/:id", activatePosMachine);
-router.put("/de-activate/:id", deactivatePosMachine);
+router.put("/activate/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), activatePosMachine);
+router.put("/de-activate/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), deactivatePosMachine);
 // 🔌 Unassign
-router.put("/unassign/:id", unassignPosMachine);
+router.put("/unassign/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), unassignPosMachine);
 
 // 📦 Status updates
-router.put("/delivered/:id", markAsDelivered);
-router.put("/returned-initiated/:id", markAsReturnInitiated);
+router.put("/delivered/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), markAsDelivered);
+router.put("/returned-initiated/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), markAsReturnInitiated);
 
 
 
 // 🎯 Assignments
-router.post("/assign", assignPosMachineToUserID);
-router.post("/assign-to-merchant", assignPosMachineToMerchant); // route to assign single machine to merchant
+router.post("/assign", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), assignPosMachineToUserID);
+router.post("/assign-to-merchant", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), assignPosMachineToMerchant); // route to assign single machine to merchant
 
 // ⚠️ TEMPORARY – delete ALL POS machines. Remove before production.
-router.delete("/all", deleteAllPosMachines);
+router.delete("/all", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), deleteAllPosMachines);
 
 // 🧍 Get single, Delete
-router.get("/:id", getPosMachine);
-router.delete("/:id", deletePosMachine);
-router.put("/:id", updatePosMachine);
+router.get("/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_READ, {
+  message: "You do not have permission to view stock POS data.",
+  elevateRole: "admin",
+}), getPosMachine);
+router.delete("/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), deletePosMachine);
+router.put("/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), updatePosMachine);
 
 module.exports = router;

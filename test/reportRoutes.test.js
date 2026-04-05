@@ -37,6 +37,14 @@ const makeToken = (id, role) =>
 const adminToken      = makeToken(1, 'admin');
 const merchantToken   = makeToken(2, 'merchant');
 const franchiseToken  = makeToken(3, 'franchaise');
+const reportsEmployeeToken = jwt.sign({
+  user: {
+    id: 7,
+    role: 'employee',
+    name: 'Reports Employee',
+    permissions: ['reports.read'],
+  }
+}, process.env.ACCESS_TOKEN_SECRET);
 
 // ── shared no-op stubs ────────────────────────────────────────────────────────
 const emptyFindAll         = async () => [];
@@ -941,5 +949,20 @@ describe('GET /api/report/users', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(capturedOpts.limit).to.equal(10);
+  });
+
+  it('employee with reports.read is elevated to admin scope', async () => {
+    let capturedWhere;
+    User.findAndCountAll = async ({ where }) => {
+      capturedWhere = where;
+      return { count: 0, rows: [] };
+    };
+
+    const res = await request(app)
+      .get('/api/report/users')
+      .set('Authorization', `Bearer ${reportsEmployeeToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(capturedWhere.id).to.equal(undefined);
   });
 });
