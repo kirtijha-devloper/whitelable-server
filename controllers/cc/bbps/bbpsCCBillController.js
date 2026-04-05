@@ -448,7 +448,6 @@ const payCCBill = asyncHandler(async (req, res) => {
         referenceTable: 'CcBillPayments',
         description: `BBPS CC bill payment — biller: ${billerId}, mobile: ${customerMobile}`,
         debit: txnAmount,
-        status: 'pending',
         metadata: {
           biller_id: billerId,
           customer_mobile: customerMobile,
@@ -491,7 +490,6 @@ const payCCBill = asyncHandler(async (req, res) => {
     // ── Step 3: Finalise or reverse based on result ─────────────────────────
     if (isSuccess) {
       if (ledgerEntry) {
-        ledgerEntry.status = 'completed';
         ledgerEntry.transaction_id = result.externalRef || null;
         ledgerEntry.metadata = JSON.stringify({
           biller_id: billerId,
@@ -513,7 +511,6 @@ const payCCBill = asyncHandler(async (req, res) => {
           referenceTable: 'CcBillPayments',
           description: `BBPS CC payment charge — ${chargeAmount}`,
           debit: chargeAmount,
-          status: 'completed',
           metadata: {
             biller_id: billerId,
             charge_amount: chargeAmount,
@@ -533,7 +530,6 @@ const payCCBill = asyncHandler(async (req, res) => {
         referenceTable: 'CcBillPayments',
         description: `Reversed — BBPS CC payment failed (${result.data?.status || 'unknown'})`,
         credit: txnAmount,
-        status: 'completed',
         metadata: {
           biller_id: billerId,
           original_ledger_id: ledgerEntry?.id,
@@ -541,11 +537,6 @@ const payCCBill = asyncHandler(async (req, res) => {
           external_ref: result.externalRef,
         }
       });
-
-      if (ledgerEntry) {
-        ledgerEntry.status = 'reversed';
-        await ledgerEntry.save();
-      }
     }
 
     return res.status(200).json({

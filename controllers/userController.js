@@ -156,10 +156,9 @@ const getUsers = asyncHandler(async (req, res) => {
 
         const usersWithResolvedBalance = usersWithPosCount.map((u) => {
             const wallet = parseFloat(u.wallet || 0);
-            const walletHold = parseFloat(u.wallet_hold || 0);
             return {
                 ...u,
-                wallet_balance: parseFloat((wallet - walletHold).toFixed(2)),
+                wallet_balance: wallet,
             };
         });
 
@@ -246,12 +245,11 @@ const searchUsers = asyncHandler(async (req, res) => {
         const results = users.map((u) => {
             const plain = u.toJSON ? u.toJSON() : u;
             const walletVal = parseFloat(plain.wallet || 0);
-            const walletHoldVal = parseFloat(plain.wallet_hold || 0);
 
             return {
                 ...plain,
                 pos_machine_count: posCountMap[plain.id] || 0,
-                wallet_balance: parseFloat((walletVal - walletHoldVal).toFixed(2)),
+                wallet_balance: walletVal,
             };
         });
 
@@ -822,9 +820,7 @@ const approveUser = asyncHandler( async (req, res) => {
                   where: { user_id: user.id }
                 });
 
-                // Compute settlement hold for next-day settlement users
                 const availableBalance = await ledgerService.getAvailableBalance(user.id);
-                const settlementHold = parseFloat((parseFloat(user.wallet || 0) - availableBalance).toFixed(2));
 
                 res.json({
                     email: user.email,
@@ -838,8 +834,6 @@ const approveUser = asyncHandler( async (req, res) => {
                     status: user.status,
                     is_pos_asigned: ( user.is_pos_asigned || false),
                     wallet: user.wallet,
-                    wallet_hold: user.wallet_hold,
-                    settlement_hold: settlementHold,
                     available_balance: availableBalance,
                     tpin_set: !!tpinRecord,
                     ipay_outlet_id: user.ipay_outlet_id || null,

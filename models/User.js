@@ -94,11 +94,6 @@ const User = db.define('User', {
         allowNull: false,
         defaultValue: 0.00,
       },
-      wallet_hold: {
-        type: Sequelize.DECIMAL(10, 2),
-        allowNull: false,
-        defaultValue: 0.00,
-      },
       settlement_type: {
         type: Sequelize.STRING,
         allowNull: false,

@@ -49,6 +49,11 @@ async function getLatestBalance(userId) {
 async function getAvailableBalance(userId) {
   const totalBalance = await getLatestBalance(userId);
 
+  const user = await User.findByPk(userId, { attributes: ['id', 'settlement_type'] });
+  if (!user || user.settlement_type !== 'next_day_settlement') {
+    return totalBalance;
+  }
+
   const totalHeld = await SettlementHold.sum('amount', {
     where: { user_id: userId, released: false }
   }) || 0;
@@ -105,7 +110,6 @@ async function createSettlementHold(userId, amount, ledgerId = null) {
  * @param {string}  [params.description]     – Human-readable label
  * @param {number}  [params.debit]           – Amount going OUT  (default 0)
  * @param {number}  [params.credit]          – Amount coming IN  (default 0)
- * @param {string}  [params.status]          – completed | pending | failed | cancelled
  * @param {Object}  [params.metadata]        – Extra JSON context
  * @returns {Promise<Object>} Created ledger entry
  */
@@ -118,7 +122,6 @@ async function createLedgerEntry({
   description = null,
   debit = 0,
   credit = 0,
-  status = 'completed',
   metadata = null
 }, opts = {}) {
   // Check if ledger tracking is enabled for this user
@@ -160,7 +163,6 @@ async function createLedgerEntry({
     debit: parseFloat(debit) || 0,
     credit: parseFloat(credit) || 0,
     balance: balanceAfter,
-    status: status,
     metadata: metadataString
   }, opts);
 
@@ -192,13 +194,12 @@ async function createRazorpayChargeEntry({
   // First, credit the full transaction amount
   const creditEntry = await createLedgerEntry({
     userId,
-    transactionType: 'razorpay_credit',
+    transactionType: 'pos_credit',
     transactionId: razorpayTransactionId,
     referenceId: merchantTransactionChargeId,
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description: description || `Razorpay transaction: ${razorpayTransactionId} - Amount: ₹${transactionAmount}`,
     credit: transactionAmount,
-    status: 'completed',
     metadata: {
       transaction_amount: transactionAmount,
       ...metadata
@@ -208,13 +209,12 @@ async function createRazorpayChargeEntry({
   // Then, debit the charge amount (deduction)
   const chargeEntry = await createLedgerEntry({
     userId,
-    transactionType: 'razorpay_charge',
+    transactionType: 'pos_charge',
     transactionId: razorpayTransactionId,
     referenceId: merchantTransactionChargeId,
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description: description || `Transaction charge deducted: ${razorpayTransactionId} - Charge: ₹${chargeAmount}`,
     debit: chargeAmount,
-    status: 'completed',
     metadata: {
       transaction_amount: transactionAmount,
       charge_amount: chargeAmount,
@@ -251,7 +251,6 @@ async function createWalletTransactionEntry({
   transactionType,
   amount,
   description = null,
-  status = 'completed',
   metadata = null
 }) {
   // Determine if it's debit or credit based on transaction type
@@ -267,18 +266,13 @@ async function createWalletTransactionEntry({
       ledgerTransactionType = 'wallet_credit';
       break;
     case 'request':
-      // Request doesn't change balance until approved
-      if (status === 'completed') {
-        credit = amount;
-        ledgerTransactionType = 'wallet_credit';
-      }
-      break;
+      // Request is a pending ask — no money moves until approved (transfer/unhold)
+      return null;
     case 'hold':
       debit = amount;
       ledgerTransactionType = 'wallet_debit';
       break;
     default:
-      // Default to credit for unknown types
       credit = amount;
   }
 
@@ -291,7 +285,6 @@ async function createWalletTransactionEntry({
     description: description || `Wallet transaction: ${transactionType}`,
     debit,
     credit,
-    status,
     metadata
   });
 }
@@ -306,7 +299,6 @@ async function getLedgerEntries({
   startDate = null,
   endDate = null,
   transactionType = null,
-  status = null,
   page = 1,
   limit = 50
 }) {
@@ -327,10 +319,6 @@ async function getLedgerEntries({
 
   if (transactionType) {
     where.transaction_type = transactionType;
-  }
-
-  if (status) {
-    where.status = status;
   }
 
   const { count, rows: entries } = await Ledger.findAndCountAll({
@@ -384,7 +372,6 @@ async function createCommissionEntry({
       description ||
       `Commission earned on Razorpay txn: ${razorpayTransactionId} — ₹${commissionAmount}`,
     credit: commissionAmount,
-    status: 'completed',
     metadata,
   });
 }
@@ -399,11 +386,10 @@ async function createFranchiseEarningEntry({
 }) {
   return await createLedgerEntry({
     userId,
-    transactionType: 'razorpay_franchise_earning',
+    transactionType: 'pos_franchise_earning',
     transactionId: razorpayTransactionId,
     description: description || `Franchise earning on txn: ${razorpayTransactionId} — ₹${amount}`,
     credit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -433,7 +419,6 @@ async function createRentalChargeEntry({
     referenceTable: 'PosRentalBillings',
     description: description || `Rental charge: ₹${amount}`,
     debit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -464,7 +449,6 @@ async function createRentalCreditEntry({
     referenceTable: 'PosRentalBillings',
     description: description || `Rental income: ₹${amount}`,
     credit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -477,7 +461,6 @@ async function createRentalCreditEntry({
  * @param {number}  params.payoutTransactionId - FK to PayoutTransactions table
  * @param {number}  params.amount             - Payout amount (including service charge)
  * @param {string}  [params.description]
- * @param {string}  [params.status]
  * @param {Object}  [params.metadata]
  * @returns {Promise<Object>} Created ledger entry
  */
@@ -486,7 +469,6 @@ async function createPayoutEntry({
   payoutTransactionId,
   amount,
   description = null,
-  status = 'completed',
   metadata = null,
 }, opts = {}) {
   return await createLedgerEntry({
@@ -496,7 +478,6 @@ async function createPayoutEntry({
     referenceTable: 'PayoutTransactions',
     description: description || `Payout: ₹${amount}`,
     debit: amount,
-    status,
     metadata,
   }, opts);
 }
@@ -588,15 +569,17 @@ async function rebuildBalanceChain(userId) {
     { replacements: { userId }, type: Ledger.sequelize.QueryTypes.UPDATE }
   );
 
-  // True balance = only completed entries count toward the spendable wallet
+  // Sync user.wallet to the ledger total as the true source of truth.
+  // This uses all ledger rows for the user so that reconciliation matches
+  // the ledger table, not just a single row or only completed entries.
   const rows = await Ledger.sequelize.query(
-    `SELECT COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0) AS true_balance
+    `SELECT COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0) AS ledger_balance
      FROM "Ledgers"
-     WHERE user_id = :userId AND status = 'completed'`,
+     WHERE user_id = :userId`,
     { replacements: { userId }, type: Ledger.sequelize.QueryTypes.SELECT }
   );
 
-  const trueBalance = parseFloat(rows[0].true_balance) || 0;
+  const trueBalance = parseFloat(rows[0].ledger_balance) || 0;
   user.wallet = trueBalance;
   await user.save();
 
@@ -608,7 +591,7 @@ async function rebuildBalanceChain(userId) {
  * syncing user.wallet.  Returns a diff report useful for the reconcile endpoint.
  *
  * Fixes both:
- *   1. user.wallet drift (was: SUM approach only)
+ *   1. user.wallet drift — synced to the total ledger balance (SUM(credit) - SUM(debit)).
  *   2. balance_before / balance column drift on every Ledger row
  *
  * @param {number} userId
@@ -619,6 +602,18 @@ async function recalculateBalance(userId) {
   if (!user) throw new Error(`User ${userId} not found`);
 
   const previousWallet = parseFloat(user.wallet) || 0;
+
+  // If this is a today_settlement user, any unreleased SettlementHold records
+  // are stale (e.g. the user was previously next_day_settlement). Release them
+  // so they no longer appear as "On Settlement Hold" in the dashboard.
+  let releasedHolds = 0;
+  if (user.settlement_type !== 'next_day_settlement') {
+    const [count] = await SettlementHold.update(
+      { released: true },
+      { where: { user_id: userId, released: false } }
+    );
+    releasedHolds = count;
+  }
 
   // rebuildBalanceChain fixes ALL row-level balance fields AND syncs user.wallet
   const trueBalance = await rebuildBalanceChain(userId);
@@ -631,6 +626,7 @@ async function recalculateBalance(userId) {
     previous_wallet: previousWallet,
     drifted,
     corrected:       drifted,
+    released_stale_holds: releasedHolds,
   };
 }
 

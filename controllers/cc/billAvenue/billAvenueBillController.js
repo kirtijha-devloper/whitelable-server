@@ -249,7 +249,6 @@ const payBill = asyncHandler(async (req, res) => {
         referenceTable: 'BillAvenuePayments',
         description: `BillAvenue CC bill payment — biller: ${billerId}`,
         debit: txnAmount,
-        status: 'pending',
         metadata: {
           biller_id: billerId,
           payment_mode: paymentMode || 'Cash',
@@ -281,18 +280,12 @@ const payBill = asyncHandler(async (req, res) => {
         referenceTable: 'BillAvenuePayments',
         description: `Reversed — BillAvenue API error: ${apiError.message}`,
         credit: txnAmount,
-        status: 'completed',
         metadata: {
           biller_id: billerId,
           original_ledger_id: ledgerEntry?.id,
           error: apiError.message,
         },
       });
-
-      if (ledgerEntry) {
-        ledgerEntry.status = 'reversed';
-        await ledgerEntry.save();
-      }
 
       await payment.update({ status: 'failed', response: { error: apiError.message } });
 
@@ -320,7 +313,6 @@ const payBill = asyncHandler(async (req, res) => {
     // ── Step 3: Finalise or reverse ─────────────────────────────────────
     if (isSuccess) {
       if (ledgerEntry) {
-        ledgerEntry.status = 'completed';
         ledgerEntry.transaction_id = transactionRefId || null;
         ledgerEntry.metadata = JSON.stringify({
           biller_id: billerId,
@@ -341,7 +333,6 @@ const payBill = asyncHandler(async (req, res) => {
           referenceTable: 'BillAvenuePayments',
           description: `BillAvenue CC payment charge — ₹${chargeAmount}`,
           debit: chargeAmount,
-          status: 'completed',
           metadata: {
             biller_id: billerId,
             charge_amount: chargeAmount,
@@ -361,7 +352,6 @@ const payBill = asyncHandler(async (req, res) => {
         referenceTable: 'BillAvenuePayments',
         description: `Reversed — BillAvenue payment failed (code: ${responseCode || 'unknown'})`,
         credit: txnAmount,
-        status: 'completed',
         metadata: {
           biller_id: billerId,
           original_ledger_id: ledgerEntry?.id,
@@ -369,11 +359,6 @@ const payBill = asyncHandler(async (req, res) => {
           transaction_ref_id: transactionRefId,
         },
       });
-
-      if (ledgerEntry) {
-        ledgerEntry.status = 'reversed';
-        await ledgerEntry.save();
-      }
     }
 
     return res.status(200).json({

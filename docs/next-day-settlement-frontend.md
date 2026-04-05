@@ -13,23 +13,31 @@ This document explains every API response change and how the frontend should rea
 | Term | Meaning |
 |---|---|
 | `wallet` | Total ledger balance (gross, including held funds) |
-| `settlement_hold` | Amount frozen due to next-day settlement — **cannot be spent** |
-| `available_balance` | Spendable amount = `wallet - settlement_hold` |
-| `wallet_hold` | Separate admin-imposed hold (pre-existing, unrelated to this feature) |
+| `available_balance` | Spendable amount = `wallet − unreleased settlement holds` |
+| settlement hold (derived) | `wallet − available_balance` — amount frozen, cannot be spent |
+
+> `wallet_hold` and `settlement_hold` fields have been **removed** from all API responses.  
+> Derive the held amount client-side: `const settlementHold = wallet - available_balance;`
 
 ---
 
 ## 1. User Profile / Dashboard (`GET /api/users/current`)
 
-The response now includes three balance-related fields:
+The response includes two balance-related fields:
 
 ```json
 {
-  "wallet": 5000.00,
-  "wallet_hold": 0.00,
-  "settlement_hold": 2000.00,
+  "wallet": "5000.00",
   "available_balance": 3000.00
 }
+```
+
+Derive the hold amount client-side:
+
+```js
+const wallet = parseFloat(data.wallet);
+const availableBalance = parseFloat(data.available_balance);
+const settlementHold = wallet - availableBalance; // amount currently frozen
 ```
 
 ### UI Recommendation
@@ -42,7 +50,7 @@ On Settlement Hold ₹2,000.00  (releases tomorrow 10:30 AM)
 Available Balance  ₹3,000.00
 ```
 
-> Only show the "On Settlement Hold" row if `settlement_hold > 0`. For `today_settlement` users this will always be `0`.
+> Only show the "On Settlement Hold" row if `settlementHold > 0`. For `today_settlement` users this will always be `0`.
 
 **Tooltip text suggestion:**  
 _"Your POS earnings from today will be available for withdrawal starting tomorrow at 10:30 AM."_
@@ -68,15 +76,20 @@ _"Your POS earnings from today will be available for withdrawal starting tomorro
   "success": true,
   "current_balance": 5000.00,
   "available_balance": 3000.00,
-  "settlement_hold": 2000.00,
   "data": [ ... ],
   "pagination": { ... }
 }
 ```
 
+Derive settlement hold client-side:
+
+```js
+const settlementHold = response.current_balance - response.available_balance;
+```
+
 ### UI Recommendation
 
-Display the three balance fields at the top of the passbook screen, same as the dashboard.
+Display the two balance fields (plus derived hold) at the top of the passbook screen, same as the dashboard.
 
 ---
 
@@ -107,6 +120,8 @@ If the user tries to initiate a payout and the `available_balance` is insufficie
 Show a user-friendly message that explains **why** if the user has a settlement hold:
 
 ```js
+const settlementHold = parseFloat(data.wallet) - parseFloat(data.available_balance);
+
 if (!response.success && settlementHold > 0) {
   showError(
     `Insufficient available balance. ₹${settlementHold.toFixed(2)} is on hold and will be` +
@@ -164,28 +179,30 @@ There is no separate admin endpoint for settlement holds at this time — the `s
 
 ```jsx
 function BalanceSummary({ user }) {
-  const { wallet, settlement_hold, available_balance, settlement_type } = user;
+  const wallet = parseFloat(user.wallet || 0);
+  const availableBalance = parseFloat(user.available_balance || 0);
+  const settlementHold = wallet - availableBalance;
 
   return (
     <div className="balance-card">
       <div className="balance-row">
         <span>Total Balance</span>
-        <strong>₹{parseFloat(wallet).toFixed(2)}</strong>
+        <strong>₹{wallet.toFixed(2)}</strong>
       </div>
 
-      {settlement_hold > 0 && (
+      {settlementHold > 0 && (
         <div className="balance-row hold">
           <span>
             On Settlement Hold
             <Tooltip text="POS earnings from today. Available tomorrow at 10:30 AM." />
           </span>
-          <strong className="text-warning">– ₹{parseFloat(settlement_hold).toFixed(2)}</strong>
+          <strong className="text-warning">– ₹{settlementHold.toFixed(2)}</strong>
         </div>
       )}
 
       <div className="balance-row available">
         <span>Available Balance</span>
-        <strong className="text-success">₹{parseFloat(available_balance).toFixed(2)}</strong>
+        <strong className="text-success">₹{availableBalance.toFixed(2)}</strong>
       </div>
     </div>
   );
@@ -207,10 +224,12 @@ This is set via the user edit API (PUT `/api/merchant/:id` or equivalent). Chang
 
 ## 9. Summary of Fields to Use
 
-| Use Case | Field |
+| Use Case | How |
 |---|---|
 | Show total wallet balance | `wallet` |
-| Show how much is frozen | `settlement_hold` |
+| Show how much is frozen | `wallet − available_balance` (derived, not a response field) |
 | Show spendable balance | `available_balance` |
 | Enable/disable payout button | `available_balance >= requiredAmount` |
 | Decide if feature is active for user | `settlement_type === "next_day_settlement"` |
+
+> **Breaking change notice:** `wallet_hold` and `settlement_hold` are no longer returned by any API endpoint. Remove any references to these fields in your frontend code.

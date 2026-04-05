@@ -93,7 +93,6 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
       credit: parsedAmount,
       debit: 0,
       balance: newBalance,
-      status: "completed",
       metadata: JSON.stringify({
         admin_id: req.user.id,
         admin_name: req.user.name,
@@ -211,7 +210,6 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
       credit: 0,
       debit: parsedAmount,
       balance: newBalance,
-      status: "completed",
       metadata: JSON.stringify({
         admin_id: req.user.id,
         admin_name: req.user.name,
@@ -283,15 +281,16 @@ const reconcileWallet = asyncHandler(async (req, res) => {
       ? `Wallet corrected from ₹${result.previous_wallet.toFixed(2)} → ₹${result.true_balance.toFixed(2)}`
       : "Wallet balance is already consistent with the ledger. No change made.",
     data: {
-      user_id:         result.user_id,
-      user_name:       user.name,
-      user_role:       user.role,
-      true_balance:    result.true_balance,
-      previous_wallet: result.previous_wallet,
-      drift:           parseFloat((result.true_balance - result.previous_wallet).toFixed(2)),
-      drifted:         result.drifted,
-      corrected:       result.corrected,
-      reconciled_at:   new Date().toISOString(),
+      user_id:               result.user_id,
+      user_name:             user.name,
+      user_role:             user.role,
+      true_balance:          result.true_balance,
+      previous_wallet:       result.previous_wallet,
+      drift:                 parseFloat((result.true_balance - result.previous_wallet).toFixed(2)),
+      drifted:               result.drifted,
+      corrected:             result.corrected,
+      released_stale_holds:  result.released_stale_holds,
+      reconciled_at:         new Date().toISOString(),
     },
   });
 });
@@ -328,14 +327,15 @@ const reconcileAllWallets = asyncHandler(async (req, res) => {
       const result = await ledgerService.recalculateBalance(user.id);
       if (result.drifted) totalDrifted++;
       results.push({
-        user_id:         result.user_id,
-        user_name:       user.name,
-        user_role:       user.role,
-        true_balance:    result.true_balance,
-        previous_wallet: result.previous_wallet,
-        drift:           parseFloat((result.true_balance - result.previous_wallet).toFixed(2)),
-        drifted:         result.drifted,
-        corrected:       result.corrected,
+        user_id:               result.user_id,
+        user_name:             user.name,
+        user_role:             user.role,
+        true_balance:          result.true_balance,
+        previous_wallet:       result.previous_wallet,
+        drift:                 parseFloat((result.true_balance - result.previous_wallet).toFixed(2)),
+        drifted:               result.drifted,
+        corrected:             result.corrected,
+        released_stale_holds:  result.released_stale_holds,
       });
     } catch (err) {
       results.push({

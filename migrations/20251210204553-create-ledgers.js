@@ -16,7 +16,7 @@ module.exports = {
       transaction_type: {
         type: Sequelize.STRING,
         allowNull: false,
-        comment: 'Type of transaction: razorpay_charge, wallet_credit, wallet_debit, payout, transfer, etc.'
+        comment: 'Type of transaction: pos_charge, wallet_credit, wallet_debit, payout, transfer, etc.'
       },
       transaction_id: {
         type: Sequelize.STRING,

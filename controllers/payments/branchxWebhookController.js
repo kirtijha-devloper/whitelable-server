@@ -6,17 +6,45 @@ const db = require('../../config/database');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const User = require('../../models/User');
-const WalletTransaction = require('../../models/WalletTransaction');
-const Ledger = require('../../models/Ledger');
+const ledgerService = require('../../services/ledgerService');
 
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
 
+function ensureLogDir() {
+  const logDir = path.dirname(callbackLogFile);
+  try {
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+  } catch (err) {
+    console.error('Failed to ensure callback log directory exists:', err);
+  }
+}
+
 function logBranchxCallback(data) {
   try {
+    ensureLogDir();
     const line = `${new Date().toISOString()} - ${JSON.stringify(data)}\n`;
     fs.appendFileSync(callbackLogFile, line, 'utf8');
   } catch (err) {
     console.error('Failed to write BranchX callback log:', err);
+    // fallback to webhook auth log if branchx callback log can't be written
+    try {
+      const fallback = path.join(__dirname, '../../logs/webhookAuth.log');
+      fs.appendFileSync(fallback, `${new Date().toISOString()} - [branchx-callback-fallback] ${JSON.stringify(data)}\n`, 'utf8');
+    } catch (fallbackErr) {
+      console.error('Failed to write fallback webhookAuth log:', fallbackErr);
+    }
+  }
+}
+
+function logBranchxEvent(message) {
+  try {
+    ensureLogDir();
+    const line = `${new Date().toISOString()} - [EVENT] ${message}\n`;
+    fs.appendFileSync(callbackLogFile, line, 'utf8');
+  } catch (err) {
+    console.error('Failed to write BranchX event log:', err);
   }
 }
 
@@ -51,8 +79,11 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
   }
 
   if (!payoutTransaction) {
+    logBranchxEvent(`NOT PROCESSED — no payout transaction found for refs: ${referenceCandidates.join(', ')}`);
     return res.status(404).json({ success: false, message: 'Payout transaction not found for callback payload', callbackPayload: payload });
   }
+
+  logBranchxEvent(`Found payout transaction id=${payoutTransaction.id} ref=${payoutTransaction.reference_id} currentStatus=${payoutTransaction.status} incomingStatus=${status}`);
 
   const trx = await db.transaction();
   try {
@@ -65,6 +96,12 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
     const previousStatus = (locked.status || '').toString().toUpperCase();
     const newStatus = status;
 
+    if (previousStatus === newStatus) {
+      logBranchxEvent(`SKIPPED — payout id=${locked.id} already in status=${previousStatus}`);
+    } else {
+      logBranchxEvent(`PROCESSING — payout id=${locked.id} status change: ${previousStatus} → ${newStatus}`);
+    }
+
     let parsedData = {};
     try {
       parsedData = locked.data ? JSON.parse(locked.data) : {};
@@ -76,12 +113,6 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
     const payloadStr = JSON.stringify(payload);
 
-    const ledgerStatus = newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending';
-    await Ledger.update(
-      { status: ledgerStatus },
-      { where: { reference_id: locked.id, reference_table: 'PayoutTransactions', status: 'pending' }, transaction: trx }
-    );
-
     await locked.update({
       status: newStatus,
       callback_status: newStatus,
@@ -91,26 +122,24 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
     }, { transaction: trx });
 
     if ((previousStatus === 'PENDING' || previousStatus === 'SUCCESS') && newStatus === 'FAILED') {
-      const user = await User.findByPk(locked.merchant_id, { transaction: trx });
-      if (user) {
-        const amountToRefund = parseFloat(locked.amount || 0);
-        user.wallet = parseFloat(user.wallet || 0) + amountToRefund;
-        await user.save({ transaction: trx });
-      }
+      const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
 
-      const walletTx = await WalletTransaction.findOne({
-        where: {
-          source: 'branchx',
-          reference_id: locked.reference_id
-        },
-        order: [['createdAt', 'DESC']],
-        transaction: trx
-      });
-
-      if (walletTx) {
-        walletTx.status = 'failed';
-        walletTx.reason = `BranchX payout failed: ${payload.message || payload.msg || 'Transaction failed'}`;
-        await walletTx.save({ transaction: trx });
+      if (refundAmount > 0) {
+        logBranchxEvent(`REFUND issued — payout id=${locked.id} amount=₹${refundAmount} to merchant_id=${locked.merchant_id}`);
+        await ledgerService.createLedgerEntry({
+          userId: locked.merchant_id,
+          transactionType: 'payout_refund',
+          referenceId: locked.id,
+          referenceTable: 'PayoutTransactions',
+          description: `BranchX payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
+          credit: refundAmount,
+          metadata: {
+            payout_reference: locked.reference_id,
+            branchx_status: newStatus,
+            original_payout_amount: locked.amount,
+            original_service_charge: locked.service_charge
+          }
+        }, { transaction: trx });
       }
     }
 
@@ -128,6 +157,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
     await trx.commit();
 
+    logBranchxEvent(`PROCESSED successfully — payout id=${locked.id} finalStatus=${newStatus}`);
     return res.status(200).json({
       success: true,
       message: 'BranchX callback processed successfully',
@@ -136,7 +166,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     await trx.rollback();
-    console.error('[BranchX callback] error:', error);
+    logBranchxEvent(`FAILED — payout id=${payoutTransaction.id} error: ${error.message || error}`);
     return res.status(500).json({ success: false, message: error.message || 'Callback processing failed', error });
   }
 });

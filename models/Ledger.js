@@ -15,7 +15,7 @@ const Ledger = db.define('Ledger', {
   transaction_type: {
     type: Sequelize.STRING,
     allowNull: false,
-    comment: 'Type of transaction: razorpay_charge, wallet_credit, wallet_debit, payout, transfer, razorpay_commission, rental, etc.'
+    comment: 'Type of transaction: pos_charge, wallet_credit, wallet_debit, payout, transfer, razorpay_commission, rental, etc.'
   },
   transaction_id: {
     type: Sequelize.STRING,
@@ -60,12 +60,6 @@ const Ledger = db.define('Ledger', {
     allowNull: false,
     comment: 'Running wallet balance after this transaction (balance_before + credit - debit)'
   },
-  status: {
-    type: Sequelize.STRING,
-    allowNull: false,
-    defaultValue: 'completed',
-    comment: 'Transaction status: completed, pending, failed, cancelled'
-  },
   metadata: {
     type: Sequelize.TEXT,
     allowNull: true,
@@ -89,7 +83,6 @@ const Ledger = db.define('Ledger', {
     { fields: ['transaction_type'] },
     { fields: ['transaction_id'] },
     { fields: ['createdAt'] },
-    { fields: ['status'] },
     { fields: ['reference_table', 'reference_id'] }
   ]
 });
