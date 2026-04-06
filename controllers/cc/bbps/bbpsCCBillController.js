@@ -12,11 +12,17 @@ const ledgerService = require('../../../services/ledgerService');
 // Debug logging helper for this controller
 // Logs are written to the shared root /logs folder (same as auth.log etc.)
 const bbpsLogFile = path.join(__dirname, '../../../logs/bbpsCCBill.log');
+if (!fs.existsSync(path.dirname(bbpsLogFile))) {
+  fs.mkdirSync(path.dirname(bbpsLogFile), { recursive: true });
+}
 function bbpsFileLog(message) {
   const timestamp = new Date().toISOString();
-  fs.appendFile(bbpsLogFile, `[${timestamp}] ${message}\n`, (err) => {
-    if (err) console.error('[bbpsCC] log write failed', err);
-  });
+  const line = `[${timestamp}] ${message}\n`;
+  try {
+    fs.appendFileSync(bbpsLogFile, line, 'utf8');
+  } catch (err) {
+    console.error('[bbpsCC] log write failed', err);
+  }
 }
 
 // Return a valid IPv4 string for InstantPay (they reject IPv6 formats like ::1).
@@ -56,6 +62,38 @@ const getOutletId = (req) => {
   const parsed = parseInt(raw, 10);
   return isNaN(parsed) ? null : parsed;
 };
+
+function getInstantPayErrorMessage(error) {
+  const payload = error?.response?.data;
+  if (payload) {
+    if (typeof payload === 'string') return payload;
+    return payload.message
+      || payload.msg
+      || payload.statusMsg
+      || payload.error
+      || payload.responseMessage
+      || payload.data
+      || JSON.stringify(payload);
+  }
+  return error?.message || 'InstantPay API request failed. Please try again.';
+}
+
+function logInstantPayError(context, error) {
+  const upstream = error?.response?.data || error?.message || error;
+  console.error(`[bbpsCC] ${context} error:`, upstream);
+
+  let details = '';
+  if (error?.response?.data) {
+    details = typeof error.response.data === 'string'
+      ? error.response.data
+      : JSON.stringify(error.response.data, null, 2);
+  } else if (error instanceof Error) {
+    details = `${error.message}\n${error.stack}`;
+  } else {
+    details = JSON.stringify(error, null, 2);
+  }
+  bbpsFileLog(`[${context}] ${details}`);
+}
 
 // Calculate the configured BBPS CC charge for a given transaction amount.
 // Falls back to a default ₹20 charge when no rule is configured.
@@ -102,12 +140,21 @@ async function ensureSufficientBalance(userId, txnAmount) {
 // PHP ref: getCategory()
 // ─────────────────────────────────────────────────────────────────────────────
 const getCategories = asyncHandler(async (req, res) => {
+  const outletId = getOutletId(req);
+  if (!outletId) {
+    return res.status(400).json({
+      success: false,
+      message: 'InstantPay outlet ID is not configured for this user. Please complete KYC or contact support.',
+    });
+  }
+
   try {
-    const data = await bbpsCCBillService.getCategories(getOutletId(req));
+    const data = await bbpsCCBillService.getCategories(outletId);
     return res.status(200).json({ success: true, data });
   } catch (error) {
-    console.error('[bbpsCC] getCategories error:', error.message);
-    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+    logInstantPayError('getCategories', error);
+    const message = getInstantPayErrorMessage(error);
+    return res.status(error?.response ? 502 : 500).json({ success: false, message });
   }
 });
 
@@ -117,12 +164,21 @@ const getCategories = asyncHandler(async (req, res) => {
 // PHP ref: getBillersForCreditCards()
 // ─────────────────────────────────────────────────────────────────────────────
 const getCCBillers = asyncHandler(async (req, res) => {
+  const outletId = getOutletId(req);
+  if (!outletId) {
+    return res.status(400).json({
+      success: false,
+      message: 'InstantPay outlet ID is not configured for this user. Please complete KYC or contact support.',
+    });
+  }
+
   try {
-    const billers = await bbpsCCBillService.getCCBillers(getOutletId(req));
+    const billers = await bbpsCCBillService.getCCBillers(outletId);
     return res.status(200).json({ success: true, count: billers.length, data: billers });
   } catch (error) {
-    console.error('[bbpsCC] getCCBillers error:', error.message);
-    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+    logInstantPayError('getCCBillers', error);
+    const message = getInstantPayErrorMessage(error);
+    return res.status(error?.response ? 502 : 500).json({ success: false, message });
   }
 });
 
