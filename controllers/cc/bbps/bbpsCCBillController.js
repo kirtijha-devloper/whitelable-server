@@ -165,7 +165,10 @@ const getCategories = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const getCCBillers = asyncHandler(async (req, res) => {
   const outletId = getOutletId(req);
+  bbpsFileLog(`[getCCBillers] request outletId=${outletId} userId=${req.user?.id || 'unknown'} ip=${req.ip}`);
+
   if (!outletId) {
+    bbpsFileLog('[getCCBillers] missing outletId for request');
     return res.status(400).json({
       success: false,
       message: 'InstantPay outlet ID is not configured for this user. Please complete KYC or contact support.',
@@ -177,6 +180,7 @@ const getCCBillers = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, count: billers.length, data: billers });
   } catch (error) {
     logInstantPayError('getCCBillers', error);
+    bbpsFileLog(`[getCCBillers] failed outletId=${outletId} userId=${req.user?.id || 'unknown'} ip=${req.ip}`);
     const message = getInstantPayErrorMessage(error);
     return res.status(error?.response ? 502 : 500).json({ success: false, message });
   }
