@@ -349,14 +349,6 @@ const getUsers = asyncHandler(async (req, res) => {
         });
 
         const usersWithResolvedBalance = usersWithPosCount.map((u) => {
-<<<<<<< Updated upstream
-            const wallet = parseFloat(u.wallet || 0);
-            const walletHold = parseFloat(u.wallet_hold || 0);
-            return {
-                ...u,
-                wallet_balance: parseFloat((wallet - walletHold).toFixed(2)),
-            };
-=======
           const wallet = parseFloat(u.wallet || 0);
           const employeeAccessRole = employeeAccessRoleMap.get(u.employee_access_role_id) || null;
           const normalizedListedRole = normalizeRole(u.role);
@@ -372,7 +364,6 @@ const getUsers = asyncHandler(async (req, res) => {
               ? (franchiseSummaryMap.get(Number(u.franchaise_id)) || null)
               : null,
           };
->>>>>>> Stashed changes
         });
 
         res.status(200).json({
@@ -477,19 +468,12 @@ const searchUsers = asyncHandler(async (req, res) => {
         const results = users.map((u) => {
             const plain = u.toJSON ? u.toJSON() : u;
             const walletVal = parseFloat(plain.wallet || 0);
-<<<<<<< Updated upstream
-            const walletHoldVal = parseFloat(plain.wallet_hold || 0);
-=======
             const employeeAccessRole = employeeAccessRoleMap.get(plain.employee_access_role_id) || null;
             const normalizedListedRole = normalizeRole(plain.role);
->>>>>>> Stashed changes
 
             return {
                 ...serializeUserWithResolvedAccessRole(plain, employeeAccessRole),
                 pos_machine_count: posCountMap[plain.id] || 0,
-<<<<<<< Updated upstream
-                wallet_balance: parseFloat((walletVal - walletHoldVal).toFixed(2)),
-=======
                 wallet_balance: walletVal,
                 merchant_count: normalizedListedRole === 'franchaise'
                     ? (merchantCountMap.get(Number(plain.id)) || 0)
@@ -497,7 +481,6 @@ const searchUsers = asyncHandler(async (req, res) => {
                 franchise_details: normalizedListedRole === 'merchant'
                     ? (franchiseSummaryMap.get(Number(plain.franchaise_id)) || null)
                     : null,
->>>>>>> Stashed changes
             };
         });
 
@@ -1205,9 +1188,7 @@ const approveUser = asyncHandler( async (req, res) => {
 
                 // Compute settlement hold for next-day settlement users
                 const availableBalance = await ledgerService.getAvailableBalance(user.id);
-<<<<<<< Updated upstream
                 const settlementHold = parseFloat((parseFloat(user.wallet || 0) - availableBalance).toFixed(2));
-=======
                 const employeeAccessRole = user.employee_access_role_id
                     ? await getEmployeeAccessRoleById(user.employee_access_role_id)
                     : null;
@@ -1216,7 +1197,6 @@ const approveUser = asyncHandler( async (req, res) => {
                 const currentEmployeeAccessRolePayload = employeeAccessRole
                     ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : { ...employeeAccessRole })
                     : null;
->>>>>>> Stashed changes
 
                 res.json({
                     email: user.email,
@@ -1245,9 +1225,10 @@ const approveUser = asyncHandler( async (req, res) => {
 
                     id: user.id
             });
-        } catch(err) {
-        res.status(404);
-            throw new Error("token is expired!")
+        } catch (err) {
+            console.error('Current user error:', err);
+            res.status(500);
+            throw new Error(err.message || 'Failed to fetch current user.');
         }
         });
 
