@@ -25,7 +25,14 @@ const employeeRateManageToken = jwt.sign({
   user: {
     id: 7,
     role: 'employee',
-    permissions: ['rate.settings.manage'],
+    employee_access_role_id: 17,
+    employee_access_role: {
+      id: 17,
+      name: 'Rate Manager',
+      slug: 'rate-manager',
+      status: 'active',
+      permissions: ['rate.settings.manage'],
+    },
   }
 }, SECRET);
 

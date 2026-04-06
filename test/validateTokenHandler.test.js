@@ -7,6 +7,7 @@ process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secre
 
 const validateToken = require('../middleware/validateTokenHandler');
 const User = require('../models/User');
+const EmployeeAccessRole = require('../models/EmployeeAccessRole');
 
 const app = express();
 app.get('/secure', validateToken, (req, res) => {
@@ -20,16 +21,19 @@ app.use((err, req, res, _next) => {
 describe('validateTokenHandler fresh auth user loading', () => {
   const secret = process.env.ACCESS_TOKEN_SECRET;
   let originalFindByPk;
+  let originalAccessRoleFindByPk;
   let originalEnforceDbAuth;
 
   beforeEach(() => {
     originalFindByPk = User.findByPk;
+    originalAccessRoleFindByPk = EmployeeAccessRole.findByPk;
     originalEnforceDbAuth = process.env.ENFORCE_DB_AUTH;
     process.env.ENFORCE_DB_AUTH = 'true';
   });
 
   afterEach(() => {
     User.findByPk = originalFindByPk;
+    EmployeeAccessRole.findByPk = originalAccessRoleFindByPk;
     if (originalEnforceDbAuth === undefined) {
       delete process.env.ENFORCE_DB_AUTH;
     } else {
@@ -37,7 +41,7 @@ describe('validateTokenHandler fresh auth user loading', () => {
     }
   });
 
-  it('uses the latest DB role and permissions instead of stale token claims', async () => {
+  it('uses the latest DB role and assigned employee access role instead of stale token claims', async () => {
     User.findByPk = async () => ({
       id: 7,
       name: 'Employee',
@@ -45,14 +49,32 @@ describe('validateTokenHandler fresh auth user loading', () => {
       role: 'employee',
       status: 'active',
       ipay_outlet_id: null,
+      permissions: [],
+      employee_access_role_id: 4,
+    });
+    EmployeeAccessRole.findByPk = async () => ({
+      id: 4,
+      name: 'Users Viewer',
+      slug: 'users-viewer',
+      status: 'active',
       permissions: ['users.list'],
+      toJSON() {
+        return { ...this };
+      },
     });
 
     const token = jwt.sign({
       user: {
         id: 7,
         role: 'admin',
-        permissions: ['users.update'],
+        employee_access_role_id: 99,
+        employee_access_role: {
+          id: 99,
+          name: 'Wrong Role',
+          slug: 'wrong-role',
+          status: 'active',
+          permissions: ['users.update'],
+        },
       }
     }, secret);
 
@@ -74,6 +96,7 @@ describe('validateTokenHandler fresh auth user loading', () => {
       status: 'inactive',
       ipay_outlet_id: null,
       permissions: [],
+      employee_access_role_id: null,
     });
 
     const token = jwt.sign({

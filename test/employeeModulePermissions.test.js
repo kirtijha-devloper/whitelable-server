@@ -33,39 +33,28 @@ app.use((err, req, res, _next) => {
 
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const makeToken = (user) => jwt.sign({ user }, SECRET);
-
-const stockPosEmployeeToken = makeToken({
-  id: 41,
+const makeEmployeeToken = (id, name, permissions) => makeToken({
+  id,
   role: 'employee',
-  name: 'Stock Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.STOCK_POS_READ],
+  name,
+  employee_access_role_id: id,
+  employee_access_role: {
+    id,
+    name: `${name} Role`,
+    slug: `${name.toLowerCase().replace(/\s+/g, '-')}-role`,
+    status: 'active',
+    permissions,
+  },
 });
 
-const complaintEmployeeToken = makeToken({
-  id: 42,
-  role: 'employee',
-  name: 'Complaint Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.COMPLAINTS_READ],
-});
+const stockPosEmployeeToken = makeEmployeeToken(41, 'Stock Employee', [EMPLOYEE_PERMISSIONS.STOCK_POS_READ]);
 
-const ledgerEmployeeToken = makeToken({
-  id: 43,
-  role: 'employee',
-  name: 'Ledger Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.LEDGER_READ],
-});
-const walletEmployeeToken = makeToken({
-  id: 44,
-  role: 'employee',
-  name: 'Wallet Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.WALLET_MANAGE],
-});
-const payoutEmployeeToken = makeToken({
-  id: 45,
-  role: 'employee',
-  name: 'Payout Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.PAYOUT_READ],
-});
+const complaintEmployeeToken = makeEmployeeToken(42, 'Complaint Employee', [EMPLOYEE_PERMISSIONS.COMPLAINTS_READ]);
+
+const ledgerEmployeeToken = makeEmployeeToken(43, 'Ledger Employee', [EMPLOYEE_PERMISSIONS.LEDGER_READ]);
+const walletEmployeeToken = makeEmployeeToken(44, 'Wallet Employee', [EMPLOYEE_PERMISSIONS.WALLET_CREDIT]);
+const walletDebitEmployeeToken = makeEmployeeToken(46, 'Wallet Debit Employee', [EMPLOYEE_PERMISSIONS.WALLET_DEBIT]);
+const payoutEmployeeToken = makeEmployeeToken(45, 'Payout Employee', [EMPLOYEE_PERMISSIONS.PAYOUT_READ]);
 
 let stubs = {};
 
@@ -177,7 +166,7 @@ describe('Employee access across additional admin modules', () => {
     expect(res.body.data).to.have.length(1);
   });
 
-  it('allows an employee with wallet.manage to credit a user wallet through admin routes', async () => {
+  it('allows an employee with wallet.credit to credit a user wallet through admin routes', async () => {
     db.transaction = async () => ({
       commit: async () => {},
       rollback: async () => {},
@@ -196,6 +185,41 @@ describe('Employee access across additional admin modules', () => {
     const res = await request(app)
       .post('/api/admin/wallet/credit')
       .set('Authorization', `Bearer ${walletEmployeeToken}`)
+      .send({ user_id: 51, amount: 25, reason: 'Adjustment' });
+
+    expect(res.status).to.equal(201);
+    expect(res.body.success).to.equal(true);
+  });
+
+  it('rejects wallet debit when the employee only has wallet.credit', async () => {
+    const res = await request(app)
+      .post('/api/admin/wallet/debit')
+      .set('Authorization', `Bearer ${walletEmployeeToken}`)
+      .send({ user_id: 51, amount: 25, reason: 'Adjustment' });
+
+    expect(res.status).to.equal(403);
+    expect(res.body.message).to.match(/permission to debit wallet balances/i);
+  });
+
+  it('allows an employee with wallet.debit to debit a user wallet through admin routes', async () => {
+    db.transaction = async () => ({
+      commit: async () => {},
+      rollback: async () => {},
+    });
+    User.findByPk = async () => ({
+      id: 51,
+      name: 'Wallet Target',
+      wallet: 100,
+      update: async function (data) {
+        Object.assign(this, data);
+        return this;
+      },
+    });
+    Ledger.create = async (data) => ({ id: 92, ...data });
+
+    const res = await request(app)
+      .post('/api/admin/wallet/debit')
+      .set('Authorization', `Bearer ${walletDebitEmployeeToken}`)
       .send({ user_id: 51, amount: 25, reason: 'Adjustment' });
 
     expect(res.status).to.equal(201);

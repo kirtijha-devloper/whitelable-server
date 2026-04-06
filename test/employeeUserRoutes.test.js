@@ -12,6 +12,7 @@ mailUtils.sendMail = async () => ({ accepted: ['test@example.com'] });
 
 const userRoutes = require('../routes/userRoutes');
 const User = require('../models/User');
+const EmployeeAccessRole = require('../models/EmployeeAccessRole');
 const UsernameSequence = require('../models/UsernameSequence');
 const Tpin = require('../models/Tpin');
 const PosMachine = require('../models/posMachine');
@@ -32,54 +33,39 @@ app.use((err, req, res, _next) => {
 
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const makeToken = (user) => jwt.sign({ user }, SECRET);
+const makeEmployeeToken = (permissions) => makeToken({
+  id: 7,
+  role: 'employee',
+  name: 'Employee',
+  employee_access_role_id: 3,
+  employee_access_role: {
+    id: 3,
+    name: 'Operations',
+    slug: 'operations',
+    status: 'active',
+    permissions,
+  },
+});
 
 const adminToken = makeToken({ id: 1, role: 'admin', name: 'Admin' });
 const franchiseToken = makeToken({ id: 5, role: 'franchaise', name: 'Franchise' });
-const employeeListToken = makeToken({
-  id: 7,
-  role: 'employee',
-  name: 'Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.USERS_LIST],
-});
-const employeeReadToken = makeToken({
-  id: 7,
-  role: 'employee',
-  name: 'Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.USERS_READ],
-});
-const employeeUpdateToken = makeToken({
-  id: 7,
-  role: 'employee',
-  name: 'Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.USERS_UPDATE],
-});
-const employeeStatusToken = makeToken({
-  id: 7,
-  role: 'employee',
-  name: 'Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.USERS_STATUS_UPDATE],
-});
-const employeeCreateToken = makeToken({
-  id: 7,
-  role: 'employee',
-  name: 'Employee',
-  permissions: [EMPLOYEE_PERMISSIONS.USERS_CREATE],
-});
-const noPermissionEmployeeToken = makeToken({
-  id: 7,
-  role: 'employee',
-  name: 'Employee',
-  permissions: [],
-});
+const employeeListToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_LIST]);
+const employeeReadToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_READ]);
+const employeeUpdateToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_UPDATE]);
+const employeeStatusToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_STATUS_UPDATE]);
+const employeeCreateToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_CREATE]);
+const noPermissionEmployeeToken = makeEmployeeToken([]);
 
 let stubs = {};
 
 beforeEach(() => {
   stubs = {
     userFindAndCountAll: User.findAndCountAll,
+    userFindAll: User.findAll,
     userFindByPk: User.findByPk,
     userFindOne: User.findOne,
     userCreate: User.create,
+    employeeAccessRoleFindByPk: EmployeeAccessRole.findByPk,
     usernameSequenceFindOne: UsernameSequence.findOne,
     usernameSequenceCreate: UsernameSequence.create,
     tpinFindOne: Tpin.findOne,
@@ -94,9 +80,11 @@ beforeEach(() => {
 
 afterEach(() => {
   User.findAndCountAll = stubs.userFindAndCountAll;
+  User.findAll = stubs.userFindAll;
   User.findByPk = stubs.userFindByPk;
   User.findOne = stubs.userFindOne;
   User.create = stubs.userCreate;
+  EmployeeAccessRole.findByPk = stubs.employeeAccessRoleFindByPk;
   UsernameSequence.findOne = stubs.usernameSequenceFindOne;
   UsernameSequence.create = stubs.usernameSequenceCreate;
   Tpin.findOne = stubs.tpinFindOne;
@@ -109,8 +97,18 @@ afterEach(() => {
 });
 
 describe('Employee role on user routes', () => {
-  it('allows admin to create an employee with permissions and no bank passbook', async () => {
+  it('allows admin to create an employee with an access role and no bank passbook', async () => {
     User.findOne = async () => null;
+    EmployeeAccessRole.findByPk = async () => ({
+      id: 3,
+      name: 'Operations',
+      slug: 'operations',
+      status: 'active',
+      permissions: [EMPLOYEE_PERMISSIONS.USERS_LIST, EMPLOYEE_PERMISSIONS.USERS_READ],
+      toJSON() {
+        return { ...this };
+      },
+    });
     UsernameSequence.findOne = async () => null;
     UsernameSequence.create = async () => ({ current_value: 1, save: async function () { return this; } });
     db.transaction = async (handler) => handler({ LOCK: { UPDATE: 'UPDATE' } });
@@ -131,12 +129,13 @@ describe('Employee role on user routes', () => {
         email: 'employee@example.com',
         mobile_number: '9000000001',
         password: 'Test@1234',
-        permissions: JSON.stringify([EMPLOYEE_PERMISSIONS.USERS_LIST, EMPLOYEE_PERMISSIONS.USERS_READ]),
+        employee_access_role_id: 3,
       });
 
     expect(res.status).to.equal(201);
     expect(res.body.user.role).to.equal('employee');
     expect(res.body.user.username).to.equal('APE00001');
+    expect(res.body.user.employee_access_role_id).to.equal(3);
     expect(res.body.user.permissions).to.deep.equal([
       EMPLOYEE_PERMISSIONS.USERS_LIST,
       EMPLOYEE_PERMISSIONS.USERS_READ,
@@ -156,6 +155,21 @@ describe('Employee role on user routes', () => {
 
     expect(res.status).to.equal(403);
     expect(res.body.message).to.match(/merchant users only|only admins can create employee/i);
+  });
+
+  it('requires employee_access_role_id when creating an employee', async () => {
+    const res = await request(app)
+      .post('/api/user/register')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        role: 'employee',
+        email: 'employee@example.com',
+        mobile_number: '9000000002',
+        password: 'Test@1234',
+      });
+
+    expect(res.status).to.equal(400);
+    expect(res.body.message).to.match(/employee_access_role_id is required/i);
   });
 
   it('allows an employee with users.create to create a merchant user', async () => {
@@ -210,7 +224,8 @@ describe('Employee role on user routes', () => {
       name: 'Ops Employee',
       mobile_number_country_code: '+91',
       role: 'employee',
-      permissions: [EMPLOYEE_PERMISSIONS.USERS_LIST],
+      permissions: [],
+      employee_access_role_id: 3,
       abheepay_id: 'APE00001',
       is_approved: true,
       organization_name: 'NA',
@@ -221,6 +236,16 @@ describe('Employee role on user routes', () => {
       ipay_outlet_id: null,
       is_payout_enabled: true,
     });
+    EmployeeAccessRole.findByPk = async () => ({
+      id: 3,
+      name: 'Operations',
+      slug: 'operations',
+      status: 'active',
+      permissions: [EMPLOYEE_PERMISSIONS.USERS_LIST],
+      toJSON() {
+        return { ...this };
+      },
+    });
     Tpin.findOne = async () => null;
     ledgerService.getAvailableBalance = async () => 450;
 
@@ -230,6 +255,7 @@ describe('Employee role on user routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.role).to.equal('employee');
+    expect(res.body.employee_access_role_id).to.equal(3);
     expect(res.body.permissions).to.deep.equal([EMPLOYEE_PERMISSIONS.USERS_LIST]);
   });
 
@@ -254,6 +280,122 @@ describe('Employee role on user routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.data).to.have.length(1);
+  });
+
+  it('adds merchant counts for franchise rows and franchise details for merchant rows in user list', async () => {
+    User.findAndCountAll = async () => ({
+      count: 2,
+      rows: [
+        {
+          id: 5,
+          role: 'franchaise',
+          wallet: '0.00',
+          toJSON() {
+            return { id: 5, role: 'franchaise', wallet: '0.00' };
+          }
+        },
+        {
+          id: 11,
+          role: 'merchant',
+          franchaise_id: 5,
+          wallet: '100.00',
+          toJSON() {
+            return { id: 11, role: 'merchant', franchaise_id: 5, wallet: '100.00' };
+          }
+        }
+      ],
+    });
+    PosMachine.findAll = async () => [];
+    User.findAll = async (options) => {
+      if (options?.group) {
+        return [{
+          get(field) {
+            if (field === 'franchaise_id') return 5;
+            if (field === 'merchant_count') return '3';
+            return null;
+          },
+        }];
+      }
+
+      return [{
+        toJSON() {
+          return { id: 5, name: 'Franchise One', abheepay_id: 'APF00005' };
+        },
+      }];
+    };
+
+    const res = await request(app)
+      .get('/api/user')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    const franchiseUser = res.body.data.find((user) => user.id === 5);
+    const merchantUser = res.body.data.find((user) => user.id === 11);
+
+    expect(franchiseUser.merchant_count).to.equal(3);
+    expect(franchiseUser.franchise_details).to.equal(null);
+    expect(merchantUser.merchant_count).to.equal(null);
+    expect(merchantUser.franchise_details).to.deep.equal({
+      name: 'Franchise One',
+      abheepay_id: 'APF00005',
+    });
+  });
+
+  it('adds merchant counts and franchise details in user search results', async () => {
+    User.findAndCountAll = async () => ({
+      count: 2,
+      rows: [
+        {
+          id: 6,
+          role: 'franchaise',
+          wallet: '0.00',
+          toJSON() {
+            return { id: 6, role: 'franchaise', wallet: '0.00' };
+          }
+        },
+        {
+          id: 12,
+          role: 'merchant',
+          franchaise_id: 6,
+          wallet: '250.00',
+          toJSON() {
+            return { id: 12, role: 'merchant', franchaise_id: 6, wallet: '250.00' };
+          }
+        }
+      ],
+    });
+    PosMachine.findAll = async () => [];
+    User.findAll = async (options) => {
+      if (options?.group) {
+        return [{
+          get(field) {
+            if (field === 'franchaise_id') return 6;
+            if (field === 'merchant_count') return '1';
+            return null;
+          },
+        }];
+      }
+
+      return [{
+        toJSON() {
+          return { id: 6, name: 'Franchise Search', abheepay_id: 'APF00006' };
+        },
+      }];
+    };
+
+    const res = await request(app)
+      .get('/api/user/search?q=test')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    const franchiseUser = res.body.data.find((user) => user.id === 6);
+    const merchantUser = res.body.data.find((user) => user.id === 12);
+
+    expect(franchiseUser.merchant_count).to.equal(1);
+    expect(merchantUser.franchise_details).to.deep.equal({
+      name: 'Franchise Search',
+      abheepay_id: 'APF00006',
+    });
   });
 
   it('rejects employee user list access without permission', async () => {
@@ -316,7 +458,7 @@ describe('Employee role on user routes', () => {
     expect(res.body.data.name).to.equal('Updated Merchant');
   });
 
-  it('rejects employee attempts to change role or permissions', async () => {
+  it('rejects employee attempts to change role or access controls', async () => {
     User.findByPk = async () => ({
       id: 42,
       role: 'merchant',
@@ -331,7 +473,7 @@ describe('Employee role on user routes', () => {
       .send({ role: 'employee' });
 
     expect(res.status).to.equal(403);
-    expect(res.body.message).to.match(/only admins can update role or permissions/i);
+    expect(res.body.message).to.match(/only admins can update role or employee access controls/i);
   });
 
   it('allows employee with users.status.update permission to soft deactivate a user', async () => {

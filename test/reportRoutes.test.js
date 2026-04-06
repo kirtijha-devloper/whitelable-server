@@ -41,7 +41,14 @@ const reportsEmployeeToken = jwt.sign({
     id: 7,
     role: 'employee',
     name: 'Reports Employee',
-    permissions: ['reports.read'],
+    employee_access_role_id: 13,
+    employee_access_role: {
+      id: 13,
+      name: 'Reports',
+      slug: 'reports',
+      status: 'active',
+      permissions: ['reports.read'],
+    },
   }
 }, process.env.ACCESS_TOKEN_SECRET);
 

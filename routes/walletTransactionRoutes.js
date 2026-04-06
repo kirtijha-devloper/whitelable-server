@@ -18,19 +18,31 @@ const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 
 router.use(validateToken);
 
-router.post("/request", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_MANAGE, {
+router.post("/request", ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.WALLET_CREDIT,
+  EMPLOYEE_PERMISSIONS.WALLET_DEBIT,
+], {
   message: "You do not have permission to manage wallet operations.",
   elevateRole: "admin",
 }), requestFund);
-router.post("/transer/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_MANAGE, {
+router.post("/transer/:id", ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.WALLET_CREDIT,
+  EMPLOYEE_PERMISSIONS.WALLET_DEBIT,
+], {
   message: "You do not have permission to manage wallet operations.",
   elevateRole: "admin",
 }), transferFund)
-router.post("/hold/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_MANAGE, {
+router.post("/hold/:id", ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.WALLET_CREDIT,
+  EMPLOYEE_PERMISSIONS.WALLET_DEBIT,
+], {
   message: "You do not have permission to manage wallet operations.",
   elevateRole: "admin",
 }), holdFund);
-router.post("/unhold/:id", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_MANAGE, {
+router.post("/unhold/:id", ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.WALLET_CREDIT,
+  EMPLOYEE_PERMISSIONS.WALLET_DEBIT,
+], {
   message: "You do not have permission to manage wallet operations.",
   elevateRole: "admin",
 }), unholdFund);

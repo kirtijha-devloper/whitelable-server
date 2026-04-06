@@ -2,6 +2,7 @@ const asyncHandler = require("express-async-handler");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const  User = require('../models/User');
+const EmployeeAccessRole = require('../models/EmployeeAccessRole');
 const db = require('../config/database');
 const UsernameSequence = require('../models/UsernameSequence');
 
@@ -50,9 +51,9 @@ const Rental = require('../models/Rental');
 const ledgerService = require('../services/ledgerService');
 const {
   EMPLOYEE_PERMISSIONS,
+  buildEmployeeAccessRoleSummary,
+  getResolvedPermissions,
   normalizeRole,
-  normalizePermissions,
-  parsePermissionsInput,
   isEmployee,
   hasPermission,
   canFranchiseAccessTarget,
@@ -116,6 +117,154 @@ if (!process.env.CLOUDINARY_API_KEY || process.env.NODE_ENV === 'test') {
   cloudinary.uploader.upload = async (filePath, opts) => {
     return { secure_url: `https://dummy.cloudinary.test/${filePath.split(/[\\\/]/).pop()}` };
   };
+}
+
+function parseEmployeeAccessRoleIdInput(rawValue) {
+  if (rawValue === undefined || rawValue === null || rawValue === '') {
+    return { provided: false, employeeAccessRoleId: null };
+  }
+
+  const parsedValue = Number.parseInt(rawValue, 10);
+  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+    return {
+      provided: true,
+      error: 'employee_access_role_id must be a valid positive integer.',
+    };
+  }
+
+  return {
+    provided: true,
+    employeeAccessRoleId: parsedValue,
+  };
+}
+
+async function getEmployeeAccessRoleById(employeeAccessRoleId) {
+  if (!employeeAccessRoleId) {
+    return null;
+  }
+
+  return EmployeeAccessRole.findByPk(employeeAccessRoleId);
+}
+
+function serializeUserWithResolvedAccessRole(userLike, employeeAccessRole = null) {
+  const plainUser = userLike?.toJSON ? userLike.toJSON() : { ...userLike };
+  const resolvedAccessRole = employeeAccessRole
+    || plainUser.employee_access_role
+    || null;
+
+  return {
+    ...plainUser,
+    employee_access_role_id: plainUser.employee_access_role_id || resolvedAccessRole?.id || null,
+    employee_access_role: buildEmployeeAccessRoleSummary(resolvedAccessRole),
+    permissions: getResolvedPermissions({
+      ...plainUser,
+      employee_access_role: resolvedAccessRole,
+    }),
+  };
+}
+
+function toPlainUser(userLike) {
+  return userLike?.toJSON ? userLike.toJSON() : { ...userLike };
+}
+
+async function buildEmployeeAccessRoleMap(users) {
+  const employeeAccessRoleIds = [...new Set(
+    (Array.isArray(users) ? users : [])
+      .map((user) => toPlainUser(user))
+      .filter((user) => normalizeRole(user?.role) === 'employee' && user?.employee_access_role_id)
+      .map((user) => user.employee_access_role_id)
+  )];
+
+  if (employeeAccessRoleIds.length === 0) {
+    return new Map();
+  }
+
+  const employeeAccessRoles = await EmployeeAccessRole.findAll({
+    where: {
+      id: { [Op.in]: employeeAccessRoleIds },
+    },
+  });
+
+  return new Map(employeeAccessRoles.map((employeeAccessRole) => [
+    employeeAccessRole.id,
+    employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : { ...employeeAccessRole },
+  ]));
+}
+
+async function buildMerchantCountMap(users) {
+  const franchiseUserIds = [...new Set(
+    (Array.isArray(users) ? users : [])
+      .map((user) => toPlainUser(user))
+      .filter((user) => normalizeRole(user?.role) === 'franchaise' && user?.id)
+      .map((user) => Number(user.id))
+  )];
+
+  if (franchiseUserIds.length === 0) {
+    return new Map();
+  }
+
+  const merchantCounts = await User.findAll({
+    where: {
+      role: 'merchant',
+      franchaise_id: {
+        [Op.in]: franchiseUserIds,
+      },
+    },
+    attributes: [
+      'franchaise_id',
+      [fn('COUNT', col('id')), 'merchant_count'],
+    ],
+    group: ['franchaise_id'],
+  });
+
+  return new Map(merchantCounts.map((merchantCountRow) => {
+    const franchiseId = Number(
+      merchantCountRow?.get ? merchantCountRow.get('franchaise_id') : merchantCountRow.franchaise_id
+    );
+    const merchantCount = Number.parseInt(
+      merchantCountRow?.get ? merchantCountRow.get('merchant_count') : merchantCountRow.merchant_count,
+      10
+    ) || 0;
+
+    return [franchiseId, merchantCount];
+  }));
+}
+
+async function buildFranchiseSummaryMap(users) {
+  const franchiseIds = [...new Set(
+    (Array.isArray(users) ? users : [])
+      .map((user) => toPlainUser(user))
+      .filter((user) => normalizeRole(user?.role) === 'merchant' && user?.franchaise_id)
+      .map((user) => Number(user.franchaise_id))
+  )];
+
+  if (franchiseIds.length === 0) {
+    return new Map();
+  }
+
+  const franchises = await User.findAll({
+    where: {
+      id: {
+        [Op.in]: franchiseIds,
+      },
+      role: {
+        [Op.in]: ['franchaise', 'franchise'],
+      },
+    },
+    attributes: ['id', 'name', 'abheepay_id'],
+  });
+
+  return new Map(franchises.map((franchise) => {
+    const plainFranchise = toPlainUser(franchise);
+
+    return [
+      Number(plainFranchise.id),
+      {
+        name: plainFranchise.name || null,
+        abheepay_id: plainFranchise.abheepay_id || null,
+      },
+    ];
+  }));
 }
 
 const getUsers = asyncHandler(async (req, res) => {
@@ -189,6 +338,10 @@ const getUsers = asyncHandler(async (req, res) => {
           return acc;
         }, {});
 
+        const employeeAccessRoleMap = await buildEmployeeAccessRoleMap(users);
+        const merchantCountMap = await buildMerchantCountMap(users);
+        const franchiseSummaryMap = await buildFranchiseSummaryMap(users);
+
         const usersWithPosCount = users.map((u) => {
           const plain = u.toJSON ? u.toJSON() : u;
           plain.pos_machine_count = posCountMap[u.id] || 0;
@@ -196,12 +349,30 @@ const getUsers = asyncHandler(async (req, res) => {
         });
 
         const usersWithResolvedBalance = usersWithPosCount.map((u) => {
+<<<<<<< Updated upstream
             const wallet = parseFloat(u.wallet || 0);
             const walletHold = parseFloat(u.wallet_hold || 0);
             return {
                 ...u,
                 wallet_balance: parseFloat((wallet - walletHold).toFixed(2)),
             };
+=======
+          const wallet = parseFloat(u.wallet || 0);
+          const employeeAccessRole = employeeAccessRoleMap.get(u.employee_access_role_id) || null;
+          const normalizedListedRole = normalizeRole(u.role);
+
+          return {
+            ...serializeUserWithResolvedAccessRole(u, employeeAccessRole),
+            pos_machine_count: u.pos_machine_count,
+            wallet_balance: wallet,
+            merchant_count: normalizedListedRole === 'franchaise'
+              ? (merchantCountMap.get(Number(u.id)) || 0)
+              : null,
+            franchise_details: normalizedListedRole === 'merchant'
+              ? (franchiseSummaryMap.get(Number(u.franchaise_id)) || null)
+              : null,
+          };
+>>>>>>> Stashed changes
         });
 
         res.status(200).json({
@@ -299,15 +470,34 @@ const searchUsers = asyncHandler(async (req, res) => {
             return acc;
         }, {});
 
+        const employeeAccessRoleMap = await buildEmployeeAccessRoleMap(users);
+        const merchantCountMap = await buildMerchantCountMap(users);
+        const franchiseSummaryMap = await buildFranchiseSummaryMap(users);
+
         const results = users.map((u) => {
             const plain = u.toJSON ? u.toJSON() : u;
             const walletVal = parseFloat(plain.wallet || 0);
+<<<<<<< Updated upstream
             const walletHoldVal = parseFloat(plain.wallet_hold || 0);
+=======
+            const employeeAccessRole = employeeAccessRoleMap.get(plain.employee_access_role_id) || null;
+            const normalizedListedRole = normalizeRole(plain.role);
+>>>>>>> Stashed changes
 
             return {
-                ...plain,
+                ...serializeUserWithResolvedAccessRole(plain, employeeAccessRole),
                 pos_machine_count: posCountMap[plain.id] || 0,
+<<<<<<< Updated upstream
                 wallet_balance: parseFloat((walletVal - walletHoldVal).toFixed(2)),
+=======
+                wallet_balance: walletVal,
+                merchant_count: normalizedListedRole === 'franchaise'
+                    ? (merchantCountMap.get(Number(plain.id)) || 0)
+                    : null,
+                franchise_details: normalizedListedRole === 'merchant'
+                    ? (franchiseSummaryMap.get(Number(plain.franchaise_id)) || null)
+                    : null,
+>>>>>>> Stashed changes
             };
         });
 
@@ -434,7 +624,13 @@ const getUserByID = asyncHandler(async (req, res) => {
     }
 
     const response = {};
-    response.user = searchedUser;
+    const employeeAccessRole = searchedUser.employee_access_role_id
+      ? await getEmployeeAccessRoleById(searchedUser.employee_access_role_id)
+      : null;
+    response.user = serializeUserWithResolvedAccessRole(
+      searchedUser,
+      employeeAccessRole ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : employeeAccessRole) : null
+    );
 
     // Fetch charges associated with merchant (if merchant role)
     if (searchedUserRole === "merchant" || role === "admin") {
@@ -559,11 +755,12 @@ const registerUser = asyncHandler(async (req, res) => {
         }
 
         const normalizedRole = normalizeRole(role);
-        const parsedPermissions = parsePermissionsInput(req.body.permissions);
-        if (parsedPermissions.error) {
+        const permissionsFieldProvided = req.body.permissions !== undefined;
+        const parsedEmployeeAccessRoleId = parseEmployeeAccessRoleIdInput(req.body.employee_access_role_id);
+        if (parsedEmployeeAccessRoleId.error) {
             return res.status(400).json({
                 success: false,
-                message: parsedPermissions.error,
+                message: parsedEmployeeAccessRoleId.error,
             });
         }
 
@@ -582,10 +779,10 @@ const registerUser = asyncHandler(async (req, res) => {
                 });
             }
 
-            if (parsedPermissions.provided) {
+            if (permissionsFieldProvided || parsedEmployeeAccessRoleId.provided) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Only admins can assign employee permissions.',
+                    message: 'Only admins can assign employee access roles.',
                 });
             }
         }
@@ -604,23 +801,51 @@ const registerUser = asyncHandler(async (req, res) => {
             });
         }
 
-        if (parsedPermissions.provided && !requesterIsAdmin) {
-            return res.status(403).json({
-                success: false,
-                message: 'Only admins can assign employee permissions.',
-            });
-        }
-
-        if (parsedPermissions.provided && normalizedRole !== 'employee') {
+        if (permissionsFieldProvided) {
             return res.status(400).json({
                 success: false,
-                message: 'permissions can only be set for employee users.',
+                message: 'Direct employee permissions are deprecated. Assign employee_access_role_id instead.',
             });
         }
 
-        const employeePermissions = normalizedRole === 'employee'
-            ? parsedPermissions.permissions
-            : [];
+        if (parsedEmployeeAccessRoleId.provided && !requesterIsAdmin) {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can assign employee access roles.',
+            });
+        }
+
+        if (parsedEmployeeAccessRoleId.provided && normalizedRole !== 'employee') {
+            return res.status(400).json({
+                success: false,
+                message: 'employee_access_role_id can only be set for employee users.',
+            });
+        }
+
+        if (normalizedRole === 'employee' && !parsedEmployeeAccessRoleId.provided) {
+            return res.status(400).json({
+                success: false,
+                message: 'employee_access_role_id is required for employee users.',
+            });
+        }
+
+        const employeeAccessRole = normalizedRole === 'employee'
+            ? await getEmployeeAccessRoleById(parsedEmployeeAccessRoleId.employeeAccessRoleId)
+            : null;
+
+        if (normalizedRole === 'employee' && !employeeAccessRole) {
+            return res.status(400).json({
+                success: false,
+                message: 'Employee access role not found.',
+            });
+        }
+
+        if (employeeAccessRole && employeeAccessRole.status !== 'active') {
+            return res.status(400).json({
+                success: false,
+                message: 'Only active employee access roles can be assigned.',
+            });
+        }
 
         const bankPassbookFile = req.files?.bank_passbook;
         if (normalizedRole !== 'employee' && !bankPassbookFile) {
@@ -704,7 +929,8 @@ const registerUser = asyncHandler(async (req, res) => {
                 settlement_type: req.body.settlement_type || 'today_settlement',
                 is_approved: false,
                 status: 'active',
-                permissions: employeePermissions,
+                permissions: [],
+                employee_access_role_id: employeeAccessRole ? employeeAccessRole.id : null,
                 company_or_shop_name: company_or_shop_name || null,
                 username,
                 ...(req.user && req.user.role === 'franchaise' && normalizedRole === 'merchant' && { franchaise_id: req.user.id }),
@@ -791,6 +1017,11 @@ const registerUser = asyncHandler(async (req, res) => {
             }
         }
 
+        const createdUserPayload = user.toJSON ? user.toJSON() : { ...user };
+        const employeeAccessRolePayload = employeeAccessRole
+            ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : { ...employeeAccessRole })
+            : null;
+
         const userPayload = {
             id: user.id,
             email: user.email,
@@ -799,7 +1030,12 @@ const registerUser = asyncHandler(async (req, res) => {
             role: user.role,
             username: user.username,
             company_or_shop_name: user.company_or_shop_name || null,
-            permissions: normalizePermissions(user.permissions),
+            employee_access_role_id: user.employee_access_role_id || null,
+            employee_access_role: buildEmployeeAccessRoleSummary(employeeAccessRole),
+            permissions: getResolvedPermissions({
+                ...createdUserPayload,
+                employee_access_role: employeeAccessRolePayload,
+            }),
         };
 
         res.status(201).json({
@@ -969,7 +1205,18 @@ const approveUser = asyncHandler( async (req, res) => {
 
                 // Compute settlement hold for next-day settlement users
                 const availableBalance = await ledgerService.getAvailableBalance(user.id);
+<<<<<<< Updated upstream
                 const settlementHold = parseFloat((parseFloat(user.wallet || 0) - availableBalance).toFixed(2));
+=======
+                const employeeAccessRole = user.employee_access_role_id
+                    ? await getEmployeeAccessRoleById(user.employee_access_role_id)
+                    : null;
+
+                const currentUserPayload = user.toJSON ? user.toJSON() : { ...user };
+                const currentEmployeeAccessRolePayload = employeeAccessRole
+                    ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : { ...employeeAccessRole })
+                    : null;
+>>>>>>> Stashed changes
 
                 res.json({
                     email: user.email,
@@ -989,7 +1236,12 @@ const approveUser = asyncHandler( async (req, res) => {
                     tpin_set: !!tpinRecord,
                     ipay_outlet_id: user.ipay_outlet_id || null,
                     is_payout_enabled: user.is_payout_enabled,
-                    permissions: normalizePermissions(user.permissions),
+                    employee_access_role_id: user.employee_access_role_id || null,
+                    employee_access_role: buildEmployeeAccessRoleSummary(employeeAccessRole),
+                    permissions: getResolvedPermissions({
+                        ...currentUserPayload,
+                        employee_access_role: currentEmployeeAccessRolePayload,
+                    }),
 
                     id: user.id
             });
@@ -1510,13 +1762,14 @@ const updateUser = asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    const parsedPermissions = parsePermissionsInput(req.body.permissions);
-    if (parsedPermissions.error) {
-      return res.status(400).json({ success: false, message: parsedPermissions.error });
+    const permissionsFieldProvided = req.body.permissions !== undefined;
+    const parsedEmployeeAccessRoleId = parseEmployeeAccessRoleIdInput(req.body.employee_access_role_id);
+    if (parsedEmployeeAccessRoleId.error) {
+      return res.status(400).json({ success: false, message: parsedEmployeeAccessRoleId.error });
     }
 
     const roleFieldProvided = req.body.role !== undefined;
-    const permissionsFieldProvided = parsedPermissions.provided;
+    const employeeAccessRoleFieldProvided = parsedEmployeeAccessRoleId.provided;
     const currentTargetRole = normalizeRole(targetUser.role);
     const requestedRole = roleFieldProvided ? normalizeRole(req.body.role) : currentTargetRole;
     const allowedRoles = ['merchant', 'franchaise', 'admin', 'employee'];
@@ -1528,17 +1781,55 @@ const updateUser = asyncHandler(async (req, res) => {
       });
     }
 
-    if (requesterRole !== 'admin' && (roleFieldProvided || permissionsFieldProvided)) {
+    if (requesterRole !== 'admin' && (roleFieldProvided || permissionsFieldProvided || employeeAccessRoleFieldProvided)) {
       return res.status(403).json({
         success: false,
-        message: 'Only admins can update role or permissions.',
+        message: 'Only admins can update role or employee access controls.',
       });
     }
 
-    if (permissionsFieldProvided && requestedRole !== 'employee') {
+    if (permissionsFieldProvided) {
       return res.status(400).json({
         success: false,
-        message: 'permissions can only be set for employee users.',
+        message: 'Direct employee permissions are deprecated. Assign employee_access_role_id instead.',
+      });
+    }
+
+    if (employeeAccessRoleFieldProvided && requestedRole !== 'employee') {
+      return res.status(400).json({
+        success: false,
+        message: 'employee_access_role_id can only be set for employee users.',
+      });
+    }
+
+    const effectiveEmployeeAccessRoleId = requestedRole === 'employee'
+      ? (employeeAccessRoleFieldProvided
+        ? parsedEmployeeAccessRoleId.employeeAccessRoleId
+        : targetUser.employee_access_role_id)
+      : null;
+
+    if (requestedRole === 'employee' && !effectiveEmployeeAccessRoleId) {
+      return res.status(400).json({
+        success: false,
+        message: 'employee_access_role_id is required for employee users.',
+      });
+    }
+
+    const employeeAccessRole = effectiveEmployeeAccessRoleId
+      ? await getEmployeeAccessRoleById(effectiveEmployeeAccessRoleId)
+      : null;
+
+    if (requestedRole === 'employee' && !employeeAccessRole) {
+      return res.status(400).json({
+        success: false,
+        message: 'Employee access role not found.',
+      });
+    }
+
+    if (employeeAccessRole && employeeAccessRole.status !== 'active') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only active employee access roles can be assigned.',
       });
     }
 
@@ -1594,11 +1885,11 @@ const updateUser = asyncHandler(async (req, res) => {
         }
       }
 
-      if (permissionsFieldProvided) {
-        updates.permissions = parsedPermissions.permissions;
-      } else if (requestedRole === 'employee' && currentTargetRole !== 'employee') {
+      if (requestedRole === 'employee') {
+        updates.employee_access_role_id = employeeAccessRole.id;
         updates.permissions = [];
-      } else if (requestedRole !== 'employee' && normalizePermissions(targetUser.permissions).length > 0) {
+      } else if (currentTargetRole === 'employee' || targetUser.employee_access_role_id) {
+        updates.employee_access_role_id = null;
         updates.permissions = [];
       }
     }
@@ -1654,7 +1945,12 @@ const updateUser = asyncHandler(async (req, res) => {
     await targetUser.reload();
 
     // Strip sensitive fields before responding
-    const { password: _pw, ...safeUser } = targetUser.toJSON();
+    const { password: _pw, ...safeUser } = serializeUserWithResolvedAccessRole(
+      targetUser,
+      targetUser.employee_access_role_id
+        ? await getEmployeeAccessRoleById(targetUser.employee_access_role_id)
+        : null
+    );
 
     return res.status(200).json({
       success: true,

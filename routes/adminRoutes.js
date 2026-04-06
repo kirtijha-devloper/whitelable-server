@@ -19,32 +19,26 @@ router.get("/merchants/unassigned", validateToken, ensureEmployeePermission(EMPL
 // ── Admin wallet adjustments (admin-only, protected) ─────────────────────────
 // POST /api/admin/wallet/credit
 //   Body: { user_id, amount, reason?, idempotency_key }
-router.post("/wallet/credit", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_MANAGE, {
-  message: "You do not have permission to manage wallet operations.",
+router.post("/wallet/credit", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_CREDIT, {
+  message: "You do not have permission to credit wallet balances.",
   elevateRole: "admin",
 }), adminDirectCredit);
 
 // POST /api/admin/wallet/debit
 //   Body: { user_id, amount, reason?, idempotency_key }
-router.post("/wallet/debit", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_MANAGE, {
-  message: "You do not have permission to manage wallet operations.",
+router.post("/wallet/debit", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_DEBIT, {
+  message: "You do not have permission to debit wallet balances.",
   elevateRole: "admin",
 }), adminDirectDebit);
 
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.
 //   Run this after any manual insert/delete in the Ledgers table.
-router.post("/wallet/reconcile/:userId", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_MANAGE, {
-  message: "You do not have permission to manage wallet operations.",
-  elevateRole: "admin",
-}), reconcileWallet);
+router.post("/wallet/reconcile/:userId", validateToken, reconcileWallet);
 
 // POST /api/admin/wallet/reconcile-all
 //   Reconciles ALL active users' wallets in one call.
 //   Run after bulk DB operations or migrations that may affect many users.
-router.post("/wallet/reconcile-all", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_MANAGE, {
-  message: "You do not have permission to manage wallet operations.",
-  elevateRole: "admin",
-}), reconcileAllWallets);
+router.post("/wallet/reconcile-all", validateToken, reconcileAllWallets);
 
 module.exports = router;

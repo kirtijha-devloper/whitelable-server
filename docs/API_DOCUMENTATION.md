@@ -86,7 +86,7 @@
 | `password` | string | Yes | Password |
 | `mobile_number` | string | Yes | Mobile number |
 | `role` | string | Yes | `merchant` \| `franchise` \| `admin` \| `employee` |
-| `permissions` | string | No | Admin-only JSON array string. Supported for `employee` role only. |
+| `employee_access_role_id` | number | Yes for `employee` | Admin-managed employee access role ID |
 | `company_or_shop_name` | string | No | Business name |
 | `bank_passbook` | file | Yes | Bank passbook/statement image. Not required for `employee`. |
 | `pan_photo` | file | No | PAN card image |
@@ -103,8 +103,16 @@
     "id": 5,
     "username": "APM00005",
     "abheepay_id": "APM00005",
-    "role": "merchant",
-    "permissions": []
+    "role": "employee",
+    "employee_access_role_id": 3,
+    "employee_access_role": {
+      "id": 3,
+      "name": "Accounts",
+      "slug": "accounts",
+      "status": "active",
+      "description": null
+    },
+    "permissions": ["wallet.read", "wallet.credit"]
   }
 }
 ```
@@ -229,9 +237,17 @@ Returns the currently authenticated user's profile.
   "name": "John Doe",
   "email": "john@example.com",
   "mobile_number": "9876543210",
-  "role": "merchant",
+  "role": "employee",
   "wallet": "1500.00",
-  "permissions": []
+  "employee_access_role_id": 3,
+  "employee_access_role": {
+    "id": 3,
+    "name": "Accounts",
+    "slug": "accounts",
+    "status": "active",
+    "description": null
+  },
+  "permissions": ["wallet.read", "wallet.credit"]
 }
 ```
 
@@ -310,12 +326,14 @@ Employee users require the `users.read` permission.
 | `bank_passbook` | file | Bank passbook image |
 | `settlement_type` | string | Admin-only: `default` \| `instant` |
 | `role` | string | Admin-only role update (`merchant` \| `franchise` \| `admin` \| `employee`) |
-| `permissions` | string/array | Admin-only employee permission slugs |
+| `employee_access_role_id` | number | Admin-only employee access role assignment |
 
 **Response `200`:**
 ```json
-{ "success": true, "message": "User updated successfully", "user": { "..." : "..." } }
+{ "success": true, "message": "User updated successfully", "data": { "..." : "..." } }
 ```
+
+> Direct employee `permissions` input is deprecated. Assign `employee_access_role_id` instead.
 
 ---
 
@@ -541,6 +559,33 @@ Admin accounts are still protected and cannot be direct-logged-in.
   "user": { "id": 5, "name": "...", "role": "merchant" }
 }
 ```
+
+---
+
+### `/api/admin/employee-access-roles`
+**Auth:** `Bearer token` (Admin only)
+
+Manage reusable access-role templates for employee users.
+
+Available endpoints:
+- `GET /api/admin/employee-access-roles/meta`
+- `GET /api/admin/employee-access-roles`
+- `POST /api/admin/employee-access-roles`
+- `GET /api/admin/employee-access-roles/:id`
+- `PUT /api/admin/employee-access-roles/:id`
+- `DELETE /api/admin/employee-access-roles/:id`
+
+**Create/Update body fields:**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Admin-facing role name |
+| `slug` | string | No | Stable key; auto-generated from `name` if omitted |
+| `description` | string | No | Optional description |
+| `status` | string | No | `active` \| `inactive` |
+| `permissions` | array/string | Yes | JSON array of supported employee permission slugs |
+
+**Delete behavior:**
+- delete is blocked if the role is assigned to any employee user
 
 ---
 
