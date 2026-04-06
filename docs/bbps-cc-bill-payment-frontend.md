@@ -4,6 +4,42 @@ This document explains how the frontend should interpret the response from `/api
 
 ---
 
+## 0) Call `/api/bbps-cc/billers`
+
+When loading billers, the frontend should handle both normal responses and InstantPay upstream failures. If InstantPay returns an error, the backend now forwards a readable message in `resp.message` and returns `502` for upstream failure.
+
+```js
+const resp = await fetch('/api/bbps-cc/billers', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  },
+}).then(r => r.json());
+
+if (!resp.success) {
+  showError(resp.message || 'Unable to load billers. Please try again.');
+  return;
+}
+
+const billers = resp.data;
+```
+
+### Error handling for biller load
+
+- If `resp.success === false`, show `resp.message` to the user.
+- If the backend returns a `502` status, this indicates an InstantPay upstream failure.
+- For any other failure, fall back to: `Unable to load billers. Please try again.`
+
+```js
+if (!resp.success) {
+  const clientMessage = resp.message || 'Unable to load billers. Please try again.';
+  showError(clientMessage);
+}
+```
+
+---
+
 ## 1) Call `/api/bbps-cc/pay`
 
 Send JSON request as usual; include the `enquiryReferenceId` obtained from `/pre-payment-enquiry`.
