@@ -109,6 +109,7 @@ Encrypts the Aadhaar number server-side and submits merchant details to InstantP
 | `consent`       | `string`  | ✅        | User consent acknowledgement (e.g. `"Y"`)          |
 | `latitude`      | `string`  | ❌        | GPS latitude of the merchant (optional)            |
 | `longitude`     | `string`  | ❌        | GPS longitude of the merchant (optional)           |
+| `forceReset`    | `boolean` | ❌        | Set to `true` to re-initiate KYC when an outlet ID already exists |
 
 **Example Request**
 
@@ -140,6 +141,8 @@ Encrypts the Aadhaar number server-side and submits merchant details to InstantP
   }
 }
 ```
+
+> ⚠️ If the authenticated user already has an InstantPay outlet ID, pass `forceReset=true` to allow the KYC initiation flow to run again.
 
 > ⚠️ **Store `otpReferenceID` and `hash`** — both are required for Step 2.
 

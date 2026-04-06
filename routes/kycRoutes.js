@@ -17,6 +17,8 @@ const { initiateKyc, validateKycOtp, getKycInfo } = require('../controllers/kycC
  *   Encrypts aadhaar & calls InstantPay signup/initiate.
  *   Returns { otpReferenceID, hash } needed for the OTP step.  Any missing
  *   values are taken from the authenticated user record when possible.
+ *   If the authenticated user already has an InstantPay outlet ID, initiation
+ *   is blocked unless the client explicitly passes forceReset=true.
  *
  * POST /api/kyc/validate-otp
  *   Verifies the OTP with InstantPay signup/validate.

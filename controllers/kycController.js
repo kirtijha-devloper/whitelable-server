@@ -74,16 +74,21 @@ const initiateKyc = asyncHandler(async (req, res) => {
     latitude,
     longitude,
     consent,
+    forceReset,
   } = req.body;
+
+  const allowForceReset = forceReset === true || forceReset === 'true' || req.query.forceReset === 'true';
 
   let existingUser;
   if (userId) {
     existingUser = await User.findByPk(userId);
     if (existingUser) {
-      // if an outlet ID already exists, we consider KYC done and block re-initiation
-      if (existingUser.ipay_outlet_id) {
+      if (existingUser.ipay_outlet_id && !allowForceReset) {
         res.status(400);
-        throw new Error('KYC is already completed for this user.');
+        throw new Error('KYC is already completed for this user. Use forceReset=true to re-initiate.');
+      }
+      if (existingUser.ipay_outlet_id && allowForceReset) {
+        console.info('[KYC initiateKyc] forceReset requested for user', userId, 'existing ipay_outlet_id=', existingUser.ipay_outlet_id);
       }
       mobile = mobile || existingUser.mobile_number;
       email = email || existingUser.email;
