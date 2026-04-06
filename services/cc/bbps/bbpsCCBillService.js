@@ -69,8 +69,12 @@ async function getCCBillers(outletId) {
     headers: buildHeaders(outletId),
   });
 
+  svcLog(`getCCBillers RESPONSE: ${JSON.stringify(response.data)}`);
+
   const billers = response.data?.data?.records ?? [];
-  return billers.map(b => ({ billerId: b.billerId, billerName: b.billerName }));
+  const result = billers.map(b => ({ billerId: b.billerId, billerName: b.billerName }));
+  svcLog(`getCCBillers PARSED biller count=${result.length}`);
+  return result;
 }
 
 /**
