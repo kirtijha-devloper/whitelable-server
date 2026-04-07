@@ -74,21 +74,28 @@ const initiateKyc = asyncHandler(async (req, res) => {
     latitude,
     longitude,
     consent,
+    forceReset,
   } = req.body;
+
+  const allowForceReset = forceReset === true || forceReset === 'true' || req.query.forceReset === 'true';
 
   let existingUser;
   if (userId) {
     existingUser = await User.findByPk(userId);
     if (existingUser) {
-      // if an outlet ID already exists, we consider KYC done and block re-initiation
-      if (existingUser.ipay_outlet_id) {
+      if (existingUser.ipay_outlet_id && !allowForceReset) {
         res.status(400);
-        throw new Error('KYC is already completed for this user.');
+        throw new Error('KYC is already completed for this user. Use forceReset=true to re-initiate.');
+      }
+      if (existingUser.ipay_outlet_id && allowForceReset) {
+        console.info('[KYC initiateKyc] forceReset requested for user', userId, 'existing ipay_outlet_id=', existingUser.ipay_outlet_id);
       }
       mobile = mobile || existingUser.mobile_number;
       email = email || existingUser.email;
       aadhaar = aadhaar || existingUser.aadhar_number;
       pan = pan || existingUser.pan_number;
+      bankAccountNo = bankAccountNo || existingUser.bank_account_number;
+      bankIfsc = bankIfsc || existingUser.bank_ifsc;
     }
   }
 
@@ -125,6 +132,13 @@ const initiateKyc = asyncHandler(async (req, res) => {
       }
     );
     ipayResponse = data;
+
+    if (userId && existingUser) {
+      await existingUser.update({
+        bank_account_number: bankAccountNo,
+        bank_ifsc: bankIfsc,
+      });
+    }
   } catch (err) {
     console.error('[KYC initiateKyc] InstantPay API error:', err?.response?.data ?? err.message);
     res.status(502);
@@ -233,6 +247,8 @@ const getKycInfo = asyncHandler(async (req, res) => {
       'email',
       'pan_number',
       'aadhar_number',
+      'bank_account_number',
+      'bank_ifsc',
       'ipay_outlet_id',
     ],
   });
@@ -249,6 +265,8 @@ const getKycInfo = asyncHandler(async (req, res) => {
       email: user.email,
       pan: user.pan_number,
       aadhaar: user.aadhar_number,
+      bankAccountNo: user.bank_account_number,
+      bankIfsc: user.bank_ifsc,
       kycDone: !!user.ipay_outlet_id,
     },
   });

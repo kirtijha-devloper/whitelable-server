@@ -41,13 +41,14 @@ const normalizeError = (err, fallback) => {
 
   return { statusCode: 500, message: String(err), code: 'ERROR', details: err };
 };
-const PayoutTransaction = require('../models/PayoutTransaction');
-const Ledger            = require('../models/Ledger');
-const PayoutAuditLog    = require('../models/PayoutAuditLog');
-const PayoutWebhookLog  = require('../models/PayoutWebhookLog');
-const PayoutCharge      = require('../models/PayoutCharge');
-const ledgerService     = require('../services/ledgerService');
-const db                = require('../config/database');
+const PayoutTransaction  = require('../models/PayoutTransaction');
+const Ledger             = require('../models/Ledger');
+const PayoutAuditLog     = require('../models/PayoutAuditLog');
+const PayoutWebhookLog   = require('../models/PayoutWebhookLog');
+const PayoutCharge       = require('../models/PayoutCharge');
+const ledgerService      = require('../services/ledgerService');
+const payoutReferenceService = require('../services/payoutReferenceService');
+const db                 = require('../config/database');
 
 /**
  * Resolves the service charge for a payout using the admin-configured
@@ -183,7 +184,7 @@ async function createPayout(req, res) {
 
   // Generate merchantRefId if not supplied (idempotency key).
   if (!merchantRefId) {
-    merchantRefId = await generateMerchantRefId();
+    merchantRefId = await payoutReferenceService.getNextPayoutReference();
   }
 
   // ── Resolve service charge from DB rules (admin-configured PayoutCharge) ──
@@ -464,28 +465,9 @@ async function fetchTokenStatus(req, res) {
   }
 }
 
-async function generateMerchantRefId() {
-  const last = await PayoutTransaction.findOne({
-    where: {
-      reference_id: {
-        [Op.like]: 'APPV%'
-      }
-    },
-    order: [['createdAt', 'DESC']],
-  });
-
-  if (!last || !last.reference_id) {
-    return 'APPV00000001';
-  }
-
-  const numeric = parseInt(last.reference_id.replace(/^APPV0*/, ''), 10) || 0;
-  const next = numeric + 1;
-  return `APPV${next.toString().padStart(8, '0')}`;
-}
-
 async function getPayoutReference(req, res) {
   try {
-    const reference = await generateMerchantRefId();
+    const reference = await payoutReferenceService.getNextPayoutReference();
     return res.status(200).json({ success: true, merchantRefId: reference });
   } catch (err) {
     const normalized = normalizeError(err, { statusCode: 500, message: 'Could not generate merchantRefId', code: 'REFERENCE_GENERATION_FAILED' });

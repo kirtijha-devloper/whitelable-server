@@ -1,116 +1,106 @@
-# KYC Verification API
+# KYC / InstantPay Merchant Onboarding
 
 Base URL: `/api/kyc`
 
-All endpoints require a valid JWT access token in the `Authorization` header.
+This document is written for the frontend team. It describes the exact KYC flow used for InstantPay merchant onboarding, the fields the UI must send, the responses to handle, and the user experience expectations.
 
 ---
 
-## Overview
+## Purpose
 
-KYC (Know Your Customer) verification is a three-step flow:
+The frontend should use this flow to:
 
-```
-Step 0 – GET /api/kyc/info
-  └─ Retrieve basic user details (mobile, email, PAN, Aadhaar) and a flag
-     indicating if KYC is already done.  Use these values to pre‑fill the
-     form on the frontend.
-
-  **Sample response (KYC not completed)**
-
-  ```json
-  {
-    "success": true,
-    "data": {
-      "mobile": "9876543210",
-      "email": "merchant@example.com",
-      "pan": "ABCDE1234F",
-      "aadhaar": "123456789012",
-      "kycDone": false
-    }
-  }
-  ```
-
-  **Sample response (KYC completed)**
-
-  ```json
-  {
-    "success": true,
-    "data": {
-      "mobile": "9876543210",
-      "email": "merchant@example.com",
-      "pan": "ABCDE1234F",
-      "aadhaar": "123456789012",
-      "kycDone": true
-    }
-  }
-  ```
-
-Step 1 – POST /api/kyc/initiate
-  └─ Submit merchant details (missing fields are filled from the user record) →
-     InstantPay sends an OTP to the registered mobile
-
-Step 2 – POST /api/kyc/validate-otp
-  └─ Submit the OTP → InstantPay verifies it → outletId is saved on the user record
-```
+- detect whether the logged-in user already has an InstantPay outlet ID
+- pre-fill merchant details in the KYC form from the authenticated user record
+- initiate InstantPay merchant onboarding by sending customer data and Aadhaar
+- collect OTP from the user and validate it with InstantPay
+- handle re-initiation when the user wants to reset their InstantPay onboarding
 
 ---
 
 ## Authentication
 
-Every request must include a Bearer token:
+All KYC endpoints require a valid JWT in the `Authorization` header.
 
 ```
 Authorization: Bearer <access_token>
 ```
 
-> 💡 *Note:* the new `GET /api/kyc/info` also requires authentication and can
-> be called immediately after login to determine whether the user needs to
-> complete KYC and to populate the form fields.
+> Call `GET /api/kyc/info` immediately after login to determine whether the user has already completed KYC.
 
-### How a logged-in user can tell if KYC is already complete
+---
 
-A user can determine whether they already have an InstantPay `outletId` (stored
-as `ipay_outlet_id`) by calling either:
+## Step 0 — Check KYC status and pre-fill data
 
-- `GET /api/kyc/info` (recommended) — the response includes `kycDone: true` when
-  `ipay_outlet_id` is present.
-- `GET /api/user/current` — the response now includes `ipay_outlet_id` directly.
+### `GET /api/kyc/info`
 
-Both endpoints require a valid JWT in the `Authorization` header.
+Use this endpoint to:
+
+- pre-fill the KYC form with any existing user details
+- detect whether the user already has an InstantPay outlet ID
+- decide whether to show the KYC flow or the "KYC already completed" state
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "mobile": "9876543210",
+    "email": "merchant@example.com",
+    "pan": "ABCDE1234F",
+    "aadhaar": "123456789012",
+    "bankAccountNo": "1234567890",
+    "bankIfsc": "SBIN0001234",
+    "kycDone": false
+  }
+}
+```
+
+### What the frontend should do
+
+- If `data.kycDone === true`, show the user as already onboarded.
+- If `data.kycDone === false`, show the KYC form and pre-fill values from `data`, including `bankAccountNo` and `bankIfsc`.
+- Always keep Aadhaar confidential and never store it in logs or client-side analytics.
 
 ---
 
 ## Step 1 — Initiate KYC
 
-### `POST /api/kyc/initiate`
+### Endpoint
 
-Encrypts the Aadhaar number server-side and submits merchant details to InstantPay. On success, InstantPay sends an OTP to the provided mobile number and returns reference data needed for the next step.
+`POST /api/kyc/initiate`
 
-### Request
+### What it does
 
-**Headers**
+- accepts merchant details from the frontend
+- encrypts Aadhaar server-side before sending to InstantPay
+- triggers InstantPay to send an OTP to the user's mobile
+- returns `otpReferenceID` and `hash` required for Step 2
+
+### Headers
 
 | Header          | Value                        |
 | --------------- | ---------------------------- |
 | `Authorization` | `Bearer <access_token>`      |
 | `Content-Type`  | `application/json`           |
 
-**Body**
+### Body
 
-| Field           | Type      | Required | Description                                        |
-| --------------- | --------- | -------- | -------------------------------------------------- |
-| `mobile`        | `string`  | ✅        | Merchant's mobile number (10 digits)               |
-| `email`         | `string`  | ✅        | Merchant's email address                           |
-| `aadhaar`       | `string`  | ✅        | Plain-text 12-digit Aadhaar number (encrypted server-side before forwarding) |
-| `pan`           | `string`  | ✅        | PAN card number                                    |
-| `bankAccountNo` | `string`  | ✅        | Bank account number                                |
-| `bankIfsc`      | `string`  | ✅        | IFSC code of the bank branch                       |
-| `consent`       | `string`  | ✅        | User consent acknowledgement (e.g. `"Y"`)          |
-| `latitude`      | `string`  | ❌        | GPS latitude of the merchant (optional)            |
-| `longitude`     | `string`  | ❌        | GPS longitude of the merchant (optional)           |
+| Field           | Type      | Required | Notes |
+| --------------- | --------- | -------- | ----- |
+| `mobile`        | `string`  | ✅        | Merchant's mobile number (10 digits) |
+| `email`         | `string`  | ✅        | Merchant's email address |
+| `aadhaar`       | `string`  | ✅        | Plain-text Aadhaar number (12 digits). Encrypt only on the server. |
+| `pan`           | `string`  | ✅        | PAN card number |
+| `bankAccountNo` | `string`  | ✅        | Bank account number |
+| `bankIfsc`      | `string`  | ✅        | IFSC code for the account |
+| `consent`       | `string`  | ✅        | Example: `"Y"` |
+| `latitude`      | `string`  | ❌        | Optional; send if available |
+| `longitude`     | `string`  | ❌        | Optional; send if available |
+| `forceReset`    | `boolean` | ❌        | Use `true` to re-initiate when the user already has an outlet ID |
 
-**Example Request**
+### Example request
 
 ```json
 {
@@ -126,9 +116,7 @@ Encrypts the Aadhaar number server-side and submits merchant details to InstantP
 }
 ```
 
-### Response
-
-**200 OK — OTP dispatched**
+### Successful response
 
 ```json
 {
@@ -141,55 +129,52 @@ Encrypts the Aadhaar number server-side and submits merchant details to InstantP
 }
 ```
 
-> ⚠️ **Store `otpReferenceID` and `hash`** — both are required for Step 2.
+### What the frontend must do next
 
-**200 OK — InstantPay returned an error (e.g. duplicate merchant)**
+- save `otpReferenceID` and `hash` locally for the OTP screen
+- show the OTP input UI
+- if the user already had `kycDone === true`, include `forceReset: true` in the request to allow the flow to start again
 
-```json
-{
-  "success": false,
-  "message": "Merchant already registered",
-  "data": {
-    "otpReferenceID": null,
-    "hash": null
-  }
-}
-```
+### Error handling
 
-### Error Responses
+| Status | Meaning |
+| ------ | ------- |
+| `400`  | required fields missing or invalid |
+| `401`  | token missing/invalid |
+| `502`  | InstantPay request failed or upstream timeout |
 
-| Status | `message`                                              | Cause                                       |
-| ------ | ------------------------------------------------------ | ------------------------------------------- |
-| `400`  | `Missing required fields: <field1>, <field2>`          | One or more required body fields are absent |
-| `401`  | `Not authorized, token failed`                         | Missing or invalid JWT                      |
-| `502`  | `InstantPay API request failed. Please try again.`     | InstantPay upstream is unreachable/errored  |
+If the API returns `success: false`, show the `message` to the user and keep the form open.
 
 ---
 
 ## Step 2 — Validate OTP
 
-### `POST /api/kyc/validate-otp`
+### Endpoint
 
-Verifies the OTP entered by the merchant with InstantPay. On success, the InstantPay `outletId` is automatically saved to the authenticated user's account (`ipay_outlet_id`).
+`POST /api/kyc/validate-otp`
 
-### Request
+### What it does
 
-**Headers**
+- sends the OTP, `otpReferenceID`, and `hash` to InstantPay
+- InstantPay validates the OTP
+- the server stores the returned `outletId` as `ipay_outlet_id` for the authenticated user
+
+### Headers
 
 | Header          | Value                        |
 | --------------- | ---------------------------- |
 | `Authorization` | `Bearer <access_token>`      |
 | `Content-Type`  | `application/json`           |
 
-**Body**
+### Body
 
-| Field             | Type     | Required | Description                                              |
-| ----------------- | -------- | -------- | -------------------------------------------------------- |
-| `otpReferenceID`  | `string` | ✅        | Received from `/initiate` response                       |
-| `hash`            | `string` | ✅        | Received from `/initiate` response                       |
-| `otp`             | `string` | ✅        | OTP entered by the merchant                              |
+| Field             | Type     | Required | Notes |
+| ----------------- | -------- | -------- | ----- |
+| `otpReferenceID`  | `string` | ✅        | from `/api/kyc/initiate` |
+| `hash`            | `string` | ✅        | from `/api/kyc/initiate` |
+| `otp`             | `string` | ✅        | OTP entered by the merchant |
 
-**Example Request**
+### Example request
 
 ```json
 {
@@ -199,9 +184,7 @@ Verifies the OTP entered by the merchant with InstantPay. On success, the Instan
 }
 ```
 
-### Response
-
-**200 OK — KYC successful**
+### Successful response
 
 ```json
 {
@@ -220,84 +203,69 @@ Verifies the OTP entered by the merchant with InstantPay. On success, the Instan
 }
 ```
 
-> `outletId` is also persisted to the user's record in the database as `ipay_outlet_id`. No separate API call is needed to save it.
+### What the frontend should do after success
 
-**200 OK — OTP invalid / InstantPay error**
+- mark KYC as complete
+- show the returned `outletId` if needed
+- refresh user state from `GET /api/kyc/info` or `GET /api/user/current` as required
 
-```json
-{
-  "success": false,
-  "message": "Invalid OTP entered",
-  "data": {
-    "outletId": null,
-    "ipayResponse": { ... }
-  }
-}
-```
+### Error handling
 
-### Error Responses
+| Status | Meaning |
+| ------ | ------- |
+| `400`  | missing `otpReferenceID`, `hash`, or `otp` |
+| `401`  | token missing/invalid |
+| `502`  | InstantPay validation failed or upstream timeout |
 
-| Status | `message`                                                            | Cause                                                   |
-| ------ | -------------------------------------------------------------------- | ------------------------------------------------------- |
-| `400`  | `otpReferenceID, otp and hash are required.`                         | One or more body fields are missing                     |
-| `401`  | `Not authorized, token failed`                                       | Missing or invalid JWT                                  |
-| `502`  | `InstantPay OTP validation API request failed. Please try again later.` | InstantPay upstream is unreachable/errored (3-min timeout) |
+If the response is `success: false`, show the returned `message` on the OTP screen.
 
 ---
 
-## Full Flow Example (JavaScript / fetch)
+## Common frontend rules
+
+- Never encrypt Aadhaar in the browser. Send it as plain text to the API and let the server encrypt it.
+- Display a countdown timer for the OTP. InstantPay OTPs expire in about 5 minutes.
+- Keep the OTP and `otpReferenceID` / `hash` tied to the same flow.
+- Do not store Aadhaar or OTP values in logs or analytics.
+- If the user already has `kycDone: true` and wants to reset onboarding, call `/api/kyc/initiate` with `forceReset: true`.
+- On successful OTP validation, the server updates the user’s `ipay_outlet_id`; the frontend does not need a separate save call.
+
+---
+
+## Sample frontend flow
 
 ```js
-// ─── Step 1: Initiate KYC ──────────────────────────────────────────────────
-const initRes = await fetch('/api/kyc/initiate', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${accessToken}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    mobile: '9876543210',
-    email: 'merchant@example.com',
-    aadhaar: '123456789012',
-    pan: 'ABCDE1234F',
-    bankAccountNo: '1234567890',
-    bankIfsc: 'SBIN0001234',
-    consent: 'Y',
-  }),
-});
+async function startKycFlow(accessToken, payload) {
+  const initRes = await fetch('/api/kyc/initiate', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
 
-const initData = await initRes.json();
+  const initData = await initRes.json();
+  if (!initData.success) {
+    throw new Error(initData.message);
+  }
 
-if (!initData.success) {
-  // Show error message to user
-  showError(initData.message);
-  return;
+  return {
+    otpReferenceID: initData.data.otpReferenceID,
+    hash: initData.data.hash,
+  };
 }
 
-const { otpReferenceID, hash } = initData.data;
-// Show OTP input screen to user
-
-// ─── Step 2: Validate OTP ─────────────────────────────────────────────────
-const validateRes = await fetch('/api/kyc/validate-otp', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${accessToken}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    otpReferenceID,
-    hash,
-    otp: userEnteredOtp, // collected from OTP input screen
-  }),
-});
-
-const validateData = await validateRes.json();
-
-if (validateData.success) {
-  // KYC complete — outletId is saved automatically on the server
-  showSuccess(`KYC verified. Outlet ID: ${validateData.data.outletId}`);
-} else {
-  showError(validateData.message); // e.g. "Invalid OTP"
+async function validateKycOtp(accessToken, otpReferenceID, hash, otp) {
+  const res = await fetch('/api/kyc/validate-otp', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ otpReferenceID, hash, otp }),
+  });
+  return res.json();
 }
 ```
 
@@ -305,7 +273,7 @@ if (validateData.success) {
 
 ## Notes
 
-- The `aadhaar` field must be sent as plain text — the server encrypts it (AES-256-CBC) before forwarding to InstantPay. Never encrypt it on the frontend.
-- The OTP expires after **~5 minutes** (controlled by InstantPay). Display a countdown timer to the user and disable the submit button on expiry.
-- `success: false` with HTTP `200` means InstantPay processed the request but returned a business-level error (e.g. wrong OTP, already registered). HTTP `4xx/5xx` means a transport or validation error.
-- After successful OTP validation, the authenticated user's `ipay_outlet_id` is updated automatically — no additional endpoint call is needed.
+- The backend uses the same InstantPay environment as the Laravel implementation in this project.
+- The only data sent to InstantPay is encrypted Aadhaar; the frontend should not perform encryption.
+- `success: false` with HTTP `200` means InstantPay returned a business-level failure. Show the `message` to the user and let them correct or retry.
+- HTTP `4xx/5xx` indicates validation or transport failure and should be handled as a network/server error.

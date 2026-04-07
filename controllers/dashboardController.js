@@ -113,16 +113,19 @@ const getDashboard = asyncHandler(async (req, res) => {
       });
       const mids = machines.map((machine) => machine.mid_number).filter(Boolean);
 
-      const [assignedMerchantCount, posMachineCount] = await Promise.all([
-        User.count({ where: { franchaise_id: userId, role: 'merchant', status: 'active' } }),
-        PosMachine.count({ where: { assigned_to: userId } })
-      ]);
-
       const franchiseMerchantIds = await User.findAll({
         where: { franchaise_id: userId, role: 'merchant', status: 'active' },
         attributes: ['id'],
         raw: true
       }).then((rows) => rows.map((r) => r.id));
+
+      const [assignedMerchantCount, posMachineCount, merchantAssignedPosMachineCount] = await Promise.all([
+        User.count({ where: { franchaise_id: userId, role: 'merchant', status: 'active' } }),
+        PosMachine.count({ where: { assigned_to: userId } }),
+        franchiseMerchantIds.length > 0
+          ? PosMachine.count({ where: { assigned_to: { [Op.in]: franchiseMerchantIds } } })
+          : 0
+      ]);
 
       const franchiseRoleFilter = (franchiseMerchantIds.length > 0 || mids.length > 0)
         ? {
@@ -146,7 +149,10 @@ const getDashboard = asyncHandler(async (req, res) => {
 
       data = {
         assigned_merchants: { count: assignedMerchantCount },
-        pos_machines: { count: posMachineCount },
+        pos_machines: {
+          assigned_to_franchise: posMachineCount,
+          assigned_to_merchants: merchantAssignedPosMachineCount
+        },
         pos_transactions: {
           total: posStats.total,
           success: posStats.success,
@@ -174,7 +180,10 @@ const getDashboard = asyncHandler(async (req, res) => {
         ]
       };
 
-      const posStats = await getRazorpayTransactionStats({ [Op.and]: [dateWhere, merchantRoleFilter] });
+      const [posMachineCount, posStats] = await Promise.all([
+        PosMachine.count({ where: { assigned_to: userId } }),
+        getRazorpayTransactionStats({ [Op.and]: [dateWhere, merchantRoleFilter] })
+      ]);
 
       const today_total_payout = await WalletTransaction.sum('amount', {
         where: {
@@ -186,6 +195,7 @@ const getDashboard = asyncHandler(async (req, res) => {
       });
 
       data = {
+        pos_machines: { count: posMachineCount },
         pos_transactions: {
           total: posStats.total,
           success: posStats.success,

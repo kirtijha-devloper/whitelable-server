@@ -7,7 +7,6 @@ const branchxService = require('../services/payments/branchxService');
 const db = require('../config/database');
 const ledgerService = require('../services/ledgerService');
 const User = require('../models/User');
-const WalletTransaction = require('../models/WalletTransaction');
 
 const LOG_FILE = path.resolve(__dirname, '../logs/branchx-payout-cron.log');
 if (!fs.existsSync(path.dirname(LOG_FILE))) {
@@ -18,6 +17,15 @@ function appendLog(message) {
   const ts = new Date().toISOString();
   const line = `[${ts}] ${message}\n`;
   fs.appendFile(LOG_FILE, line, (err) => { if (err) console.error('Failed to write cron log', err); });
+}
+
+function normalizeBranchxStatus(statusRaw) {
+  if (!statusRaw) return 'PENDING';
+  const s = statusRaw.toString().trim().toUpperCase();
+  if (['SUCCESS', 'COMPLETED'].includes(s)) return 'SUCCESS';
+  if (['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'].includes(s)) return 'FAILED';
+  if (['PENDING', 'PROCESSING', 'IN_PROGRESS'].includes(s)) return 'PENDING';
+  return 'PENDING';
 }
 
 async function resolvePending() {
@@ -42,7 +50,8 @@ async function resolvePending() {
 
     try {
       const response = await branchxService.statusCheck(tx.reference_id);
-      const transactionStatus = response?.data?.status || response?.status || 'PENDING';
+      const rawStatus = response?.data?.status || response?.status || 'PENDING';
+      const transactionStatus = normalizeBranchxStatus(rawStatus);
 
       if (transactionStatus === tx.status) {
         // update data payload for audit (in case BranchX returned new details)
@@ -59,34 +68,31 @@ async function resolvePending() {
         }
 
         // If status already transitioned by another process, skip
-        if (['SUCCESS', 'FAILED', 'REVERSED'].includes(locked.status) && locked.status !== transactionStatus) {
-          locked.status = transactionStatus;
-        } else {
-          locked.status = transactionStatus;
+        if (['SUCCESS', 'FAILED', 'REVERSED'].includes(locked.status)) {
+          await tr.commit();
+          continue;
         }
 
         locked.data = JSON.stringify(response);
 
         if ((tx.status === 'SUCCESS' || tx.status === 'PENDING') && transactionStatus === 'FAILED') {
-          const user = await User.findByPk(locked.merchant_id, { transaction: tr });
-          if (user) {
-            user.wallet = parseFloat(user.wallet || 0) + parseFloat(locked.amount || 0);
-            await user.save({ transaction: tr });
+          const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
 
-            const walletTx = await WalletTransaction.findOne({
-              where: {
-                source: 'branchx',
-                reference_id: locked.reference_id
-              },
-              order: [['createdAt', 'DESC']],
-              transaction: tr
-            });
-
-            if (walletTx) {
-              walletTx.status = 'failed';
-              walletTx.reason = `BranchX payout failed: ${response?.data?.message || response?.message || 'Transaction failed'}`;
-              await walletTx.save({ transaction: tr });
-            }
+          if (refundAmount > 0) {
+            await ledgerService.createLedgerEntry({
+              userId: locked.merchant_id,
+              transactionType: 'payout_refund',
+              referenceId: locked.id,
+              referenceTable: 'PayoutTransactions',
+              description: `BranchX payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
+              credit: refundAmount,
+              metadata: {
+                payout_reference: locked.reference_id,
+                branchx_status: transactionStatus,
+                original_payout_amount: locked.amount,
+                original_service_charge: locked.service_charge
+              }
+            }, { transaction: tr });
           }
         }
 

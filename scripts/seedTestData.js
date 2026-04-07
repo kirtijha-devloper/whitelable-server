@@ -107,7 +107,6 @@ async function seed() {
         status: 'active',
         is_approved: true,
         wallet: 0,
-        wallet_hold: 0,
         settlement_type: 'today_settlement',
       }
     );
@@ -123,7 +122,6 @@ async function seed() {
         status: 'active',
         is_approved: true,
         wallet: 0,
-        wallet_hold: 0,
         settlement_type: 'today_settlement',
       }
     );
@@ -141,7 +139,6 @@ async function seed() {
         is_approved: true,
         is_pos_asigned: true,
         wallet: 0,
-        wallet_hold: 0,
         settlement_type: 'today_settlement',
         franchaise_id: franchise.id,
       }
@@ -159,7 +156,6 @@ async function seed() {
         is_approved: true,
         is_pos_asigned: false,
         wallet: 0,
-        wallet_hold: 0,
         settlement_type: 'today_settlement',
         franchaise_id: null,
       }
@@ -177,7 +173,6 @@ async function seed() {
         is_approved: true,
         is_pos_asigned: true,
         wallet: 0,
-        wallet_hold: 0,
         settlement_type: 'today_settlement',
         franchaise_id: franchise2.id,
       }

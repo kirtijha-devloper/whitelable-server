@@ -5,18 +5,46 @@ const { Op } = require('sequelize');
 const db = require('../../config/database');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
-const WalletTransaction = require('../../models/WalletTransaction');
 const Ledger = require('../../models/Ledger');
 const ledgerService = require('../../services/ledgerService');
 
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
 
+function ensureLogDir() {
+  const logDir = path.dirname(callbackLogFile);
+  try {
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+  } catch (err) {
+    console.error('Failed to ensure callback log directory exists:', err);
+  }
+}
+
 function logBranchxCallback(data) {
   try {
+    ensureLogDir();
     const line = `${new Date().toISOString()} - ${JSON.stringify(data)}\n`;
     fs.appendFileSync(callbackLogFile, line, 'utf8');
   } catch (err) {
     console.error('Failed to write BranchX callback log:', err);
+    // fallback to webhook auth log if branchx callback log can't be written
+    try {
+      const fallback = path.join(__dirname, '../../logs/webhookAuth.log');
+      fs.appendFileSync(fallback, `${new Date().toISOString()} - [branchx-callback-fallback] ${JSON.stringify(data)}\n`, 'utf8');
+    } catch (fallbackErr) {
+      console.error('Failed to write fallback webhookAuth log:', fallbackErr);
+    }
+  }
+}
+
+function logBranchxEvent(message) {
+  try {
+    ensureLogDir();
+    const line = `${new Date().toISOString()} - [EVENT] ${message}\n`;
+    fs.appendFileSync(callbackLogFile, line, 'utf8');
+  } catch (err) {
+    console.error('Failed to write BranchX event log:', err);
   }
 }
 
@@ -51,8 +79,11 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
   }
 
   if (!payoutTransaction) {
+    logBranchxEvent(`NOT PROCESSED — no payout transaction found for refs: ${referenceCandidates.join(', ')}`);
     return res.status(404).json({ success: false, message: 'Payout transaction not found for callback payload', callbackPayload: payload });
   }
+
+  logBranchxEvent(`Found payout transaction id=${payoutTransaction.id} ref=${payoutTransaction.reference_id} currentStatus=${payoutTransaction.status} incomingStatus=${status}`);
 
   const trx = await db.transaction();
   try {
@@ -64,6 +95,12 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
     const previousStatus = (locked.status || '').toString().toUpperCase();
     const newStatus = status;
+
+    if (previousStatus === newStatus) {
+      logBranchxEvent(`SKIPPED — payout id=${locked.id} already in status=${previousStatus}`);
+    } else {
+      logBranchxEvent(`PROCESSING — payout id=${locked.id} status change: ${previousStatus} → ${newStatus}`);
+    }
 
     let parsedData = {};
     try {
@@ -105,21 +142,6 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
           credit: refundAmount,
         }, { transaction: trx });
       }
-
-      const walletTx = await WalletTransaction.findOne({
-        where: {
-          source: 'branchx',
-          reference_id: locked.reference_id
-        },
-        order: [['createdAt', 'DESC']],
-        transaction: trx
-      });
-
-      if (walletTx) {
-        walletTx.status = 'failed';
-        walletTx.reason = `BranchX payout failed: ${payload.message || payload.msg || 'Transaction failed'}`;
-        await walletTx.save({ transaction: trx });
-      }
     }
 
     if (previousStatus !== newStatus) {
@@ -136,6 +158,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
     await trx.commit();
 
+    logBranchxEvent(`PROCESSED successfully — payout id=${locked.id} finalStatus=${newStatus}`);
     return res.status(200).json({
       success: true,
       message: 'BranchX callback processed successfully',
@@ -144,7 +167,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     await trx.rollback();
-    console.error('[BranchX callback] error:', error);
+    logBranchxEvent(`FAILED — payout id=${payoutTransaction.id} error: ${error.message || error}`);
     return res.status(500).json({ success: false, message: error.message || 'Callback processing failed', error });
   }
 });

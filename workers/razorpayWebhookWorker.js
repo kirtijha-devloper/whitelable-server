@@ -442,14 +442,19 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       }
     });
 
+    let merchantTransactionCharge = existingChargeRecord;
     if (existingChargeRecord) {
-      logger.log(`[Razorpay Webhook Worker] Transaction charge record already exists for txn: ${txnId}`);
-      await notification.update({
-        processed: true,
-        processing_status: 'completed',
-        processed_at: new Date()
-      });
-      return;
+      if (notification.processing_status === 'completed') {
+        logger.log(`[Razorpay Webhook Worker] Transaction charge record already exists for txn: ${txnId}`);
+        await notification.update({
+          processed: true,
+          processing_status: 'completed',
+          processed_at: new Date()
+        });
+        return;
+      }
+
+      logger.log(`[Razorpay Webhook Worker] Transaction charge record exists for txn: ${txnId} but notification status is ${notification.processing_status}. Continuing to repair ledger entries if needed.`);
     }
 
     // Step 6: If merchant belongs to a franchise record, apply the franchise-level ledger entries
@@ -466,7 +471,6 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           transactionId: txnId,
           description: desc,
           debit: franchiseChargeAmount,
-          status: "completed",
           metadata: {
             merchant_id: posOperator.id,
             transaction_amount: transactionAmount,
@@ -485,7 +489,6 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           transactionId: txnId,
           description: desc2,
           credit: chargeAmount,
-          status: "completed",
           metadata: {
             merchant_id: posOperator.id,
             transaction_amount: transactionAmount,
@@ -497,29 +500,34 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     }
 
     // Step 7: Create MerchantTransactionCharge record to track deducted amount
-    const merchantTransactionCharge = await MerchantTransactionCharge.create({
-      merchant_id: posOperator.id,
-      pos_machine_id: posMachine.id,
-      razorpay_transaction_id: txnId,
-      transaction_amount: transactionAmount,   // already a parsed float
-      charge_amount: chargeAmount,
-      gst_amount: gstAmount,
-      gst_percent: rule && rule.gst_required ? rule.gst_percent : null,
-      net_amount: netAmount,
-      charge_rate: chargeRate,
-      charge_config_id: rule ? rule.id : null,
-      payment_method: paymentMethod,
-      payment_card_type: paymentCardType,
-      payment_card_brand: paymentCardBrand,
-      wallet_transaction_id: null,
-      rr_number: rrNumber,
-      mid_number: merchantId.toString(),
-      tid_number: terminalId.toString(),
-      customer_name: customerName
-    });
+    if (!merchantTransactionCharge) {
+      merchantTransactionCharge = await MerchantTransactionCharge.create({
+        merchant_id: posOperator.id,
+        pos_machine_id: posMachine.id,
+        razorpay_transaction_id: txnId,
+        transaction_amount: transactionAmount,   // already a parsed float
+        charge_amount: chargeAmount,
+        gst_amount: gstAmount,
+        gst_percent: rule && rule.gst_required ? rule.gst_percent : null,
+        net_amount: netAmount,
+        charge_rate: chargeRate,
+        charge_config_id: rule ? rule.id : null,
+        payment_method: paymentMethod,
+        payment_card_type: paymentCardType,
+        payment_card_brand: paymentCardBrand,
+        wallet_transaction_id: null,
+        rr_number: rrNumber,
+        mid_number: merchantId.toString(),
+        tid_number: terminalId.toString(),
+        customer_name: customerName
+      });
 
-    logger.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for user: ${posOperator.id}, txn: ${txnId}, charge: ${chargeAmount}`);
-    // mark notification fully processed
+      logger.log(`[Razorpay Webhook Worker] ✅ Created merchant transaction charge record for user: ${posOperator.id}, txn: ${txnId}, charge: ${chargeAmount}`);
+    } else {
+      logger.log(`[Razorpay Webhook Worker] ⚡ Reusing existing merchant transaction charge record for user: ${posOperator.id}, txn: ${txnId}`);
+    }
+
+    // mark notification fully processed once all core processing is complete
     await notification.update({
       processed: true,
       processing_status: 'completed',
@@ -539,7 +547,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         customerName ? `Customer: ${customerName}` : ''
       ].filter(Boolean).join(' | ');
 
-      await ledgerService.createRazorpayChargeEntry({
+      const ledgerChargeEntry = await ledgerService.createRazorpayChargeEntry({
         userId: posOperator.id,
         razorpayTransactionId: txnId,
         transactionAmount: transactionAmount,
@@ -564,7 +572,11 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         }
       });
 
-      logger.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for user: ${posOperator.id}, txn: ${txnId}`);
+      if (!ledgerChargeEntry) {
+        logger.warn(`[Razorpay Webhook Worker] ⚠️ Ledger entries skipped for user: ${posOperator.id}, txn: ${txnId}. Check start_ledger on the user record.`);
+      } else {
+        logger.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for user: ${posOperator.id}, txn: ${txnId}`);
+      }
     } catch (ledgerError) {
       logger.error(`[Razorpay Webhook Worker] ⚠️ Error creating ledger entry for txn: ${txnId}`, ledgerError);
       // Don't throw - ledger is for tracking, transaction is already processed
@@ -578,7 +590,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
           userId: posOperator.franchaise_id,
           razorpayTransactionId: txnId,
           amount: franchiseEarning,
-          transactionType: "razorpay_franchise_earning",
+          transactionType: "pos_franchise_earning",
           description: `Franchise earning ₹${franchiseEarning} | Merchant: ${posOperator.id}`,
           metadata: {
             merchant_id: posOperator.id,

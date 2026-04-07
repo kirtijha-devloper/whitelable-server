@@ -177,7 +177,6 @@ describe('Employee role on user routes', () => {
     expect(res.status).to.equal(400);
     expect(res.body.message).to.match(/employee_access_role_id is required/i);
   });
-
   it('allows an employee with users.create to create a merchant user', async () => {
     User.findOne = async () => null;
     UsernameSequence.findOne = async () => null;
@@ -524,7 +523,6 @@ describe('Employee role on user routes', () => {
       ba_cc_bill_pay: false,
     });
   });
-
   it('rejects employee user list access without permission', async () => {
     const res = await request(app)
       .get('/api/user')
@@ -603,7 +601,6 @@ describe('Employee role on user routes', () => {
       ba_cc_bill_pay: true,
     });
   });
-
   it('allows employee with users.update permission to edit common fields only', async () => {
     const targetUser = {
       id: 42,

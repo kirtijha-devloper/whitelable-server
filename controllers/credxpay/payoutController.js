@@ -151,7 +151,7 @@ router.post('/', asyncHandler(async (req, res) => {
       }
     }, { transaction });
 
-    // immediately debit via ledger (status pending)
+    // immediately debit via ledger
     await ledgerService.createPayoutEntry({
       userId: user_id,
       payoutTransactionId: payoutReq.id,

@@ -6,8 +6,7 @@ const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 const RazorpayNotification = require("../models/RazorpayNotification");
 const Ledger = require('../models/Ledger');
-const PayoutTransaction = require('../models/PayoutTransaction');
-
+const PayoutTransaction = require('../models/PayoutTransaction');const Beneficiary = require('../models/Beneficiary');
 // Admin-only full notifications list
 // Supports optional `source` query parameter to restrict to 'razorpay' or 'everlife' webhooks
 const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
@@ -404,13 +403,13 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       subQuery: false
     });
 
-    // Bulk-fetch Ledger entries for balance figures (razorpay_charge = final debit row)
+    // Bulk-fetch Ledger entries for balance figures (pos_charge = final debit row)
     const txnIds = rows.map(n => n.txn_id).filter(Boolean);
     const razorpayLedgerRows = txnIds.length
       ? await Ledger.findAll({
           where: {
             transaction_id: { [Op.in]: txnIds },
-            transaction_type: 'razorpay_charge'
+            transaction_type: 'pos_charge'
           },
           attributes: ['transaction_id', 'balance_before', 'balance', 'debit']
         })
@@ -490,7 +489,13 @@ const getLedgerReport = asyncHandler(async (req, res) => {
   try {
     const userRole = req.user?.role;
     const currentUserId = req.user?.id;
-    const { from_date, to_date, user_id } = req.query;
+    const { from_date, to_date, user_id, status } = req.query;
+
+    // status filter is intentionally ignored for ledger report (show all statuses)
+    // because payout entries may be pending/failed and should still be visible.
+    if (status) {
+      // no-op intentionally
+    }
 
     // default date range = today
     const today = new Date();
@@ -653,13 +658,36 @@ const getPayoutReport = asyncHandler(async (req, res) => {
     const payoutLedgerMap = {};
     payoutLedgerRows.forEach(l => { payoutLedgerMap[l.reference_id] = l; });
 
+    const merchantIds = [...new Set(payouts.map(p => p.merchant_id).filter(Boolean))];
+    const beneficiaryIds = [...new Set(payouts.map(p => p.beneficiary_id).filter(Boolean))];
+
+    const [merchants, beneficiaries] = await Promise.all([
+      merchantIds.length
+        ? User.findAll({
+            where: { id: { [Op.in]: merchantIds } },
+            attributes: ['id', 'name', 'email', 'mobile_number']
+          })
+        : [],
+      beneficiaryIds.length
+        ? Beneficiary.findAll({
+            where: { id: { [Op.in]: beneficiaryIds } },
+            attributes: ['id', 'beneficiary_name', 'account_number', 'ifsc_code', 'bank_name', 'mobile_number', 'email', 'status']
+          })
+        : []
+    ]);
+
+    const merchantMap = Object.fromEntries(merchants.map(m => [m.id, m]));
+    const beneficiaryMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
+
     const data = payouts.map(p => {
       const ledger = payoutLedgerMap[p.id] || null;
       return {
         id:             p.id,
         date:           p.createdAt,
         merchant_id:    p.merchant_id,
+        merchant:       merchantMap[p.merchant_id] || null,
         beneficiary_id: p.beneficiary_id,
+        beneficiary:    beneficiaryMap[p.beneficiary_id] || null,
         reference_id:   p.reference_id,
         amount:         parseFloat(p.amount),
         service_charge: parseFloat(p.service_charge) || 0,
@@ -794,7 +822,7 @@ const getAllTransactionsReport = asyncHandler(async (req, res) => {
     }
 
     const MONEY_TYPES = [
-      'razorpay_credit', 'razorpay_charge', 'razorpay_commission',
+      'pos_credit', 'pos_charge', 'razorpay_commission',
       'payout', 'bbps_payment', 'direct_transfer',
       'wallet_credit', 'wallet_debit'
     ];

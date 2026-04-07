@@ -23,6 +23,7 @@ const WalletTransaction    = require('../models/WalletTransaction');
 const RazorpayNotification = require('../models/RazorpayNotification');
 const Ledger               = require('../models/Ledger');
 const PayoutTransaction    = require('../models/PayoutTransaction');
+const Beneficiary          = require('../models/Beneficiary');
 
 // ── minimal Express app ───────────────────────────────────────────────────────
 const app = express();
@@ -453,7 +454,7 @@ describe('GET /api/report/ledger', () => {
   const ledgerEntry = () => ({
     id: 301, createdAt: new Date(), user_id: 2,
     user: { id: 2, name: 'Merch', mobile_number: '9', abheepay_id: 'AP1', organization_name: 'Org' },
-    transaction_type: 'razorpay_charge',
+    transaction_type: 'pos_charge',
     description: 'charge deducted',
     debit: '30.00', credit: '0',
     balance_before: '1000.00', balance: '970.00',
@@ -473,7 +474,7 @@ describe('GET /api/report/ledger', () => {
     expect(res.body.success).to.be.true;
     expect(res.body.count).to.equal(1);
     expect(res.body.data[0]).to.include({
-      transaction_type: 'razorpay_charge',
+      transaction_type: 'pos_charge',
       debit: 30,
       credit: 0,
       amount: 30,
@@ -492,6 +493,19 @@ describe('GET /api/report/ledger', () => {
       .set('Authorization', `Bearer ${merchantToken}`);
 
     expect(capturedWhere.user_id).to.equal(2);
+  });
+
+  it('ignores status query parameter (show all statuses)', async () => {
+    let capturedWhere;
+    Ledger.findAll = async ({ where }) => { capturedWhere = where; return [ledgerEntry()]; };
+
+    const res = await request(app)
+      .get('/api/report/ledger?status=completed')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(capturedWhere.status).to.be.undefined;
+    expect(res.body.count).to.equal(1);
   });
 
   it('returns 400 for invalid date', async () => {
@@ -537,15 +551,22 @@ describe('GET /api/report/ledger', () => {
 // 6. GET /report/payout
 // ============================================================================
 describe('GET /api/report/payout', () => {
-  let origFindAndCountAll, origLedgerFindAll;
+  let origFindAndCountAll, origLedgerFindAll, origUserFindAll, origBeneficiaryFindAll;
 
   beforeEach(() => {
-    origFindAndCountAll = PayoutTransaction.findAndCountAll;
-    origLedgerFindAll   = Ledger.findAll;
+    origFindAndCountAll     = PayoutTransaction.findAndCountAll;
+    origLedgerFindAll       = Ledger.findAll;
+    origUserFindAll         = User.findAll;
+    origBeneficiaryFindAll  = Beneficiary.findAll;
+
+    User.findAll = async () => [];
+    Beneficiary.findAll = async () => [];
   });
   afterEach(() => {
     PayoutTransaction.findAndCountAll = origFindAndCountAll;
     Ledger.findAll                    = origLedgerFindAll;
+    User.findAll                      = origUserFindAll;
+    Beneficiary.findAll               = origBeneficiaryFindAll;
   });
 
   const payoutRow = () => ({
@@ -561,6 +582,9 @@ describe('GET /api/report/payout', () => {
       { reference_id: 12, balance_before: '10000.00', balance: '4975.00', debit: '5025.00' }
     ];
 
+    User.findAll = async () => [{ id: 2, name: 'Merchant Name', email: 'merchant@example.com', mobile_number: '9999999999' }];
+    Beneficiary.findAll = async () => [{ id: 9, beneficiary_name: 'Vendor A', account_number: '1234567890', ifsc_code: 'HDFC0000123', bank_name: 'HDFC', mobile_number: '9876543210', email: 'vendor@example.com', status: 'active' }];
+
     const res = await request(app)
       .get('/api/report/payout')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -570,6 +594,8 @@ describe('GET /api/report/payout', () => {
     expect(res.body.data[0].total_deducted).to.equal(5025);
     expect(res.body.data[0].balance_before).to.equal(10000);
     expect(res.body.data[0].balance_after).to.equal(4975);
+    expect(res.body.data[0].merchant).to.deep.equal({ id: 2, name: 'Merchant Name', email: 'merchant@example.com', mobile_number: '9999999999' });
+    expect(res.body.data[0].beneficiary).to.deep.equal({ id: 9, beneficiary_name: 'Vendor A', account_number: '1234567890', ifsc_code: 'HDFC0000123', bank_name: 'HDFC', mobile_number: '9876543210', email: 'vendor@example.com', status: 'active' });
   });
 
   it('rows with no matching ledger entry get null balance fields', async () => {
@@ -755,7 +781,7 @@ describe('GET /api/report/all-transactions', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.supported_types).to.include.members([
-      'razorpay_credit', 'razorpay_charge', 'razorpay_commission',
+      'pos_credit', 'pos_charge', 'razorpay_commission',
       'payout', 'bbps_payment', 'direct_transfer',
       'wallet_credit', 'wallet_debit'
     ]);

@@ -1,6 +1,6 @@
 # GET /api/user/current — Current User Profile (Wallet Balance)
 
-Returns the authenticated user's profile along with live wallet balance (used for navbar display).
+Returns the authenticated user's profile along with live wallet and available balance.
 
 ## Request
 
@@ -28,28 +28,49 @@ No query parameters.
   "organization_name": "Merchant Org",
   "status": "active",
   "is_pos_asigned": true,
-  "wallet": "1470.00",
-  "wallet_hold": "0.00",
-  "tpin_set": true
+  "wallet": "5000.00",
+  "available_balance": 3000.00,
+  "tpin_set": true,
+  "ipay_outlet_id": null,
+  "is_payout_enabled": true
 }
 ```
 
 ### Response Field Descriptions
 
-- `id`: Internal user ID.
-- `name`: User's name (defaults to `"NA"` if not set).
-- `email`: User's email address.
-- `mobile_number`: Primary login mobile number.
-- `mobile_number_country_code`: Country code prefix (e.g., `+91`).
-- `role`: User role (`merchant`, `franchaise`, or `admin`).
-- `abheepay_id`: System-generated ID/username (e.g. `APM00001`).
-- `is_approved`: Whether the account is approved.
-- `organization_name`: Organization/shop name (may be `"NA"`).
-- `status`: User status (`active`, etc.).
-- `is_pos_asigned`: Indicates whether a POS machine is assigned.
-- `wallet`: Current spendable balance (string decimal).
-- `wallet_hold`: Amount currently on hold (string decimal).
-- `tpin_set`: `true` if a TPIN is configured for the user.
+| Field | Type | Description |
+|---|---|---|
+| `id` | number | Internal user ID |
+| `name` | string | User's name (`"NA"` if not set) |
+| `email` | string | User's email address |
+| `mobile_number` | string | Primary login mobile number |
+| `mobile_number_country_code` | string | Country code prefix (e.g. `"+91"`) |
+| `role` | string | `merchant`, `franchaise`, or `admin` |
+| `abheepay_id` | string | System-generated user ID (e.g. `APM00001`) |
+| `is_approved` | boolean | Whether the account is approved |
+| `organization_name` | string | Shop/org name (may be `"NA"`) |
+| `status` | string | `active`, etc. |
+| `is_pos_asigned` | boolean | Whether a POS machine is assigned |
+| `wallet` | string decimal | Gross ledger balance (includes any held amounts) |
+| `available_balance` | number | Spendable balance = `wallet − unreleased settlement holds` |
+| `tpin_set` | boolean | `true` if TPIN is configured |
+| `ipay_outlet_id` | string\|null | iPay outlet ID if linked |
+| `is_payout_enabled` | boolean | Whether payout is enabled for this user |
+
+> **`wallet_hold` and `settlement_hold` have been removed.**  
+> Use `available_balance` as the single source of truth for what the user can spend.  
+> If you need the frozen amount: `settlement_hold = wallet − available_balance`.
+
+---
+
+## Balance Logic
+
+```
+available_balance = wallet − SUM(SettlementHold WHERE released = false)
+```
+
+- For `today_settlement` users: `available_balance === wallet` (no holds ever created)
+- For `next_day_settlement` users: POS earnings are held until **10:30 AM IST the next day**, then released automatically
 
 ---
 

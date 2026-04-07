@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { getAdminDashboard, getUnassignedMerchants } = require("../controllers/adminController");
+const { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId } = require("../controllers/adminController");
 const { adminDirectCredit, adminDirectDebit, reconcileWallet, reconcileAllWallets } = require("../controllers/adminWalletController");
 const {
   getServiceSettings,
@@ -43,15 +43,31 @@ router.post("/wallet/debit", validateToken, ensureEmployeePermission(EMPLOYEE_PE
   elevateRole: "admin",
 }), adminDirectDebit);
 
+// PUT /api/admin/user/:id/ipay-outlet
+//   Admin-only: set or update the InstantPay outlet ID for any user.
+router.put("/user/:id/ipay-outlet", validateToken, setUserIpayOutletId);
+
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.
 //   Run this after any manual insert/delete in the Ledgers table.
-router.post("/wallet/reconcile/:userId", validateToken, reconcileWallet);
+router.post("/wallet/reconcile/:userId", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.WALLET_CREDIT,
+  EMPLOYEE_PERMISSIONS.WALLET_DEBIT,
+], {
+  message: "You do not have permission to manage wallet operations.",
+  elevateRole: "admin",
+}), reconcileWallet);
 
 // POST /api/admin/wallet/reconcile-all
 //   Reconciles ALL active users' wallets in one call.
 //   Run after bulk DB operations or migrations that may affect many users.
-router.post("/wallet/reconcile-all", validateToken, reconcileAllWallets);
+router.post("/wallet/reconcile-all", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.WALLET_CREDIT,
+  EMPLOYEE_PERMISSIONS.WALLET_DEBIT,
+], {
+  message: "You do not have permission to manage wallet operations.",
+  elevateRole: "admin",
+}), reconcileAllWallets);
 
 router.get("/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
   message: "You do not have permission to view service settings.",
@@ -69,5 +85,4 @@ router.get("/login-popups", validateToken, listLoginPopupsForAdmin);
 router.post("/login-popups", validateToken, loginPopupUpload, createLoginPopup);
 router.put("/login-popups/:id", validateToken, loginPopupUpload, updateLoginPopup);
 router.delete("/login-popups/:id", validateToken, deleteLoginPopup);
-
 module.exports = router;

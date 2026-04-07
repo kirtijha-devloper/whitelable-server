@@ -6,19 +6,53 @@ const Beneficiary = require('../../models/Beneficiary');
 const Tpin = require('../../models/Tpin');
 const User = require('../../models/User');
 const bcrypt = require('bcrypt');
-const WalletTransaction = require('../../models/WalletTransaction');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const Ledger = require('../../models/Ledger');
-const crypto = require('crypto');
+const payoutReferenceService = require('../../services/payoutReferenceService');
 const ledgerService = require('../../services/ledgerService');
 const ServiceFee = require('../../models/ServiceFee');
-const ChargeSlab = require('../../models/ChargeSlab');
+const PayoutCharge = require('../../models/PayoutCharge');
 const { serviceNames } = require('../../constants');
 const { Op } = require('sequelize');
 const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
 } = require('../../services/serviceSettingsService');
+
+function normalizeBranchxStatus(statusRaw) {
+  if (!statusRaw) return 'PENDING';
+  const status = statusRaw.toString().trim().toUpperCase();
+  if (['SUCCESS', 'COMPLETED'].includes(status)) return 'SUCCESS';
+  if (['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'].includes(status)) return 'FAILED';
+  if (['PENDING', 'PROCESSING', 'IN_PROGRESS'].includes(status)) return 'PENDING';
+  return 'PENDING';
+}
+
+async function resolvePayoutServiceCharge(amount) {
+  const slab = await PayoutCharge.findOne({
+    where: {
+      is_active: true,
+      from_amount: { [Op.lte]: amount },
+      to_amount: { [Op.gte]: amount }
+    },
+    order: [['from_amount', 'DESC']]
+  });
+
+  if (!slab) {
+    return 0;
+  }
+
+  if (slab.rate_type === 'flat') {
+    return parseFloat(slab.rate || 0);
+  }
+
+  const percent = parseFloat(slab.rate || 0);
+  if (isNaN(percent) || percent < 0) {
+    return 0;
+  }
+
+  return parseFloat(((amount * percent) / 100).toFixed(2));
+}
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
@@ -76,25 +110,11 @@ router.post('/payout', asyncHandler(async (req, res) => {
     }
 
     // service_charge may be sent by client, but if not provided (or zero) we
-    // calculate it from slabs defined by the admin.  Slabs use the existing
-    // ChargeSlab model; category 'branchx_payout' is used so administrators
-    // can create/update them via /api/charge routes.
+    // calculate it from admin payout rules (PayoutCharge table). This unifies
+    // branchx and vimo payout charge logic under a single source of truth.
     let service_charge = parseFloat(req.body.service_charge || 0);
     if (!service_charge || isNaN(service_charge) || service_charge <= 0) {
-      // find applicable slab for the amount
-      const slab = await ChargeSlab.findOne({
-        where: {
-          charge_type_category: 'branchx_payout',
-          min_amount: { [Op.lte]: amount },
-          max_amount: { [Op.gte]: amount }
-        },
-        order: [['min_amount', 'DESC']]
-      });
-      if (slab) {
-        const flat = parseFloat(slab.flat_fee || 0);
-        const pct = parseFloat(slab.percent_fee || 0);
-        service_charge = pct > 0 ? parseFloat(((pct/100) * amount).toFixed(2)) : flat;
-      }
+      service_charge = await resolvePayoutServiceCharge(amount);
     }
 
     if (service_charge === null || service_charge === undefined || isNaN(service_charge)) {
@@ -124,7 +144,10 @@ router.post('/payout', asyncHandler(async (req, res) => {
     }
 
     currentDate = getCurrentDate();
-    requestId = crypto.randomUUID()
+    let requestId = req.body.requestId || null;
+    if (!requestId) {
+      requestId = await payoutReferenceService.getNextPayoutReference();
+    }
 
     const payload = {
       amount,
@@ -145,8 +168,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     const data = await branchxService.payout(payload);
 
-    // Save payout transaction with status from response
-    const payoutStatus = data.status || 'PENDING';
+    // Save payout transaction with normalized status from response
+    const payoutStatus = normalizeBranchxStatus(data.status || data.Status || 'PENDING');
     const payoutTx = await PayoutTransaction.create({
       merchant_id: merchant_id,
       beneficiary_id: beneficiary_id,
@@ -158,15 +181,34 @@ router.post('/payout', asyncHandler(async (req, res) => {
       service_charge: service_charge
     });
 
-    // Update wallet balance if status is SUCCESS or PENDING
-    if (payoutStatus === 'SUCCESS' || payoutStatus === 'PENDING') {
-      // Write ledger entry for payout debit
-      // NOTE: createPayoutEntry() calls createLedgerEntry() which syncs user.wallet as its last step.
-      await ledgerService.createPayoutEntry({
+    // Always write the payout debit ledger entry immediately.
+    // If the API returned FAILED right away, we also create a credit refund.
+    await ledgerService.createPayoutEntry({
+      userId: merchant_id,
+      payoutTransactionId: payoutTx.id,
+      amount: total_amount,
+      description: `Payout to ${beneficiary.beneficiary_name} (${purpose || 'N/A'}) — ref: ${requestId}`,
+      metadata: {
+        beneficiary_name: beneficiary.beneficiary_name,
+        account_number: beneficiary.account_number,
+        ifsc_code: beneficiary.ifsc_code,
+        bank_name: beneficiary.bank_name,
+        payout_amount: amount,
+        service_charge: service_charge,
+        reference_id: requestId,
+        branchx_status: payoutStatus
+      }
+    });
+
+    if (payoutStatus === 'FAILED') {
+      // API returned FAILED immediately — refund the debit right away
+      await ledgerService.createLedgerEntry({
         userId: merchant_id,
-        payoutTransactionId: payoutTx.id,
-        amount: total_amount,
-        description: `Payout to ${beneficiary.beneficiary_name} (${purpose || 'N/A'}) — ref: ${requestId}`,
+        transactionType: 'payout_refund',
+        referenceId: payoutTx.id,
+        referenceTable: 'PayoutTransactions',
+        description: `Payout failed immediately: refund ₹${total_amount} for ref: ${requestId}`,
+        credit: total_amount,
         metadata: {
           beneficiary_name: beneficiary.beneficiary_name,
           account_number: beneficiary.account_number,
@@ -175,16 +217,9 @@ router.post('/payout', asyncHandler(async (req, res) => {
           payout_amount: amount,
           service_charge: service_charge,
           reference_id: requestId,
-          branchx_status: payoutStatus
+          branchx_status: payoutStatus,
         }
       });
-
-    }
-
-    console.log(`branchx data: ${JSON.stringify(data)}`);
-
-    // Check BranchX response status
-    if (data.status === 'FAILED') {
       return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
         success: false,
         message: data.message || 'Payout request failed',
@@ -669,9 +704,9 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
     // Call BranchX status check API
     const data = await branchxService.statusCheck(referenceId);
 
-    // Extract the actual transaction status from nested response
+    // Extract and normalize the actual transaction status from nested response
     // Response structure: { data: { data: { status: "FAILED" }, status: "SUCCESS" } }
-    const transactionStatus = data?.data?.status || data?.status || 'PENDING';
+    const transactionStatus = normalizeBranchxStatus(data?.data?.status || data?.status || 'PENDING');
 
     // Find PayoutTransaction to update
     let payoutTransaction = null;
@@ -698,7 +733,7 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
             data: JSON.stringify(data)
           });
 
-          // Handle wallet refund if status changes from SUCCESS/PENDING to FAILED
+          // Handle wallet refund if payout transitions to FAILED
           if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && newStatus === 'FAILED') {
             const existingRefund = await Ledger.findOne({
               where: {
@@ -709,28 +744,22 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
             });
 
             if (!existingRefund) {
+              const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
               await ledgerService.createLedgerEntry({
                 userId: payoutTransaction.merchant_id,
                 transactionType: 'payout_refund',
                 referenceId: payoutTransaction.id,
                 referenceTable: 'PayoutTransactions',
-                description: `Refund for failed BranchX payout ${payoutTransaction.reference_id || payoutTransaction.id}`,
-                credit: parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0),
+                description: `Payout failed (status check): refund ₹${refundAmount} for ${payoutTransaction.reference_id}`,
+                credit: refundAmount,
+                metadata: {
+                  payout_reference: payoutTransaction.reference_id,
+                  previous_status: previousStatus,
+                  new_status: newStatus,
+                  payout_amount: payoutTransaction.amount,
+                  service_charge: payoutTransaction.service_charge
+                }
               });
-            }
-
-            const walletTransaction = await WalletTransaction.findOne({
-              where: {
-                source: 'branchx',
-                reference_id: payoutTransaction.reference_id
-              },
-              order: [['createdAt', 'DESC']]
-            });
-            
-            if (walletTransaction) {
-              walletTransaction.status = 'failed';
-              walletTransaction.reason = `BranchX payout failed: ${data?.data?.message || 'Transaction failed'}`;
-              await walletTransaction.save();
             }
           }
         } else {

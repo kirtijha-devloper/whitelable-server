@@ -1238,7 +1238,6 @@ const approveUser = asyncHandler( async (req, res) => {
                   where: { user_id: user.id }
                 });
 
-                // Compute settlement hold for next-day settlement users
                 const availableBalance = await ledgerService.getAvailableBalance(user.id);
                 const settlementHold = parseFloat((parseFloat(user.wallet || 0) - availableBalance).toFixed(2));
                 const employeeAccessRole = user.employee_access_role_id

@@ -293,11 +293,6 @@ const payBill = asyncHandler(async (req, res) => {
           error: apiError.message,
         },
       });
-
-      if (ledgerEntry) {
-        await ledgerEntry.save();
-      }
-
       await payment.update({ status: 'failed', response: { error: apiError.message } });
 
       return res.status(500).json({ success: false, message: 'BillAvenue API call failed. Amount reversed.' });
@@ -370,10 +365,6 @@ const payBill = asyncHandler(async (req, res) => {
           transaction_ref_id: transactionRefId,
         },
       });
-
-      if (ledgerEntry) {
-        await ledgerEntry.save();
-      }
     }
 
     return res.status(200).json({

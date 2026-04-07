@@ -225,7 +225,6 @@ describe('Employee access across additional admin modules', () => {
     expect(res.status).to.equal(201);
     expect(res.body.success).to.equal(true);
   });
-
   it('allows an employee with payout.read to view today payouts', async () => {
     WalletTransaction.findAll = async () => [];
 

@@ -15,7 +15,7 @@ const Ledger = db.define('Ledger', {
   transaction_type: {
     type: Sequelize.STRING,
     allowNull: false,
-    comment: 'Type of transaction: razorpay_charge, wallet_credit, wallet_debit, payout, transfer, razorpay_commission, rental, etc.'
+    comment: 'Type of transaction: pos_charge, wallet_credit, wallet_debit, payout, transfer, razorpay_commission, rental, etc.'
   },
   transaction_id: {
     type: Sequelize.STRING,

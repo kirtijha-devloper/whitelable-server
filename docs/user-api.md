@@ -6,7 +6,7 @@ This document describes the endpoints exposed under the `/api/user` namespace. F
 
 ## POST /api/user/register
 
-Creates a new user in the system. This route is **protected** and requires a valid JWT access token in the `Authorization` header. Only an authenticated admin or franchise user can register other users depending on their role.
+Creates a new user in the system. This route is **protected** and requires a valid JWT access token in the `Authorization` header. The request body must be sent as `multipart/form-data`, not JSON.
 
 ### Request Headers
 
@@ -15,116 +15,142 @@ Authorization: Bearer <access_token>
 Content-Type: multipart/form-data
 ```
 
-> **Important:** The request body must be sent as `multipart/form-data` (using a `FormData` object), **not** JSON. This is required because the endpoint accepts file uploads for document images.
+> **Important:** Use a `FormData` object. This endpoint accepts file uploads, so raw JSON is not supported.
 
 ---
 
-### Request Fields
+### Authorization and role rules
 
-The form is divided into five logical sections.
+- `admin` users can create `admin`, `employee`, `merchant`, or `franchaise` users.
+- `franchaise` users can only create `merchant` users.
+- `employee` users cannot create other users.
+- Only `admin` users may create `employee` users.
+- Only `admin` users may assign the `permissions` field.
+- If `permissions` is provided for a non-`employee` role, the request will fail.
+- If a `franchaise` user tries to create a role other than `merchant`, the request will fail.
 
-#### 1. Account Information
-
-| Field           | Type   | Required | Description |
-|----------------|--------|----------|-------------|
-| `role`         | string | **yes**  | Role to assign. One of `merchant` or `franchise`. Admin-only creation of `admin` role is also supported server-side. |
-| `email`        | string | **yes**  | User's email address. |
-| `mobile_number`| string | **yes**  | Mobile number — used as the primary login identifier. Must be unique among active users. |
-| `password`     | string | **yes**  | Plain-text password (hashed server-side with bcrypt). |
-| `name`         | string | no       | Full name of the user. Strongly recommended. |
-| `company_or_shop_name` | string | no | Optional company or shop name for merchants or franchises. |
-| `mobile_number_country_code` | string | no | Country code prefix. Defaults to `+91`. |
-
-> **Server-enforced required fields:** Only `role`, `email`, `mobile_number`, and `password` will cause a `400` if missing. All other fields are optional at the API level — the frontend form marks several as required for UX purposes.
->
-> **Important:** the API will generate a unique `username` for the new user based on their role (e.g. `APM00001`). This value is **not** supplied by the client and is returned in the response.
-
-> **Note:** When a **franchise** user registers a merchant (`role: "merchant"`), the new merchant is automatically linked to that franchise via `franchaise_id`.
-
-#### 2. Personal Information
-
-| Field    | Type   | Required | Description |
-|---------|--------|----------|-------------|
-| `gender` | string | no       | One of `male`, `female`, or `other`. |
-| `dob`    | string | no       | Date of birth in `YYYY-MM-DD` format. |
-
-#### 3. Address Information
-
-| Field      | Type   | Required | Description |
-|-----------|--------|----------|-------------|
-| `address1` | string | no       | Address line 1. |
-| `address2` | string | no       | Address line 2. |
-| `city`     | string | no       | City. |
-| `district` | string | no       | District. |
-| `pincode`  | string | no       | Postal/PIN code. |
-| `state`    | string | no       | State. |
-
-#### 4. Document Information
-
-| Field              | Type   | Required | Description |
-|-------------------|--------|----------|-------------|
-| `aadhar_number`   | string | no       | 12-digit Aadhaar card number. |
-| `pan_number`      | string | no       | 10-character PAN card number. |
-| `aadhar_photo`    | file   | no       | Aadhaar card front image (any image MIME type). Uploaded to Cloudinary. |
-| `aadhar_back_photo` | file | no       | Aadhaar card back image (any image MIME type). Uploaded to Cloudinary. |
-| `pan_photo`       | file   | no       | PAN card image (any image MIME type). Uploaded to Cloudinary. |
-| `shop_photo`      | file   | no       | Shop/premises photo (any image MIME type). Uploaded to Cloudinary. |
-| `bank_passbook`   | file   | **yes**  | Front page of bank passbook (image/pdf). **Required for registration**. Uploaded to Cloudinary and stored as `bank_passbook_url`. |
-
-#### 5. POS Machine Assignment
-
-| Field              | Type   | Required | Description |
-|-------------------|--------|----------|-------------|
-| `settlement_type`  | string | no       | One of `today_settlement` (default) or `next_day_settlement`. Defaults to `today_settlement` when omitted. |
-| `pos_machine_ids`  | string | no       | JSON-stringified array of POS machine IDs to assign to the user. Example: `"[1, 2, 3]"`. Only unassigned machines should be sent. |
+> When a franchise user creates a merchant, the new merchant is linked to that franchise via `franchaise_id`.
 
 ---
 
-### Example (JavaScript)
+### Request fields
+
+The registration form is organized by logical groups.
+
+#### 1. Account information
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `role` | string | **yes** | Role to assign. Allowed values: `merchant`, `franchaise`, `admin`, `employee`. |
+| `email` | string | **yes** | User's email address. Must be unique among active users. |
+| `mobile_number` | string | **yes** | Mobile number — used as the primary login identifier. Must be unique among active users. |
+| `password` | string | **yes** | Plain-text password. Hashed server-side with bcrypt. |
+| `name` | string | no | Full name of the user. |
+| `company_or_shop_name` | string | no | Business name for merchants/franchisees. |
+| `mobile_number_country_code` | string | no | Country code prefix. Defaults to `+91` when omitted. |
+
+> **Server-enforced required fields:** `role`, `email`, `mobile_number`, and `password` are the only backend-required text fields.
+
+#### 2. Employee permissions
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `permissions` | string | no | JSON-stringified array of permission keys for `employee` users. Example: `['USERS_CREATE','USERS_LIST']`. Only valid when creating `employee` users. |
+
+#### 3. Personal information
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `gender` | string | no | One of `male`, `female`, or `other`. |
+| `dob` | string | no | Date of birth in `YYYY-MM-DD` format. |
+
+#### 4. Address information
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `address1` | string | no | Address line 1. |
+| `address2` | string | no | Address line 2. |
+| `city` | string | no | City. |
+| `district` | string | no | District. |
+| `pincode` | string | no | Postal/PIN code. |
+| `state` | string | no | State. |
+
+#### 5. Document information
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `aadhar_number` | string | no | 12-digit Aadhaar number. |
+| `pan_number` | string | no | 10-character PAN number. |
+| `aadhar_photo` | file | no | Aadhaar front image. Uploaded to Cloudinary. |
+| `aadhar_back_photo` | file | no | Aadhaar back image. Uploaded to Cloudinary. |
+| `pan_photo` | file | no | PAN card image. Uploaded to Cloudinary. |
+| `shop_photo` | file | no | Shop/premises photo. Uploaded to Cloudinary. |
+| `bank_passbook` | file | **yes** for non-employee; no for `employee` | Bank passbook front image / PDF. Uploaded to Cloudinary and stored as `bank_passbook_url`. |
+
+#### 6. POS machine assignment
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `settlement_type` | string | no | `today_settlement` (default) or `next_day_settlement`. |
+| `pos_machine_ids` | string | no | JSON-stringified array of POS machine IDs. Example: `"[101,102]"`. |
+
+---
+
+### Notes on accepted fields
+
+- The endpoint currently ignores `country` if provided; it is not persisted by the registration flow.
+- `pos_machine_ids` must be sent as a stringified JSON array in form fields.
+- If `pos_machine_ids` is invalid JSON, the user record is still created but POS assignment will not occur.
+- `bank_passbook` is required for all non-`employee` registrations.
+
+---
+
+### Example request
 
 ```js
 const formData = new FormData();
 
-// Account
 formData.append('role', 'merchant');
-formData.append('name', 'John Doe');
-formData.append('email', 'john@example.com');
+formData.append('email', 'rajesh@example.com');
 formData.append('mobile_number', '9876543210');
-formData.append('password', 'Secret@123');
+formData.append('password', 'StrongPwd#1');
+formData.append('name', 'Rajesh Kumar');
+formData.append('company_or_shop_name', 'Rajesh Enterprises');
+formData.append('mobile_number_country_code', '+91');
 
-// Personal
 formData.append('gender', 'male');
-formData.append('dob', '1990-05-15');
+formData.append('dob', '1990-05-20');
 
-// Address
 formData.append('address1', '123 Main Street');
+formData.append('address2', 'Shop 5');
 formData.append('city', 'Mumbai');
-formData.append('district', 'Mumbai City');
+formData.append('district', 'Mumbai');
 formData.append('pincode', '400001');
 formData.append('state', 'Maharashtra');
 
-// Documents
-formData.append('aadhar_number', '123456789012');
+formData.append('aadhar_number', '123412341234');
 formData.append('pan_number', 'ABCDE1234F');
-formData.append('aadhar_photo', aadharFile);     // File object
-formData.append('pan_photo', panFile);           // File object
-formData.append('bank_passbook', passbookFile);  // File object (required)
+formData.append('aadhar_photo', aadharPhotoFile);
+formData.append('aadhar_back_photo', aadharBackPhotoFile);
+formData.append('pan_photo', panPhotoFile);
+formData.append('bank_passbook', bankPassbookFile);
+formData.append('shop_photo', shopPhotoFile);
 
-// POS
 formData.append('settlement_type', 'today_settlement');
-formData.append('pos_machine_ids', JSON.stringify([5, 8]));
+formData.append('pos_machine_ids', JSON.stringify([101, 102]));
 
 const response = await fetch('/api/user/register', {
   method: 'POST',
   headers: { Authorization: `Bearer ${token}` },
   body: formData,
-  // Do NOT set Content-Type manually — the browser sets it with the correct boundary
 });
 ```
 
+> Do not set the `Content-Type` header manually. The browser will add the correct multipart boundary.
+
 ---
 
-### Response (201 Created)
+### Example successful response
 
 ```json
 {
@@ -132,18 +158,23 @@ const response = await fetch('/api/user/register', {
   "message": "User registered successfully",
   "user": {
     "id": 123,
-    "username": "APM00001",
-    "email": "john@example.com",
+    "email": "rajesh@example.com",
     "mobile_number": "9876543210",
-    "abheepay_id": "APM0001",
-    "role": "merchant"
+    "abheepay_id": "APM00001",
+    "role": "merchant",
+    "username": "APM00001",
+    "company_or_shop_name": "Rajesh Enterprises",
+    "permissions": []
   },
   "data": {
     "id": 123,
-    "email": "john@example.com",
+    "email": "rajesh@example.com",
     "mobile_number": "9876543210",
-    "abheepay_id": "APM0001",
-    "role": "merchant"
+    "abheepay_id": "APM00001",
+    "role": "merchant",
+    "username": "APM00001",
+    "company_or_shop_name": "Rajesh Enterprises",
+    "permissions": []
   },
   "pos": {
     "assigned": true,
@@ -152,27 +183,24 @@ const response = await fetch('/api/user/register', {
   "sms": {
     "sent": true,
     "message": "Registration details sent via SMS"
+  },
+  "email": {
+    "sent": true,
+    "message": "Registration details sent via Email"
   }
 }
 ```
 
-| Field            | Description |
-|-----------------|-------------|
-| `user.id` / `data.id` | The newly created user's internal ID. Both keys are present and identical. `resp.user.id` is the recommended accessor. |
-| `user.abheepay_id` | System-generated ID with prefix `APM` (merchant), `APF` (franchise), or `APA` (admin). |
-| `user.username` | System-generated login username (e.g. `APM00001`). Unique per user. || `pos.assigned`  | `true` if POS machines were successfully assigned. |
-| `pos.message`   | Describes POS assignment result. |
-| `sms.sent`      | `true` if the registration SMS was delivered successfully. |
-| `sms.message`   | Describes SMS delivery status. Registration succeeds even if SMS fails. |
-
 ---
 
-### Error Responses
+### Error responses
 
 | Status | Condition |
-|--------|-----------|
-| `400 Bad Request` | Missing required fields (`email`, `password`, `role`, `mobile_number`), or a user with that mobile number already exists. |
+|---|---|
+| `400 Bad Request` | Missing `role`, `email`, `mobile_number`, or `password`; missing required `bank_passbook` for non-employee registration; invalid `role`; invalid `permissions` payload; `permissions` provided for a non-employee role. |
 | `401 Unauthorized` | Missing or invalid Bearer token. |
+| `403 Forbidden` | Unauthorized role creation or permission assignment. |
+| `409 Conflict` | Mobile number or email already registered. |
 | `500 Internal Server Error` | Unexpected server-side error. |
 
 ---
