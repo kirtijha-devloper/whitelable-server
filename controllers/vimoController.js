@@ -180,7 +180,7 @@ async function createPayout(req, res) {
 
   // Generate merchantRefId if not supplied (idempotency key).
   if (!merchantRefId) {
-    merchantRefId = await payoutReferenceService.getNextPayoutReference();
+    merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo' });
   }
 
   // ── Resolve service charge from DB rules (admin-configured PayoutCharge) ──
@@ -241,6 +241,7 @@ async function createPayout(req, res) {
       merchant_id: user_id,
       beneficiary_id: beneficiary_id || null,
       reference_id: merchantRefId || null,
+      payout_provider: 'Vimo',
       amount: amount,
       status: 'Processing',
       purpose: purpose || paymentPurpose || null,
@@ -330,6 +331,8 @@ async function createPayout(req, res) {
       message: result.message,
       responseCode: result.responseCode,
       merchantRefId,
+      reference_id: merchantRefId,
+      payout_provider: 'Vimo',
       service_charge: serviceCharge,
       data: result.data
     });
