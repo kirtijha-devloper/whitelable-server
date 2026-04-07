@@ -491,14 +491,27 @@ async function handleCallback(req, res) {
 
   // Always respond 200 immediately so Vimo doesn't retry.
   res.status(200).json({ successStatus: true, message: 'Success', responseCode: '000' });
+  vimoLog('INFO', 'Vimo callback response sent, background processing scheduled');
 
   // Process in background after response is sent.
   setImmediate(async () => {
+    vimoLog('INFO', 'Vimo callback background processing started');
     try {
       const merchantRefId = payload.merchantRefId || payload.merchant_ref_id || payload.referenceId;
       const vimoStatus   = (payload.status || payload.txnStatus || '').toUpperCase();
+      const utrValue     = payload.utr || payload.bankRefNo || null;
 
       vimoLog('INFO', 'Parsed callback fields', { merchantRefId, vimoStatus });
+      vimoLog('DEBUG', 'Vimo callback payload mapping values', {
+        merchantRefId,
+        vimoStatus,
+        utr: utrValue,
+        rawStatus: payload.status,
+        rawTxnStatus: payload.txnStatus,
+        rawReference: payload.referenceId,
+        rawMerchantRefId: payload.merchantRefId,
+        rawMerchantRefIdAlt: payload.merchant_ref_id,
+      });
 
       if (!merchantRefId) {
         vimoLog('WARN', 'No merchantRefId in payload — skipping processing');
