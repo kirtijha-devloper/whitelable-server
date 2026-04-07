@@ -121,5 +121,43 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { getAdminDashboard, getUnassignedMerchants };
+const setUserIpayOutletId = asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  }
+
+  const { id } = req.params;
+  const { ipay_outlet_id } = req.body;
+
+  if (ipay_outlet_id === undefined || ipay_outlet_id === null) {
+    res.status(400);
+    throw new Error('ipay_outlet_id is required');
+  }
+
+  const parsed = parseInt(ipay_outlet_id, 10);
+  if (isNaN(parsed)) {
+    res.status(400);
+    throw new Error('ipay_outlet_id must be a valid integer');
+  }
+
+  const user = await User.findByPk(id);
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  user.ipay_outlet_id = parsed;
+  await user.save();
+
+  return res.status(200).json({
+    success: true,
+    message: 'InstantPay outlet ID updated successfully',
+    data: {
+      id: user.id,
+      ipay_outlet_id: user.ipay_outlet_id,
+    },
+  });
+});
+
+module.exports = { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId };
 
