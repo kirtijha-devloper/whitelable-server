@@ -50,6 +50,13 @@ const PayoutCharge = require('../models/PayoutCharge');
 const Rental = require('../models/Rental');
 const ledgerService = require('../services/ledgerService');
 const {
+  getServiceSettingsMap,
+  buildDefaultUserServiceSettings,
+  getEffectiveServiceFlags,
+  getUserServiceSettingsForUser,
+  getUserServiceSettingsMapForUsers,
+} = require('../services/serviceSettingsService');
+const {
   EMPLOYEE_PERMISSIONS,
   buildEmployeeAccessRoleSummary,
   getResolvedPermissions,
@@ -165,6 +172,17 @@ function serializeUserWithResolvedAccessRole(userLike, employeeAccessRole = null
 
 function toPlainUser(userLike) {
   return userLike?.toJSON ? userLike.toJSON() : { ...userLike };
+}
+
+function getResolvedUserServiceSettingsFromMap(userServiceSettingsMap, user) {
+  const plainUser = toPlainUser(user);
+  const userId = Number(plainUser?.id);
+
+  if (Number.isInteger(userId) && userServiceSettingsMap?.has(userId)) {
+    return userServiceSettingsMap.get(userId);
+  }
+
+  return buildDefaultUserServiceSettings(plainUser);
 }
 
 async function buildEmployeeAccessRoleMap(users) {
@@ -338,9 +356,19 @@ const getUsers = asyncHandler(async (req, res) => {
           return acc;
         }, {});
 
-        const employeeAccessRoleMap = await buildEmployeeAccessRoleMap(users);
-        const merchantCountMap = await buildMerchantCountMap(users);
-        const franchiseSummaryMap = await buildFranchiseSummaryMap(users);
+        const [
+          employeeAccessRoleMap,
+          merchantCountMap,
+          franchiseSummaryMap,
+          serviceSettingsMap,
+          userServiceSettingsMap,
+        ] = await Promise.all([
+          buildEmployeeAccessRoleMap(users),
+          buildMerchantCountMap(users),
+          buildFranchiseSummaryMap(users),
+          getServiceSettingsMap(),
+          getUserServiceSettingsMapForUsers(users),
+        ]);
 
         const usersWithPosCount = users.map((u) => {
           const plain = u.toJSON ? u.toJSON() : u;
@@ -352,6 +380,7 @@ const getUsers = asyncHandler(async (req, res) => {
           const wallet = parseFloat(u.wallet || 0);
           const employeeAccessRole = employeeAccessRoleMap.get(u.employee_access_role_id) || null;
           const normalizedListedRole = normalizeRole(u.role);
+          const userServiceSettings = getResolvedUserServiceSettingsFromMap(userServiceSettingsMap, u);
 
           return {
             ...serializeUserWithResolvedAccessRole(u, employeeAccessRole),
@@ -363,6 +392,8 @@ const getUsers = asyncHandler(async (req, res) => {
             franchise_details: normalizedListedRole === 'merchant'
               ? (franchiseSummaryMap.get(Number(u.franchaise_id)) || null)
               : null,
+            user_service_settings: userServiceSettings,
+            service_flags: getEffectiveServiceFlags(u, serviceSettingsMap, userServiceSettings),
           };
         });
 
@@ -461,15 +492,26 @@ const searchUsers = asyncHandler(async (req, res) => {
             return acc;
         }, {});
 
-        const employeeAccessRoleMap = await buildEmployeeAccessRoleMap(users);
-        const merchantCountMap = await buildMerchantCountMap(users);
-        const franchiseSummaryMap = await buildFranchiseSummaryMap(users);
+        const [
+            employeeAccessRoleMap,
+            merchantCountMap,
+            franchiseSummaryMap,
+            serviceSettingsMap,
+            userServiceSettingsMap,
+        ] = await Promise.all([
+            buildEmployeeAccessRoleMap(users),
+            buildMerchantCountMap(users),
+            buildFranchiseSummaryMap(users),
+            getServiceSettingsMap(),
+            getUserServiceSettingsMapForUsers(users),
+        ]);
 
         const results = users.map((u) => {
             const plain = u.toJSON ? u.toJSON() : u;
             const walletVal = parseFloat(plain.wallet || 0);
             const employeeAccessRole = employeeAccessRoleMap.get(plain.employee_access_role_id) || null;
             const normalizedListedRole = normalizeRole(plain.role);
+            const userServiceSettings = getResolvedUserServiceSettingsFromMap(userServiceSettingsMap, plain);
 
             return {
                 ...serializeUserWithResolvedAccessRole(plain, employeeAccessRole),
@@ -481,6 +523,8 @@ const searchUsers = asyncHandler(async (req, res) => {
                 franchise_details: normalizedListedRole === 'merchant'
                     ? (franchiseSummaryMap.get(Number(plain.franchaise_id)) || null)
                     : null,
+                user_service_settings: userServiceSettings,
+                service_flags: getEffectiveServiceFlags(plain, serviceSettingsMap, userServiceSettings),
             };
         });
 
@@ -610,10 +654,18 @@ const getUserByID = asyncHandler(async (req, res) => {
     const employeeAccessRole = searchedUser.employee_access_role_id
       ? await getEmployeeAccessRoleById(searchedUser.employee_access_role_id)
       : null;
-    response.user = serializeUserWithResolvedAccessRole(
-      searchedUser,
-      employeeAccessRole ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : employeeAccessRole) : null
-    );
+    const [serviceSettingsMap, userServiceSettings] = await Promise.all([
+      getServiceSettingsMap(),
+      getUserServiceSettingsForUser(searchedUser),
+    ]);
+    response.user = {
+      ...serializeUserWithResolvedAccessRole(
+        searchedUser,
+        employeeAccessRole ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : employeeAccessRole) : null
+      ),
+      user_service_settings: userServiceSettings,
+      service_flags: getEffectiveServiceFlags(searchedUser, serviceSettingsMap, userServiceSettings),
+    };
 
     // Fetch charges associated with merchant (if merchant role)
     if (searchedUserRole === "merchant" || role === "admin") {
@@ -1197,6 +1249,11 @@ const approveUser = asyncHandler( async (req, res) => {
                 const currentEmployeeAccessRolePayload = employeeAccessRole
                     ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : { ...employeeAccessRole })
                     : null;
+                const [serviceSettingsMap, userServiceSettings] = await Promise.all([
+                    getServiceSettingsMap(),
+                    getUserServiceSettingsForUser(user),
+                ]);
+                const serviceFlags = getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings);
 
                 res.json({
                     email: user.email,
@@ -1210,12 +1267,12 @@ const approveUser = asyncHandler( async (req, res) => {
                     status: user.status,
                     is_pos_asigned: ( user.is_pos_asigned || false),
                     wallet: user.wallet,
-                    wallet_hold: user.wallet_hold,
                     settlement_hold: settlementHold,
                     available_balance: availableBalance,
                     tpin_set: !!tpinRecord,
                     ipay_outlet_id: user.ipay_outlet_id || null,
                     is_payout_enabled: user.is_payout_enabled,
+                    service_flags: serviceFlags,
                     employee_access_role_id: user.employee_access_role_id || null,
                     employee_access_role: buildEmployeeAccessRoleSummary(employeeAccessRole),
                     permissions: getResolvedPermissions({

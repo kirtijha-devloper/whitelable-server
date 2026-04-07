@@ -8,6 +8,8 @@ process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secre
 const branchxRoutes = require('../routes/payments/branchxRoutes');
 const branchxService = require('../services/payments/branchxService');
 const User = require('../models/User');
+const Beneficiary = require('../models/Beneficiary');
+const Tpin = require('../models/Tpin');
 const ServiceFee = require('../models/ServiceFee');
 const ChargeSlab = require('../models/ChargeSlab');
 const PayoutTransaction = require('../models/PayoutTransaction');
@@ -15,6 +17,7 @@ const PayoutAuditLog = require('../models/PayoutAuditLog');
 const Ledger = require('../models/Ledger');
 const WalletTransaction = require('../models/WalletTransaction');
 const ledgerService = require('../services/ledgerService');
+const bcrypt = require('bcrypt');
 
 // setup mini app
 const app = express();
@@ -32,15 +35,31 @@ let stubs;
 beforeEach(() => {
   stubs = {
     branchx: { bankValidation: branchxService.bankValidation, payout: branchxService.payout },
+    userFindByPk: User.findByPk,
+    beneficiaryFindByPk: Beneficiary.findByPk,
+    tpinFindOne: Tpin.findOne,
+    bcryptCompare: bcrypt.compare,
     serviceFeeFindOne: ServiceFee.findOne,
     slabFindOne: ChargeSlab.findOne,
-    ledgerEntry: ledgerService.createLedgerEntry
+    payoutCreate: PayoutTransaction.create,
+    ledgerEntry: ledgerService.createLedgerEntry,
+    payoutEntry: ledgerService.createPayoutEntry,
+    availableBalance: ledgerService.getAvailableBalance,
   };
 });
 afterEach(() => {
   branchxService.bankValidation = stubs.branchx.bankValidation;
+  branchxService.payout = stubs.branchx.payout;
+  User.findByPk = stubs.userFindByPk;
+  Beneficiary.findByPk = stubs.beneficiaryFindByPk;
+  Tpin.findOne = stubs.tpinFindOne;
+  bcrypt.compare = stubs.bcryptCompare;
   ServiceFee.findOne = stubs.serviceFeeFindOne;
+  ChargeSlab.findOne = stubs.slabFindOne;
+  PayoutTransaction.create = stubs.payoutCreate;
   ledgerService.createLedgerEntry = stubs.ledgerEntry;
+  ledgerService.createPayoutEntry = stubs.payoutEntry;
+  ledgerService.getAvailableBalance = stubs.availableBalance;
 });
 
 describe('POST /api/payment/v2/bank/validation', () => {
@@ -98,27 +117,27 @@ describe('POST /api/payment/v2/bank/validation', () => {
 describe('BranchX webhook callback', () => {
   let origPayoutFindOne;
   let origPayoutFindByPk;
-  let origUserFindByPk;
   let origWalletFindOne;
-  let origLedgerUpdate;
+  let origLedgerFindOne;
   let origPayoutAuditCreate;
+  let origLedgerEntry;
 
   beforeEach(() => {
     origPayoutFindOne = PayoutTransaction.findOne;
     origPayoutFindByPk = PayoutTransaction.findByPk;
-    origUserFindByPk = User.findByPk;
     origWalletFindOne = WalletTransaction.findOne;
-    origLedgerUpdate = Ledger.update;
+    origLedgerFindOne = Ledger.findOne;
     origPayoutAuditCreate = PayoutAuditLog.create;
+    origLedgerEntry = ledgerService.createLedgerEntry;
   });
 
   afterEach(() => {
     PayoutTransaction.findOne = origPayoutFindOne;
     PayoutTransaction.findByPk = origPayoutFindByPk;
-    User.findByPk = origUserFindByPk;
     WalletTransaction.findOne = origWalletFindOne;
-    Ledger.update = origLedgerUpdate;
+    Ledger.findOne = origLedgerFindOne;
     PayoutAuditLog.create = origPayoutAuditCreate;
+    ledgerService.createLedgerEntry = origLedgerEntry;
   });
 
   it('updates payout transaction and refunds wallet when callback status is FAILED', async () => {
@@ -147,10 +166,13 @@ describe('BranchX webhook callback', () => {
 
     PayoutTransaction.findOne = async () => payoutTx;
     PayoutTransaction.findByPk = async () => payoutTx;
-    User.findByPk = async () => user;
     WalletTransaction.findOne = async () => walletTx;
-    Ledger.update = async () => [1];
+    Ledger.findOne = async () => null;
     PayoutAuditLog.create = async () => ({});
+    ledgerService.createLedgerEntry = async (args) => {
+      user.wallet += parseFloat(args.credit || 0);
+      return { id: 77 };
+    };
 
     const res = await request(app)
       .post('/api/payment/v2/payout/callback')
@@ -178,6 +200,24 @@ describe('POST /api/payment/v2/payout', () => {
   beforeEach(() => {
     // stub payout service to avoid real HTTP call
     branchxService.payout = async () => ({ status: 'SUCCESS', api_ref: 'R1' });
+    User.findByPk = async () => ({ id: 9, is_payout_enabled: true, wallet: 1000, name: 'Merchant Test' });
+    Beneficiary.findByPk = async () => ({
+      id: 1,
+      status: 'active',
+      mobile_number: '9999999999',
+      account_number: '1234567890',
+      ifsc_code: 'TEST0001234',
+      beneficiary_name: 'Test Beneficiary',
+      bank_name: 'Test Bank',
+      email: 'test@example.com',
+    });
+    Tpin.findOne = async () => ({
+      expires_at: new Date(Date.now() + 60000),
+      tpin: '$2b$10$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    });
+    bcrypt.compare = async () => true;
+    PayoutTransaction.create = async (payload) => ({ id: 1, ...payload });
+    ledgerService.getAvailableBalance = async () => 1000;
   });
 
   it('requires amount and beneficiary', async () => {
@@ -190,7 +230,7 @@ describe('POST /api/payment/v2/payout', () => {
 
   it('uses provided service_charge when present', async () => {
     let ledgerArgs;
-    ledgerService.createLedgerEntry = async (args) => { ledgerArgs = args; return {}; };
+    ledgerService.createPayoutEntry = async (args) => { ledgerArgs = args; return {}; };
 
     const res = await request(app)
       .post('/api/payment/v2/payout')
@@ -198,14 +238,14 @@ describe('POST /api/payment/v2/payout', () => {
       .send({ merchant_id: 9, beneficiary_id: 1, amount: 100, service_charge: 7, tpin: '0000' });
 
     expect(res.status).to.not.equal(400);
-    expect(ledgerArgs.debit).to.equal(107);
+    expect(ledgerArgs.amount).to.equal(107);
   });
 
   it('calculates service_charge from slab when none provided', async () => {
     let ledgerArgs;
     // slab returns 10 flat fee for amount range
     ChargeSlab.findOne = async () => ({ flat_fee: '10.00', percent_fee: '0' });
-    ledgerService.createLedgerEntry = async (args) => { ledgerArgs = args; return {}; };
+    ledgerService.createPayoutEntry = async (args) => { ledgerArgs = args; return {}; };
 
     const res = await request(app)
       .post('/api/payment/v2/payout')
@@ -213,6 +253,6 @@ describe('POST /api/payment/v2/payout', () => {
       .send({ merchant_id: 9, beneficiary_id: 1, amount: 200, tpin: '0000' });
 
     expect(res.status).to.not.equal(400);
-    expect(ledgerArgs.debit).to.equal(210);
+    expect(ledgerArgs.amount).to.equal(210);
   });
 });

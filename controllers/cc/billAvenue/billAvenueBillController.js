@@ -7,8 +7,11 @@ const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenuePayment = require('../../../models/BillAvenuePayment');
 const BillAvenueBillFetch = require('../../../models/BillAvenueBillFetch');
 const BbpsCcChargeRule = require('../../../models/BbpsCcChargeRule');
-const User = require('../../../models/User');
 const ledgerService = require('../../../services/ledgerService');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../../../services/serviceSettingsService');
 
 // ─── Logging ────────────────────────────────────────────────────────────────
 const logFile = path.join(__dirname, '../../../logs/billAvenue.log');
@@ -217,6 +220,10 @@ const payBill = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid amount' });
     }
 
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.BA_CC_BILL_PAY, req.user))) {
+      return;
+    }
+
     // ── Balance check ───────────────────────────────────────────────────
     const balanceCheck = await ensureSufficientBalance(userId, txnAmount);
     if (!balanceCheck.isSufficient) {
@@ -249,7 +256,6 @@ const payBill = asyncHandler(async (req, res) => {
         referenceTable: 'BillAvenuePayments',
         description: `BillAvenue CC bill payment — biller: ${billerId}`,
         debit: txnAmount,
-        status: 'pending',
         metadata: {
           biller_id: billerId,
           payment_mode: paymentMode || 'Cash',
@@ -281,7 +287,6 @@ const payBill = asyncHandler(async (req, res) => {
         referenceTable: 'BillAvenuePayments',
         description: `Reversed — BillAvenue API error: ${apiError.message}`,
         credit: txnAmount,
-        status: 'completed',
         metadata: {
           biller_id: billerId,
           original_ledger_id: ledgerEntry?.id,
@@ -290,7 +295,6 @@ const payBill = asyncHandler(async (req, res) => {
       });
 
       if (ledgerEntry) {
-        ledgerEntry.status = 'reversed';
         await ledgerEntry.save();
       }
 
@@ -320,7 +324,6 @@ const payBill = asyncHandler(async (req, res) => {
     // ── Step 3: Finalise or reverse ─────────────────────────────────────
     if (isSuccess) {
       if (ledgerEntry) {
-        ledgerEntry.status = 'completed';
         ledgerEntry.transaction_id = transactionRefId || null;
         ledgerEntry.metadata = JSON.stringify({
           biller_id: billerId,
@@ -341,7 +344,6 @@ const payBill = asyncHandler(async (req, res) => {
           referenceTable: 'BillAvenuePayments',
           description: `BillAvenue CC payment charge — ₹${chargeAmount}`,
           debit: chargeAmount,
-          status: 'completed',
           metadata: {
             biller_id: billerId,
             charge_amount: chargeAmount,
@@ -361,7 +363,6 @@ const payBill = asyncHandler(async (req, res) => {
         referenceTable: 'BillAvenuePayments',
         description: `Reversed — BillAvenue payment failed (code: ${responseCode || 'unknown'})`,
         credit: txnAmount,
-        status: 'completed',
         metadata: {
           biller_id: billerId,
           original_ledger_id: ledgerEntry?.id,
@@ -371,7 +372,6 @@ const payBill = asyncHandler(async (req, res) => {
       });
 
       if (ledgerEntry) {
-        ledgerEntry.status = 'reversed';
         await ledgerEntry.save();
       }
     }

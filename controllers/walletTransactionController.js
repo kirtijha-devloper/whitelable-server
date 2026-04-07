@@ -30,7 +30,7 @@ const requestFund = asyncHandler(async (req, res) =>{
     requested_by: user_id,
   });
 
-  res.status(200).json({ message: "Fund Requested", balance: user.wallet,hold: user.wallet_hold, id: wallet.id });
+  res.status(200).json({ message: "Fund Requested", balance: user.wallet, id: wallet.id });
 });
 
 const transferFund = asyncHandler(async (req, res) =>{
@@ -48,13 +48,14 @@ const transferFund = asyncHandler(async (req, res) =>{
       throw new Error("Invalid transaction ID");
     }
       const walletTransaction = await WalletTransaction.findByPk(transactionId);
-      if (walletTransaction.status !== "pending" && walletTransaction.type !== "request") {
+      if (!walletTransaction) {
+        res.status(404);
+        throw new Error("Request not found");
+      }
+      if (walletTransaction.status !== "pending" || walletTransaction.type !== "request") {
         res.status(400);
         throw new Error("Wallet Transaction is not valid for transfer ")
       }
-        
-
-      if (!walletTransaction) throw new Error("Request not found");
 
       const sender = await User.findByPk(req.user.id); // the one approving
     console.log("sender balanece", sender)
@@ -101,7 +102,6 @@ const transferFund = asyncHandler(async (req, res) =>{
           referenceId: transferTransaction.id,
           description: `Fund transfer to user ${walletTransaction.requested_by}`,
           debit: parseFloat(walletTransaction.amount),
-          status: 'completed',
           metadata: { receiver_id: walletTransaction.requested_by, original_request_id: walletTransaction.id }
         });
 
@@ -113,7 +113,6 @@ const transferFund = asyncHandler(async (req, res) =>{
           referenceId: transferTransaction.id,
           description: `Fund transfer from user ${sender.id}`,
           credit: parseFloat(walletTransaction.amount),
-          status: 'completed',
           metadata: { sender_id: sender.id, original_request_id: walletTransaction.id }
         });
       } catch (ledgerError) {
@@ -129,7 +128,7 @@ const transferFund = asyncHandler(async (req, res) =>{
       //     { account_id: platformIncomeAccountId, type: 'credit', amount: walletTransaction.amount }
       //   ])
 
-    res.status(200).json({ message: "Amount Transfered", balance: receiver.wallet, hold: receiver.wallet_hold });
+    res.status(200).json({ message: "Amount Transfered", balance: receiver.wallet });
   }
     catch (err) { console.error(err); 
       res.status(500).json({
@@ -148,7 +147,11 @@ const holdFund = asyncHandler(async (req, res) => {
     throw new Error("Invalid transaction ID");
   }
   const walletTransaction = await WalletTransaction.findByPk(transactionId);
-  if (walletTransaction.status !== "pending" && walletTransaction.type !== "request") {
+  if (!walletTransaction) {
+    res.status(404);
+    throw new Error("Request not found");
+  }
+  if (walletTransaction.status !== "pending" || walletTransaction.type !== "request") {
     res.status(400);
     throw new Error("WallentTransaction should be in pending status for hold")
   }
@@ -156,8 +159,6 @@ const holdFund = asyncHandler(async (req, res) => {
   const user = await User.findByPk(walletTransaction.requested_by);
 
   if (!user) throw new Error("Requested User not found");
-  user.wallet_hold = parseFloat(user.wallet_hold) +  parseFloat(walletTransaction.amount);
-  await user.save();
 
   walletTransaction.approved_by = req.user.id
   walletTransaction.status = "completed"
@@ -172,24 +173,12 @@ const holdFund = asyncHandler(async (req, res) => {
           requested_by: walletTransaction.requested_by,
           reference_id: walletTransaction.id
         });
-  
-  // Create ledger entry for hold
-  try {
-    await ledgerService.createLedgerEntry({
-      userId: user.id,
-      transactionType: 'wallet_hold',
-      transactionId: `hold_${holdTransaction.id}`,
-      referenceId: holdTransaction.id,
-      description: 'Amount held',
-      debit: parseFloat(walletTransaction.amount),
-      status: 'completed',
-      metadata: { original_request_id: walletTransaction.id }
-    });
-  } catch (ledgerError) {
-    console.error('Error creating ledger entry for hold:', ledgerError);
-  }
-  
-  res.status(200).json({ message: "Amount held", balance: user.wallet, hold: user.wallet_hold });
+
+  res.status(200).json({
+    message: "Request moved to hold",
+    balance: user.wallet,
+    hold_transaction_id: holdTransaction.id
+  });
 });
 
 const unholdFund = asyncHandler(async (req, res) => {
@@ -201,7 +190,11 @@ const unholdFund = asyncHandler(async (req, res) => {
     throw new Error("Invalid transaction ID");
   }
   const walletTransaction = await WalletTransaction.findByPk(transactionId);
-  if (walletTransaction.status !== "pending" && walletTransaction.type !== "hold") {
+  if (!walletTransaction) {
+    res.status(404);
+    throw new Error("Hold request not found");
+  }
+  if (walletTransaction.status !== "pending" || walletTransaction.type !== "hold") {
     res.status(400);
     throw new Error("WallentTransaction should be in hold status for unhold")
   }
@@ -220,9 +213,6 @@ const unholdFund = asyncHandler(async (req, res) => {
     throw new Error("Insufficient balance to transfer funds");
   }
 
-  // if parseFloat(user.wallet_hold) < parseFloat(walletTransaction.amount)){
-  // }
-  receiver.wallet_hold = parseFloat(receiver.wallet_hold) -  parseFloat(walletTransaction.amount);
   receiver.wallet = parseFloat(receiver.wallet) +  parseFloat(walletTransaction.amount);
   await receiver.save();
 
@@ -253,7 +243,6 @@ const unholdFund = asyncHandler(async (req, res) => {
       referenceId: unholdTransaction.id,
       description: `Unhold amount for user ${receiver.id}`,
       debit: parseFloat(walletTransaction.amount),
-      status: 'completed',
       metadata: { receiver_id: receiver.id, original_hold_id: walletTransaction.id }
     });
 
@@ -265,14 +254,13 @@ const unholdFund = asyncHandler(async (req, res) => {
       referenceId: unholdTransaction.id,
       description: 'Amount unheld',
       credit: parseFloat(walletTransaction.amount),
-      status: 'completed',
       metadata: { sender_id: sender.id, original_hold_id: walletTransaction.id }
     });
   } catch (ledgerError) {
     console.error('Error creating ledger entries for unhold:', ledgerError);
   }
-  
-  res.status(200).json({ message: "Amount held", balance: receiver.wallet, hold: receiver.wallet_hold });
+
+  res.status(200).json({ message: "Amount unheld", balance: receiver.wallet });
 });
 
 const getUserWalletTransactions = asyncHandler(async (req, res) => {

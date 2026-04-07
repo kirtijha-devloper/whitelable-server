@@ -11,9 +11,11 @@ const REFERENCE_TABLE_MODEL_MAP = {
   WalletTransactions: () => require('../models/WalletTransaction'),
   MerchantTransactionCharges: () => require('../models/MerchantTransactionCharge'),
   PayoutTransactions: () => require('../models/PayoutTransaction'),
+  PayoutRequests: () => require('../models/PayoutRequest'),
   Rentals: () => require('../models/Rental'),
   PosRentalBillings: () => require('../models/PosRentalBilling'),
   BillAvenuePayments: () => require('../models/BillAvenuePayment'),
+  CcBillPayments: () => require('../models/CcBillPayment'),
 };
 
 /**
@@ -105,7 +107,6 @@ async function createSettlementHold(userId, amount, ledgerId = null) {
  * @param {string}  [params.description]     – Human-readable label
  * @param {number}  [params.debit]           – Amount going OUT  (default 0)
  * @param {number}  [params.credit]          – Amount coming IN  (default 0)
- * @param {string}  [params.status]          – completed | pending | failed | cancelled
  * @param {Object}  [params.metadata]        – Extra JSON context
  * @returns {Promise<Object>} Created ledger entry
  */
@@ -118,7 +119,6 @@ async function createLedgerEntry({
   description = null,
   debit = 0,
   credit = 0,
-  status = 'completed',
   metadata = null
 }, opts = {}) {
   // Check if ledger tracking is enabled for this user
@@ -160,7 +160,6 @@ async function createLedgerEntry({
     debit: parseFloat(debit) || 0,
     credit: parseFloat(credit) || 0,
     balance: balanceAfter,
-    status: status,
     metadata: metadataString
   }, opts);
 
@@ -198,7 +197,6 @@ async function createRazorpayChargeEntry({
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description: description || `Razorpay transaction: ${razorpayTransactionId} - Amount: ₹${transactionAmount}`,
     credit: transactionAmount,
-    status: 'completed',
     metadata: {
       transaction_amount: transactionAmount,
       ...metadata
@@ -214,7 +212,6 @@ async function createRazorpayChargeEntry({
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
     description: description || `Transaction charge deducted: ${razorpayTransactionId} - Charge: ₹${chargeAmount}`,
     debit: chargeAmount,
-    status: 'completed',
     metadata: {
       transaction_amount: transactionAmount,
       charge_amount: chargeAmount,
@@ -291,7 +288,6 @@ async function createWalletTransactionEntry({
     description: description || `Wallet transaction: ${transactionType}`,
     debit,
     credit,
-    status,
     metadata
   });
 }
@@ -306,7 +302,6 @@ async function getLedgerEntries({
   startDate = null,
   endDate = null,
   transactionType = null,
-  status = null,
   page = 1,
   limit = 50
 }) {
@@ -327,10 +322,6 @@ async function getLedgerEntries({
 
   if (transactionType) {
     where.transaction_type = transactionType;
-  }
-
-  if (status) {
-    where.status = status;
   }
 
   const { count, rows: entries } = await Ledger.findAndCountAll({
@@ -384,7 +375,6 @@ async function createCommissionEntry({
       description ||
       `Commission earned on Razorpay txn: ${razorpayTransactionId} — ₹${commissionAmount}`,
     credit: commissionAmount,
-    status: 'completed',
     metadata,
   });
 }
@@ -403,7 +393,6 @@ async function createFranchiseEarningEntry({
     transactionId: razorpayTransactionId,
     description: description || `Franchise earning on txn: ${razorpayTransactionId} — ₹${amount}`,
     credit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -433,7 +422,6 @@ async function createRentalChargeEntry({
     referenceTable: 'PosRentalBillings',
     description: description || `Rental charge: ₹${amount}`,
     debit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -464,7 +452,6 @@ async function createRentalCreditEntry({
     referenceTable: 'PosRentalBillings',
     description: description || `Rental income: ₹${amount}`,
     credit: amount,
-    status: 'completed',
     metadata,
   });
 }
@@ -476,8 +463,8 @@ async function createRentalCreditEntry({
  * @param {number}  params.userId             - ID of the user being debited
  * @param {number}  params.payoutTransactionId - FK to PayoutTransactions table
  * @param {number}  params.amount             - Payout amount (including service charge)
+ * @param {string}  [params.referenceTable]
  * @param {string}  [params.description]
- * @param {string}  [params.status]
  * @param {Object}  [params.metadata]
  * @returns {Promise<Object>} Created ledger entry
  */
@@ -485,18 +472,17 @@ async function createPayoutEntry({
   userId,
   payoutTransactionId,
   amount,
+  referenceTable = 'PayoutTransactions',
   description = null,
-  status = 'completed',
   metadata = null,
 }, opts = {}) {
   return await createLedgerEntry({
     userId,
     transactionType: 'payout',
     referenceId: payoutTransactionId,
-    referenceTable: 'PayoutTransactions',
+    referenceTable,
     description: description || `Payout: ₹${amount}`,
     debit: amount,
-    status,
     metadata,
   }, opts);
 }
@@ -549,7 +535,7 @@ async function getLedgerEntryWithLinkedRecord(ledgerId) {
  *
  * A single window-function UPDATE rewrites `balance_before` and `balance` on
  * every row in chronological order so the chain is self-consistent, then
- * syncs user.wallet to the true SUM(credit) - SUM(debit) of completed rows.
+ * syncs user.wallet to the true SUM(credit) - SUM(debit) across all rows.
  *
  * This must be called after any manual INSERT, UPDATE, or DELETE on the
  * Ledgers table, because the application-written `balance` columns used by
@@ -588,11 +574,12 @@ async function rebuildBalanceChain(userId) {
     { replacements: { userId }, type: Ledger.sequelize.QueryTypes.UPDATE }
   );
 
-  // True balance = only completed entries count toward the spendable wallet
+  // True balance = net of all ledger rows. Failed or reversed workflows are
+  // represented as compensating entries instead of a mutable ledger status.
   const rows = await Ledger.sequelize.query(
     `SELECT COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0) AS true_balance
      FROM "Ledgers"
-     WHERE user_id = :userId AND status = 'completed'`,
+     WHERE user_id = :userId`,
     { replacements: { userId }, type: Ledger.sequelize.QueryTypes.SELECT }
   );
 

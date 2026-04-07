@@ -2,6 +2,18 @@ const express = require("express");
 const router = express.Router();
 const { getAdminDashboard, getUnassignedMerchants } = require("../controllers/adminController");
 const { adminDirectCredit, adminDirectDebit, reconcileWallet, reconcileAllWallets } = require("../controllers/adminWalletController");
+const {
+  getServiceSettings,
+  updateServiceSettings,
+  updateUserServiceSettings,
+} = require("../controllers/serviceSettingsController");
+const {
+  createLoginPopup,
+  listLoginPopupsForAdmin,
+  updateLoginPopup,
+  deleteLoginPopup,
+} = require("../controllers/loginPopupController");
+const { loginPopupUpload } = require("../middleware/loginPopupUpload");
 const validateToken = require("../middleware/validateTokenHandler");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
@@ -40,5 +52,22 @@ router.post("/wallet/reconcile/:userId", validateToken, reconcileWallet);
 //   Reconciles ALL active users' wallets in one call.
 //   Run after bulk DB operations or migrations that may affect many users.
 router.post("/wallet/reconcile-all", validateToken, reconcileAllWallets);
+
+router.get("/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: "You do not have permission to view service settings.",
+  elevateRole: "admin",
+}), getServiceSettings);
+
+router.put("/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: "You do not have permission to manage service settings.",
+  elevateRole: "admin",
+}), updateServiceSettings);
+
+router.put("/user/:id/service-settings", validateToken, updateUserServiceSettings);
+
+router.get("/login-popups", validateToken, listLoginPopupsForAdmin);
+router.post("/login-popups", validateToken, loginPopupUpload, createLoginPopup);
+router.put("/login-popups/:id", validateToken, loginPopupUpload, updateLoginPopup);
+router.delete("/login-popups/:id", validateToken, deleteLoginPopup);
 
 module.exports = router;

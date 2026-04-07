@@ -19,6 +19,8 @@ const PosMachine = require('../models/posMachine');
 const PosTransactionCharge = require('../models/PosTransactionCharge');
 const PayoutCharge = require('../models/PayoutCharge');
 const Rental = require('../models/Rental');
+const ServiceSetting = require('../models/ServiceSetting');
+const UserServiceSetting = require('../models/UserServiceSetting');
 const ledgerService = require('../services/ledgerService');
 const db = require('../config/database');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
@@ -73,6 +75,8 @@ beforeEach(() => {
     posTxnChargeFindAll: PosTransactionCharge.findAll,
     payoutChargeFindAll: PayoutCharge.findAll,
     rentalFindAll: Rental.findAll,
+    serviceSettingFindAll: ServiceSetting.findAll,
+    userServiceSettingFindAll: UserServiceSetting.findAll,
     ledgerGetAvailableBalance: ledgerService.getAvailableBalance,
     dbTransaction: db.transaction,
   };
@@ -92,6 +96,8 @@ afterEach(() => {
   PosTransactionCharge.findAll = stubs.posTxnChargeFindAll;
   PayoutCharge.findAll = stubs.payoutChargeFindAll;
   Rental.findAll = stubs.rentalFindAll;
+  ServiceSetting.findAll = stubs.serviceSettingFindAll;
+  UserServiceSetting.findAll = stubs.userServiceSettingFindAll;
   ledgerService.getAvailableBalance = stubs.ledgerGetAvailableBalance;
   db.transaction = stubs.dbTransaction;
 });
@@ -247,6 +253,14 @@ describe('Employee role on user routes', () => {
       },
     });
     Tpin.findOne = async () => null;
+    ServiceSetting.findAll = async () => ([
+      {
+        service_key: 'branchx_payout',
+        is_enabled: false,
+        updated_by: 1,
+        updatedAt: new Date('2026-04-07T10:00:00Z'),
+      },
+    ]);
     ledgerService.getAvailableBalance = async () => 450;
 
     const res = await request(app)
@@ -257,6 +271,12 @@ describe('Employee role on user routes', () => {
     expect(res.body.role).to.equal('employee');
     expect(res.body.employee_access_role_id).to.equal(3);
     expect(res.body.permissions).to.deep.equal([EMPLOYEE_PERMISSIONS.USERS_LIST]);
+    expect(res.body.service_flags).to.deep.equal({
+      vimo_payout: true,
+      branchx_payout: false,
+      cc_bill_pay: true,
+      ba_cc_bill_pay: true,
+    });
   });
 
   it('allows employee with users.list permission to load user list', async () => {
@@ -280,6 +300,62 @@ describe('Employee role on user routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.data).to.have.length(1);
+  });
+
+  it('includes user service settings and effective flags in user list results', async () => {
+    User.findAndCountAll = async () => ({
+      count: 1,
+      rows: [{
+        id: 11,
+        role: 'merchant',
+        wallet: '100.00',
+        wallet_hold: '10.00',
+        is_payout_enabled: true,
+        toJSON() {
+          return {
+            id: 11,
+            role: 'merchant',
+            wallet: '100.00',
+            wallet_hold: '10.00',
+            is_payout_enabled: true,
+          };
+        }
+      }]
+    });
+    PosMachine.findAll = async () => [];
+    ServiceSetting.findAll = async () => ([
+      {
+        service_key: 'branchx_payout',
+        is_enabled: false,
+        updated_by: 1,
+        updatedAt: new Date('2026-04-07T10:00:00Z'),
+      },
+    ]);
+    UserServiceSetting.findAll = async () => ([
+      {
+        user_id: 11,
+        service_key: 'vimo_payout',
+        is_enabled: false,
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/api/user')
+      .set('Authorization', `Bearer ${employeeListToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.data[0].user_service_settings).to.deep.equal({
+      vimo_payout: false,
+      branchx_payout: true,
+      cc_bill_pay: true,
+      ba_cc_bill_pay: true,
+    });
+    expect(res.body.data[0].service_flags).to.deep.equal({
+      vimo_payout: false,
+      branchx_payout: false,
+      cc_bill_pay: true,
+      ba_cc_bill_pay: true,
+    });
   });
 
   it('adds merchant counts for franchise rows and franchise details for merchant rows in user list', async () => {
@@ -398,6 +474,57 @@ describe('Employee role on user routes', () => {
     });
   });
 
+  it('includes user service settings and effective flags in user search results', async () => {
+    User.findAndCountAll = async () => ({
+      count: 1,
+      rows: [
+        {
+          id: 12,
+          role: 'merchant',
+          wallet: '250.00',
+          is_payout_enabled: true,
+          toJSON() {
+            return { id: 12, role: 'merchant', wallet: '250.00', is_payout_enabled: true };
+          }
+        }
+      ],
+    });
+    PosMachine.findAll = async () => [];
+    ServiceSetting.findAll = async () => ([
+      {
+        service_key: 'cc_bill_pay',
+        is_enabled: false,
+        updated_by: 1,
+        updatedAt: new Date('2026-04-07T10:00:00Z'),
+      },
+    ]);
+    UserServiceSetting.findAll = async () => ([
+      {
+        user_id: 12,
+        service_key: 'ba_cc_bill_pay',
+        is_enabled: false,
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/api/user/search?q=merchant')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.data[0].user_service_settings).to.deep.equal({
+      vimo_payout: true,
+      branchx_payout: true,
+      cc_bill_pay: true,
+      ba_cc_bill_pay: false,
+    });
+    expect(res.body.data[0].service_flags).to.deep.equal({
+      vimo_payout: true,
+      branchx_payout: true,
+      cc_bill_pay: false,
+      ba_cc_bill_pay: false,
+    });
+  });
+
   it('rejects employee user list access without permission', async () => {
     const res = await request(app)
       .get('/api/user')
@@ -420,6 +547,61 @@ describe('Employee role on user routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.user.id).to.equal(22);
+  });
+
+  it('returns user service settings and effective flags in user detail', async () => {
+    User.findByPk = async () => ({
+      id: 22,
+      role: 'merchant',
+      franchaise_id: null,
+      is_payout_enabled: true,
+      employee_access_role_id: null,
+      toJSON() {
+        return {
+          id: 22,
+          role: 'merchant',
+          franchaise_id: null,
+          is_payout_enabled: true,
+          employee_access_role_id: null,
+        };
+      },
+    });
+    PosTransactionCharge.findAll = async () => [];
+    PayoutCharge.findAll = async () => [];
+    Rental.findAll = async () => [];
+    ServiceSetting.findAll = async () => ([
+      {
+        service_key: 'vimo_payout',
+        is_enabled: false,
+        updated_by: 1,
+        updatedAt: new Date('2026-04-07T10:00:00Z'),
+      },
+    ]);
+    UserServiceSetting.findAll = async () => ([
+      {
+        user_id: 22,
+        service_key: 'branchx_payout',
+        is_enabled: false,
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/api/user/22')
+      .set('Authorization', `Bearer ${employeeReadToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.user.user_service_settings).to.deep.equal({
+      vimo_payout: true,
+      branchx_payout: false,
+      cc_bill_pay: true,
+      ba_cc_bill_pay: true,
+    });
+    expect(res.body.user.service_flags).to.deep.equal({
+      vimo_payout: false,
+      branchx_payout: false,
+      cc_bill_pay: true,
+      ba_cc_bill_pay: true,
+    });
   });
 
   it('allows employee with users.update permission to edit common fields only', async () => {

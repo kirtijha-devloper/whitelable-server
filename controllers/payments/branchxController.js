@@ -8,12 +8,17 @@ const User = require('../../models/User');
 const bcrypt = require('bcrypt');
 const WalletTransaction = require('../../models/WalletTransaction');
 const PayoutTransaction = require('../../models/PayoutTransaction');
+const Ledger = require('../../models/Ledger');
 const crypto = require('crypto');
 const ledgerService = require('../../services/ledgerService');
 const ServiceFee = require('../../models/ServiceFee');
 const ChargeSlab = require('../../models/ChargeSlab');
 const { serviceNames } = require('../../constants');
 const { Op } = require('sequelize');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../../services/serviceSettingsService');
 
 // Payout API
 router.post('/payout', asyncHandler(async (req, res) => {
@@ -41,8 +46,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "Merchant not found" });
     }
-    if (!user.is_payout_enabled) {
-      return res.status(403).json({ message: "Payout service is disabled for this user" });
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.BRANCHX_PAYOUT, user))) {
+      return;
     }
 
     const savedTpin = await Tpin.findOne({ where: { user_id: merchant_id } });
@@ -162,7 +167,6 @@ router.post('/payout', asyncHandler(async (req, res) => {
         payoutTransactionId: payoutTx.id,
         amount: total_amount,
         description: `Payout to ${beneficiary.beneficiary_name} (${purpose || 'N/A'}) — ref: ${requestId}`,
-        status: payoutStatus === 'SUCCESS' ? 'completed' : 'pending',
         metadata: {
           beneficiary_name: beneficiary.beneficiary_name,
           account_number: beneficiary.account_number,
@@ -199,7 +203,10 @@ router.post('/payout', asyncHandler(async (req, res) => {
     const message = isHtml
       ? 'Payout gateway error. Please try again later.'
       : (error.message || error.msg || 'Something went wrong');
-    res.status(error.status || 500).json({ 
+    const statusCode = (res.statusCode && res.statusCode !== 200)
+      ? res.statusCode
+      : (error.status || 500);
+    res.status(statusCode).json({ 
       success: false, 
       message
     });
@@ -693,26 +700,37 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
 
           // Handle wallet refund if status changes from SUCCESS/PENDING to FAILED
           if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && newStatus === 'FAILED') {
-            const user = await User.findByPk(payoutTransaction.merchant_id);
-            if (user) {
-              // Refund the amount back to wallet
-              user.wallet = parseFloat(user.wallet) + parseFloat(payoutTransaction.amount);
-              await user.save();
-              
-              // Update wallet transaction status
-              const walletTransaction = await WalletTransaction.findOne({
-                where: {
-                  source: 'branchx',
-                  reference_id: payoutTransaction.reference_id
-                },
-                order: [['createdAt', 'DESC']]
+            const existingRefund = await Ledger.findOne({
+              where: {
+                transaction_type: 'payout_refund',
+                reference_id: payoutTransaction.id,
+                reference_table: 'PayoutTransactions',
+              },
+            });
+
+            if (!existingRefund) {
+              await ledgerService.createLedgerEntry({
+                userId: payoutTransaction.merchant_id,
+                transactionType: 'payout_refund',
+                referenceId: payoutTransaction.id,
+                referenceTable: 'PayoutTransactions',
+                description: `Refund for failed BranchX payout ${payoutTransaction.reference_id || payoutTransaction.id}`,
+                credit: parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0),
               });
-              
-              if (walletTransaction) {
-                walletTransaction.status = 'failed';
-                walletTransaction.reason = `BranchX payout failed: ${data?.data?.message || 'Transaction failed'}`;
-                await walletTransaction.save();
-              }
+            }
+
+            const walletTransaction = await WalletTransaction.findOne({
+              where: {
+                source: 'branchx',
+                reference_id: payoutTransaction.reference_id
+              },
+              order: [['createdAt', 'DESC']]
+            });
+            
+            if (walletTransaction) {
+              walletTransaction.status = 'failed';
+              walletTransaction.reason = `BranchX payout failed: ${data?.data?.message || 'Transaction failed'}`;
+              await walletTransaction.save();
             }
           }
         } else {

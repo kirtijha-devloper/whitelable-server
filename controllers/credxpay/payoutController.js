@@ -156,8 +156,8 @@ router.post('/', asyncHandler(async (req, res) => {
       userId: user_id,
       payoutTransactionId: payoutReq.id,
       amount: total_amount,
+      referenceTable: 'PayoutRequests',
       description: `CredXPay payout ${requestId}`,
-      status: 'pending',
       metadata: {
         amount,
         service_charge,

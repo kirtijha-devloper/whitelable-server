@@ -394,7 +394,6 @@ router.post('/transfer-imps', async (req, res) => {
       referenceTable: 'WalletTransactions',
       description: `IMPS transfer to ${payload.BENE_ACC_NAME} (A/C: ${payload.BENE_ACC_NO})`,
       debit: amount,
-      status: 'completed',
       metadata: {
         beneficiary_name: payload.BENE_ACC_NAME,
         account_number: payload.BENE_ACC_NO,

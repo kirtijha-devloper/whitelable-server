@@ -2,6 +2,10 @@ const vimoService = require('../services/vimo.service');
 const User = require('../models/User');
 const Beneficiary = require('../models/Beneficiary');
 const { Op } = require('sequelize');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../services/serviceSettingsService');
 const fs   = require('fs');
 const path = require('path');
 
@@ -146,8 +150,8 @@ async function createPayout(req, res) {
     return res.status(404).json({ success: false, message: 'User not found' });
   }
 
-  if (!user.is_payout_enabled) {
-    return res.status(403).json({ success: false, message: 'Payout service is disabled for this user' });
+  if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.VIMO_PAYOUT, user))) {
+    return;
   }
 
   const amount = parseFloat(rawAmount);
@@ -280,7 +284,6 @@ async function createPayout(req, res) {
       payoutTransactionId: payoutTransaction.id,
       amount: total_amount,
       description: `Vimo payout ${merchantRefId || payoutTransaction.id}`,
-      status: 'pending',
       metadata: {
         service: 'vimo',
         beneficiaryBank: resolvedBeneficiaryBank,
@@ -584,13 +587,7 @@ async function handleCallback(req, res) {
           }
         }, { transaction: tr });
 
-        // Update matching pending ledger entry.
-        const ledgerStatus = newStatus === 'SUCCESS' ? 'completed' : newStatus === 'FAILED' ? 'failed' : 'pending';
-        const [ledgerRowsUpdated] = await Ledger.update(
-          { status: ledgerStatus },
-          { where: { reference_id: txn.id, reference_table: 'PayoutTransactions', status: 'pending' }, transaction: tr }
-        );
-        vimoLog('INFO', `Ledger entries updated`, { rowsUpdated: ledgerRowsUpdated, newLedgerStatus: ledgerStatus });
+        vimoLog('INFO', 'Ledger payout debit remains immutable; callback will add refund entry only on failure');
 
         // On failure: refund only if no refund has been issued yet.
         if (newStatus === 'FAILED') {
@@ -621,7 +618,6 @@ async function handleCallback(req, res) {
               referenceTable: 'PayoutTransactions',
               description: `Refund for failed Vimo payout ${merchantRefId}`,
               credit: refundAmount,
-              status: 'completed',
             }, { transaction: tr });
             vimoLog('INFO', `Refund credit created for merchant ${txn.merchant_id}, amount ₹${refundAmount}`);
             // ── DB audit: refund issued ────────────────────────────────────

@@ -3,11 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const { Op } = require('sequelize');
 const bbpsCCBillService = require('../../../services/cc/bbps/bbpsCCBillService');
-const User = require('../../../models/User');
-const WalletTransaction = require('../../../models/WalletTransaction');
 const CcBillPayment = require('../../../models/CcBillPayment');
 const BbpsCcChargeRule = require('../../../models/BbpsCcChargeRule');
 const ledgerService = require('../../../services/ledgerService');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../../../services/serviceSettingsService');
 
 // Debug logging helper for this controller
 // Logs are written to the shared root /logs folder (same as auth.log etc.)
@@ -179,6 +181,10 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
     const txnAmount = parseFloat(transactionAmount);
     if (Number.isNaN(txnAmount) || txnAmount <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid transactionAmount' });
+    }
+
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.CC_BILL_PAY, req.user))) {
+      return;
     }
 
     const balanceCheck = await ensureSufficientBalance(userId, txnAmount);
@@ -408,6 +414,10 @@ const payCCBill = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid transactionAmount' });
     }
 
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.CC_BILL_PAY, req.user))) {
+      return;
+    }
+
     const balanceCheck = await ensureSufficientBalance(userId, txnAmount);
     if (!balanceCheck.isSufficient) {
       return res.status(400).json({
@@ -448,7 +458,6 @@ const payCCBill = asyncHandler(async (req, res) => {
         referenceTable: 'CcBillPayments',
         description: `BBPS CC bill payment — biller: ${billerId}, mobile: ${customerMobile}`,
         debit: txnAmount,
-        status: 'pending',
         metadata: {
           biller_id: billerId,
           customer_mobile: customerMobile,
@@ -491,7 +500,6 @@ const payCCBill = asyncHandler(async (req, res) => {
     // ── Step 3: Finalise or reverse based on result ─────────────────────────
     if (isSuccess) {
       if (ledgerEntry) {
-        ledgerEntry.status = 'completed';
         ledgerEntry.transaction_id = result.externalRef || null;
         ledgerEntry.metadata = JSON.stringify({
           biller_id: billerId,
@@ -513,7 +521,6 @@ const payCCBill = asyncHandler(async (req, res) => {
           referenceTable: 'CcBillPayments',
           description: `BBPS CC payment charge — ${chargeAmount}`,
           debit: chargeAmount,
-          status: 'completed',
           metadata: {
             biller_id: billerId,
             charge_amount: chargeAmount,
@@ -533,7 +540,6 @@ const payCCBill = asyncHandler(async (req, res) => {
         referenceTable: 'CcBillPayments',
         description: `Reversed — BBPS CC payment failed (${result.data?.status || 'unknown'})`,
         credit: txnAmount,
-        status: 'completed',
         metadata: {
           biller_id: billerId,
           original_ledger_id: ledgerEntry?.id,
@@ -543,7 +549,6 @@ const payCCBill = asyncHandler(async (req, res) => {
       });
 
       if (ledgerEntry) {
-        ledgerEntry.status = 'reversed';
         await ledgerEntry.save();
       }
     }

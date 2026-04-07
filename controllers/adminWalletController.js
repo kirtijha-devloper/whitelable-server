@@ -93,7 +93,6 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
       credit: parsedAmount,
       debit: 0,
       balance: newBalance,
-      status: "completed",
       metadata: JSON.stringify({
         admin_id: req.user.id,
         admin_name: req.user.name,
@@ -211,7 +210,6 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
       credit: 0,
       debit: parsedAmount,
       balance: newBalance,
-      status: "completed",
       metadata: JSON.stringify({
         admin_id: req.user.id,
         admin_name: req.user.name,
