@@ -5,7 +5,7 @@ const { Op } = require('sequelize');
 const db = require('../../config/database');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
-const User = require('../../models/User');
+const Ledger = require('../../models/Ledger');
 const ledgerService = require('../../services/ledgerService');
 
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
@@ -122,23 +122,24 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
     }, { transaction: trx });
 
     if ((previousStatus === 'PENDING' || previousStatus === 'SUCCESS') && newStatus === 'FAILED') {
-      const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
+      const existingRefund = await Ledger.findOne({
+        where: {
+          transaction_type: 'payout_refund',
+          reference_id: locked.id,
+          reference_table: 'PayoutTransactions',
+        },
+        transaction: trx,
+      });
 
-      if (refundAmount > 0) {
-        logBranchxEvent(`REFUND issued — payout id=${locked.id} amount=₹${refundAmount} to merchant_id=${locked.merchant_id}`);
+      if (!existingRefund) {
+        const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
         await ledgerService.createLedgerEntry({
           userId: locked.merchant_id,
           transactionType: 'payout_refund',
           referenceId: locked.id,
           referenceTable: 'PayoutTransactions',
-          description: `BranchX payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
+          description: `Refund for failed BranchX payout ${locked.reference_id || locked.id}`,
           credit: refundAmount,
-          metadata: {
-            payout_reference: locked.reference_id,
-            branchx_status: newStatus,
-            original_payout_amount: locked.amount,
-            original_service_charge: locked.service_charge
-          }
         }, { transaction: trx });
       }
     }

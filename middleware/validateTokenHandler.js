@@ -1,7 +1,13 @@
 const asyncHandler = require("express-async-handler");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const { normalizePermissions, normalizeRole } = require("../utils/permissions");
+const EmployeeAccessRole = require("../models/EmployeeAccessRole");
+const {
+  buildEmployeeAccessRoleSummary,
+  getResolvedPermissions,
+  normalizePermissions,
+  normalizeRole,
+} = require("../utils/permissions");
 
 const AUTH_USER_ATTRIBUTES = [
   'id',
@@ -11,9 +17,18 @@ const AUTH_USER_ATTRIBUTES = [
   'status',
   'ipay_outlet_id',
   'permissions',
+  'employee_access_role_id',
 ];
 
 function buildAuthUser(userLike) {
+  const employeeAccessRole = userLike.employee_access_role || userLike.employeeAccessRole || null;
+  const normalizedEmployeeAccessRole = employeeAccessRole
+    ? {
+      ...buildEmployeeAccessRoleSummary(employeeAccessRole),
+      permissions: normalizePermissions(employeeAccessRole.permissions),
+    }
+    : null;
+
   return {
     id: userLike.id,
     name: userLike.name || null,
@@ -21,7 +36,12 @@ function buildAuthUser(userLike) {
     role: normalizeRole(userLike.role || 'merchant'),
     status: userLike.status || 'active',
     ipay_outlet_id: userLike.ipay_outlet_id || null,
-    permissions: normalizePermissions(userLike.permissions),
+    employee_access_role_id: userLike.employee_access_role_id || normalizedEmployeeAccessRole?.id || null,
+    employee_access_role: normalizedEmployeeAccessRole,
+    permissions: getResolvedPermissions({
+      ...userLike,
+      employee_access_role: normalizedEmployeeAccessRole,
+    }),
   };
 }
 
@@ -66,7 +86,17 @@ const validateToken = asyncHandler(async (req, res, next) => {
         throw new Error("User account is inactive.");
     }
 
-    req.user = buildAuthUser(freshUser);
+    const employeeAccessRole = freshUser.employee_access_role_id
+        ? await EmployeeAccessRole.findByPk(freshUser.employee_access_role_id)
+        : null;
+
+    const freshUserPayload = freshUser.toJSON ? freshUser.toJSON() : { ...freshUser };
+    req.user = buildAuthUser({
+      ...freshUserPayload,
+      employee_access_role: employeeAccessRole
+        ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : { ...employeeAccessRole })
+        : null,
+    });
     next();
 });
 

@@ -7,12 +7,17 @@ const Tpin = require('../../models/Tpin');
 const User = require('../../models/User');
 const bcrypt = require('bcrypt');
 const PayoutTransaction = require('../../models/PayoutTransaction');
+const Ledger = require('../../models/Ledger');
 const payoutReferenceService = require('../../services/payoutReferenceService');
 const ledgerService = require('../../services/ledgerService');
 const ServiceFee = require('../../models/ServiceFee');
 const PayoutCharge = require('../../models/PayoutCharge');
 const { serviceNames } = require('../../constants');
 const { Op } = require('sequelize');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../../services/serviceSettingsService');
 
 function normalizeBranchxStatus(statusRaw) {
   if (!statusRaw) return 'PENDING';
@@ -75,8 +80,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "Merchant not found" });
     }
-    if (!user.is_payout_enabled) {
-      return res.status(403).json({ message: "Payout service is disabled for this user" });
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.BRANCHX_PAYOUT, user))) {
+      return;
     }
 
     const savedTpin = await Tpin.findOne({ where: { user_id: merchant_id } });
@@ -205,7 +210,16 @@ router.post('/payout', asyncHandler(async (req, res) => {
         referenceTable: 'PayoutTransactions',
         description: `Payout failed immediately: refund ₹${total_amount} for ref: ${requestId}`,
         credit: total_amount,
-        metadata: { branchx_status: payoutStatus, reference_id: requestId }
+        metadata: {
+          beneficiary_name: beneficiary.beneficiary_name,
+          account_number: beneficiary.account_number,
+          ifsc_code: beneficiary.ifsc_code,
+          bank_name: beneficiary.bank_name,
+          payout_amount: amount,
+          service_charge: service_charge,
+          reference_id: requestId,
+          branchx_status: payoutStatus,
+        }
       });
       return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
         success: false,
@@ -229,7 +243,9 @@ router.post('/payout', asyncHandler(async (req, res) => {
     const message = isHtml
       ? 'Payout gateway error. Please try again later.'
       : (error.message || error.msg || 'Something went wrong');
-    const statusCode = error.status || res.statusCode || 500;
+    const statusCode = (res.statusCode && res.statusCode !== 200)
+      ? res.statusCode
+      : (error.status || 500);
     res.status(statusCode).json({ 
       success: false, 
       message
@@ -725,10 +741,16 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
 
           // Handle wallet refund if payout transitions to FAILED
           if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && newStatus === 'FAILED') {
-            // Refund = payout amount + service charge (mirrors what was debited)
-            const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
+            const existingRefund = await Ledger.findOne({
+              where: {
+                transaction_type: 'payout_refund',
+                reference_id: payoutTransaction.id,
+                reference_table: 'PayoutTransactions',
+              },
+            });
 
-            if (refundAmount > 0) {
+            if (!existingRefund) {
+              const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
               await ledgerService.createLedgerEntry({
                 userId: payoutTransaction.merchant_id,
                 transactionType: 'payout_refund',

@@ -42,6 +42,11 @@ const User = db.define('User', {
         defaultValue: [],
         comment: 'Action-based permissions for employee users.'
       },
+      employee_access_role_id: {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+        comment: 'Assigned EmployeeAccessRole.id for employee users.'
+      },
       abheepay_id: {
       type: Sequelize.STRING
       },

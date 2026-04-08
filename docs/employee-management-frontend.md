@@ -1,189 +1,189 @@
 # Employee Management Frontend Integration
 
-This document covers the frontend changes required after merging the employee management feature into `Dev2`.
+This document reflects the current backend contract for employee access management.
 
 ## Summary
 
-The backend merge introduces:
-- a new `employee` user role
-- action-based permissions for employee users
-- employee-aware access control for many admin/operational routes
-- admin direct-login support for employees
-- new user registration/update rules for employee creation and permission assignment
+The backend now supports:
+- `employee` as a first-class `User.role`
+- admin-managed employee access roles
+- one assigned access role per employee
+- resolved employee permissions returned from `/api/user/current`
+- separate wallet permission slugs for credit and debit
+- admin direct-login support for employee accounts
 
-## Frontend impact
+## Core Model
 
-### 1. Support `employee` role in user registration and update flows
+There are now two different role concepts:
 
-The frontend must treat `employee` as a valid role in all user management forms.
+1. Top-level user role
+- `admin`
+- `franchaise`
+- `merchant`
+- `employee`
 
-#### User creation
-- `POST /api/user/register`
-- New or updated form fields:
-  - `role` must support `employee`
-  - `permissions` may be provided only when `role` is `employee`
-  - `permissions` is an admin-only field and must be a JSON array string or array of slugs
-- For employee users, `bank_passbook` is not required.
+2. Employee access role
+- admin-defined reusable access-role template
+- examples: `management`, `manager`, `account`, `sales`, `support`
+- each employee must be assigned exactly one access role
 
-#### User update
-- `PUT /api/user/:id`
-- Only `admin` may update:
+Employees no longer receive direct per-user permissions from frontend.
+Frontend should assign `employee_access_role_id`, and backend resolves permissions from that role.
+
+## Admin Access-Role APIs
+
+Base path: `/api/admin/employee-access-roles`
+
+- `GET /meta`
+  - returns permission catalog and allowed statuses
+- `GET /`
+  - list access roles
+- `POST /`
+  - create access role
+- `GET /:id`
+  - get access role detail
+- `PUT /:id`
+  - update access role
+- `DELETE /:id`
+  - delete access role
+  - blocked if assigned to employees
+
+Use these APIs to build the admin UI for:
+- create role
+- edit role
+- list role options for employee assignment
+
+## Employee User Create / Edit
+
+### Create employee
+- endpoint: `POST /api/user/register`
+- content type: `multipart/form-data`
+- required for employee:
+  - `email`
+  - `password`
+  - `mobile_number`
+  - `role=employee`
+  - `employee_access_role_id`
+- `bank_passbook` is not required for employee
+
+Important:
+- do not send `permissions`
+- backend now rejects direct employee permission assignment
+
+### Update employee
+- endpoint: `PUT /api/user/:id`
+- admin may change:
   - `role`
-  - `permissions`
-- `permissions` may only be set when the target user is `employee`
+  - `employee_access_role_id`
+- if target role is `employee`, the assigned `employee_access_role_id` must exist and be active
+- if role changes away from `employee`, backend clears the employee access-role assignment
 
-### 2. Use employee permission slugs for UI visibility and routing
+## Current User Contract
 
-For `employee` users, the frontend can no longer rely on `role` alone for feature access.
-Employee users now require explicit permission slugs to access modules.
+`GET /api/user/current` now returns:
+- `role`
+- `employee_access_role_id`
+- `employee_access_role`
+  - `id`
+  - `name`
+  - `slug`
+  - `status`
+  - `description`
+- resolved `permissions`
 
-#### `GET /api/user/current`
-- The current-user payload includes `permissions`.
-- Frontend must read this array and derive access from it.
-
-#### New permission slugs introduced
-
-| Permission slug | Frontend meaning | Example feature or page |
-|---|---|---|
-| `users.create` | Can create users | New user form access |
-| `users.list` | Can list users/merchants | User list page |
-| `users.search` | Can search users | Search box enabled |
-| `users.read` | Can read user details | User-detail page |
-| `users.update` | Can update users | Edit user page |
-| `users.status.update` | Can change user status | Enable/disable controls |
-| `stock.pos.read` | Can view POS machines | POS machine listing |
-| `stock.pos.manage` | Can manage POS machines | Create/activate POS machines |
-| `wallet.read` | Can view wallet info | Wallet-related dashboard widgets |
-| `wallet.manage` | Can perform wallet operations | Credit/debit/reconcile UI |
-| `reports.read` | Can see reports | Reports menu |
-| `payout.read` | Can view payouts | Payout dashboard |
-| `ledger.read` | Can view ledger entries | Ledger page |
-| `ledger.manage` | Can manage ledger entries | Ledger edit actions |
-| `complaints.read` | Can read complaints | Complaints list |
-| `complaints.manage` | Can manage complaints | Complaint status update |
-| `rate.settings.read` | Can view charge/commission settings | Rate settings pages |
-| `rate.settings.manage` | Can manage charge/commission settings | Add/update/delete rate rules |
-| `razorpay.notifications.list` | Can list Razorpay notifications | Notification page access |
-| `razorpay.notifications.read` | Can view notification details | Notification detail page |
-
-> Note: `admin` users continue to have full access.
-
-### 3. Update menu/navigation guards
-
-If your frontend currently hides features using only `role !== 'admin'`, update it to also check employee permissions.
-
-Example logic:
-- `admin` always sees admin features
-- `employee` sees a feature only if `currentUser.permissions` contains the required slug
-- non-employee roles follow existing role-based rules
-
-### 4. Extend user listing / search behavior
-
-The backend now supports `role=employee` on `GET /api/user/`.
-- Add `employee` to role filter dropdowns
-- If the frontend lists employees, show their assigned permission slugs in the row or details pane
-
-### 5. Admin direct-login now includes employees
-
-The `Login as` feature can now target `employee` users.
-Update admin user list and direct-login UI to include employee rows.
-
-Relevant endpoints:
-- `POST /api/admin/dl-token`
-- `GET /api/admin/dl-token/status`
-- `DELETE /api/admin/dl-token`
-- `POST /api/admin/direct-login`
-
-### 6. Permission editing UI for admins
-
-Admins should be able to assign employee permissions when creating or editing an employee.
-- Provide a list of checkboxes or multiselect containing the valid permission slugs
-- Submit as `permissions` in the request body
-- Only show this field when `role === 'employee'`
-
-## Required frontend changes by section
-
-### User management
-- Allow selecting `employee` as a role on registration/update forms
-- Show and validate `permissions` only for employee users
-- Do not require `bank_passbook` for `employee` registration
-- Ensure only admins can send `permissions` in requests
-
-### Authentication/current user state
-- Persist and use `permissions` from `/api/user/current`
-- Derive UI access rules from `permissions` for employees
-- Keep existing full-access behavior for `admin`
-
-### Menu and page guards
-- Add permission checks to pages such as:
-  - Wallet adjustments
-  - POS machine management
-  - Ledger and report dashboards
-  - Complaint management
-  - Route/charge/payout settings
-  - Razorpay webhook notifications
-- Avoid showing restricted pages to employees without the matching slug
-
-### Direct-login UI
-- Include employees in the direct-login target list
-- Ensure the direct-login token workflow is implemented as documented in `docs/admin-direct-login-api.md`
-
-### Error handling
-- Backend may return `403` for employees lacking the required slug.
-- Show a user-friendly "Insufficient permissions" message when that occurs.
-
-## Implementation notes
-
-### Permission field format
-- `permissions` can be sent as a JSON string or JSON array
-- Example payload for creating an employee:
+Example:
 
 ```json
 {
-  "email": "employee@example.com",
-  "password": "Secret123!",
-  "mobile_number": "9876500000",
+  "id": 7,
   "role": "employee",
+  "employee_access_role_id": 3,
+  "employee_access_role": {
+    "id": 3,
+    "name": "Accounts",
+    "slug": "accounts",
+    "status": "active",
+    "description": null
+  },
   "permissions": [
-    "users.list",
-    "wallet.manage",
+    "wallet.read",
+    "wallet.credit",
     "reports.read"
   ]
 }
 ```
 
-### Example user update payload
+Frontend should build employee menu access from `permissions`, not from access-role name.
 
-```json
-{
-  "name": "Ravi Kumar",
-  "permissions": [
-    "users.read",
-    "rate.settings.read"
-  ]
-}
-```
+## Supported Permission Slugs
 
-> Only admins may send or update `permissions` through the user API.
+| Permission slug | Frontend meaning |
+|---|---|
+| `users.create` | Create users |
+| `users.list` | View user list |
+| `users.search` | Search users |
+| `users.read` | View user detail |
+| `users.update` | Edit users |
+| `users.status.update` | Activate/deactivate users |
+| `stock.pos.read` | View POS machines |
+| `stock.pos.manage` | Manage POS machines |
+| `wallet.read` | View wallet data |
+| `wallet.credit` | Credit wallet balances |
+| `wallet.debit` | Debit wallet balances |
+| `reports.read` | View reports |
+| `payout.read` | View payout pages |
+| `ledger.read` | View ledger |
+| `ledger.manage` | Manage ledger settings |
+| `complaints.read` | View complaints |
+| `complaints.manage` | Manage complaints |
+| `rate.settings.read` | View rate settings |
+| `rate.settings.manage` | Manage rate settings |
+| `razorpay.notifications.list` | List Razorpay notifications |
+| `razorpay.notifications.read` | View Razorpay notification detail |
 
-## Recommended frontend checklist
+## Wallet Permission Notes
 
-- [ ] Add `employee` role option in user forms
-- [ ] Add employee permission selector for admin-only flows
-- [ ] Use `currentUser.permissions` for employee page access
-- [ ] Update role filters and employee listing UIs
-- [ ] Extend direct-login UI for employee accounts
-- [ ] Handle 403 permission rejections gracefully
-- [ ] Validate `permissions` payload before sending to backend
+Wallet permission split is now:
+- `wallet.read`
+- `wallet.credit`
+- `wallet.debit`
 
-## Helpful backend references
+Admin wallet reconcile stays admin-only in this version.
 
-- `docs/API_DOCUMENTATION.md` — user creation/update and permission behavior
-- `docs/admin-direct-login-api.md` — direct-login workflow
-- `docs/razorpay-notifications-api.md` — permission-driven notifications access
-- `middleware/employeePermissionHandler.js` — employee permission enforcement
-- `utils/permissions.js` — canonical permission slug list
+## Frontend Rules
 
----
+### User creation form
+- add `employee` to role options
+- when role is `employee`, show access-role selector instead of permission checkboxes
+- access-role selector should load from `/api/admin/employee-access-roles`
 
-This document is intended to be copied into your frontend team documentation or sprint notes.
+### User edit form
+- if target user role is `employee`, show assigned access role
+- allow admin to change the selected access role
+- do not send direct `permissions`
+
+### Sidebar / page guards
+- `admin` still sees everything
+- `employee` only sees features allowed by `currentUser.permissions`
+- existing `franchaise` and `merchant` behavior stays unchanged
+
+### Direct login
+- admin direct-login can now target employee users too
+- existing direct-login UI can include employee rows in the target list
+
+## Suggested Frontend Checklist
+
+- [ ] load employee access-role catalog for admin role management screens
+- [ ] load employee access-role list for employee create/edit forms
+- [ ] replace direct permission UI on employee forms with access-role selection
+- [ ] use `/api/user/current` permissions for employee menu guards
+- [ ] split wallet UI guards using `wallet.credit` and `wallet.debit`
+- [ ] include employees in admin direct-login target list
+
+## Helpful Backend References
+
+- `routes/employeeAccessRoleRoutes.js`
+- `controllers/employeeAccessRoleController.js`
+- `controllers/userController.js`
+- `middleware/employeePermissionHandler.js`
+- `utils/permissions.js`

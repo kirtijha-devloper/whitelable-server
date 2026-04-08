@@ -11,9 +11,11 @@ const REFERENCE_TABLE_MODEL_MAP = {
   WalletTransactions: () => require('../models/WalletTransaction'),
   MerchantTransactionCharges: () => require('../models/MerchantTransactionCharge'),
   PayoutTransactions: () => require('../models/PayoutTransaction'),
+  PayoutRequests: () => require('../models/PayoutRequest'),
   Rentals: () => require('../models/Rental'),
   PosRentalBillings: () => require('../models/PosRentalBilling'),
   BillAvenuePayments: () => require('../models/BillAvenuePayment'),
+  CcBillPayments: () => require('../models/CcBillPayment'),
 };
 
 /**
@@ -460,6 +462,7 @@ async function createRentalCreditEntry({
  * @param {number}  params.userId             - ID of the user being debited
  * @param {number}  params.payoutTransactionId - FK to PayoutTransactions table
  * @param {number}  params.amount             - Payout amount (including service charge)
+ * @param {string}  [params.referenceTable]
  * @param {string}  [params.description]
  * @param {Object}  [params.metadata]
  * @returns {Promise<Object>} Created ledger entry
@@ -468,6 +471,7 @@ async function createPayoutEntry({
   userId,
   payoutTransactionId,
   amount,
+  referenceTable = 'PayoutTransactions',
   description = null,
   metadata = null,
 }, opts = {}) {
@@ -475,7 +479,7 @@ async function createPayoutEntry({
     userId,
     transactionType: 'payout',
     referenceId: payoutTransactionId,
-    referenceTable: 'PayoutTransactions',
+    referenceTable,
     description: description || `Payout: ₹${amount}`,
     debit: amount,
     metadata,
@@ -530,7 +534,7 @@ async function getLedgerEntryWithLinkedRecord(ledgerId) {
  *
  * A single window-function UPDATE rewrites `balance_before` and `balance` on
  * every row in chronological order so the chain is self-consistent, then
- * syncs user.wallet to the true SUM(credit) - SUM(debit) of completed rows.
+ * syncs user.wallet to the true SUM(credit) - SUM(debit) across all rows.
  *
  * This must be called after any manual INSERT, UPDATE, or DELETE on the
  * Ledgers table, because the application-written `balance` columns used by
@@ -569,9 +573,8 @@ async function rebuildBalanceChain(userId) {
     { replacements: { userId }, type: Ledger.sequelize.QueryTypes.UPDATE }
   );
 
-  // Sync user.wallet to the ledger total as the true source of truth.
-  // This uses all ledger rows for the user so that reconciliation matches
-  // the ledger table, not just a single row or only completed entries.
+  // Sync user.wallet to the net of all ledger rows. Failed or reversed
+  // workflows are represented as compensating entries instead of mutable status.
   const rows = await Ledger.sequelize.query(
     `SELECT COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0) AS ledger_balance
      FROM "Ledgers"

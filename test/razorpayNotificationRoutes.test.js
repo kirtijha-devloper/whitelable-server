@@ -19,22 +19,22 @@ app.use((err, req, res, _next) => {
 
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const makeToken = (user) => jwt.sign({ user }, SECRET);
+const makeEmployeeToken = (permissions) => makeToken({
+  id: 7,
+  role: 'employee',
+  employee_access_role_id: 9,
+  employee_access_role: {
+    id: 9,
+    name: 'Notifications',
+    slug: 'notifications',
+    status: 'active',
+    permissions,
+  },
+});
 
-const employeeListToken = makeToken({
-  id: 7,
-  role: 'employee',
-  permissions: [EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_LIST],
-});
-const employeeReadToken = makeToken({
-  id: 7,
-  role: 'employee',
-  permissions: [EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_READ],
-});
-const noPermissionEmployeeToken = makeToken({
-  id: 7,
-  role: 'employee',
-  permissions: [],
-});
+const employeeListToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_LIST]);
+const employeeReadToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_READ]);
+const noPermissionEmployeeToken = makeEmployeeToken([]);
 
 let stubs = {};
 

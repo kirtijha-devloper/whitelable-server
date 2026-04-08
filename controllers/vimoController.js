@@ -3,6 +3,10 @@ const User = require('../models/User');
 const Beneficiary = require('../models/Beneficiary');
 const { Op } = require('sequelize');
 const { isAdmin } = require('../utils/permissions');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../services/serviceSettingsService');
 const fs   = require('fs');
 const path = require('path');
 
@@ -173,8 +177,8 @@ async function createPayout(req, res) {
     return res.status(404).json({ success: false, message: 'User not found' });
   }
 
-  if (!user.is_payout_enabled) {
-    return res.status(403).json({ success: false, message: 'Payout service is disabled for this user' });
+  if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.VIMO_PAYOUT, user))) {
+    return;
   }
 
   const amount = parseFloat(rawAmount);
@@ -756,7 +760,7 @@ async function handleCallback(req, res) {
           }
         }, { transaction: tr });
 
-        await txn.save({ transaction: tr });
+        vimoLog('INFO', 'Ledger payout debit remains immutable; callback will add refund entry only on failure');
 
         // On failure: refund only if no refund has been issued yet.
         if (newStatus === 'FAILED') {
