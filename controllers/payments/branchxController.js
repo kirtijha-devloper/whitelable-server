@@ -168,6 +168,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
     const payoutTx = await PayoutTransaction.create({
       merchant_id: merchant_id,
       beneficiary_id: beneficiary_id,
+      payout_provider: 'BranchX',
       reference_id: requestId || data.api_ref,
       amount: amount,
       status: payoutStatus,
@@ -209,6 +210,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
       return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
         success: false,
         message: data.message || 'Payout request failed',
+        payout_provider: 'BranchX',
+        reference_id: requestId || data.api_ref,
         data
       });
     }
@@ -216,6 +219,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
     res.json({
       success: true,
       message: data.message || 'Payout request processed successfully',
+      payout_provider: 'BranchX',
+      reference_id: requestId || data.api_ref,
       data
     });
   } catch (error) {
@@ -629,6 +634,7 @@ router.get('/payout-transactions', asyncHandler(async (req, res) => {
             account_number: beneficiary.account_number,
             ifsc_code: beneficiary.ifsc_code
           } : null,
+          payout_provider: transaction.payout_provider,
           reference_id: transaction.reference_id,
           amount: transaction.amount,
           status: transaction.status,

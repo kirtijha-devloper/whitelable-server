@@ -42,6 +42,11 @@ const PayoutTransaction = db.define('PayoutTransaction', {
     allowNull: true,
     comment: 'Service charge for the payout transaction'
   },
+  payout_provider: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    comment: 'Payout service provider: BranchX, Vimo, CredXPay, etc.'
+  },
   callback_status: {
     type: Sequelize.STRING,
     allowNull: true,

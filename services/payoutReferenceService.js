@@ -2,11 +2,17 @@ const db = require('../config/database');
 const RefSequence = require('../models/RefSequence');
 
 const DEFAULT_SERVICE = 'payout';
-const PREFIX = 'APT';
 const DIGIT_COUNT = 10;
+const PROVIDER_PREFIX = {
+  branchx: 'APB',
+  vimo: 'APV',
+  credxpay: 'APC',
+};
+const DEFAULT_PREFIX = 'APT';
 
-function formatReference(nextNumber) {
-  return `${PREFIX}${String(nextNumber).padStart(DIGIT_COUNT, '0')}`;
+function formatReference(nextNumber, provider) {
+  const prefix = PROVIDER_PREFIX[(provider || '').toLowerCase()] || DEFAULT_PREFIX;
+  return `${prefix}${String(nextNumber).padStart(DIGIT_COUNT, '0')}`;
 }
 
 async function reserveNextSequence({ service = DEFAULT_SERVICE, transaction } = {}) {
@@ -46,7 +52,7 @@ async function reserveNextSequence({ service = DEFAULT_SERVICE, transaction } = 
 
 async function getNextPayoutReference(opts = {}) {
   const next = await reserveNextSequence({ service: DEFAULT_SERVICE, ...opts });
-  return formatReference(next);
+  return formatReference(next, opts.provider);
 }
 
 module.exports = {

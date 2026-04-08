@@ -689,6 +689,7 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         beneficiary_id: p.beneficiary_id,
         beneficiary:    beneficiaryMap[p.beneficiary_id] || null,
         reference_id:   p.reference_id,
+        payout_provider: p.payout_provider,
         amount:         parseFloat(p.amount),
         service_charge: parseFloat(p.service_charge) || 0,
         total_deducted: parseFloat(p.amount) + (parseFloat(p.service_charge) || 0),
