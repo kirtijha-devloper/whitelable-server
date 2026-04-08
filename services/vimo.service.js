@@ -616,6 +616,7 @@ async function fetchFreshToken() {
     });
 
     logVimo('fetchFreshToken raw response', {
+      userId: vimoCredentials.userId,
       status: response.status,
       headers: response.headers,
       data: response.data,
@@ -642,6 +643,7 @@ async function fetchFreshToken() {
     tokenCache.authorizeResponse = null;
 
     logVimo('fetchFreshToken error', {
+      userId: vimoCredentials.userId,
       message: error.message,
       code: error.code,
       status: error.response?.status,
