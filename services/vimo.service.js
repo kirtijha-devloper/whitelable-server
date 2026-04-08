@@ -836,10 +836,11 @@ async function createPayout(payload) {
   validatePayoutPayload(payload);
 
   const payoutReservation = reservePayoutWindow(payload);
+  let response;
 
   try {
     let requestBody;
-    const response = await executeAuthorizedRequest((token) => {
+    response = await executeAuthorizedRequest((token) => {
       const headers = {
         ...buildAuthorizedHeaders(token),
         'Content-Type': 'application/json',
@@ -864,6 +865,14 @@ async function createPayout(payload) {
     });
 
     const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Payout processed successfully');
+    logVimo('createPayout decrypted provider response', {
+      normalizedResponse: {
+        message: normalizedResponse.message,
+        responseCode: normalizedResponse.responseCode,
+        data: normalizedResponse.data,
+        raw: normalizedResponse.raw,
+      },
+    });
 
     if (typeof response?.data?.data === 'string' && response.data.data.trim() !== '') {
       payoutReservation.keepWindow();
@@ -887,12 +896,28 @@ async function createPayout(payload) {
   } catch (error) {
     payoutReservation.release();
 
-    if (axios.isAxiosError(error)) {
-      logVimo('createPayout provider error', {
-        message: error.message,
-        code: error.code,
-        status: error.response?.status,
-        responseData: error.response?.data,
+    logVimo('createPayout provider error', {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status || error.statusCode,
+      responseData: error.response?.data,
+      providerResponse: response?.data,
+      details: error.details || null,
+    });
+
+    if (error.code === 'PAYOUT_PROVIDER_ERROR') {
+      logVimo('createPayout provider failure details', {
+        reason: 'Provider returned explicit failure envelope',
+        rawProviderData: response?.data,
+        providerErrorDetails: error.details || error.message,
+      });
+    }
+
+    if (error.code === 'DECRYPTION_FAILURE' || error.code === 'INVALID_BANK_RESPONSE') {
+      logVimo('createPayout decryption failure', {
+        reason: 'Unable to decode or parse bank response',
+        rawProviderData: response?.data,
+        errorDetails: error.details || error.message,
       });
     }
 
