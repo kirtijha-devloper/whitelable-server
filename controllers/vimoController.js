@@ -2,6 +2,7 @@ const vimoService = require('../services/vimo.service');
 const User = require('../models/User');
 const Beneficiary = require('../models/Beneficiary');
 const { Op } = require('sequelize');
+const { isAdmin } = require('../utils/permissions');
 const fs   = require('fs');
 const path = require('path');
 
@@ -93,6 +94,19 @@ async function resolvePayoutServiceCharge(userId, payoutAmount) {
   return { charge, source: 'env', slabId: null, rate: charge, rate_type: 'flat' };
 }
 
+function normalizeVimoPaymentPurpose(input) {
+  if (!input || typeof input !== 'string') {
+    return null;
+  }
+
+  const cleaned = input.trim();
+  if (/^[A-Za-z0-9]{2,10}$/.test(cleaned)) {
+    return cleaned;
+  }
+
+  return null;
+}
+
 async function createPayout(req, res) {
   try {
   const {
@@ -166,6 +180,14 @@ async function createPayout(req, res) {
   const amount = parseFloat(rawAmount);
   if (!amount || isNaN(amount) || amount <= 0) {
     return res.status(400).json({ success: false, message: 'Invalid payout amount' });
+  }
+
+  const normalizedPaymentPurpose = normalizeVimoPaymentPurpose(paymentPurpose || purpose || '');
+  if (!normalizedPaymentPurpose) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid paymentPurpose. It must be alphanumeric and 2-10 characters long. Use GET /api/vimo/purposes to fetch valid values.',
+    });
   }
 
   // ── 3-minute duplicate payout guard ────────────────────────────────────────
@@ -324,7 +346,7 @@ async function createPayout(req, res) {
       amount,
       merchantRefId,
       beneficiaryBank: resolvedBeneficiaryBank,
-      paymentPurpose,
+      paymentPurpose: normalizedPaymentPurpose,
       paymentMode,
       beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
       beneficiaryIFSC: resolvedBeneficiaryIFSC,
@@ -385,6 +407,130 @@ async function fetchBankList(req, res) {
       message: normalized.message,
       error: normalized
     });
+  }
+}
+
+async function failProcessingPayout(req, res) {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ success: false, message: 'Admin access required' });
+  }
+
+  const referenceId = req.body.reference_id || req.body.merchantRefId || req.body.referenceId;
+  if (!referenceId) {
+    return res.status(400).json({ success: false, message: 'reference_id or merchantRefId is required' });
+  }
+
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const pendingPayout = await PayoutTransaction.findOne({
+    where: {
+      reference_id: referenceId,
+      payout_provider: 'Vimo',
+      status: 'Processing'
+    }
+  });
+
+  if (!pendingPayout) {
+    return res.status(404).json({ success: false, message: 'No Vimo processing payout found for the given reference' });
+  }
+
+  if (pendingPayout.createdAt > cutoff) {
+    return res.status(400).json({ success: false, message: 'Payout has not been processing for more than 10 minutes' });
+  }
+
+  const tr = await db.transaction();
+  try {
+    const locked = await PayoutTransaction.findByPk(pendingPayout.id, { transaction: tr, lock: tr.LOCK.UPDATE });
+    if (!locked) {
+      await tr.rollback();
+      return res.status(404).json({ success: false, message: 'Payout transaction not found' });
+    }
+
+    if (locked.status !== 'Processing') {
+      await tr.rollback();
+      return res.status(409).json({ success: false, message: `Payout is not in Processing state (current=${locked.status})` });
+    }
+
+    const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
+    const existingRefund = await Ledger.findOne({
+      where: {
+        transaction_type: 'payout_refund',
+        reference_id: locked.id,
+        reference_table: 'PayoutTransactions'
+      },
+      transaction: tr
+    });
+
+    locked.status = 'FAILED';
+    locked.callback_status = 'FAILED';
+    locked.callback_data = JSON.stringify({
+      adminAction: 'mark_failed',
+      adminId: req.user.id,
+      reason: 'Admin forced failure after 10+ minutes processing',
+      timestamp: new Date().toISOString()
+    });
+    locked.callback_received_at = new Date();
+
+    let existingData = {};
+    if (locked.data) {
+      try {
+        existingData = JSON.parse(locked.data);
+      } catch (_) {
+        existingData = { original: locked.data };
+      }
+    }
+    existingData.adminAction = {
+      adminId: req.user.id,
+      reason: 'Admin forced failure after 10+ minutes processing',
+      timestamp: new Date().toISOString()
+    };
+    locked.data = JSON.stringify(existingData);
+
+    await locked.save({ transaction: tr });
+
+    if (!existingRefund && refundAmount > 0) {
+      await ledgerService.createLedgerEntry({
+        userId: locked.merchant_id,
+        transactionType: 'payout_refund',
+        referenceId: locked.id,
+        referenceTable: 'PayoutTransactions',
+        description: `Refund for admin-failed Vimo payout ${locked.reference_id}`,
+        credit: refundAmount,
+        metadata: {
+          payout_reference: locked.reference_id,
+          payout_provider: locked.payout_provider,
+          admin_id: req.user.id,
+          original_amount: locked.amount,
+          service_charge: locked.service_charge
+        }
+      }, { transaction: tr });
+    }
+
+    await PayoutAuditLog.create({
+      payout_id: locked.id,
+      action: 'ADMIN_VIMO_FAIL_PAYOUT',
+      details: {
+        admin_id: req.user.id,
+        merchant_id: locked.merchant_id,
+        reference_id: locked.reference_id,
+        amount: locked.amount,
+        service_charge: locked.service_charge,
+        refundAmount,
+        reason: 'Admin forced failure after 10+ minutes processing'
+      }
+    }, { transaction: tr });
+
+    await tr.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Vimo payout marked failed and refund processed',
+      reference_id: locked.reference_id,
+      refundAmount
+    });
+  } catch (err) {
+    await tr.rollback();
+    const normalized = normalizeError(err);
+    return res.status(normalized.statusCode || 500).json({ success: false, message: normalized.message, error: normalized });
   }
 }
 
@@ -732,6 +878,7 @@ module.exports = {
   fetchStateList,
   getPayoutReference,
   handleCallback,
+  failProcessingPayout,
   createBeneficiary,
   listBeneficiaries,
   updateBeneficiary,
