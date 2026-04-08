@@ -577,6 +577,13 @@ function extractTokenFromPayload(payload) {
       payload.data,
       payload.data?.token,
       payload.data?.accessToken,
+      payload.data?.authToken,
+      payload.data?.bearerToken,
+      payload.data?.data,
+      payload.data?.data?.token,
+      payload.data?.data?.accessToken,
+      payload.data?.result,
+      payload.data?.result?.token,
       payload.result,
       payload.result?.token
     );
