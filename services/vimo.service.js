@@ -611,12 +611,17 @@ async function fetchFreshToken() {
       userId: vimoCredentials.userId,
     };
 
-    const response = await vimoClient.post('/payoutapi/api/signature/authorizeuat', {}, {
+    const endpoint = '/payoutapi/api/signature/authorizeuat';
+    const response = await vimoClient.post(endpoint, {}, {
       headers: requestHeaders,
     });
 
     logVimo('fetchFreshToken raw response', {
       userId: vimoCredentials.userId,
+      request: {
+        endpoint,
+        headers: requestHeaders,
+      },
       status: response.status,
       headers: response.headers,
       data: response.data,
@@ -644,6 +649,10 @@ async function fetchFreshToken() {
 
     logVimo('fetchFreshToken error', {
       userId: vimoCredentials.userId,
+      request: {
+        endpoint: '/payoutapi/api/signature/authorizeuat',
+        headers: requestHeaders,
+      },
       message: error.message,
       code: error.code,
       status: error.response?.status,
