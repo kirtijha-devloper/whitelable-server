@@ -604,16 +604,26 @@ function extractTokenFromPayload(payload) {
 
 async function fetchFreshToken() {
   try {
+    const requestHeaders = {
+      secretKey: vimoCredentials.secretKey,
+      saltKey: vimoCredentials.saltKey,
+      encryptdecryptKey: vimoCredentials.encryptdecryptKey,
+      userId: vimoCredentials.userId,
+    };
+
     const response = await vimoClient.post('/payoutapi/api/signature/authorizeuat', {}, {
-      headers: {
-        secretKey: vimoCredentials.secretKey,
-        saltKey: vimoCredentials.saltKey,
-        encryptdecryptKey: vimoCredentials.encryptdecryptKey,
-        userId: vimoCredentials.userId,
-      },
+      headers: requestHeaders,
+    });
+
+    logVimo('fetchFreshToken raw response', {
+      status: response.status,
+      headers: response.headers,
+      data: response.data,
     });
 
     const authorizeResponse = normalizeAuthorizeResponse(response.data);
+    logVimo('fetchFreshToken normalized authorize response', authorizeResponse);
+
     const tokenValue = extractTokenFromPayload(authorizeResponse);
 
     tokenCache.value = tokenValue;
@@ -630,6 +640,14 @@ async function fetchFreshToken() {
     tokenCache.value = null;
     tokenCache.expiresAt = 0;
     tokenCache.authorizeResponse = null;
+
+    logVimo('fetchFreshToken error', {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+      responseData: error.response?.data,
+      stack: error.stack,
+    });
 
     if (error instanceof AppError) {
       throw error;
