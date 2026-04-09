@@ -3,7 +3,14 @@ const { Op } = require('sequelize');
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
 const RazorpayNotification = require('../models/RazorpayNotification');
+const CcBillPayment = require('../models/CcBillPayment');
+const PayoutTransaction = require('../models/PayoutTransaction');
+const PayoutRequest = require('../models/PayoutRequest');
 const WalletTransaction = require("../models/WalletTransaction");
+
+const CC_BILL_SUCCESS_STATUS_CODES = ['TXN', 'TUP'];
+const CC_BILL_FAILURE_STATUSES = ['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'];
+const PAYOUT_FAILED_STATUSES = ['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'];
 
 
 const getTodayRange = () => {
@@ -22,6 +29,34 @@ const buildRazorpayDateRange = (start, end) => ({
     { posting_date: null, createdAt: { [Op.between]: [start, end] } }
   ]
 });
+
+const toUniqueValues = (values = []) => [...new Set(values.filter((value) => value !== null && value !== undefined))];
+
+const buildUserScopeFilter = (field, userIds = []) => {
+  const scopedUserIds = toUniqueValues(userIds);
+  if (!scopedUserIds.length) return null;
+
+  return scopedUserIds.length === 1
+    ? { [field]: scopedUserIds[0] }
+    : { [field]: { [Op.in]: scopedUserIds } };
+};
+
+const getAssignedMachineMids = async (assigneeIds = []) => {
+  const scopedAssigneeIds = toUniqueValues(assigneeIds);
+  if (!scopedAssigneeIds.length) return [];
+
+  const assignedToFilter = scopedAssigneeIds.length === 1
+    ? scopedAssigneeIds[0]
+    : { [Op.in]: scopedAssigneeIds };
+
+  const machines = await PosMachine.findAll({
+    where: { assigned_to: assignedToFilter },
+    attributes: ['mid_number'],
+    raw: true
+  });
+
+  return toUniqueValues(machines.map((machine) => machine.mid_number));
+};
 
 const getRazorpayTransactionStats = async (whereClause) => {
   if (!whereClause) {
@@ -60,6 +95,72 @@ const getRazorpayTransactionStats = async (whereClause) => {
   };
 };
 
+const getCcBillTransactionStats = async (whereClause) => {
+  if (!whereClause) {
+    return { total: 0, success: 0, fail: 0 };
+  }
+
+  const [totalRaw, successRaw, failRaw] = await Promise.all([
+    CcBillPayment.sum('transaction_amount', { where: whereClause }),
+    CcBillPayment.sum('transaction_amount', {
+      where: {
+        [Op.and]: [
+          whereClause,
+          { statuscode: { [Op.in]: CC_BILL_SUCCESS_STATUS_CODES } }
+        ]
+      }
+    }),
+    CcBillPayment.sum('transaction_amount', {
+      where: {
+        [Op.and]: [
+          whereClause,
+          {
+            [Op.or]: [
+              { statuscode: { [Op.notIn]: CC_BILL_SUCCESS_STATUS_CODES, [Op.not]: null } },
+              { status: { [Op.in]: CC_BILL_FAILURE_STATUSES } }
+            ]
+          }
+        ]
+      }
+    })
+  ]);
+
+  return {
+    total: Number(totalRaw || 0),
+    success: Number(successRaw || 0),
+    fail: Number(failRaw || 0)
+  };
+};
+
+const getPayoutStats = async ({ userIds = [], start, end }) => {
+  const payoutTransactionWhere = {
+    createdAt: { [Op.between]: [start, end] },
+    status: { [Op.notIn]: PAYOUT_FAILED_STATUSES }
+  };
+  const payoutRequestWhere = {
+    created_at: { [Op.between]: [start, end] },
+    response_status: { [Op.notIn]: PAYOUT_FAILED_STATUSES }
+  };
+
+  const payoutTransactionScope = buildUserScopeFilter('merchant_id', userIds);
+  const payoutRequestScope = buildUserScopeFilter('user_id', userIds);
+
+  if (payoutTransactionScope) {
+    Object.assign(payoutTransactionWhere, payoutTransactionScope);
+  }
+
+  if (payoutRequestScope) {
+    Object.assign(payoutRequestWhere, payoutRequestScope);
+  }
+
+  const [payoutTransactionTotalRaw, payoutRequestTotalRaw] = await Promise.all([
+    PayoutTransaction.sum('amount', { where: payoutTransactionWhere }),
+    PayoutRequest.sum('amount', { where: payoutRequestWhere })
+  ]);
+
+  return Number(payoutTransactionTotalRaw || 0) + Number(payoutRequestTotalRaw || 0);
+};
+
 const getDashboard = asyncHandler(async (req, res) => {
   const role = req.user.role;
   const userId = req.user.id;
@@ -79,15 +180,11 @@ const getDashboard = asyncHandler(async (req, res) => {
           User.count({ where: { role: 'franchaise', status: 'active' } })
         ]);
 
-      const posStats = await getRazorpayTransactionStats(dateWhere);
-
-      const today_total_payout = await WalletTransaction.sum('amount', {
-        where: {
-          status: 'completed',
-          type: { [Op.in]: ['transfer', 'unhold'] },
-          createdAt: { [Op.between]: [start, end] }
-        }
-      });
+      const [posStats, ccBillStats, today_total_payout] = await Promise.all([
+        getRazorpayTransactionStats(dateWhere),
+        getCcBillTransactionStats({ createdAt: { [Op.between]: [start, end] } }),
+        getPayoutStats({ start, end })
+      ]);
 
       data = {
         pos_machines: { active: activeMachineCount, inactive: deactiveMachineCount },
@@ -101,51 +198,50 @@ const getDashboard = asyncHandler(async (req, res) => {
           success_rate: posStats.success_rate,
           failure_rate: posStats.failure_rate
         },
-        today_total_payout: Number(today_total_payout || 0)
+        today_total_payout: Number(today_total_payout || 0),
+        ccBillPaymentTXN: ccBillStats.total,
+        ccBillPaymentSuccess: ccBillStats.success,
+        ccBillPaymentFailed: ccBillStats.fail
       };
     }
 
     if (role === 'franchaise') {
-      const machines = await PosMachine.findAll({
-        where: { assigned_to: userId },
-        attributes: ['mid_number'],
-        raw: true
-      });
-      const mids = machines.map((machine) => machine.mid_number).filter(Boolean);
-
       const franchiseMerchantIds = await User.findAll({
         where: { franchaise_id: userId, role: 'merchant', status: 'active' },
         attributes: ['id'],
         raw: true
       }).then((rows) => rows.map((r) => r.id));
 
-      const [assignedMerchantCount, posMachineCount, merchantAssignedPosMachineCount] = await Promise.all([
+      const scopedUserIds = toUniqueValues([userId, ...franchiseMerchantIds]);
+
+      const [assignedMerchantCount, posMachineCount, merchantAssignedPosMachineCount, scopedMids] = await Promise.all([
         User.count({ where: { franchaise_id: userId, role: 'merchant', status: 'active' } }),
         PosMachine.count({ where: { assigned_to: userId } }),
         franchiseMerchantIds.length > 0
           ? PosMachine.count({ where: { assigned_to: { [Op.in]: franchiseMerchantIds } } })
-          : 0
+          : 0,
+        getAssignedMachineMids(scopedUserIds)
       ]);
 
-      const franchiseRoleFilter = (franchiseMerchantIds.length > 0 || mids.length > 0)
+      const franchiseRoleFilter = (scopedUserIds.length > 0 || scopedMids.length > 0)
         ? {
           [Op.or]: [
-            ...(franchiseMerchantIds.length ? [{ user_id: { [Op.in]: franchiseMerchantIds } }] : []),
-            ...(mids.length ? [{ mid: { [Op.in]: mids } }] : [])
+            ...(scopedUserIds.length ? [{ user_id: { [Op.in]: scopedUserIds } }] : []),
+            ...(scopedMids.length ? [{ mid: { [Op.in]: scopedMids } }] : [])
           ]
         }
         : { user_id: -1 };
 
-      const posStats = await getRazorpayTransactionStats({ [Op.and]: [dateWhere, franchiseRoleFilter] });
+      const ccBillWhere = {
+        createdAt: { [Op.between]: [start, end] },
+        user_id: { [Op.in]: scopedUserIds }
+      };
 
-      const today_total_payout = await WalletTransaction.sum('amount', {
-        where: {
-          requested_by: req.user.id,
-          status: 'completed',
-          type: { [Op.in]: ['transfer', 'hold'] },
-          createdAt: { [Op.between]: [start, end] }
-        }
-      });
+      const [posStats, ccBillStats, today_total_payout] = await Promise.all([
+        getRazorpayTransactionStats({ [Op.and]: [dateWhere, franchiseRoleFilter] }),
+        getCcBillTransactionStats(ccBillWhere),
+        getPayoutStats({ userIds: scopedUserIds, start, end })
+      ]);
 
       data = {
         assigned_merchants: { count: assignedMerchantCount },
@@ -161,17 +257,15 @@ const getDashboard = asyncHandler(async (req, res) => {
           success_rate: posStats.success_rate,
           failure_rate: posStats.failure_rate
         },
-        today_total_payout: Number(today_total_payout || 0)
+        today_total_payout: Number(today_total_payout || 0),
+        ccBillPaymentTXN: ccBillStats.total,
+        ccBillPaymentSuccess: ccBillStats.success,
+        ccBillPaymentFailed: ccBillStats.fail
       };
     }
 
     if (role === 'merchant') {
-      const machines = await PosMachine.findAll({
-        where: { assigned_to: userId },
-        attributes: ['mid_number'],
-        raw: true
-      });
-      const mids = machines.map((machine) => machine.mid_number).filter(Boolean);
+      const mids = await getAssignedMachineMids([userId]);
 
       const merchantRoleFilter = {
         [Op.or]: [
@@ -180,19 +274,15 @@ const getDashboard = asyncHandler(async (req, res) => {
         ]
       };
 
-      const [posMachineCount, posStats] = await Promise.all([
+      const [posMachineCount, posStats, ccBillStats, today_total_payout] = await Promise.all([
         PosMachine.count({ where: { assigned_to: userId } }),
-        getRazorpayTransactionStats({ [Op.and]: [dateWhere, merchantRoleFilter] })
+        getRazorpayTransactionStats({ [Op.and]: [dateWhere, merchantRoleFilter] }),
+        getCcBillTransactionStats({
+          createdAt: { [Op.between]: [start, end] },
+          user_id: userId
+        }),
+        getPayoutStats({ userIds: [userId], start, end })
       ]);
-
-      const today_total_payout = await WalletTransaction.sum('amount', {
-        where: {
-          requested_by: req.user.id,
-          status: 'completed',
-          type: { [Op.in]: ['transfer', 'hold'] },
-          createdAt: { [Op.between]: [start, end] }
-        }
-      });
 
       data = {
         pos_machines: { count: posMachineCount },
@@ -204,7 +294,10 @@ const getDashboard = asyncHandler(async (req, res) => {
           success_rate: posStats.success_rate,
           failure_rate: posStats.failure_rate
         },
-        today_total_payout: Number(today_total_payout || 0)
+        today_total_payout: Number(today_total_payout || 0),
+        ccBillPaymentTXN: ccBillStats.total,
+        ccBillPaymentSuccess: ccBillStats.success,
+        ccBillPaymentFailed: ccBillStats.fail
       };
     }
 

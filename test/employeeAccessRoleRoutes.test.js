@@ -8,6 +8,7 @@ process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secre
 const employeeAccessRoleRoutes = require('../routes/employeeAccessRoleRoutes');
 const EmployeeAccessRole = require('../models/EmployeeAccessRole');
 const User = require('../models/User');
+const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 
 const app = express();
 app.use(express.json({ strict: false }));
@@ -49,6 +50,9 @@ describe('Employee access role admin routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.data.permissions).to.be.an('array').that.is.not.empty;
+    const usersModule = res.body.data.permissions.find((module) => module.module === 'users');
+    expect(usersModule.permissions.map((permission) => permission.slug)).to.include(EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE);
+    expect(usersModule.permissions.map((permission) => permission.slug)).to.include(EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE);
   });
 
   it('rejects non-admin access', async () => {

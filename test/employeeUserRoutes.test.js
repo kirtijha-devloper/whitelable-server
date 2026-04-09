@@ -7,8 +7,16 @@ process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secre
 
 const sendOtpUtils = require('../utils/sendOtp');
 const mailUtils = require('../utils/mail');
-sendOtpUtils.sendRegistrationSms = async () => ({ success: true });
-mailUtils.sendMail = async () => ({ accepted: ['test@example.com'] });
+let sentRegistrationSmsArgs = null;
+let sentMailArgs = null;
+sendOtpUtils.sendRegistrationSms = async (...args) => {
+  sentRegistrationSmsArgs = args;
+  return { success: true };
+};
+mailUtils.sendMail = async (payload) => {
+  sentMailArgs = payload;
+  return { accepted: ['test@example.com'] };
+};
 
 const userRoutes = require('../routes/userRoutes');
 const User = require('../models/User');
@@ -61,6 +69,8 @@ const noPermissionEmployeeToken = makeEmployeeToken([]);
 let stubs = {};
 
 beforeEach(() => {
+  sentRegistrationSmsArgs = null;
+  sentMailArgs = null;
   stubs = {
     userFindAndCountAll: User.findAndCountAll,
     userFindAll: User.findAll,
@@ -146,6 +156,20 @@ describe('Employee role on user routes', () => {
       EMPLOYEE_PERMISSIONS.USERS_LIST,
       EMPLOYEE_PERMISSIONS.USERS_READ,
     ]);
+    expect(res.body.sms.sent).to.equal(true);
+    expect(sentRegistrationSmsArgs).to.deep.equal([
+      '9000000001',
+      'APE00001',
+      'Test@1234',
+      'Ops Employee',
+    ]);
+    expect(res.body.email.sent).to.equal(true);
+    expect(sentMailArgs).to.include({
+      to: 'employee@example.com',
+      subject: 'Abheepay POS Account Created',
+    });
+    expect(sentMailArgs.html).to.include('APE00001');
+    expect(sentMailArgs.html).to.include('Test@1234');
   });
 
   it('rejects franchise attempts to create an employee', async () => {

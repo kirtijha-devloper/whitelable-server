@@ -642,21 +642,26 @@ const getPayoutReport = asyncHandler(async (req, res) => {
       limit: limitNum,
       offset
     });
-
-    // Bulk-fetch matching Ledger entries for balance figures
+    
     const payoutIds = payouts.map(p => p.id);
     const payoutLedgerRows = payoutIds.length
       ? await Ledger.findAll({
           where: {
             reference_table: 'PayoutTransactions',
             reference_id: { [Op.in]: payoutIds },
-            transaction_type: 'payout'
+            transaction_type: { [Op.in]: ['payout', 'payout_refund'] }
           },
-          attributes: ['reference_id', 'balance_before', 'balance', 'debit']
+          attributes: ['id', 'reference_id', 'transaction_type', 'balance_before', 'balance', 'debit', 'credit', 'createdAt']
         })
       : [];
     const payoutLedgerMap = {};
-    payoutLedgerRows.forEach(l => { payoutLedgerMap[l.reference_id] = l; });
+    payoutLedgerRows.forEach((ledgerRow) => {
+      const key = ledgerRow.reference_id;
+      if (!payoutLedgerMap[key]) {
+        payoutLedgerMap[key] = [];
+      }
+      payoutLedgerMap[key].push(ledgerRow);
+    });
 
     const merchantIds = [...new Set(payouts.map(p => p.merchant_id).filter(Boolean))];
     const beneficiaryIds = [...new Set(payouts.map(p => p.beneficiary_id).filter(Boolean))];
@@ -680,7 +685,13 @@ const getPayoutReport = asyncHandler(async (req, res) => {
     const beneficiaryMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
 
     const data = payouts.map(p => {
-      const ledger = payoutLedgerMap[p.id] || null;
+      const ledgerEntries = (payoutLedgerMap[p.id] || []).slice().sort((a, b) => {
+        const timeDiff = new Date(a.createdAt) - new Date(b.createdAt);
+        if (timeDiff !== 0) return timeDiff;
+        return (a.id || 0) - (b.id || 0);
+      });
+      const initialLedger = ledgerEntries.find((entry) => entry.transaction_type === 'payout') || ledgerEntries[0] || null;
+      const finalLedger = ledgerEntries[ledgerEntries.length - 1] || initialLedger;
       return {
         id:             p.id,
         date:           p.createdAt,
@@ -694,8 +705,8 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         total_deducted: parseFloat(p.amount) + (parseFloat(p.service_charge) || 0),
         purpose:        p.purpose,
         status:         p.status,
-        balance_before: ledger ? parseFloat(ledger.balance_before) : null,
-        balance_after:  ledger ? parseFloat(ledger.balance)        : null
+        balance_before: initialLedger ? parseFloat(initialLedger.balance_before) : null,
+        balance_after:  finalLedger ? parseFloat(finalLedger.balance)        : null
       };
     });
 

@@ -1,18 +1,19 @@
 /**
  * directLoginController.js
  *
- * Allows an authenticated admin to log in AS any merchant, franchisee, or employee
- * without knowing their password — for support and debugging purposes.
+ * Allows an authenticated admin, or a permitted employee, to log in AS another
+ * user without knowing their password — for support and debugging purposes.
  *
  * ── Endpoints ──────────────────────────────────────────────────────────────
  *
  *  POST /api/admin/dl-token
- *    Admin generates (or regenerates) their Direct-Login token.
+ *    Admin or an employee with impersonation permission generates (or
+ *    regenerates) their Direct-Login token.
  *    Returns the raw token ONCE.  Store it in the admin UI session.
  *    Any previously active token for this admin is deleted immediately.
  *
  *  GET  /api/admin/dl-token/status
- *    Returns whether the admin currently has an active DL token + its expiry.
+ *    Returns whether the current privileged user has an active DL token + its expiry.
  *    Does NOT return the raw token (it is hashed server-side).
  *
  *  DELETE /api/admin/dl-token
@@ -29,7 +30,9 @@
  *  • Token lifetime: DL_TOKEN_TTL_MINUTES env var (default 120 min / 2 h).
  *  • Each (dl_token, user_id) pair is single-use — replayed requests
  *    (double-click, tab reload) return the original JWT without re-issuing.
- *  • Only merchants, franchisees, and employees can be targeted; admin accounts are blocked.
+ *  • Admin-owned tokens may target merchants, franchisees, and employees.
+ *  • Employee-owned tokens may target merchants and franchisees only.
+ *  • Admin accounts are always blocked as impersonation targets.
  *  • Inactive user accounts are rejected.
  */
 
@@ -39,9 +42,24 @@ const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 
 const User = require('../models/User');
+const EmployeeAccessRole = require('../models/EmployeeAccessRole');
 const DirectLoginToken = require('../models/DirectLoginToken');
+const {
+  EMPLOYEE_PERMISSIONS,
+  hasPermission,
+  normalizeRole,
+} = require('../utils/permissions');
 
-const IMPERSONATABLE_ROLES = ['merchant', 'franchaise', 'franchise', 'employee'];
+const DIRECT_LOGIN_OWNER_ATTRIBUTES = [
+  'id',
+  'name',
+  'mobile_number',
+  'role',
+  'status',
+  'employee_access_role_id',
+];
+const ADMIN_IMPERSONATABLE_ROLES = ['merchant', 'franchaise', 'franchise', 'employee'];
+const EMPLOYEE_IMPERSONATABLE_ROLES = ['merchant', 'franchaise', 'franchise'];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,6 +89,49 @@ function parseUsedIds(text) {
   }
 }
 
+function canManageDirectLoginTokens(user) {
+  return normalizeRole(user?.role) === 'admin'
+    || hasPermission(user, EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE);
+}
+
+function getDirectLoginAccessDeniedMessage() {
+  return 'You do not have permission to manage impersonation login.';
+}
+
+async function loadTokenOwner(ownerId) {
+  const owner = await User.findByPk(ownerId, { attributes: DIRECT_LOGIN_OWNER_ATTRIBUTES });
+  if (!owner) {
+    return null;
+  }
+
+  const plainOwner = owner.toJSON ? owner.toJSON() : { ...owner };
+  const employeeAccessRole = plainOwner.employee_access_role_id
+    ? await EmployeeAccessRole.findByPk(plainOwner.employee_access_role_id)
+    : null;
+
+  return {
+    ...plainOwner,
+    role: normalizeRole(plainOwner.role),
+    employee_access_role: employeeAccessRole
+      ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : { ...employeeAccessRole })
+      : null,
+  };
+}
+
+function getImpersonatableRolesForOwner(owner) {
+  const ownerRole = normalizeRole(owner?.role);
+
+  if (ownerRole === 'admin') {
+    return ADMIN_IMPERSONATABLE_ROLES;
+  }
+
+  if (ownerRole === 'employee' && hasPermission(owner, EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE)) {
+    return EMPLOYEE_IMPERSONATABLE_ROLES;
+  }
+
+  return [];
+}
+
 /** Issue a standard 5-hour user JWT (same shape as normal login). */
 function issueUserJwt(user) {
   return jwt.sign(
@@ -92,14 +153,15 @@ function issueUserJwt(user) {
 // POST /api/admin/dl-token  –  Generate / regenerate DL token
 // ---------------------------------------------------------------------------
 const generateDlToken = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  if (!canManageDirectLoginTokens(req.user)) {
+    return res.status(403).json({ success: false, message: getDirectLoginAccessDeniedMessage() });
   }
 
-  const adminId = req.user.id;
+  const tokenOwnerId = req.user.id;
 
-  // Delete any existing token for this admin (invalidate immediately)
-  await DirectLoginToken.destroy({ where: { admin_id: adminId } });
+  // The DB column remains admin_id for backward compatibility, but it now stores
+  // the privileged token owner's user id (admin or impersonation-enabled employee).
+  await DirectLoginToken.destroy({ where: { admin_id: tokenOwnerId } });
 
   // Generate a cryptographically random 32-byte token
   const rawToken = crypto.randomBytes(32).toString('hex'); // 64 hex chars
@@ -107,7 +169,7 @@ const generateDlToken = asyncHandler(async (req, res) => {
   const expiresAt = newExpiry();
 
   await DirectLoginToken.create({
-    admin_id:      adminId,
+    admin_id:      tokenOwnerId,
     token_hash:    tokenHash,
     expires_at:    expiresAt,
     used_user_ids: '[]',
@@ -130,8 +192,8 @@ const generateDlToken = asyncHandler(async (req, res) => {
 // GET /api/admin/dl-token/status  –  Check if active token exists
 // ---------------------------------------------------------------------------
 const getDlTokenStatus = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  if (!canManageDirectLoginTokens(req.user)) {
+    return res.status(403).json({ success: false, message: getDirectLoginAccessDeniedMessage() });
   }
 
   const record = await DirectLoginToken.findOne({
@@ -166,8 +228,8 @@ const getDlTokenStatus = asyncHandler(async (req, res) => {
 // DELETE /api/admin/dl-token  –  Revoke active token
 // ---------------------------------------------------------------------------
 const revokeDlToken = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  if (!canManageDirectLoginTokens(req.user)) {
+    return res.status(403).json({ success: false, message: getDirectLoginAccessDeniedMessage() });
   }
 
   const deleted = await DirectLoginToken.destroy({
@@ -215,6 +277,22 @@ const directLogin = asyncHandler(async (req, res) => {
     });
   }
 
+  const tokenOwner = await loadTokenOwner(tokenRecord.admin_id);
+  if (!tokenOwner || tokenOwner.status !== 'active') {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid or expired direct-login token.',
+    });
+  }
+
+  const allowedTargetRoles = getImpersonatableRolesForOwner(tokenOwner);
+  if (allowedTargetRoles.length === 0) {
+    return res.status(403).json({
+      success: false,
+      message: 'Direct-login token owner is no longer authorized to impersonate users.',
+    });
+  }
+
   // ── 3. Replay guard (idempotent for same user_id) ────────────────────────
   //  If this (token, user_id) pair was already used, return the same 200 but
   //  do NOT issue a new JWT — the client already has it from the first call.
@@ -225,7 +303,7 @@ const directLogin = asyncHandler(async (req, res) => {
       success: false,
       message:
         'This user has already been logged in via this token. ' +
-        'Generate a new DL token or open the user from a fresh admin session.',
+        'Generate a new DL token or open the user from a fresh privileged session.',
     });
   }
 
@@ -233,14 +311,14 @@ const directLogin = asyncHandler(async (req, res) => {
   const targetUser = await User.findOne({
     where: {
       id:   targetUserId,
-      role: { [Op.in]: IMPERSONATABLE_ROLES }, // admin accounts cannot be impersonated
+      role: { [Op.in]: allowedTargetRoles },
     },
   });
 
   if (!targetUser) {
     return res.status(404).json({
       success: false,
-      message: 'Target user not found or cannot be impersonated (admin accounts are protected).',
+      message: 'Target user not found or cannot be impersonated by this login token.',
     });
   }
 
