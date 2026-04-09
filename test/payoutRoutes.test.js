@@ -23,13 +23,16 @@ const franchiseToken = jwt.sign({ user: { id: 3, role: 'franchaise' } }, SECRET)
 const employeeToken = jwt.sign({ user: { id: 4, role: 'employee' } }, SECRET);
 
 let findAllStub;
+let findByPkStub;
 
 beforeEach(() => {
   findAllStub = Beneficiary.findAll;
+  findByPkStub = Beneficiary.findByPk;
 });
 
 afterEach(() => {
   Beneficiary.findAll = findAllStub;
+  Beneficiary.findByPk = findByPkStub;
 });
 
 describe('GET /api/payout/beneficiaries', () => {
@@ -82,6 +85,49 @@ describe('GET /api/payout/beneficiaries', () => {
     const res = await request(app)
       .get('/api/payout/beneficiaries')
       .set('Authorization', `Bearer ${employeeToken}`);
+
+    expect(res.status).to.equal(403);
+    expect(res.body.success).to.equal(false);
+  });
+});
+
+describe('PUT /api/payout/beneficiaries/:id', () => {
+  it('updates a beneficiary for the owning merchant', async () => {
+    Beneficiary.findByPk = async (id) => ({
+      id,
+      merchant_id: 2,
+      beneficiary_name: 'MD ABDULLAH',
+      update: async function (data) {
+        Object.assign(this, data);
+        return this;
+      },
+    });
+
+    const res = await request(app)
+      .put('/api/payout/beneficiaries/21')
+      .set('Authorization', `Bearer ${merchantToken}`)
+      .send({ state: 'JH', branch_name: 'N/A' });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.data.state).to.equal('JH');
+    expect(res.body.data.branch_name).to.equal('N/A');
+  });
+
+  it('prevents a merchant from updating someone else\'s beneficiary', async () => {
+    Beneficiary.findByPk = async (id) => ({
+      id,
+      merchant_id: 999,
+      beneficiary_name: 'Other User',
+      update: async function () {
+        throw new Error('should not update');
+      },
+    });
+
+    const res = await request(app)
+      .put('/api/payout/beneficiaries/21')
+      .set('Authorization', `Bearer ${merchantToken}`)
+      .send({ state: 'MH' });
 
     expect(res.status).to.equal(403);
     expect(res.body.success).to.equal(false);

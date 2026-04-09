@@ -508,6 +508,17 @@ describe('GET /api/report/ledger', () => {
     expect(res.body.count).to.equal(1);
   });
 
+  it('transaction_type filter is passed in WHERE', async () => {
+    let capturedWhere;
+    Ledger.findAll = async ({ where }) => { capturedWhere = where; return [ledgerEntry()]; };
+
+    await request(app)
+      .get('/api/report/ledger?transaction_type=payout')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(capturedWhere.transaction_type).to.equal('payout');
+  });
+
   it('returns 400 for invalid date', async () => {
     const res = await request(app)
       .get('/api/report/ledger?from_date=2026-13-01')

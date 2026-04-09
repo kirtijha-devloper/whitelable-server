@@ -17,6 +17,7 @@ router.get('/states', vimoController.fetchStateList);
 // Vimo payout and beneficiary management
 router.get('/payout/reference', vimoController.getPayoutReference);
 router.post('/payout', vimoController.createPayout);
+router.post('/payout/admin/fail', vimoController.failProcessingPayout);
 
 router.post('/beneficiaries', vimoController.createBeneficiary);
 router.get('/beneficiaries', vimoController.listBeneficiaries);

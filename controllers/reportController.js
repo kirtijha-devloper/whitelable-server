@@ -489,7 +489,7 @@ const getLedgerReport = asyncHandler(async (req, res) => {
   try {
     const userRole = req.user?.role;
     const currentUserId = req.user?.id;
-    const { from_date, to_date, user_id, status } = req.query;
+    const { from_date, to_date, user_id, status, transaction_type } = req.query;
 
     // status filter is intentionally ignored for ledger report (show all statuses)
     // because payout entries may be pending/failed and should still be visible.
@@ -522,6 +522,15 @@ const getLedgerReport = asyncHandler(async (req, res) => {
     const where = {
       createdAt: { [Op.between]: [fromDate, toDate] }
     };
+
+    if (transaction_type) {
+      const types = String(transaction_type).split(',').map(t => t.trim()).filter(Boolean);
+      if (types.length === 1) {
+        where.transaction_type = types[0];
+      } else if (types.length > 1) {
+        where.transaction_type = { [Op.in]: types };
+      }
+    }
 
     // scope by role
     if (userRole === 'merchant') {
@@ -700,6 +709,7 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         beneficiary_id: p.beneficiary_id,
         beneficiary:    beneficiaryMap[p.beneficiary_id] || null,
         reference_id:   p.reference_id,
+        payout_provider: p.payout_provider,
         amount:         parseFloat(p.amount),
         service_charge: parseFloat(p.service_charge) || 0,
         total_deducted: parseFloat(p.amount) + (parseFloat(p.service_charge) || 0),
