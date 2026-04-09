@@ -6,7 +6,9 @@ const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 const RazorpayNotification = require("../models/RazorpayNotification");
 const Ledger = require('../models/Ledger');
-const PayoutTransaction = require('../models/PayoutTransaction');const Beneficiary = require('../models/Beneficiary');
+const PayoutTransaction = require('../models/PayoutTransaction');
+const Beneficiary = require('../models/Beneficiary');
+const CcBillPayment = require('../models/CcBillPayment');
 // Admin-only full notifications list
 // Supports optional `source` query parameter to restrict to 'razorpay' or 'everlife' webhooks
 const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
@@ -785,24 +787,42 @@ const getBbpsReport = asyncHandler(async (req, res) => {
       subQuery: false
     });
 
+    const bbpsPaymentIds = [...new Set(entries
+      .filter((entry) => {
+        const referenceTable = entry.reference_table || entry.referenceTable || null;
+        return !!entry.reference_id && (!referenceTable || referenceTable === 'CcBillPayments');
+      })
+      .map((entry) => entry.reference_id))];
+
+    const paymentRecords = bbpsPaymentIds.length
+      ? await CcBillPayment.findAll({
+          where: { id: { [Op.in]: bbpsPaymentIds } },
+          attributes: ['id', 'biller_id', 'customer_mobile', 'payment_mode', 'statuscode', 'status', 'external_ref']
+        })
+      : [];
+
+    const paymentMap = Object.fromEntries(paymentRecords.map((payment) => [payment.id, payment]));
+
     const data = entries.map(e => {
       let meta = {};
       try { meta = e.metadata ? JSON.parse(e.metadata) : {}; } catch (_) {}
+      const payment = paymentMap[e.reference_id] || null;
+
       return {
         id:              e.id,
         date:            e.createdAt,
         user_id:         e.user_id,
         user:            e.user || null,
-        biller_id:       meta.biller_id       || null,
-        customer_mobile: meta.customer_mobile  || null,
-        payment_mode:    meta.payment_mode     || null,
-        statuscode:      meta.statuscode       || null,
-        external_ref:    e.transaction_id,
+        biller_id:       payment?.biller_id || meta.biller_id || null,
+        customer_mobile: payment?.customer_mobile || meta.customer_mobile || null,
+        payment_mode:    payment?.payment_mode || meta.payment_mode || null,
+        statuscode:      payment?.statuscode || meta.statuscode || null,
+        external_ref:    payment?.external_ref || meta.external_ref || e.transaction_id || null,
         description:     e.description,
         amount:          parseFloat(e.debit)          || 0,
         balance_before:  parseFloat(e.balance_before) || 0,
         balance_after:   parseFloat(e.balance)        || 0,
-        status:          e.status
+        status:          payment?.status || meta.status || null
       };
     });
 

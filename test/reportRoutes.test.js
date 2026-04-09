@@ -24,6 +24,7 @@ const RazorpayNotification = require('../models/RazorpayNotification');
 const Ledger               = require('../models/Ledger');
 const PayoutTransaction    = require('../models/PayoutTransaction');
 const Beneficiary          = require('../models/Beneficiary');
+const CcBillPayment        = require('../models/CcBillPayment');
 
 // ── minimal Express app ───────────────────────────────────────────────────────
 const app = express();
@@ -673,25 +674,43 @@ describe('GET /api/report/payout', () => {
 // ============================================================================
 describe('GET /api/report/bbps', () => {
   let origLedgerFindAndCountAll;
+  let origCcBillPaymentFindAll;
 
-  beforeEach(() => { origLedgerFindAndCountAll = Ledger.findAndCountAll; });
-  afterEach(()  => { Ledger.findAndCountAll = origLedgerFindAndCountAll; });
+  beforeEach(() => {
+    origLedgerFindAndCountAll = Ledger.findAndCountAll;
+    origCcBillPaymentFindAll = CcBillPayment.findAll;
+  });
+  afterEach(()  => {
+    Ledger.findAndCountAll = origLedgerFindAndCountAll;
+    CcBillPayment.findAll = origCcBillPaymentFindAll;
+  });
 
   const bbpsEntry = () => ({
     id: 88, createdAt: new Date(), user_id: 2,
     user: { id: 2, name: 'Merch', mobile_number: '9', abheepay_id: 'AP1', organization_name: 'Org' },
-    transaction_id: 'APBBPS001',
+    transaction_id: 'LEDGER-TXN-ONLY',
+    reference_id: 2423,
+    reference_table: 'CcBillPayments',
     description: 'BBPS CC bill payment',
     debit: '2500.00', balance_before: '7500.00', balance: '5000.00',
     status: 'completed',
     metadata: JSON.stringify({
       biller_id: 'HDFC_CC_001', customer_mobile: '9876543210',
-      payment_mode: 'Cash', statuscode: 'TXN'
+      payment_mode: 'Cash', statuscode: 'PENDING', external_ref: 'META-OLD'
     })
   });
 
-  it('returns 200 with bbps-specific fields (admin)', async () => {
+  it('returns 200 with bbps-specific fields and resolves status from CcBillPayment', async () => {
     Ledger.findAndCountAll = async () => ({ count: 1, rows: [bbpsEntry()] });
+    CcBillPayment.findAll = async () => [{
+      id: 2423,
+      biller_id: 'HDFC_CC_001',
+      customer_mobile: '9876543210',
+      payment_mode: 'Cash',
+      statuscode: 'TXN',
+      status: 'Transaction Successful',
+      external_ref: 'APBBPS001'
+    }];
 
     const res = await request(app)
       .get('/api/report/bbps')
@@ -702,6 +721,7 @@ describe('GET /api/report/bbps', () => {
     expect(res.body.data[0].biller_id).to.equal('HDFC_CC_001');
     expect(res.body.data[0].customer_mobile).to.equal('9876543210');
     expect(res.body.data[0].statuscode).to.equal('TXN');
+    expect(res.body.data[0].status).to.equal('Transaction Successful');
     expect(res.body.data[0].amount).to.equal(2500);
     expect(res.body.data[0].balance_before).to.equal(7500);
     expect(res.body.data[0].balance_after).to.equal(5000);
@@ -737,6 +757,7 @@ describe('GET /api/report/bbps', () => {
   });
 
   it('handles missing metadata gracefully', async () => {
+    CcBillPayment.findAll = async () => [];
     Ledger.findAndCountAll = async () => ({
       count: 1,
       rows: [{ ...bbpsEntry(), metadata: null }]
@@ -749,6 +770,7 @@ describe('GET /api/report/bbps', () => {
     expect(res.status).to.equal(200);
     expect(res.body.data[0].biller_id).to.be.null;
     expect(res.body.data[0].customer_mobile).to.be.null;
+    expect(res.body.data[0].status).to.be.null;
   });
 
   it('pagination in response', async () => {
