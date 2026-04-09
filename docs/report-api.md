@@ -260,6 +260,7 @@ Full Ledger passbook — every credited and debited entry with
 | `from_date` | string | No | today | Start date (YYYY-MM-DD) |
 | `to_date` | string | No | today | End date (YYYY-MM-DD) |
 | `user_id` | integer | No | — | Filter by user (admin / franchise only) |
+| `transaction_type` | string | No | — | Filter by ledger transaction type |
 
 ### Response `200`
 

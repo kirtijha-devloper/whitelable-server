@@ -39,6 +39,10 @@ let bcryptCompareOrig;
 beforeEach(() => {
   stubs = {
     branchx: { bankValidation: branchxService.bankValidation, payout: branchxService.payout },
+    userFindByPk: User.findByPk,
+    beneficiaryFindByPk: Beneficiary.findByPk,
+    tpinFindOne: Tpin.findOne,
+    bcryptCompare: bcrypt.compare,
     serviceFeeFindOne: ServiceFee.findOne,
     payoutChargeFindOne: PayoutCharge.findOne,
     payoutTransactionCreate: PayoutTransaction.create,
@@ -61,17 +65,17 @@ beforeEach(() => {
 });
 afterEach(() => {
   branchxService.bankValidation = stubs.branchx.bankValidation;
-  PayoutCharge.findOne = stubs.payoutChargeFindOne;
+  branchxService.payout = stubs.branchx.payout;
+  User.findByPk = stubs.userFindByPk;
+  Beneficiary.findByPk = stubs.beneficiaryFindByPk;
+  Tpin.findOne = stubs.tpinFindOne;
+  bcrypt.compare = stubs.bcryptCompare;
   ServiceFee.findOne = stubs.serviceFeeFindOne;
+  PayoutCharge.findOne = stubs.payoutChargeFindOne;
   PayoutTransaction.create = stubs.payoutTransactionCreate;
   ledgerService.createLedgerEntry = stubs.ledgerEntry;
   ledgerService.createPayoutEntry = stubs.payoutEntry;
   ledgerService.getAvailableBalance = stubs.availableBalance;
-
-  User.findByPk = userFindByPkOrig;
-  Beneficiary.findByPk = beneficiaryFindByPkOrig;
-  Tpin.findOne = tpinFindOneOrig;
-  bcrypt.compare = bcryptCompareOrig;
 });
 
 describe('POST /api/payment/v2/bank/validation', () => {
@@ -129,27 +133,24 @@ describe('POST /api/payment/v2/bank/validation', () => {
 describe('BranchX webhook callback', () => {
   let origPayoutFindOne;
   let origPayoutFindByPk;
-  let origUserFindByPk;
-  let origLedgerUpdate;
+  let origLedgerFindOne;
   let origPayoutAuditCreate;
-  let origLedgerServiceCreateLedgerEntry;
+  let origLedgerEntry;
 
   beforeEach(() => {
     origPayoutFindOne = PayoutTransaction.findOne;
     origPayoutFindByPk = PayoutTransaction.findByPk;
-    origUserFindByPk = User.findByPk;
-    origLedgerUpdate = Ledger.update;
+    origLedgerFindOne = Ledger.findOne;
     origPayoutAuditCreate = PayoutAuditLog.create;
-    origLedgerServiceCreateLedgerEntry = ledgerService.createLedgerEntry;
+    origLedgerEntry = ledgerService.createLedgerEntry;
   });
 
   afterEach(() => {
     PayoutTransaction.findOne = origPayoutFindOne;
     PayoutTransaction.findByPk = origPayoutFindByPk;
-    User.findByPk = origUserFindByPk;
-    Ledger.update = origLedgerUpdate;
+    Ledger.findOne = origLedgerFindOne;
     PayoutAuditLog.create = origPayoutAuditCreate;
-    ledgerService.createLedgerEntry = origLedgerServiceCreateLedgerEntry;
+    ledgerService.createLedgerEntry = origLedgerEntry;
   });
 
   it('updates payout transaction and refunds wallet when callback status is FAILED', async () => {
@@ -172,10 +173,12 @@ describe('BranchX webhook callback', () => {
 
     PayoutTransaction.findOne = async () => payoutTx;
     PayoutTransaction.findByPk = async () => payoutTx;
-    User.findByPk = async () => user;
-    Ledger.update = async () => [1];
-    ledgerService.createLedgerEntry = async () => ({ id: 999 });
+    Ledger.findOne = async () => null;
     PayoutAuditLog.create = async () => ({});
+    ledgerService.createLedgerEntry = async (args) => {
+      user.wallet += parseFloat(args.credit || 0);
+      return { id: 77 };
+    };
 
     const res = await request(app)
       .post('/api/payment/v2/payout/callback')
@@ -201,6 +204,24 @@ describe('POST /api/payment/v2/payout', () => {
   beforeEach(() => {
     // stub payout service to avoid real HTTP call
     branchxService.payout = async () => ({ status: 'SUCCESS', api_ref: 'R1' });
+    User.findByPk = async () => ({ id: 9, is_payout_enabled: true, wallet: 1000, name: 'Merchant Test' });
+    Beneficiary.findByPk = async () => ({
+      id: 1,
+      status: 'active',
+      mobile_number: '9999999999',
+      account_number: '1234567890',
+      ifsc_code: 'TEST0001234',
+      beneficiary_name: 'Test Beneficiary',
+      bank_name: 'Test Bank',
+      email: 'test@example.com',
+    });
+    Tpin.findOne = async () => ({
+      expires_at: new Date(Date.now() + 60000),
+      tpin: '$2b$10$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    });
+    bcrypt.compare = async () => true;
+    PayoutTransaction.create = async (payload) => ({ id: 1, ...payload });
+    ledgerService.getAvailableBalance = async () => 1000;
   });
 
   it('requires amount and beneficiary', async () => {
@@ -218,7 +239,7 @@ describe('POST /api/payment/v2/payout', () => {
     const res = await request(app)
       .post('/api/payment/v2/payout')
       .set('Authorization', `Bearer ${merchantToken}`)
-      .send({ merchant_id: 9, beneficiary_id: 1, amount: 100, service_charge: 7, tpin: '0000' });
+      .send({ merchant_id: 9, beneficiary_id: 1, amount: 100, service_charge: 7, requestId: 'APTEST0001', tpin: '0000' });
 
     expect(res.status).to.not.equal(400);
     expect(ledgerArgs.amount).to.equal(107);
@@ -233,7 +254,7 @@ describe('POST /api/payment/v2/payout', () => {
     const res = await request(app)
       .post('/api/payment/v2/payout')
       .set('Authorization', `Bearer ${merchantToken}`)
-      .send({ merchant_id: 9, beneficiary_id: 1, amount: 200, tpin: '0000' });
+      .send({ merchant_id: 9, beneficiary_id: 1, amount: 200, requestId: 'APTEST0002', tpin: '0000' });
 
     expect(res.status).to.not.equal(400);
     expect(ledgerArgs.amount).to.equal(210);

@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 
 const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, searchUsers, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger} = require("../controllers/userController");
+const { getActiveLoginPopups } = require("../controllers/loginPopupController");
 const validateToken = require("../middleware/validateTokenHandler");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
@@ -35,6 +36,7 @@ router.put("/:id/status", validateToken, updateUserStatus); // usertype-agnostic
 router.get("/", validateToken, getUsers);
 router.get("/search", validateToken, searchUsers);
 router.get("/current", validateToken, currentUser);
+router.get("/login-popups", validateToken, getActiveLoginPopups);
 
 // If someone (or a redirect) hits GET /register, it should not be treated as an ID lookup.
 // Respond with a clear error rather than attempting to query `id = 'register'`.

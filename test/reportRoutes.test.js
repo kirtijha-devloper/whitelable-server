@@ -42,7 +42,14 @@ const reportsEmployeeToken = jwt.sign({
     id: 7,
     role: 'employee',
     name: 'Reports Employee',
-    permissions: ['reports.read'],
+    employee_access_role_id: 13,
+    employee_access_role: {
+      id: 13,
+      name: 'Reports',
+      slug: 'reports',
+      status: 'active',
+      permissions: ['reports.read'],
+    },
   }
 }, process.env.ACCESS_TOKEN_SECRET);
 
@@ -499,6 +506,17 @@ describe('GET /api/report/ledger', () => {
     expect(res.status).to.equal(200);
     expect(capturedWhere.status).to.be.undefined;
     expect(res.body.count).to.equal(1);
+  });
+
+  it('transaction_type filter is passed in WHERE', async () => {
+    let capturedWhere;
+    Ledger.findAll = async ({ where }) => { capturedWhere = where; return [ledgerEntry()]; };
+
+    await request(app)
+      .get('/api/report/ledger?transaction_type=payout')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(capturedWhere.transaction_type).to.equal('payout');
   });
 
   it('returns 400 for invalid date', async () => {

@@ -3,11 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const { Op } = require('sequelize');
 const bbpsCCBillService = require('../../../services/cc/bbps/bbpsCCBillService');
-const User = require('../../../models/User');
-const WalletTransaction = require('../../../models/WalletTransaction');
 const CcBillPayment = require('../../../models/CcBillPayment');
 const BbpsCcChargeRule = require('../../../models/BbpsCcChargeRule');
 const ledgerService = require('../../../services/ledgerService');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../../../services/serviceSettingsService');
 
 // Debug logging helper for this controller
 // Logs are written to the shared root /logs folder (same as auth.log etc.)
@@ -241,6 +243,10 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid transactionAmount' });
     }
 
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.CC_BILL_PAY, req.user))) {
+      return;
+    }
+
     const balanceCheck = await ensureSufficientBalance(userId, txnAmount);
     if (!balanceCheck.isSufficient) {
       return res.status(400).json({
@@ -466,6 +472,10 @@ const payCCBill = asyncHandler(async (req, res) => {
     const txnAmount = parseFloat(transactionAmount);
     if (Number.isNaN(txnAmount) || txnAmount <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid transactionAmount' });
+    }
+
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.CC_BILL_PAY, req.user))) {
+      return;
     }
 
     const balanceCheck = await ensureSufficientBalance(userId, txnAmount);

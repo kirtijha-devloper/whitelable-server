@@ -7,8 +7,11 @@ const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenuePayment = require('../../../models/BillAvenuePayment');
 const BillAvenueBillFetch = require('../../../models/BillAvenueBillFetch');
 const BbpsCcChargeRule = require('../../../models/BbpsCcChargeRule');
-const User = require('../../../models/User');
 const ledgerService = require('../../../services/ledgerService');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../../../services/serviceSettingsService');
 
 // ─── Logging ────────────────────────────────────────────────────────────────
 const logFile = path.join(__dirname, '../../../logs/billAvenue.log');
@@ -217,6 +220,10 @@ const payBill = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid amount' });
     }
 
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.BA_CC_BILL_PAY, req.user))) {
+      return;
+    }
+
     // ── Balance check ───────────────────────────────────────────────────
     const balanceCheck = await ensureSufficientBalance(userId, txnAmount);
     if (!balanceCheck.isSufficient) {
@@ -286,7 +293,6 @@ const payBill = asyncHandler(async (req, res) => {
           error: apiError.message,
         },
       });
-
       await payment.update({ status: 'failed', response: { error: apiError.message } });
 
       return res.status(500).json({ success: false, message: 'BillAvenue API call failed. Amount reversed.' });

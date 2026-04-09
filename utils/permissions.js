@@ -8,7 +8,8 @@ const EMPLOYEE_PERMISSIONS = Object.freeze({
   STOCK_POS_READ: 'stock.pos.read',
   STOCK_POS_MANAGE: 'stock.pos.manage',
   WALLET_READ: 'wallet.read',
-  WALLET_MANAGE: 'wallet.manage',
+  WALLET_CREDIT: 'wallet.credit',
+  WALLET_DEBIT: 'wallet.debit',
   REPORTS_READ: 'reports.read',
   PAYOUT_READ: 'payout.read',
   LEDGER_READ: 'ledger.read',
@@ -20,6 +21,84 @@ const EMPLOYEE_PERMISSIONS = Object.freeze({
   RAZORPAY_NOTIFICATIONS_LIST: 'razorpay.notifications.list',
   RAZORPAY_NOTIFICATIONS_READ: 'razorpay.notifications.read',
 });
+
+const EMPLOYEE_PERMISSION_CATALOG = Object.freeze([
+  {
+    module: 'users',
+    label: 'Users',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.USERS_CREATE, label: 'Create User' },
+      { slug: EMPLOYEE_PERMISSIONS.USERS_LIST, label: 'User List' },
+      { slug: EMPLOYEE_PERMISSIONS.USERS_SEARCH, label: 'Search Users' },
+      { slug: EMPLOYEE_PERMISSIONS.USERS_READ, label: 'View User Detail' },
+      { slug: EMPLOYEE_PERMISSIONS.USERS_UPDATE, label: 'Edit User' },
+      { slug: EMPLOYEE_PERMISSIONS.USERS_STATUS_UPDATE, label: 'Update User Status' },
+    ],
+  },
+  {
+    module: 'stock_pos',
+    label: 'Stock POS',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.STOCK_POS_READ, label: 'View Stock POS' },
+      { slug: EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, label: 'Manage Stock POS' },
+    ],
+  },
+  {
+    module: 'wallet',
+    label: 'Wallet',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.WALLET_READ, label: 'View Wallet' },
+      { slug: EMPLOYEE_PERMISSIONS.WALLET_CREDIT, label: 'Wallet Credit' },
+      { slug: EMPLOYEE_PERMISSIONS.WALLET_DEBIT, label: 'Wallet Debit' },
+    ],
+  },
+  {
+    module: 'reports',
+    label: 'Reports',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.REPORTS_READ, label: 'View Reports' },
+    ],
+  },
+  {
+    module: 'payout',
+    label: 'Payout',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.PAYOUT_READ, label: 'View Payout' },
+    ],
+  },
+  {
+    module: 'ledger',
+    label: 'Ledger',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.LEDGER_READ, label: 'View Ledger' },
+      { slug: EMPLOYEE_PERMISSIONS.LEDGER_MANAGE, label: 'Manage Ledger' },
+    ],
+  },
+  {
+    module: 'complaints',
+    label: 'Complaint',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.COMPLAINTS_READ, label: 'View Complaints' },
+      { slug: EMPLOYEE_PERMISSIONS.COMPLAINTS_MANAGE, label: 'Manage Complaints' },
+    ],
+  },
+  {
+    module: 'rate_settings',
+    label: 'Rate Setting',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, label: 'View Rate Settings' },
+      { slug: EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, label: 'Manage Rate Settings' },
+    ],
+  },
+  {
+    module: 'razorpay_notifications',
+    label: 'Razorpay Notifications',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_LIST, label: 'List Razorpay Notifications' },
+      { slug: EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_READ, label: 'View Razorpay Notification Detail' },
+    ],
+  },
+]);
 
 const EMPLOYEE_PERMISSION_VALUES = Object.freeze(Object.values(EMPLOYEE_PERMISSIONS));
 const EMPLOYEE_PERMISSION_SET = new Set(EMPLOYEE_PERMISSION_VALUES);
@@ -99,6 +178,39 @@ function parsePermissionsInput(rawPermissions) {
   };
 }
 
+function buildEmployeeAccessRoleSummary(roleLike) {
+  if (!roleLike || typeof roleLike !== 'object') {
+    return null;
+  }
+
+  return {
+    id: roleLike.id ?? null,
+    name: roleLike.name || null,
+    slug: roleLike.slug || null,
+    status: roleLike.status || 'active',
+    description: roleLike.description || null,
+  };
+}
+
+function getEmployeeAccessRoleFromUser(user) {
+  return user?.employee_access_role || user?.employeeAccessRole || null;
+}
+
+function getResolvedPermissions(user) {
+  const normalizedUserRole = normalizeRole(user?.role);
+
+  if (normalizedUserRole === 'employee') {
+    const employeeAccessRole = getEmployeeAccessRoleFromUser(user);
+    if (!employeeAccessRole || (employeeAccessRole.status && employeeAccessRole.status !== 'active')) {
+      return [];
+    }
+
+    return normalizePermissions(employeeAccessRole.permissions);
+  }
+
+  return normalizePermissions(user?.permissions);
+}
+
 function isAdmin(user) {
   return normalizeRole(user?.role) === 'admin';
 }
@@ -116,7 +228,7 @@ function hasPermission(user, permission) {
     return false;
   }
 
-  return normalizePermissions(user.permissions).includes(permission);
+  return getResolvedPermissions(user).includes(permission);
 }
 
 function hasAnyPermission(user, permissions) {
@@ -129,7 +241,7 @@ function hasAnyPermission(user, permissions) {
   }
 
   const permissionList = Array.isArray(permissions) ? permissions : [permissions];
-  const normalizedPermissions = normalizePermissions(user.permissions);
+  const normalizedPermissions = getResolvedPermissions(user);
 
   return permissionList.some((permission) => normalizedPermissions.includes(permission));
 }
@@ -162,10 +274,13 @@ function canFranchiseAccessTarget(requester, targetUser) {
 
 module.exports = {
   EMPLOYEE_PERMISSIONS,
+  EMPLOYEE_PERMISSION_CATALOG,
   EMPLOYEE_PERMISSION_VALUES,
   normalizeRole,
   normalizePermissions,
   parsePermissionsInput,
+  buildEmployeeAccessRoleSummary,
+  getResolvedPermissions,
   isAdmin,
   isEmployee,
   hasPermission,
