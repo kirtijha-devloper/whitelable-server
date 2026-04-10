@@ -105,20 +105,6 @@ async function getBillerInfo() {
     };
   }
 
-  // Staging environment uses hardcoded test billers (BillAvenue staging API
-  // does not serve a real biller list)
-  const isStaging = billAvenueConfig.apiUrl && billAvenueConfig.apiUrl.includes('stgapi');
-  if (isStaging) {
-    const testBillers = {
-      billers: [
-        { billerId: 'OTME00005XXZ43', billerName: 'Test Biller 1' },
-        { billerId: 'biller2', billerName: 'Biller 2' },
-        { billerId: 'biller3', billerName: 'Biller 3' },
-      ],
-    };
-    return testBillers;
-  }
-
   const xml = buildXml('billerInfoRequest', {});
   const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
 
@@ -126,28 +112,37 @@ async function getBillerInfo() {
     (result?.billers?.biller || result?.billers || result?.BillerInfo?.biller || result?.BillerInfo) || [];
   const normalized = Array.isArray(billersFromApi) ? billersFromApi : [billersFromApi];
 
-  await Promise.all(normalized.map(async (biller) => {
-    if (!biller || !biller.billerId) return;
+  const billers = normalized
+    .filter(biller => biller && (biller.billerId || biller.biller_id || biller.id))
+    .map((biller) => {
+      const billerId = biller.billerId || biller.biller_id || biller.id;
+      const billerName = biller.billerName || biller.biller_name || biller.name;
 
-    // BillAvenue API fields could be lowercase or uppercase variants.
-    const billerId = biller.billerId || biller.biller_id || biller.id;
-    const billerName = biller.billerName || biller.biller_name || biller.name;
+      return {
+        billerId,
+        billerName,
+        category: biller.category || biller.billerCategory || null,
+        serviceType: biller.serviceType || null,
+        circle: biller.circle || null,
+        state: biller.state || null,
+        metadata: biller,
+      };
+    });
 
-    if (!billerId || !billerName) return;
-
+  await Promise.all(billers.map(async (biller) => {
     await BillAvenueBiller.upsert({
-      biller_id: billerId,
-      biller_name: billerName,
-      category: biller.category || biller.billerCategory || null,
-      service_type: biller.serviceType || null,
-      circle: biller.circle || null,
-      state: biller.state || null,
-      metadata: biller,
+      biller_id: biller.billerId,
+      biller_name: biller.billerName,
+      category: biller.category,
+      service_type: biller.serviceType,
+      circle: biller.circle,
+      state: biller.state,
+      metadata: biller.metadata,
       is_active: true,
     });
   }));
 
-  return result;
+  return { billers };
 }
 
 
