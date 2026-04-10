@@ -124,7 +124,6 @@ async function getBillerInfo() {
         { billerId: 'biller3', billerName: 'Biller 3' },
       ],
     };
-    billerCache.set(cacheKey, testBillers);
     return testBillers;
   }
 
