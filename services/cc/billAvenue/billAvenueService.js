@@ -1,6 +1,7 @@
 const xml2js = require('xml2js');
 const fs = require('fs');
 const path = require('path');
+const { Op, fn, col } = require('sequelize');
 const { parse } = require('csv-parse/sync');
 const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
@@ -88,9 +89,14 @@ async function callBillAvenue(endpoint, xmlPayload) {
 /**
  * Get the list of billers for BillAvenue.
  */
-async function getBillerInfo() {
+async function getBillerInfo({ category } = {}) {
   // Check local DB first and continue to use as source-of-truth when available.
-  const dbBillers = await BillAvenueBiller.findAll({ where: { is_active: true } });
+  const where = { is_active: true };
+  if (category) {
+    where.category = category.trim();
+  }
+
+  const dbBillers = await BillAvenueBiller.findAll({ where });
   if (dbBillers?.length) {
     return {
       billers: dbBillers.map(b => ({
@@ -143,6 +149,22 @@ async function getBillerInfo() {
   }));
 
   return { billers };
+}
+
+async function getBillerCategories() {
+  const categories = await BillAvenueBiller.findAll({
+    attributes: [[fn('DISTINCT', col('category')), 'category']],
+    where: {
+      is_active: true,
+      category: { [Op.ne]: null },
+    },
+    order: [[col('category'), 'ASC']],
+  });
+
+  return categories
+    .map(row => row.category)
+    .filter(category => category && category.trim())
+    .map(category => category.trim());
 }
 
 

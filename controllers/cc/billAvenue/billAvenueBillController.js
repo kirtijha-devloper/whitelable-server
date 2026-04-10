@@ -81,10 +81,21 @@ function getTransactionRefId(parsed) {
 // ═══════════════════════════════════════════════════════════════════════════
 const getBillers = asyncHandler(async (req, res) => {
   try {
-    const result = await billAvenueService.getBillerInfo();
+    const { category } = req.query;
+    const result = await billAvenueService.getBillerInfo({ category });
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
     console.error('[billAvenue] getBillers error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+const getBillerCategories = asyncHandler(async (req, res) => {
+  try {
+    const categories = await billAvenueService.getBillerCategories();
+    return res.status(200).json({ success: true, data: { categories } });
+  } catch (error) {
+    console.error('[billAvenue] getBillerCategories error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
@@ -461,6 +472,7 @@ const getTransactionStatus = asyncHandler(async (req, res) => {
 
 module.exports = {
   getBillers,
+  getBillerCategories,
   uploadBillersFromFile,
   fetchBill,
   payBill,
