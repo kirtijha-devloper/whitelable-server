@@ -313,6 +313,7 @@ async function importBillerListFromFile(filePath) {
 
 module.exports = {
   getBillerInfo,
+  getBillerCategories,
   fetchBill,
   payBill,
   registerComplaint,
