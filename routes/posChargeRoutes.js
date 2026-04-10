@@ -26,14 +26,19 @@ router.post('/default', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTI
   message: 'You do not have permission to manage rate settings.',
   elevateRole: 'admin',
 }), createDefaultPosCharge);        // create
+
 router.get('/default', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
   message: 'You do not have permission to view rate settings.',
   elevateRole: 'admin',
 }), getDefaultPosCharges);           // list all
+
+
 router.put('/default/:id', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
   message: 'You do not have permission to manage rate settings.',
   elevateRole: 'admin',
 }), updateDefaultPosCharge);     // update
+
+
 router.delete('/default/:id', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
   message: 'You do not have permission to manage rate settings.',
   elevateRole: 'admin',
@@ -44,6 +49,8 @@ router.post('/user', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS
   message: 'You do not have permission to manage rate settings.',
   elevateRole: 'admin',
 }), createUserPosCharge);              // link / assign
+
+
 router.get('/user', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
   message: 'You do not have permission to view rate settings.',
   elevateRole: 'admin',
