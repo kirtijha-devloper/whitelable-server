@@ -1,5 +1,4 @@
 const xml2js = require('xml2js');
-const NodeCache = require('node-cache');
 const fs = require('fs');
 const path = require('path');
 const { parse } = require('csv-parse/sync');
@@ -7,8 +6,6 @@ const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
 const { postForm } = require('./billAvenueRequestService');
-
-const billerCache = new NodeCache({ stdTTL: 3600 }); // cache biller list 1 hour
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -90,27 +87,22 @@ async function callBillAvenue(endpoint, xmlPayload) {
 
 /**
  * Get the list of billers for BillAvenue.
- * Result is cached for 1 hour.
  */
 async function getBillerInfo() {
-  const cacheKey = 'billerList';
-  const cached = billerCache.get(cacheKey);
-  if (cached) return cached;
-
   // Check local DB first and continue to use as source-of-truth when available.
   const dbBillers = await BillAvenueBiller.findAll({ where: { is_active: true } });
   if (dbBillers?.length) {
-    const data = { billers: dbBillers.map(b => ({
-      billerId: b.biller_id,
-      billerName: b.biller_name,
-      category: b.category,
-      serviceType: b.service_type,
-      circle: b.circle,
-      state: b.state,
-      metadata: b.metadata,
-    })) };
-    billerCache.set(cacheKey, data);
-    return data;
+    return {
+      billers: dbBillers.map(b => ({
+        billerId: b.biller_id,
+        billerName: b.biller_name,
+        category: b.category,
+        serviceType: b.service_type,
+        circle: b.circle,
+        state: b.state,
+        metadata: b.metadata,
+      })),
+    };
   }
 
   // Staging environment uses hardcoded test billers (BillAvenue staging API
@@ -155,7 +147,6 @@ async function getBillerInfo() {
     });
   }));
 
-  billerCache.set(cacheKey, result);
   return result;
 }
 
