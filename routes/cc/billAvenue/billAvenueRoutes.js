@@ -3,6 +3,7 @@ const router = express.Router();
 const upload = require('../../../middleware/uploadMiddleware');
 const {
   getBillers,
+  getBillerCategories,
   uploadBillersFromFile,
   fetchBill,
   payBill,
@@ -17,8 +18,11 @@ const validateToken = require('../../../middleware/validateTokenHandler');
 // All routes protected by JWT
 router.use(validateToken);
 
-// GET  /api/bill-avenue/billers              – Cached biller list
+// GET  /api/bill-avenue/billers              – Biller list, optional ?category=<value>
 router.get('/billers', getBillers);
+
+// GET  /api/bill-avenue/categories           – Distinct BillAvenue biller categories
+router.get('/categories', getBillerCategories);
 
 // POST /api/bill-avenue/billers/upload       – Upload Excel/CSV biller list
 router.post('/billers/upload', upload.single('file'), uploadBillersFromFile);

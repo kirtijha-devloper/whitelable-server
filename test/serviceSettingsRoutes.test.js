@@ -10,6 +10,7 @@ const ServiceSetting = require('../models/ServiceSetting');
 const UserServiceSetting = require('../models/UserServiceSetting');
 const User = require('../models/User');
 const db = require('../config/database');
+const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 
 const app = express();
 app.use(express.json());
@@ -22,6 +23,21 @@ app.use((err, req, res, _next) => {
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const adminToken = jwt.sign({ user: { id: 1, role: 'admin', name: 'Admin' } }, SECRET);
 const employeeToken = jwt.sign({ user: { id: 2, role: 'employee', name: 'Employee' } }, SECRET);
+const employeeUserServiceSettingsToken = jwt.sign({
+  user: {
+    id: 3,
+    role: 'employee',
+    name: 'Service Settings Employee',
+    employee_access_role_id: 5,
+    employee_access_role: {
+      id: 5,
+      name: 'Service Settings Manager',
+      slug: 'service-settings-manager',
+      status: 'active',
+      permissions: [EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE],
+    },
+  },
+}, SECRET);
 
 function makeSetting(serviceKey, overrides = {}) {
   return {
@@ -184,7 +200,63 @@ describe('PUT /api/admin/user/:id/service-settings', () => {
       .send({ vimo_payout: false });
 
     expect(res.status).to.equal(403);
-    expect(res.body.message).to.match(/only admin can manage user service settings/i);
+    expect(res.body.message).to.match(/permission to manage user service settings/i);
+  });
+
+  it('allows an employee with users.service_settings.manage permission', async () => {
+    const upsertCalls = [];
+    const targetUser = {
+      id: 22,
+      role: 'merchant',
+      is_payout_enabled: true,
+      save: async function () {
+        return this;
+      },
+      toJSON() {
+        return {
+          id: this.id,
+          role: this.role,
+          is_payout_enabled: this.is_payout_enabled,
+        };
+      },
+    };
+
+    db.transaction = async (handler) => handler({});
+    User.findByPk = async () => targetUser;
+    UserServiceSetting.findAll = async () => [];
+    UserServiceSetting.upsert = async (payload) => {
+      upsertCalls.push(payload);
+      return [payload, true];
+    };
+    ServiceSetting.findAll = async () => [];
+
+    const res = await request(app)
+      .put('/api/admin/user/22/service-settings')
+      .set('Authorization', `Bearer ${employeeUserServiceSettingsToken}`)
+      .send({
+        vimo_payout: false,
+        cc_bill_pay: false,
+      });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.data).to.deep.equal({
+      user_id: 22,
+      user_service_settings: {
+        vimo_payout: false,
+        branchx_payout: true,
+        cc_bill_pay: false,
+        ba_cc_bill_pay: true,
+      },
+      service_flags: {
+        vimo_payout: false,
+        branchx_payout: true,
+        cc_bill_pay: false,
+        ba_cc_bill_pay: true,
+      },
+    });
+    expect(upsertCalls.map((call) => call.service_key)).to.deep.equal(['vimo_payout', 'cc_bill_pay']);
+    expect(upsertCalls.every((call) => call.updated_by === 3)).to.equal(true);
   });
 
   it('rejects unsupported target roles', async () => {

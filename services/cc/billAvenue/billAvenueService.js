@@ -1,14 +1,12 @@
 const xml2js = require('xml2js');
-const NodeCache = require('node-cache');
 const fs = require('fs');
 const path = require('path');
+const { Op, fn, col } = require('sequelize');
 const { parse } = require('csv-parse/sync');
 const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
 const { postForm } = require('./billAvenueRequestService');
-
-const billerCache = new NodeCache({ stdTTL: 3600 }); // cache biller list 1 hour
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -90,42 +88,27 @@ async function callBillAvenue(endpoint, xmlPayload) {
 
 /**
  * Get the list of billers for BillAvenue.
- * Result is cached for 1 hour.
  */
-async function getBillerInfo() {
-  const cacheKey = 'billerList';
-  const cached = billerCache.get(cacheKey);
-  if (cached) return cached;
-
+async function getBillerInfo({ category } = {}) {
   // Check local DB first and continue to use as source-of-truth when available.
-  const dbBillers = await BillAvenueBiller.findAll({ where: { is_active: true } });
-  if (dbBillers?.length) {
-    const data = { billers: dbBillers.map(b => ({
-      billerId: b.biller_id,
-      billerName: b.biller_name,
-      category: b.category,
-      serviceType: b.service_type,
-      circle: b.circle,
-      state: b.state,
-      metadata: b.metadata,
-    })) };
-    billerCache.set(cacheKey, data);
-    return data;
+  const where = { is_active: true };
+  if (category) {
+    where.category = category.trim();
   }
 
-  // Staging environment uses hardcoded test billers (BillAvenue staging API
-  // does not serve a real biller list)
-  const isStaging = billAvenueConfig.apiUrl && billAvenueConfig.apiUrl.includes('stgapi');
-  if (isStaging) {
-    const testBillers = {
-      billers: [
-        { billerId: 'OTME00005XXZ43', billerName: 'Test Biller 1' },
-        { billerId: 'biller2', billerName: 'Biller 2' },
-        { billerId: 'biller3', billerName: 'Biller 3' },
-      ],
+  const dbBillers = await BillAvenueBiller.findAll({ where });
+  if (dbBillers?.length) {
+    return {
+      billers: dbBillers.map(b => ({
+        billerId: b.biller_id,
+        billerName: b.biller_name,
+        category: b.category,
+        serviceType: b.service_type,
+        circle: b.circle,
+        state: b.state,
+        metadata: b.metadata,
+      })),
     };
-    billerCache.set(cacheKey, testBillers);
-    return testBillers;
   }
 
   const xml = buildXml('billerInfoRequest', {});
@@ -135,29 +118,53 @@ async function getBillerInfo() {
     (result?.billers?.biller || result?.billers || result?.BillerInfo?.biller || result?.BillerInfo) || [];
   const normalized = Array.isArray(billersFromApi) ? billersFromApi : [billersFromApi];
 
-  await Promise.all(normalized.map(async (biller) => {
-    if (!biller || !biller.billerId) return;
+  const billers = normalized
+    .filter(biller => biller && (biller.billerId || biller.biller_id || biller.id))
+    .map((biller) => {
+      const billerId = biller.billerId || biller.biller_id || biller.id;
+      const billerName = biller.billerName || biller.biller_name || biller.name;
 
-    // BillAvenue API fields could be lowercase or uppercase variants.
-    const billerId = biller.billerId || biller.biller_id || biller.id;
-    const billerName = biller.billerName || biller.biller_name || biller.name;
+      return {
+        billerId,
+        billerName,
+        category: biller.category || biller.billerCategory || null,
+        serviceType: biller.serviceType || null,
+        circle: biller.circle || null,
+        state: biller.state || null,
+        metadata: biller,
+      };
+    });
 
-    if (!billerId || !billerName) return;
-
+  await Promise.all(billers.map(async (biller) => {
     await BillAvenueBiller.upsert({
-      biller_id: billerId,
-      biller_name: billerName,
-      category: biller.category || biller.billerCategory || null,
-      service_type: biller.serviceType || null,
-      circle: biller.circle || null,
-      state: biller.state || null,
-      metadata: biller,
+      biller_id: biller.billerId,
+      biller_name: biller.billerName,
+      category: biller.category,
+      service_type: biller.serviceType,
+      circle: biller.circle,
+      state: biller.state,
+      metadata: biller.metadata,
       is_active: true,
     });
   }));
 
-  billerCache.set(cacheKey, result);
-  return result;
+  return { billers };
+}
+
+async function getBillerCategories() {
+  const categories = await BillAvenueBiller.findAll({
+    attributes: [[fn('DISTINCT', col('category')), 'category']],
+    where: {
+      is_active: true,
+      category: { [Op.ne]: null },
+    },
+    order: [[col('category'), 'ASC']],
+  });
+
+  return categories
+    .map(row => row.category)
+    .filter(category => category && category.trim())
+    .map(category => category.trim());
 }
 
 
@@ -306,6 +313,7 @@ async function importBillerListFromFile(filePath) {
 
 module.exports = {
   getBillerInfo,
+  getBillerCategories,
   fetchBill,
   payBill,
   registerComplaint,

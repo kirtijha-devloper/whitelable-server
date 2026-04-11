@@ -91,7 +91,7 @@ const updateServiceSettings = asyncHandler(async (req, res) => {
 });
 
 const updateUserServiceSettings = asyncHandler(async (req, res) => {
-  const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+  const requesterRole = normalizeRole(req.user?.role);
 
   if (requesterRole !== 'admin') {
     return res.status(403).json({

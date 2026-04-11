@@ -6,7 +6,9 @@ const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 const RazorpayNotification = require("../models/RazorpayNotification");
 const Ledger = require('../models/Ledger');
-const PayoutTransaction = require('../models/PayoutTransaction');const Beneficiary = require('../models/Beneficiary');
+const PayoutTransaction = require('../models/PayoutTransaction');
+const Beneficiary = require('../models/Beneficiary');
+const CcBillPayment = require('../models/CcBillPayment');
 // Admin-only full notifications list
 // Supports optional `source` query parameter to restrict to 'razorpay' or 'everlife' webhooks
 const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
@@ -651,21 +653,26 @@ const getPayoutReport = asyncHandler(async (req, res) => {
       limit: limitNum,
       offset
     });
-
-    // Bulk-fetch matching Ledger entries for balance figures
+    
     const payoutIds = payouts.map(p => p.id);
     const payoutLedgerRows = payoutIds.length
       ? await Ledger.findAll({
           where: {
             reference_table: 'PayoutTransactions',
             reference_id: { [Op.in]: payoutIds },
-            transaction_type: 'payout'
+            transaction_type: { [Op.in]: ['payout', 'payout_refund'] }
           },
-          attributes: ['reference_id', 'balance_before', 'balance', 'debit']
+          attributes: ['id', 'reference_id', 'transaction_type', 'balance_before', 'balance', 'debit', 'credit', 'createdAt']
         })
       : [];
     const payoutLedgerMap = {};
-    payoutLedgerRows.forEach(l => { payoutLedgerMap[l.reference_id] = l; });
+    payoutLedgerRows.forEach((ledgerRow) => {
+      const key = ledgerRow.reference_id;
+      if (!payoutLedgerMap[key]) {
+        payoutLedgerMap[key] = [];
+      }
+      payoutLedgerMap[key].push(ledgerRow);
+    });
 
     const merchantIds = [...new Set(payouts.map(p => p.merchant_id).filter(Boolean))];
     const beneficiaryIds = [...new Set(payouts.map(p => p.beneficiary_id).filter(Boolean))];
@@ -689,7 +696,13 @@ const getPayoutReport = asyncHandler(async (req, res) => {
     const beneficiaryMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
 
     const data = payouts.map(p => {
-      const ledger = payoutLedgerMap[p.id] || null;
+      const ledgerEntries = (payoutLedgerMap[p.id] || []).slice().sort((a, b) => {
+        const timeDiff = new Date(a.createdAt) - new Date(b.createdAt);
+        if (timeDiff !== 0) return timeDiff;
+        return (a.id || 0) - (b.id || 0);
+      });
+      const initialLedger = ledgerEntries.find((entry) => entry.transaction_type === 'payout') || ledgerEntries[0] || null;
+      const finalLedger = ledgerEntries[ledgerEntries.length - 1] || initialLedger;
       return {
         id:             p.id,
         date:           p.createdAt,
@@ -704,8 +717,8 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         total_deducted: parseFloat(p.amount) + (parseFloat(p.service_charge) || 0),
         purpose:        p.purpose,
         status:         p.status,
-        balance_before: ledger ? parseFloat(ledger.balance_before) : null,
-        balance_after:  ledger ? parseFloat(ledger.balance)        : null
+        balance_before: initialLedger ? parseFloat(initialLedger.balance_before) : null,
+        balance_after:  finalLedger ? parseFloat(finalLedger.balance)        : null
       };
     });
 
@@ -774,24 +787,42 @@ const getBbpsReport = asyncHandler(async (req, res) => {
       subQuery: false
     });
 
+    const bbpsPaymentIds = [...new Set(entries
+      .filter((entry) => {
+        const referenceTable = entry.reference_table || entry.referenceTable || null;
+        return !!entry.reference_id && (!referenceTable || referenceTable === 'CcBillPayments');
+      })
+      .map((entry) => entry.reference_id))];
+
+    const paymentRecords = bbpsPaymentIds.length
+      ? await CcBillPayment.findAll({
+          where: { id: { [Op.in]: bbpsPaymentIds } },
+          attributes: ['id', 'biller_id', 'customer_mobile', 'payment_mode', 'statuscode', 'status', 'external_ref']
+        })
+      : [];
+
+    const paymentMap = Object.fromEntries(paymentRecords.map((payment) => [payment.id, payment]));
+
     const data = entries.map(e => {
       let meta = {};
       try { meta = e.metadata ? JSON.parse(e.metadata) : {}; } catch (_) {}
+      const payment = paymentMap[e.reference_id] || null;
+
       return {
         id:              e.id,
         date:            e.createdAt,
         user_id:         e.user_id,
         user:            e.user || null,
-        biller_id:       meta.biller_id       || null,
-        customer_mobile: meta.customer_mobile  || null,
-        payment_mode:    meta.payment_mode     || null,
-        statuscode:      meta.statuscode       || null,
-        external_ref:    e.transaction_id,
+        biller_id:       payment?.biller_id || meta.biller_id || null,
+        customer_mobile: payment?.customer_mobile || meta.customer_mobile || null,
+        payment_mode:    payment?.payment_mode || meta.payment_mode || null,
+        statuscode:      payment?.statuscode || meta.statuscode || null,
+        external_ref:    payment?.external_ref || meta.external_ref || e.transaction_id || null,
         description:     e.description,
         amount:          parseFloat(e.debit)          || 0,
         balance_before:  parseFloat(e.balance_before) || 0,
         balance_after:   parseFloat(e.balance)        || 0,
-        status:          e.status
+        status:          payment?.status || meta.status || null
       };
     });
 

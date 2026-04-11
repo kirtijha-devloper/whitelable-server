@@ -81,25 +81,21 @@ function getTransactionRefId(parsed) {
 // ═══════════════════════════════════════════════════════════════════════════
 const getBillers = asyncHandler(async (req, res) => {
   try {
-    // Staging environment: return hardcoded test billers
-    const isStaging = billAvenueConfig.apiUrl && billAvenueConfig.apiUrl.includes('stgapi');
-    if (isStaging) {
-      return res.status(200).json({
-        success: true,
-        data: {
-          billers: [
-            { billerId: 'OTME00005XXZ43', billerName: 'Test Biller 1' },
-            { billerId: 'biller2', billerName: 'Biller 2' },
-            { billerId: 'biller3', billerName: 'Biller 3' },
-          ],
-        },
-      });
-    }
-
-    const result = await billAvenueService.getBillerInfo();
+    const { category } = req.query;
+    const result = await billAvenueService.getBillerInfo({ category });
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
     console.error('[billAvenue] getBillers error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+const getBillerCategories = asyncHandler(async (req, res) => {
+  try {
+    const categories = await billAvenueService.getBillerCategories();
+    return res.status(200).json({ success: true, data: { categories } });
+  } catch (error) {
+    console.error('[billAvenue] getBillerCategories error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
@@ -476,6 +472,7 @@ const getTransactionStatus = asyncHandler(async (req, res) => {
 
 module.exports = {
   getBillers,
+  getBillerCategories,
   uploadBillersFromFile,
   fetchBill,
   payBill,

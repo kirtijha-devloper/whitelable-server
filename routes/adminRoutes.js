@@ -79,7 +79,10 @@ router.put("/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE
   elevateRole: "admin",
 }), updateServiceSettings);
 
-router.put("/user/:id/service-settings", validateToken, updateUserServiceSettings);
+router.put("/user/:id/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE, {
+  message: "You do not have permission to manage user service settings.",
+  elevateRole: "admin",
+}), updateUserServiceSettings);
 
 router.get("/login-popups", validateToken, listLoginPopupsForAdmin);
 router.post("/login-popups", validateToken, loginPopupUpload, createLoginPopup);

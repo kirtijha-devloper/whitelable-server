@@ -5,6 +5,8 @@ const EMPLOYEE_PERMISSIONS = Object.freeze({
   USERS_READ: 'users.read',
   USERS_UPDATE: 'users.update',
   USERS_STATUS_UPDATE: 'users.status.update',
+  USERS_IMPERSONATE: 'users.impersonate',
+  USERS_SERVICE_SETTINGS_MANAGE: 'users.service_settings.manage',
   STOCK_POS_READ: 'stock.pos.read',
   STOCK_POS_MANAGE: 'stock.pos.manage',
   WALLET_READ: 'wallet.read',
@@ -33,6 +35,8 @@ const EMPLOYEE_PERMISSION_CATALOG = Object.freeze([
       { slug: EMPLOYEE_PERMISSIONS.USERS_READ, label: 'View User Detail' },
       { slug: EMPLOYEE_PERMISSIONS.USERS_UPDATE, label: 'Edit User' },
       { slug: EMPLOYEE_PERMISSIONS.USERS_STATUS_UPDATE, label: 'Update User Status' },
+      { slug: EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE, label: 'Impersonate Login' },
+      { slug: EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE, label: 'Manage User Service Settings' },
     ],
   },
   {
