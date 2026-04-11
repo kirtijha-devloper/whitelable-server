@@ -99,12 +99,24 @@ const initiateKyc = asyncHandler(async (req, res) => {
     }
   }
 
-  // Basic presence validation
+  // Normalize consent to InstantPay's expected format.
+  // The frontend may send true/false or string values, but InstantPay expects "Y".
+  if (consent === true || consent === 'true' || consent === 'TRUE' || consent === 'y' || consent === 'Y' || consent === 'yes' || consent === 'Yes') {
+    consent = 'Y';
+  } else if (consent === false || consent === 'false' || consent === 'FALSE' || consent === 'n' || consent === 'N' || consent === 'no' || consent === 'No') {
+    consent = 'N';
+  }
+
   const required = { mobile, email, aadhaar, pan, bankAccountNo, bankIfsc, consent };
-  const missing = Object.keys(required).filter((k) => !required[k]);
+  const missing = Object.keys(required).filter((k) => required[k] == null || required[k] === '');
   if (missing.length) {
     res.status(400);
     throw new Error(`Missing required fields: ${missing.join(', ')}`);
+  }
+
+  if (consent !== 'Y') {
+    res.status(400);
+    throw new Error('Consent must be provided as "Y".');
   }
 
   // Encrypt Aadhaar
