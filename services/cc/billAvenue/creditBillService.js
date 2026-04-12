@@ -2,6 +2,35 @@ const axios = require('axios');
 const { encryptRequest, decryptResponse } = require('../../../utils/encryption');
 
 const BBPS_BASE_URL = process.env.BILLAVENUE_API_URL || 'https://api.billavenue.com/billpay';
+const REQUEST_ID_PREFIX = 'ABL';
+let requestIdSequence = 0;
+
+function randomAlphaNumeric(length) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i += 1) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+function generateRequestId() {
+  const now = new Date();
+  const year = String(now.getFullYear()).slice(-1);
+  const startOfYear = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = String(Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24)) + 1).padStart(3, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const datetimeSegment = `${year}${dayOfYear}${hours}${minutes}`;
+
+  requestIdSequence = (requestIdSequence + 1) % 10000000;
+  const sequenceSegment = String(requestIdSequence).padStart(7, '0');
+
+  const randomPartLength = 27 - REQUEST_ID_PREFIX.length - sequenceSegment.length;
+  const randomSegment = randomAlphaNumeric(randomPartLength);
+
+  return `${REQUEST_ID_PREFIX}${sequenceSegment}${randomSegment}${datetimeSegment}`;
+}
 
 // Send Credit Bill Payment Request
 async function processCreditBillPayment(paymentData) {
@@ -30,20 +59,6 @@ async function processCreditBillPayment(paymentData) {
     console.error('Error in processCreditBillPayment:', error);
     throw error;
   }
-}
-
-// Helper function to generate requestId as per BBPS guidelines
-function generateRequestId() {
-  const randomStr = Math.random().toString(36).substr(2, 27);
-  const now = new Date();
-  const year = now.getFullYear().toString().slice(-1);
-  const start = new Date(now.getFullYear(), 0, 0);
-  const diff = now - start;
-  const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-
-  return `${randomStr}${year}${dayOfYear}${hours}${minutes}`;
 }
 
 module.exports = {

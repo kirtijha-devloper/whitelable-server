@@ -10,6 +10,9 @@ const { postForm } = require('./billAvenueRequestService');
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+const REQUEST_ID_PREFIX = 'ABL';
+let requestIdSequence = 0;
+
 function buildXml(rootTag, fields) {
   const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: false } });
   return builder.buildObject(fields);
@@ -19,10 +22,31 @@ async function parseXml(xmlStr) {
   return xml2js.parseStringPromise(xmlStr, { explicitArray: false, trim: true });
 }
 
+function randomAlphaNumeric(length) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i += 1) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
 function generateRequestId() {
-  const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).substring(2, 10);
-  return `${ts}${rand}`.substring(0, 35);
+  const now = new Date();
+  const year = String(now.getFullYear()).slice(-1);
+  const startOfYear = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = String(Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24)) + 1).padStart(3, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const datetimeSegment = `${year}${dayOfYear}${hours}${minutes}`;
+
+  requestIdSequence = (requestIdSequence + 1) % 10000000;
+  const sequenceSegment = String(requestIdSequence).padStart(7, '0');
+
+  const randomPartLength = 27 - REQUEST_ID_PREFIX.length - sequenceSegment.length;
+  const randomSegment = randomAlphaNumeric(randomPartLength);
+
+  return `${REQUEST_ID_PREFIX}${sequenceSegment}${randomSegment}${datetimeSegment}`;
 }
 
 /**
