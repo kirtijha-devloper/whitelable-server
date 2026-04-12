@@ -6,7 +6,10 @@ const {
   getBillerCategories,
   uploadBillersFromFile,
   fetchBill,
+  validateBill,
   payBill,
+  depositEnquiry,
+  trackComplaint,
   getPayments,
   getPayment,
   registerComplaint,
@@ -41,6 +44,15 @@ router.get('/payments/:id', getPayment);
 
 // POST /api/bill-avenue/complaint            – Register complaint
 router.post('/complaint', registerComplaint);
+
+// POST /api/bill-avenue/complaint-track      – Track complaint status
+router.post('/complaint-track', trackComplaint);
+
+// POST /api/bill-avenue/validate-bill        – Validate a bill
+router.post('/validate-bill', validateBill);
+
+// POST /api/bill-avenue/deposit-enquiry      – Enquire about deposit details
+router.post('/deposit-enquiry', depositEnquiry);
 
 // POST /api/bill-avenue/transaction-status   – Check transaction status
 router.post('/transaction-status', getTransactionStatus);

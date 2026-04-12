@@ -112,7 +112,7 @@ async function getBillerInfo({ category } = {}) {
   }
 
   const xml = buildXml('billerInfoRequest', {});
-  const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
+  const result = await callBillAvenue('/extMdmCntrl/mdmRequestNew/xml', xml);
 
   const billersFromApi =
     (result?.billers?.biller || result?.billers || result?.BillerInfo?.biller || result?.BillerInfo) || [];
@@ -191,7 +191,7 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
   if (splitPay) fields.splitPay = splitPay;
 
   const xml = buildXml('billFetchRequest', fields);
-  return callBillAvenue('/billFetchCntrl/billFetchRequest/xml', xml);
+  return callBillAvenue('/extBillCntrl/billFetchRequest/xml', xml);
 }
 
 /**
@@ -218,7 +218,7 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
   if (ccf) fields.ccf = ccf;
 
   const xml = buildXml('billPaymentRequest', fields);
-  return callBillAvenue('/billPayRequest/xml', xml);
+  return callBillAvenue('/extBillPayCntrl/billPayRequest/xml', xml);
 }
 
 /**
@@ -235,7 +235,66 @@ async function registerComplaint({ complaintType, billerId, transactionRefId, re
   };
 
   const xml = buildXml('complaintRequest', fields);
-  return callBillAvenue('/complaintCntrl/complaintRequest/xml', xml);
+  return callBillAvenue('/extComplaints/register/xml', xml);
+}
+
+async function trackComplaint({ complaintType, billerId, transactionRefId, complaintId, reason, description }) {
+  const fields = {
+    complaintType: complaintType || 'Transaction',
+    participationType: 'Agent',
+    billerId,
+    transactionRefId,
+    complaintId,
+    complaintDisposition: reason || 'Transaction Failed',
+    complaintDesc: description || 'Payment issue',
+  };
+
+  const xml = buildXml('complaintTrackRequest', fields);
+  return callBillAvenue('/extComplaints/track/xml', xml);
+}
+
+async function depositEnquiry({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
+  const inputParams = {};
+  if (customerParams && typeof customerParams === 'object') {
+    Object.entries(customerParams).forEach(([key, value]) => {
+      inputParams[key] = value;
+    });
+  }
+
+  const fields = {
+    billerId,
+    inputParams,
+  };
+
+  if (amount) fields.amount = amount;
+  if (paymentMode) fields.paymentMode = paymentMode;
+  if (quickPay) fields.quickPay = quickPay;
+  if (splitPay) fields.splitPay = splitPay;
+
+  const xml = buildXml('depositEnquiryRequest', fields);
+  return callBillAvenue('/enquireDeposit/fetchDetails/xml', xml);
+}
+
+async function validateBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
+  const inputParams = {};
+  if (customerParams && typeof customerParams === 'object') {
+    Object.entries(customerParams).forEach(([key, value]) => {
+      inputParams[key] = value;
+    });
+  }
+
+  const fields = {
+    billerId,
+    inputParams,
+  };
+
+  if (amount) fields.amount = amount;
+  if (paymentMode) fields.paymentMode = paymentMode;
+  if (quickPay) fields.quickPay = quickPay;
+  if (splitPay) fields.splitPay = splitPay;
+
+  const xml = buildXml('billValidationRequest', fields);
+  return callBillAvenue('/extBillValCntrl/billValidationRequest/xml', xml);
 }
 
 /**
@@ -247,7 +306,7 @@ async function getTransactionStatus({ transactionRefId }) {
   };
 
   const xml = buildXml('transactionStatusRequest', fields);
-  return callBillAvenue('/transactionStatusCntrl/transactionStatusRequest/xml', xml);
+  return callBillAvenue('/transactionStatus/fetchInfo/xml', xml);
 }
 
 async function importBillerListFromFile(filePath) {
@@ -317,6 +376,9 @@ module.exports = {
   fetchBill,
   payBill,
   registerComplaint,
+  trackComplaint,
+  validateBill,
+  depositEnquiry,
   getTransactionStatus,
   importBillerListFromFile,
 };

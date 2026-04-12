@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { encryptRequest, decryptResponse } = require('../../../utils/encryption');
 
-const BBPS_BASE_URL = 'https://stgapi.billavenue.com/billpay'; // Example staging URL
+const BBPS_BASE_URL = process.env.BILLAVENUE_API_URL || 'https://api.billavenue.com/billpay';
 
 // Send Credit Bill Payment Request
 async function processCreditBillPayment(paymentData) {
@@ -12,11 +12,11 @@ async function processCreditBillPayment(paymentData) {
 
     // Prepare API payload
     const payload = {
-      accessCode: process.env.BBPS_ACCESS_CODE,  // from env
-      requestId: generateRequestId(),            // helper to generate ID
+      accessCode: process.env.BILLAVENUE_ACCESS_CODE,  // from env
+      requestId: generateRequestId(),                  // helper to generate ID
       encRequest: encryptedRequest,
-      ver: '1.0',
-      instituteId: process.env.BBPS_INSTITUTE_ID // from env
+      ver: process.env.BILLAVENUE_API_VER || '1.0',
+      instituteId: process.env.BILLAVENUE_INSTITUTE_ID // from env
     };
 
     // POST to Bill Payment API endpoint
