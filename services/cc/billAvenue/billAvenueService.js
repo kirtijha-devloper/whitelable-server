@@ -42,11 +42,12 @@ function generateRequestId() {
 
   requestIdSequence = (requestIdSequence + 1) % 10000000;
   const sequenceSegment = String(requestIdSequence).padStart(7, '0');
+  const delimiter = 'ZZ';
 
-  const randomPartLength = 27 - REQUEST_ID_PREFIX.length - sequenceSegment.length;
+  const randomPartLength = 27 - REQUEST_ID_PREFIX.length - sequenceSegment.length - delimiter.length;
   const randomSegment = randomAlphaNumeric(randomPartLength);
 
-  return `${REQUEST_ID_PREFIX}${sequenceSegment}${randomSegment}${datetimeSegment}`;
+  return `${REQUEST_ID_PREFIX}${sequenceSegment}${delimiter}${randomSegment}${datetimeSegment}`;
 }
 
 /**
