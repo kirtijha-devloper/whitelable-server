@@ -91,6 +91,38 @@ const getBillers = asyncHandler(async (req, res) => {
   }
 });
 
+const getBillerInfoById = asyncHandler(async (req, res) => {
+  try {
+    const { billerId } = req.body;
+    if (!billerId) {
+      return res.status(400).json({ success: false, message: 'Required: billerId' });
+    }
+
+    const result = await billAvenueService.getBillerInfoByIdXml({ billerId });
+    fileLog(`getBillerInfoById billerId=${billerId} response=${JSON.stringify(result)}`);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('[billAvenue] getBillerInfoById error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+const getBillerInfoByIdJson = asyncHandler(async (req, res) => {
+  try {
+    const { billerId } = req.body;
+    if (!billerId) {
+      return res.status(400).json({ success: false, message: 'Required: billerId' });
+    }
+
+    const result = await billAvenueService.getBillerInfoByIdJson({ billerId });
+    fileLog(`getBillerInfoByIdJson billerId=${JSON.stringify(billerId)} response=${JSON.stringify(result)}`);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('[billAvenue] getBillerInfoByIdJson error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
 const getBillerCategories = asyncHandler(async (req, res) => {
   try {
     const categories = await billAvenueService.getBillerCategories();
@@ -551,6 +583,8 @@ const getTransactionStatus = asyncHandler(async (req, res) => {
 module.exports = {
   getBillers,
   getBillerCategories,
+  getBillerInfoById,
+  getBillerInfoByIdJson,
   uploadBillersFromFile,
   fetchBill,
   validateBill,

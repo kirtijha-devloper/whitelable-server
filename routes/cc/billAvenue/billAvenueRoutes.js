@@ -4,6 +4,8 @@ const upload = require('../../../middleware/uploadMiddleware');
 const {
   getBillers,
   getBillerCategories,
+  getBillerInfoById,
+  getBillerInfoByIdJson,
   uploadBillersFromFile,
   fetchBill,
   validateBill,
@@ -29,6 +31,12 @@ router.get('/categories', getBillerCategories);
 
 // POST /api/bill-avenue/billers/upload       – Upload Excel/CSV biller list
 router.post('/billers/upload', upload.single('file'), uploadBillersFromFile);
+
+// POST /api/bill-avenue/biller-info       – Fetch biller info using BillAvenue XML payload
+router.post('/biller-info', getBillerInfoById);
+
+// POST /api/bill-avenue/biller-info-json  – Fetch biller info using BillAvenue JSON payload
+router.post('/biller-info-json', getBillerInfoByIdJson);
 
 // POST /api/bill-avenue/fetch-bill           – Fetch/validate a bill
 router.post('/fetch-bill', fetchBill);

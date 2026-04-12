@@ -6,7 +6,7 @@ const { parse } = require('csv-parse/sync');
 const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
-const { postForm } = require('./billAvenueRequestService');
+const { postForm, postJson } = require('./billAvenueRequestService');
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -174,6 +174,26 @@ async function getBillerInfo({ category } = {}) {
   }));
 
   return { billers };
+}
+
+async function getBillerInfoByIdXml({ billerId } = {}) {
+  if (!billerId) {
+    throw new Error('Missing billerId');
+  }
+
+  const xml = buildXml('billerInfoRequest', { billerId });
+  const result = await callBillAvenue('/extMdmCntrl/mdmRequestNew/xml', xml);
+  return result;
+}
+
+async function getBillerInfoByIdJson({ billerId } = {}) {
+  if (!billerId) {
+    throw new Error('Missing billerId');
+  }
+
+  const billerIds = Array.isArray(billerId) ? billerId : [billerId];
+  const result = await postJson('/extMdmCntrl/mdmRequestNew/json', { billerId: billerIds });
+  return result;
 }
 
 async function getBillerCategories() {
