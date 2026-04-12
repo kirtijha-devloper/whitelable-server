@@ -83,6 +83,7 @@ const getBillers = asyncHandler(async (req, res) => {
   try {
     const { category } = req.query;
     const result = await billAvenueService.getBillerInfo({ category });
+    fileLog(`getBillers response=${JSON.stringify(result)}`);
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
     console.error('[billAvenue] getBillers error:', error.message);
