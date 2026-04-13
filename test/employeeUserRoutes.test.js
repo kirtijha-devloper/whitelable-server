@@ -64,6 +64,7 @@ const employeeReadToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_READ]);
 const employeeUpdateToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_UPDATE]);
 const employeeStatusToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_STATUS_UPDATE]);
 const employeeCreateToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_CREATE]);
+const employeeLedgerToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.LEDGER_MANAGE]);
 const noPermissionEmployeeToken = makeEmployeeToken([]);
 
 let stubs = {};
@@ -624,6 +625,24 @@ describe('Employee role on user routes', () => {
       cc_bill_pay: true,
       ba_cc_bill_pay: true,
     });
+  });
+  it('allows employee with ledger.manage permission to enable ledger tracking', async () => {
+    const targetUser = {
+      id: 77,
+      start_ledger: false,
+      save: async function () {
+        return this;
+      },
+    };
+    User.findByPk = async () => targetUser;
+
+    const res = await request(app)
+      .put('/api/user/77/enable-ledger')
+      .set('Authorization', `Bearer ${employeeLedgerToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.start_ledger).to.equal(true);
   });
   it('allows employee with users.update permission to edit common fields only', async () => {
     const targetUser = {
