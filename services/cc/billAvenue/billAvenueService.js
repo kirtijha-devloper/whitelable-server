@@ -1,16 +1,17 @@
 const xml2js = require('xml2js');
-const NodeCache = require('node-cache');
 const fs = require('fs');
 const path = require('path');
+const { Op, fn, col } = require('sequelize');
 const { parse } = require('csv-parse/sync');
 const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
-const { postForm } = require('./billAvenueRequestService');
-
-const billerCache = new NodeCache({ stdTTL: 3600 }); // cache biller list 1 hour
+const { postForm, postJson } = require('./billAvenueRequestService');
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+const REQUEST_ID_PREFIX = 'ABL';
+let requestIdSequence = 0;
 
 function buildXml(rootTag, fields) {
   const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: false } });
@@ -21,10 +22,32 @@ async function parseXml(xmlStr) {
   return xml2js.parseStringPromise(xmlStr, { explicitArray: false, trim: true });
 }
 
+function randomAlphaNumeric(length) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i += 1) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
 function generateRequestId() {
-  const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).substring(2, 10);
-  return `${ts}${rand}`.substring(0, 35);
+  const now = new Date();
+  const year = String(now.getFullYear()).slice(-1);
+  const startOfYear = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = String(Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24)) + 1).padStart(3, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const datetimeSegment = `${year}${dayOfYear}${hours}${minutes}`;
+
+  requestIdSequence = (requestIdSequence + 1) % 10000000;
+  const sequenceSegment = String(requestIdSequence).padStart(7, '0');
+  const delimiter = 'ZZ';
+
+  const randomPartLength = 27 - REQUEST_ID_PREFIX.length - sequenceSegment.length - delimiter.length;
+  const randomSegment = randomAlphaNumeric(randomPartLength);
+
+  return `${REQUEST_ID_PREFIX}${sequenceSegment}${delimiter}${randomSegment}${datetimeSegment}`;
 }
 
 /**
@@ -90,74 +113,103 @@ async function callBillAvenue(endpoint, xmlPayload) {
 
 /**
  * Get the list of billers for BillAvenue.
- * Result is cached for 1 hour.
  */
-async function getBillerInfo() {
-  const cacheKey = 'billerList';
-  const cached = billerCache.get(cacheKey);
-  if (cached) return cached;
-
+async function getBillerInfo({ category } = {}) {
   // Check local DB first and continue to use as source-of-truth when available.
-  const dbBillers = await BillAvenueBiller.findAll({ where: { is_active: true } });
-  if (dbBillers?.length) {
-    const data = { billers: dbBillers.map(b => ({
-      billerId: b.biller_id,
-      billerName: b.biller_name,
-      category: b.category,
-      serviceType: b.service_type,
-      circle: b.circle,
-      state: b.state,
-      metadata: b.metadata,
-    })) };
-    billerCache.set(cacheKey, data);
-    return data;
+  const where = { is_active: true };
+  if (category) {
+    where.category = category.trim();
   }
 
-  // Staging environment uses hardcoded test billers (BillAvenue staging API
-  // does not serve a real biller list)
-  const isStaging = billAvenueConfig.apiUrl && billAvenueConfig.apiUrl.includes('stgapi');
-  if (isStaging) {
-    const testBillers = {
-      billers: [
-        { billerId: 'OTME00005XXZ43', billerName: 'Test Biller 1' },
-        { billerId: 'biller2', billerName: 'Biller 2' },
-        { billerId: 'biller3', billerName: 'Biller 3' },
-      ],
+  const dbBillers = await BillAvenueBiller.findAll({ where });
+  if (dbBillers?.length) {
+    return {
+      billers: dbBillers.map(b => ({
+        billerId: b.biller_id,
+        billerName: b.biller_name,
+        category: b.category,
+        serviceType: b.service_type,
+        circle: b.circle,
+        state: b.state,
+        metadata: b.metadata,
+      })),
     };
-    billerCache.set(cacheKey, testBillers);
-    return testBillers;
   }
 
   const xml = buildXml('billerInfoRequest', {});
-  const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
+  const result = await callBillAvenue('/extMdmCntrl/mdmRequestNew/xml', xml);
 
   const billersFromApi =
     (result?.billers?.biller || result?.billers || result?.BillerInfo?.biller || result?.BillerInfo) || [];
   const normalized = Array.isArray(billersFromApi) ? billersFromApi : [billersFromApi];
 
-  await Promise.all(normalized.map(async (biller) => {
-    if (!biller || !biller.billerId) return;
+  const billers = normalized
+    .filter(biller => biller && (biller.billerId || biller.biller_id || biller.id))
+    .map((biller) => {
+      const billerId = biller.billerId || biller.biller_id || biller.id;
+      const billerName = biller.billerName || biller.biller_name || biller.name;
 
-    // BillAvenue API fields could be lowercase or uppercase variants.
-    const billerId = biller.billerId || biller.biller_id || biller.id;
-    const billerName = biller.billerName || biller.biller_name || biller.name;
+      return {
+        billerId,
+        billerName,
+        category: biller.category || biller.billerCategory || null,
+        serviceType: biller.serviceType || null,
+        circle: biller.circle || null,
+        state: biller.state || null,
+        metadata: biller,
+      };
+    });
 
-    if (!billerId || !billerName) return;
-
+  await Promise.all(billers.map(async (biller) => {
     await BillAvenueBiller.upsert({
-      biller_id: billerId,
-      biller_name: billerName,
-      category: biller.category || biller.billerCategory || null,
-      service_type: biller.serviceType || null,
-      circle: biller.circle || null,
-      state: biller.state || null,
-      metadata: biller,
+      biller_id: biller.billerId,
+      biller_name: biller.billerName,
+      category: biller.category,
+      service_type: biller.serviceType,
+      circle: biller.circle,
+      state: biller.state,
+      metadata: biller.metadata,
       is_active: true,
     });
   }));
 
-  billerCache.set(cacheKey, result);
+  return { billers };
+}
+
+async function getBillerInfoByIdXml({ billerId } = {}) {
+  if (!billerId) {
+    throw new Error('Missing billerId');
+  }
+
+  const xml = buildXml('billerInfoRequest', { billerId });
+  const result = await callBillAvenue('/extMdmCntrl/mdmRequestNew/xml', xml);
   return result;
+}
+
+async function getBillerInfoByIdJson({ billerId } = {}) {
+  if (!billerId) {
+    throw new Error('Missing billerId');
+  }
+
+  const billerIds = Array.isArray(billerId) ? billerId : [billerId];
+  const result = await postJson('/extMdmCntrl/mdmRequestNew/json', { billerId: billerIds });
+  return result;
+}
+
+async function getBillerCategories() {
+  const categories = await BillAvenueBiller.findAll({
+    attributes: [[fn('DISTINCT', col('category')), 'category']],
+    where: {
+      is_active: true,
+      category: { [Op.ne]: null },
+    },
+    order: [[col('category'), 'ASC']],
+  });
+
+  return categories
+    .map(row => row.category)
+    .filter(category => category && category.trim())
+    .map(category => category.trim());
 }
 
 
@@ -184,7 +236,7 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
   if (splitPay) fields.splitPay = splitPay;
 
   const xml = buildXml('billFetchRequest', fields);
-  return callBillAvenue('/billFetchCntrl/billFetchRequest/xml', xml);
+  return callBillAvenue('/extBillCntrl/billFetchRequest/xml', xml);
 }
 
 /**
@@ -211,7 +263,7 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
   if (ccf) fields.ccf = ccf;
 
   const xml = buildXml('billPaymentRequest', fields);
-  return callBillAvenue('/billPayRequest/xml', xml);
+  return callBillAvenue('/extBillPayCntrl/billPayRequest/xml', xml);
 }
 
 /**
@@ -228,7 +280,66 @@ async function registerComplaint({ complaintType, billerId, transactionRefId, re
   };
 
   const xml = buildXml('complaintRequest', fields);
-  return callBillAvenue('/complaintCntrl/complaintRequest/xml', xml);
+  return callBillAvenue('/extComplaints/register/xml', xml);
+}
+
+async function trackComplaint({ complaintType, billerId, transactionRefId, complaintId, reason, description }) {
+  const fields = {
+    complaintType: complaintType || 'Transaction',
+    participationType: 'Agent',
+    billerId,
+    transactionRefId,
+    complaintId,
+    complaintDisposition: reason || 'Transaction Failed',
+    complaintDesc: description || 'Payment issue',
+  };
+
+  const xml = buildXml('complaintTrackRequest', fields);
+  return callBillAvenue('/extComplaints/track/xml', xml);
+}
+
+async function depositEnquiry({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
+  const inputParams = {};
+  if (customerParams && typeof customerParams === 'object') {
+    Object.entries(customerParams).forEach(([key, value]) => {
+      inputParams[key] = value;
+    });
+  }
+
+  const fields = {
+    billerId,
+    inputParams,
+  };
+
+  if (amount) fields.amount = amount;
+  if (paymentMode) fields.paymentMode = paymentMode;
+  if (quickPay) fields.quickPay = quickPay;
+  if (splitPay) fields.splitPay = splitPay;
+
+  const xml = buildXml('depositEnquiryRequest', fields);
+  return callBillAvenue('/enquireDeposit/fetchDetails/xml', xml);
+}
+
+async function validateBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
+  const inputParams = {};
+  if (customerParams && typeof customerParams === 'object') {
+    Object.entries(customerParams).forEach(([key, value]) => {
+      inputParams[key] = value;
+    });
+  }
+
+  const fields = {
+    billerId,
+    inputParams,
+  };
+
+  if (amount) fields.amount = amount;
+  if (paymentMode) fields.paymentMode = paymentMode;
+  if (quickPay) fields.quickPay = quickPay;
+  if (splitPay) fields.splitPay = splitPay;
+
+  const xml = buildXml('billValidationRequest', fields);
+  return callBillAvenue('/extBillValCntrl/billValidationRequest/xml', xml);
 }
 
 /**
@@ -240,7 +351,7 @@ async function getTransactionStatus({ transactionRefId }) {
   };
 
   const xml = buildXml('transactionStatusRequest', fields);
-  return callBillAvenue('/transactionStatusCntrl/transactionStatusRequest/xml', xml);
+  return callBillAvenue('/transactionStatus/fetchInfo/xml', xml);
 }
 
 async function importBillerListFromFile(filePath) {
@@ -306,9 +417,13 @@ async function importBillerListFromFile(filePath) {
 
 module.exports = {
   getBillerInfo,
+  getBillerCategories,
   fetchBill,
   payBill,
   registerComplaint,
+  trackComplaint,
+  validateBill,
+  depositEnquiry,
   getTransactionStatus,
   importBillerListFromFile,
 };

@@ -77,24 +77,50 @@ function prefixForRole(role) {
   }
 }
 
+function isUsernameUniqueConstraintError(error) {
+  if (!error) return false;
+  if (error.name !== 'SequelizeUniqueConstraintError') return false;
+
+  if (error.fields?.username) {
+    return true;
+  }
+
+  if (error.errors?.some((err) => err.path === 'username')) {
+    return true;
+  }
+
+  return error.original?.constraint === 'Users_username_key' || error.original?.constraint === 'users_username_key';
+}
+
 async function allocateUsernameForRole(role, transaction) {
   const prefix = prefixForRole(role);
 
-  // try to fetch the sequence row with an update lock. if it doesn't exist, create it.
-  let seq = await UsernameSequence.findOne({
+  const [seq] = await UsernameSequence.findOrCreate({
     where: { prefix },
+    defaults: { current_value: 0 },
     transaction,
     lock: transaction.LOCK.UPDATE,
   });
 
-  if (!seq) {
-    seq = await UsernameSequence.create({ prefix, current_value: 1 }, { transaction });
-    return `${prefix}${String(1).padStart(5, '0')}`;
-  }
+  let nextValue = Number(seq.current_value) || 0;
+  let username;
 
-  seq.current_value += 1;
-  await seq.save({ transaction });
-  return `${prefix}${String(seq.current_value).padStart(5, '0')}`;
+  while (true) {
+    nextValue += 1;
+    username = `${prefix}${String(nextValue).padStart(5, '0')}`;
+
+    const existingUser = await User.findOne({
+      where: { username },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    if (!existingUser) {
+      seq.current_value = nextValue;
+      await seq.save({ transaction });
+      return username;
+    }
+  }
 }
 
 function buildLoginToken(user) {
@@ -935,41 +961,55 @@ const registerUser = asyncHandler(async (req, res) => {
         // allocate username (and use it as abheepay_id) inside the same transaction so rollback works
         let user;
         await db.transaction(async (t) => {
-            const username = await allocateUsernameForRole(normalizedRole, t);
-            abheepay_id = username;
+            let attempts = 0;
 
-            user = await User.create({
-                email,
-                password: hashPassword,
-                role: normalizedRole,
-                mobile_number: mobileNumber,
-                mobile_number_country_code: req.body.mobile_number_country_code || '+91',
-                abheepay_id,
-                name: req.body.name,
-                gender: req.body.gender,
-                dob: req.body.dob || null,
-                address1: req.body.address1,
-                address2: req.body.address2,
-                city: req.body.city,
-                district: req.body.district,
-                pincode: req.body.pincode,
-                state: req.body.state,
-                aadhar_number: req.body.aadhar_number,
-                pan_number: req.body.pan_number,
-                pan_number_url:        panUrl?.secure_url    || null,
-                aadhar_number_url:     aadharUrl?.secure_url || null,
-                aadhar_back_number_url: aadharBkUrl?.secure_url || null,
-                shop_with_photo_url:   shopUrl?.secure_url   || null,
-                bank_passbook_url:      bankPassbookUrl?.secure_url || null,
-                settlement_type: req.body.settlement_type || 'today_settlement',
-                is_approved: false,
-                status: 'active',
-                permissions: [],
-                employee_access_role_id: employeeAccessRole ? employeeAccessRole.id : null,
-                company_or_shop_name: company_or_shop_name || null,
-                username,
-                ...(req.user && req.user.role === 'franchaise' && normalizedRole === 'merchant' && { franchaise_id: req.user.id }),
-            }, { transaction: t });
+            while (true) {
+                attempts += 1;
+                const username = await allocateUsernameForRole(normalizedRole, t);
+                abheepay_id = username;
+
+                try {
+                    user = await User.create({
+                        email,
+                        password: hashPassword,
+                        role: normalizedRole,
+                        mobile_number: mobileNumber,
+                        mobile_number_country_code: req.body.mobile_number_country_code || '+91',
+                        abheepay_id,
+                        name: req.body.name,
+                        gender: req.body.gender,
+                        dob: req.body.dob || null,
+                        address1: req.body.address1,
+                        address2: req.body.address2,
+                        city: req.body.city,
+                        district: req.body.district,
+                        pincode: req.body.pincode,
+                        state: req.body.state,
+                        aadhar_number: req.body.aadhar_number,
+                        pan_number: req.body.pan_number,
+                        pan_number_url:        panUrl?.secure_url    || null,
+                        aadhar_number_url:     aadharUrl?.secure_url || null,
+                        aadhar_back_number_url: aadharBkUrl?.secure_url || null,
+                        shop_with_photo_url:   shopUrl?.secure_url   || null,
+                        bank_passbook_url:      bankPassbookUrl?.secure_url || null,
+                        settlement_type: req.body.settlement_type || 'today_settlement',
+                        is_approved: false,
+                        status: 'active',
+                        permissions: [],
+                        employee_access_role_id: employeeAccessRole ? employeeAccessRole.id : null,
+                        company_or_shop_name: company_or_shop_name || null,
+                        username,
+                        ...(req.user && req.user.role === 'franchaise' && normalizedRole === 'merchant' && { franchaise_id: req.user.id }),
+                    }, { transaction: t });
+                    break;
+                } catch (createErr) {
+                    if (isUsernameUniqueConstraintError(createErr) && attempts < 5) {
+                        console.warn(`Username collision on ${username}, retrying allocation`);
+                        continue;
+                    }
+                    throw createErr;
+                }
+            }
         });
 
         console.log('User created', user);
@@ -1102,6 +1142,17 @@ const registerUser = asyncHandler(async (req, res) => {
 
     } catch (error) {
         console.error('Registration error:', error);
+
+        if (error.name === 'SequelizeUniqueConstraintError' ||
+            error.original?.constraint === 'Users_username_key' ||
+            error.original?.constraint === 'Users_email_key' ||
+            error.original?.constraint === 'Users_mobile_number_key') {
+            return res.status(409).json({
+                success: false,
+                message: 'A user with the same identifier already exists. Please retry registration.',
+            });
+        }
+
         res.status(500).json({
             success: false,
             message: error.message || 'Something went wrong',
