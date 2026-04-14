@@ -437,6 +437,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         || eventData?.card_classification
         || eventData?.cardClassificationType
         || null;
+      const paymentCardType = eventData?.paymentCardType || eventData?.payment_card_type || n.payment_card_type || null;
       const ledgerMeta = ledger?.metadata ? (() => { try { return JSON.parse(ledger.metadata); } catch (_) { return ledger.metadata; } })() : null;
       const mdr = ledger ? parseFloat(ledger.debit) : null;
       const netCredit = ledgerMeta?.net_amount !== undefined ? parseFloat(ledgerMeta.net_amount) : null;
@@ -451,6 +452,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         currency_code:     n.currency_code,
         payment_mode:      n.payment_mode,
         payment_card_type: n.payment_card_type,
+        paymentCardType,
         payment_card_brand:n.payment_card_brand,
         rr_number:         n.rr_number,
         authCode,
