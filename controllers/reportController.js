@@ -421,6 +421,22 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
 
     const data = rows.map(n => {
       const ledger = razorpayLedgerMap[n.txn_id] || null;
+      const eventData = (() => {
+        if (!n.event_json) return null;
+        if (typeof n.event_json === 'object') return n.event_json;
+        try {
+          return JSON.parse(n.event_json);
+        } catch (_) {
+          return null;
+        }
+      })();
+      const authCode = eventData?.authCode || eventData?.auth_code || null;
+      const rrNumber = eventData?.rrNumber || eventData?.rr_number || n.rr_number || null;
+      const cardClassification =
+        eventData?.cardClassification
+        || eventData?.card_classification
+        || eventData?.cardClassificationType
+        || null;
       return {
         id:                n.id,
         txn_id:            n.txn_id,
@@ -432,6 +448,9 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         payment_card_type: n.payment_card_type,
         payment_card_brand:n.payment_card_brand,
         rr_number:         n.rr_number,
+        authCode,
+        rrNumber,
+        cardClassification,
         device_serial:     n.device_serial,
         posting_date:      n.posting_date,
         status:            n.status,
