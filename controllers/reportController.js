@@ -440,6 +440,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       const ledgerMeta = ledger?.metadata ? (() => { try { return JSON.parse(ledger.metadata); } catch (_) { return ledger.metadata; } })() : null;
       const mdr = ledger ? parseFloat(ledger.debit) : null;
       const netCredit = ledgerMeta?.net_amount !== undefined ? parseFloat(ledgerMeta.net_amount) : null;
+      const mdrPercent = ledgerMeta?.charge_rate !== undefined ? parseFloat(ledgerMeta.charge_rate) : null;
       const balanceAfterMdr = ledger ? parseFloat(ledger.balance) : null;
       return {
         id:                n.id,
@@ -466,10 +467,12 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         balance_before:    ledger ? parseFloat(ledger.balance_before) : null,
         balance_after:     ledger ? parseFloat(ledger.balance)        : null,
         mdr,
+        mdr_percent:       mdrPercent,
         net_credit:        netCredit,
         balance_after_mdr: balanceAfterMdr,
-        remaining_balance_1: balanceAfterMdr,            // pos_charge balance (after MDR)
-        remaining_balance_2: ledger ? parseFloat(ledger.balance) : null // alias for balance_after from pos_charge
+        remaining_balance: netCredit, // per-txn net credit after MDR cut
+        remaining_balance_1: netCredit,
+        remaining_balance_2: netCredit
       };
     });
 
