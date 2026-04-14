@@ -467,7 +467,9 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         balance_after:     ledger ? parseFloat(ledger.balance)        : null,
         mdr,
         net_credit:        netCredit,
-        balance_after_mdr: balanceAfterMdr
+        balance_after_mdr: balanceAfterMdr,
+        remaining_balance_1: balanceAfterMdr,            // pos_charge balance (after MDR)
+        remaining_balance_2: ledger ? parseFloat(ledger.balance) : null // alias for balance_after from pos_charge
       };
     });
 
