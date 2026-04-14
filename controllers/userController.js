@@ -2137,13 +2137,17 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
 
 /**
  * PUT /api/user/:id/enable-ledger
- * Admin-only. Enables ledger tracking for the specified user (start_ledger = true).
+ * Admin or employee with ledger.manage. Enables ledger tracking for the specified user (start_ledger = true).
  * There is intentionally no route to set it back to false.
  */
 const enableLedger = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin') {
+  const isElevatedEmployee = req.user?.original_role === 'employee'
+    && Array.isArray(req.user?.employee_permission_elevation)
+    && req.user.employee_permission_elevation.includes(EMPLOYEE_PERMISSIONS.LEDGER_MANAGE);
+
+  if (req.user.role !== 'admin' && !isElevatedEmployee) {
     res.status(403);
-    throw new Error('Only admins can enable ledger tracking');
+    throw new Error('Only admins or permitted employees can enable ledger tracking');
   }
 
   const targetUser = await User.findByPk(req.params.id);
