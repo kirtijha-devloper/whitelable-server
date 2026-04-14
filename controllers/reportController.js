@@ -375,8 +375,14 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
 
     // ── Pagination ────────────────────────────────────────────────────────────
     const pageNum  = Math.max(1, parseInt(page)  || 1);
-    const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50)); // cap at 200
-    const offset   = (pageNum - 1) * limitNum;
+    const rawLimit = parseInt(limit) || 50;
+    const rangeMs = toDate.getTime() - fromDate.getTime();
+    const rangeDays = rangeMs / (24 * 60 * 60 * 1000);
+    const useUnlimited = rangeDays > 1;
+    const limitNum = useUnlimited
+      ? null
+      : Math.min(1000, Math.max(1, rawLimit)); // cap at 1000 for 1-day or less
+    const offset   = useUnlimited ? null : (pageNum - 1) * limitNum;
 
     const { count, rows } = await RazorpayNotification.findAndCountAll({
       where,
@@ -399,8 +405,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         ['posting_date', 'DESC'],
         ['createdAt',    'DESC']
       ],
-      limit:  limitNum,
-      offset,
+      ...(useUnlimited ? {} : { limit: limitNum, offset }),
       // subQuery:false avoids a double-COUNT when includes are present
       subQuery: false
     });
@@ -482,7 +487,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       success: true,
       message: 'Razorpay notification report fetched successfully',
       count,
-      pagination: {
+      pagination: useUnlimited ? null : {
         total:      count,
         page:       pageNum,
         limit:      limitNum,
