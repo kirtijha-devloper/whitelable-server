@@ -1,0 +1,47 @@
+name: Deploy POS Server
+
+on:
+  push:
+    branches:
+      - Dev2   # deploy branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🚀 Deploy POS Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "📂 Go to POS server directory"
+            cd /var/www/pos.abheepay.com/pos-server   # change if needed
+
+            echo "🔄 Pull latest code"
+            git fetch origin
+            git reset --hard origin/Dev2
+
+            echo "⚙️ Load NVM"
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+            echo "🟢 Use Node 14"
+            nvm install 14
+            nvm use 14
+
+            echo "Node version:"
+            node -v
+
+            echo "📦 Install dependencies"
+            npm install --production
+
+            echo "🗄️ Run migrations"
+            npx sequelize db:migrate || { echo "❌ Migration failed"; exit 1; }
+
+            echo "🔁 Reload PM2"
+            pm2 reload ecosystem.config.js
+
+            echo "✅ Deployment completed"
