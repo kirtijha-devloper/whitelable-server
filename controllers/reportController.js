@@ -413,7 +413,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
             transaction_id: { [Op.in]: txnIds },
             transaction_type: 'pos_charge'
           },
-          attributes: ['transaction_id', 'balance_before', 'balance', 'debit']
+          attributes: ['transaction_id', 'balance_before', 'balance', 'debit', 'metadata']
         })
       : [];
     const razorpayLedgerMap = {};
@@ -437,6 +437,10 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         || eventData?.card_classification
         || eventData?.cardClassificationType
         || null;
+      const ledgerMeta = ledger?.metadata ? (() => { try { return JSON.parse(ledger.metadata); } catch (_) { return ledger.metadata; } })() : null;
+      const mdr = ledger ? parseFloat(ledger.debit) : null;
+      const netCredit = ledgerMeta?.net_amount !== undefined ? parseFloat(ledgerMeta.net_amount) : null;
+      const balanceAfterMdr = ledger ? parseFloat(ledger.balance) : null;
       return {
         id:                n.id,
         txn_id:            n.txn_id,
@@ -460,7 +464,10 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         pos_machine:       n.posMachine  || null,
         created_at:        n.createdAt,
         balance_before:    ledger ? parseFloat(ledger.balance_before) : null,
-        balance_after:     ledger ? parseFloat(ledger.balance)        : null
+        balance_after:     ledger ? parseFloat(ledger.balance)        : null,
+        mdr,
+        net_credit:        netCredit,
+        balance_after_mdr: balanceAfterMdr
       };
     });
 
