@@ -895,14 +895,32 @@ async function createPayout(payload) {
     };
   } catch (error) {
     payoutReservation.release();
+    const responseData = error.response?.data;
+    const responseHeaders = error.response?.headers;
+    const responseStatus = error.response?.status || error.status || 502;
+    const requestConfig = error.config
+      ? {
+          method: error.config.method,
+          url: error.config.url,
+          headers: error.config.headers,
+          data: error.config.data,
+        }
+      : undefined;
+    const axiosErrorJson = axios.isAxiosError(error) && typeof error.toJSON === 'function'
+      ? error.toJSON()
+      : undefined;
 
     logVimo('createPayout provider error', {
       message: error.message,
       code: error.code,
-      status: error.response?.status || error.statusCode,
-      responseData: error.response?.data,
+      status: responseStatus,
+      responseData,
+      responseHeaders,
+      request: requestConfig,
+      axiosError: axiosErrorJson,
       providerResponse: response?.data,
-      details: error.details || null,
+      details: error.details || error.message || null,
+      stack: error.stack || null,
     });
 
     if (error.code === 'PAYOUT_PROVIDER_ERROR') {
