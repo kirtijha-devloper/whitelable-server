@@ -111,6 +111,19 @@ function normalizeVimoPaymentPurpose(input) {
   return null;
 }
 
+function formatVimoCoordinate(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const parsed = typeof value === 'string' ? parseFloat(value.trim()) : Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return parsed.toFixed(8);
+}
+
 async function createPayout(req, res) {
   try {
   const {
@@ -133,6 +146,8 @@ async function createPayout(req, res) {
     udf2,
     udf3
   } = req.body;
+  const normalizedLat = formatVimoCoordinate(lat);
+  const normalizedLong = formatVimoCoordinate(lng);
   let merchantRefId = incomingMerchantRefId;
   let selectedBeneficiary = null;
   if (beneficiary_id) {
@@ -191,6 +206,13 @@ async function createPayout(req, res) {
     return res.status(400).json({
       success: false,
       message: 'Invalid paymentPurpose. It must be alphanumeric and 2-10 characters long. Use GET /api/vimo/purposes to fetch valid values.',
+    });
+  }
+
+  if (normalizedLat == null || normalizedLong == null) {
+    return res.status(400).json({
+      success: false,
+      message: 'lat and long are required for Vimo payout and must be valid coordinates.',
     });
   }
 
@@ -332,8 +354,8 @@ async function createPayout(req, res) {
         paymentPurpose,
         paymentMode,
         merchantRefId,
-        lat,
-        long: lng
+        lat: normalizedLat,
+        long: normalizedLong
       }
     }, { transaction });
 
@@ -357,8 +379,8 @@ async function createPayout(req, res) {
       beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
       beneficiaryName: resolvedBeneficiaryName,
       beneficiaryLocation: resolvedBeneficiaryLocation,
-      lat,
-      long: lng,
+      lat: normalizedLat,
+      long: normalizedLong,
       udf1: udf1 || '',
       udf2: udf2 || '',
       udf3: udf3 || ''
