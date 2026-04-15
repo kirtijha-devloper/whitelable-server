@@ -1,5 +1,40 @@
 const db = require('../config/database');
 
+const CARD_BRAND_MAPPINGS = {
+  MASTER_CARD: 'MASTERCARD',
+  MASTER: 'MASTERCARD',
+  MASTERCARD: 'MASTERCARD',
+  AMERICAN_EXPRESS: 'AMEX',
+  AMEX: 'AMEX',
+  DINERS_CLUB: 'DINERS',
+  DINERS: 'DINERS'
+};
+
+const CARD_BRAND_SYNONYMS = {
+  MASTERCARD: ['MASTER_CARD', 'MASTER'],
+  AMEX: ['AMERICAN_EXPRESS'],
+  DINERS: ['DINERS_CLUB']
+};
+
+function normalizeCardBrand(cardBrand) {
+  const normalized = String(cardBrand || '').trim().toUpperCase();
+  if (!normalized) return null;
+  return CARD_BRAND_MAPPINGS[normalized] || normalized;
+}
+
+function getCardBrandCandidates(cardBrand) {
+  const normalized = normalizeCardBrand(cardBrand);
+  if (!normalized) return [];
+
+  const variants = CARD_BRAND_SYNONYMS[normalized] || [];
+  const original = String(cardBrand || '').trim().toUpperCase();
+  const candidates = [normalized, ...variants];
+  if (original && !candidates.includes(original)) {
+    candidates.push(original);
+  }
+  return Array.from(new Set(candidates));
+}
+
 const VALID_SCOPES = [
   'admin_default',
   'admin_franchise',
@@ -52,6 +87,8 @@ async function getTransactionChargeRule({
   //   admin_franchise     16    (admin set rate for a franchise)
   //   admin_default        0    (global default)
 
+  const cardBrandCandidates = getCardBrandCandidates(cardBrand);
+
   const query = `
     SELECT *,
     (
@@ -92,19 +129,26 @@ async function getTransactionChargeRule({
     LIMIT 1
   `;
 
-  const replacements = [
+  const replacementBase = [
     userId || null,
     franchiseId || null,
     paymentMode || null,
     cardType || null,
-    cardBrand || null,
     classification || null,
     settlement || null,
     amount
   ];
 
-  const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
-  return results && results.length ? results[0] : null;
+  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
+    const replacements = [
+      ...replacementBase.slice(0, 4),
+      candidate || null,
+      ...replacementBase.slice(4)
+    ];
+    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
+    if (results && results.length) return results[0];
+  }
+  return null;
 }
 
 /**
@@ -125,6 +169,8 @@ async function getAdminChargeRuleForFranchise({
   settlement,
   amount
 }) {
+  const cardBrandCandidates = getCardBrandCandidates(cardBrand);
+
   const query = `
     SELECT *,
     (
@@ -154,18 +200,29 @@ async function getAdminChargeRuleForFranchise({
     LIMIT 1
   `;
 
-  const replacements = [
+  const replacementBase = [
     franchiseId || null,
     paymentMode || null,
     cardType || null,
-    cardBrand || null,
     classification || null,
     settlement || null,
     amount
   ];
 
-  const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
-  return results && results.length ? results[0] : null;
+  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
+    const replacements = [
+      replacementBase[0],
+      replacementBase[1],
+      replacementBase[2],
+      candidate || null,
+      replacementBase[3],
+      replacementBase[4],
+      replacementBase[5]
+    ];
+    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
+    if (results && results.length) return results[0];
+  }
+  return null;
 }
 
 /**
@@ -214,5 +271,7 @@ module.exports = {
   getTransactionChargeRule,
   getAdminChargeRuleForFranchise,
   calculateCharge,
-  deriveScope
+  deriveScope,
+  normalizeCardBrand,
+  getCardBrandCandidates
 };

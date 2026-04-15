@@ -12,7 +12,7 @@ function isFranchiseRole(role) {
   return role === 'franchaise' || role === 'franchise';
 }
 const ChargeService = require('../services/chargeService');
-const { deriveScope } = ChargeService;
+const { deriveScope, normalizeCardBrand } = ChargeService;
 
 // simple file logger for debugging
 const logFile = path.join(__dirname, '../logs/posChargeRule.log');
@@ -128,6 +128,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   const ruleScope = deriveScope(callerRole, user_id || null, effectiveFranchise);
 
   // duplicate check: exact same combination including franchise
+  const normalizedCardBrand = normalizeCardBrand(card_brand);
+
   const duplicate = await PosChargeRule.findOne({
     where: {
       user_id: user_id || null,
@@ -135,7 +137,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       scope: ruleScope,
       payment_mode: payment_mode || null,
       card_type: card_type || null,
-      card_brand: card_brand || null,
+      card_brand: normalizedCardBrand || null,
       card_classification: card_classification || null,
       settlement_type: settlement_type || null,
       min_amount: min_amount !== undefined ? min_amount : 0,
@@ -159,7 +161,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     scope: ruleScope,
     payment_mode: payment_mode || null,
     card_type: card_type || null,
-    card_brand: card_brand || null,
+    card_brand: normalizedCardBrand || null,
     card_classification: card_classification || null,
     settlement_type: settlement_type || null
   };
@@ -186,7 +188,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       scope: ruleScope,
       payment_mode: payment_mode || null,
       card_type: card_type || null,
-      card_brand: card_brand || null,
+      card_brand: normalizedCardBrand || null,
       card_classification: card_classification || null,
       settlement_type: settlement_type || null,
       min_amount: min_amount !== undefined ? min_amount : 0,
@@ -566,6 +568,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     gst_percent
   } = req.body;
 
+  const normalizedCardBrand = card_brand !== undefined ? normalizeCardBrand(card_brand) : undefined;
   const errs = validateRuleInput(req.body);
   if (franchaise_id !== undefined && franchaise_id !== null && isNaN(parseInt(franchaise_id, 10))) {
     errs.push('franchaise_id must be an integer');
@@ -627,7 +630,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
         scope: updScope,
         payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
         card_type: card_type !== undefined ? card_type || null : rec.card_type,
-        card_brand: card_brand !== undefined ? card_brand || null : rec.card_brand,
+        card_brand: normalizedCardBrand !== undefined ? normalizedCardBrand || null : rec.card_brand,
         card_classification: card_classification !== undefined ? card_classification || null : rec.card_classification,
         settlement_type: settlement_type !== undefined ? settlement_type || null : rec.settlement_type,
         min_amount: min_amount !== undefined ? min_amount : rec.min_amount,
@@ -648,7 +651,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
       scope: updScope,
       payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
       card_type: card_type !== undefined ? card_type || null : rec.card_type,
-      card_brand: card_brand !== undefined ? card_brand || null : rec.card_brand,
+      card_brand: normalizedCardBrand !== undefined ? normalizedCardBrand || null : rec.card_brand,
       card_classification: card_classification !== undefined ? card_classification || null : rec.card_classification,
       settlement_type: settlement_type !== undefined ? settlement_type || null : rec.settlement_type
     };
@@ -681,6 +684,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   }
   // apply pre-computed scope
   updateData.scope = updScope;
+  if (normalizedCardBrand !== undefined) updateData.card_brand = normalizedCardBrand || null;
   if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
   if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
   await rec.update(updateData);

@@ -32,6 +32,20 @@ describe('ChargeService', () => {
     });
   });
 
+  describe('card brand normalization', () => {
+    it('normalizes MASTER_CARD to MASTERCARD', () => {
+      expect(ChargeService.normalizeCardBrand('MASTER_CARD')).to.equal('MASTERCARD');
+      expect(ChargeService.normalizeCardBrand('master_card')).to.equal('MASTERCARD');
+    });
+
+    it('returns canonical values for brand candidates', () => {
+      const candidates = ChargeService.getCardBrandCandidates('MASTER_CARD');
+      expect(candidates).to.include('MASTERCARD');
+      expect(candidates).to.include('MASTER_CARD');
+      expect(candidates).to.include('MASTER');
+    });
+  });
+
   describe('getTransactionChargeRule', () => {
     it('returns null when no rows match', async () => {
       sinon.stub(db, 'query').resolves([]); // no rows
