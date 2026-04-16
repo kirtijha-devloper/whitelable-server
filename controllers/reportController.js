@@ -391,7 +391,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
           model: User,
           as: 'user',
           required: false,   // LEFT JOIN — keep unlinked rows
-          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name']
+          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name', 'franchaise_id']
         },
         {
           model: PosMachine,
@@ -409,6 +409,34 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       // subQuery:false avoids a double-COUNT when includes are present
       subQuery: false
     });
+
+    const franchiseIds = [...new Set(rows
+      .map((row) => row?.user?.franchaise_id)
+      .filter((value) => value !== null && value !== undefined)
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0))];
+
+    const franchiseUsers = franchiseIds.length
+      ? await User.findAll({
+          where: {
+            id: { [Op.in]: franchiseIds },
+            role: { [Op.in]: ['franchaise', 'franchise'] },
+          },
+          attributes: ['id', 'name', 'abheepay_id'],
+        })
+      : [];
+
+    const franchiseMap = new Map(franchiseUsers.map((franchise) => {
+      const plainFranchise = franchise?.toJSON ? franchise.toJSON() : franchise;
+      return [
+        Number(plainFranchise.id),
+        {
+          id: Number(plainFranchise.id),
+          name: plainFranchise.name || null,
+          abheepay_id: plainFranchise.abheepay_id || null,
+        },
+      ];
+    }));
 
     // Bulk-fetch Ledger entries for balance figures (pos_charge = final debit row)
     const txnIds = rows.map(n => n.txn_id).filter(Boolean);
@@ -448,6 +476,8 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       const netCredit = ledgerMeta?.net_amount !== undefined ? parseFloat(ledgerMeta.net_amount) : null;
       const mdrPercent = ledgerMeta?.charge_rate !== undefined ? parseFloat(ledgerMeta.charge_rate) : null;
       const balanceAfterMdr = ledger ? parseFloat(ledger.balance) : null;
+      const franchiseId = n.user?.franchaise_id ? Number(n.user.franchaise_id) : null;
+      const franchise = franchiseId ? franchiseMap.get(franchiseId) || null : null;
       return {
         id:                n.id,
         txn_id:            n.txn_id,
@@ -469,6 +499,9 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         user_id:           n.user_id,
         pos_machine_id:    n.pos_machine_id,
         user:              n.user        || null,
+        franchise_id:      franchiseId,
+        franchise_name:    franchise?.name || null,
+        franchise,
         pos_machine:       n.posMachine  || null,
         created_at:        n.createdAt,
         balance_before:    ledger ? parseFloat(ledger.balance_before) : null,

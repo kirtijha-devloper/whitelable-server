@@ -48,6 +48,23 @@ const makeEmployeeToken = (id, name, permissions) => makeToken({
 });
 
 const stockPosEmployeeToken = makeEmployeeToken(41, 'Stock Employee', [EMPLOYEE_PERMISSIONS.STOCK_POS_READ]);
+const userListEmployeeToken = makeEmployeeToken(47, 'User List Employee', [EMPLOYEE_PERMISSIONS.USERS_LIST]);
+const userReadEmployeeToken = makeEmployeeToken(48, 'User Read Employee', [EMPLOYEE_PERMISSIONS.USERS_READ]);
+const franchiseToken = makeToken({
+  id: 70,
+  role: 'franchaise',
+  name: 'Franchise Owner',
+});
+const merchantToken = makeToken({
+  id: 71,
+  role: 'merchant',
+  name: 'Merchant Owner',
+});
+const adminToken = makeToken({
+  id: 72,
+  role: 'admin',
+  name: 'Admin User',
+});
 
 const complaintEmployeeToken = makeEmployeeToken(42, 'Complaint Employee', [EMPLOYEE_PERMISSIONS.COMPLAINTS_READ]);
 
@@ -111,6 +128,123 @@ describe('Employee access across additional admin modules', () => {
     expect(res.status).to.equal(200);
     expect(res.body.success).to.equal(true);
     expect(res.body.list).to.have.length(1);
+  });
+
+  it('allows an employee with users.list to load assigned POS machines for a user', async () => {
+    User.findByPk = async () => ({
+      id: 33,
+      role: 'merchant',
+      franchaise_id: 70,
+    });
+    PosMachine.findAndCountAll = async () => ({
+      count: 1,
+      rows: [{
+        id: 1,
+        tid_number: 'TID001',
+        mid_number: 'MID001',
+        device_serial_number: 'SER001',
+        company_name: 'Acme',
+        bank_name: 'Test Bank',
+        assigned_to: 33,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }],
+    });
+
+    const res = await request(app)
+      .get('/api/pos-machine/assigned/33')
+      .set('Authorization', `Bearer ${userListEmployeeToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.totalItems).to.equal(1);
+    expect(res.body.data).to.have.length(1);
+  });
+
+  it('allows a franchise to view assigned POS machines for own merchants', async () => {
+    User.findByPk = async () => ({
+      id: 88,
+      role: 'merchant',
+      franchaise_id: 70,
+    });
+    PosMachine.findAndCountAll = async () => ({
+      count: 2,
+      rows: [{
+        id: 2,
+        tid_number: 'TID002',
+        mid_number: 'MID002',
+        device_serial_number: 'SER002',
+        company_name: 'Acme',
+        bank_name: 'Test Bank',
+        assigned_to: 88,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }],
+    });
+
+    const res = await request(app)
+      .get('/api/pos-machine/assigned/88')
+      .set('Authorization', `Bearer ${franchiseToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.totalItems).to.equal(2);
+    expect(res.body.data).to.have.length(1);
+  });
+
+  it('rejects franchise access to merchants outside their franchise', async () => {
+    User.findByPk = async () => ({
+      id: 89,
+      role: 'merchant',
+      franchaise_id: 99,
+    });
+
+    const res = await request(app)
+      .get('/api/pos-machine/assigned/89')
+      .set('Authorization', `Bearer ${franchiseToken}`);
+
+    expect(res.status).to.equal(403);
+    expect(res.body.message).to.match(/own merchants/i);
+  });
+
+  it('rejects merchant access to assigned POS machines', async () => {
+    const res = await request(app)
+      .get('/api/pos-machine/assigned/33')
+      .set('Authorization', `Bearer ${merchantToken}`);
+
+    expect(res.status).to.equal(403);
+    expect(res.body.message).to.match(/merchants cannot access/i);
+  });
+
+  it('allows admin to load assigned POS machines for any user', async () => {
+    User.findByPk = async () => ({
+      id: 91,
+      role: 'merchant',
+      franchaise_id: 70,
+    });
+    PosMachine.findAndCountAll = async () => ({
+      count: 1,
+      rows: [{
+        id: 3,
+        tid_number: 'TID003',
+        mid_number: 'MID003',
+        device_serial_number: 'SER003',
+        company_name: 'Acme',
+        bank_name: 'Test Bank',
+        assigned_to: 91,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }],
+    });
+
+    const res = await request(app)
+      .get('/api/pos-machine/assigned/91')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.totalItems).to.equal(1);
+    expect(res.body.data).to.have.length(1);
   });
 
   it('allows an employee with complaints.read to view complaint list as admin', async () => {

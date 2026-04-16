@@ -366,6 +366,40 @@ describe('GET /api/report/razorpay', () => {
     expect(res.body.data[0].balance_before).to.be.null;
     expect(res.body.data[0].balance_after).to.be.null;
   });
+
+  it('includes franchise name for merchant-linked Razorpay rows', async () => {
+    const merchantRow = sampleRow();
+    merchantRow.user = {
+      ...merchantRow.user,
+      franchaise_id: 10,
+    };
+
+    RazorpayNotification.findAndCountAll = async () => ({ count: 1, rows: [merchantRow] });
+    Ledger.findAll = async () => [
+      { transaction_id: 'TXN_abc123', balance_before: '500.00', balance: '1000.00', debit: '25.00', metadata: '{"net_amount":975,"charge_rate":2.5}' }
+    ];
+    User.findAll = async () => [{
+      id: 10,
+      name: 'Main Franchise',
+      abheepay_id: 'APF00010',
+      toJSON() {
+        return { id: 10, name: 'Main Franchise', abheepay_id: 'APF00010' };
+      }
+    }];
+
+    const res = await request(app)
+      .get('/api/report/razorpay')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.data[0].franchise_id).to.equal(10);
+    expect(res.body.data[0].franchise_name).to.equal('Main Franchise');
+    expect(res.body.data[0].franchise).to.deep.equal({
+      id: 10,
+      name: 'Main Franchise',
+      abheepay_id: 'APF00010',
+    });
+  });
 });
 
 // ============================================================================
