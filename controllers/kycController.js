@@ -4,6 +4,7 @@ const asyncHandler = require('express-async-handler');
 const crypto = require('crypto');
 const axios = require('axios');
 const User = require('../models/User');
+const kycLogger = require('../utils/kycLogger');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -15,8 +16,12 @@ const User = require('../models/User');
  * Output: base64( iv || ciphertext )
  */
 function encryptAadhaar(aadhaarNumber) {
+  const rawKey = process.env.IPAY_KEY;
+  if (!rawKey) {
+    throw new Error('InstantPay encryption key is not configured (IPAY_KEY).');
+  }
+
   // PHP zero-pads/truncates the key to 32 bytes – replicate that here.
-  const rawKey = process.env.IPAY_KEY || '';
   const key = Buffer.alloc(32);
   Buffer.from(rawKey).copy(key);
 
@@ -35,6 +40,17 @@ function encryptAadhaar(aadhaarNumber) {
  * Returns the common InstantPay auth headers drawn from env.
  */
 function ipayHeaders() {
+  const missing = [
+    'IPAY_AUTH_CODE',
+    'IPAY_CLIENT_ID',
+    'IPAY_CLIENT_SECRET',
+    'IPAY_ENDPOINT_IP',
+  ].filter((name) => !process.env[name]);
+
+  if (missing.length) {
+    throw new Error(`Missing InstantPay env vars: ${missing.join(', ')}`);
+  }
+
   return {
     'X-Ipay-Auth-Code': process.env.IPAY_AUTH_CODE,
     'X-Ipay-Client-Id': process.env.IPAY_CLIENT_ID,
@@ -134,8 +150,8 @@ const initiateKyc = asyncHandler(async (req, res) => {
         pan,
         bankAccountNo,
         bankIfsc,
-        latitude: latitude ?? null,
-        longitude: longitude ?? null,
+        latitude: latitude != null ? String(latitude) : null,
+        longitude: longitude != null ? String(longitude) : null,
         consent,
       },
       {
@@ -152,12 +168,27 @@ const initiateKyc = asyncHandler(async (req, res) => {
       });
     }
   } catch (err) {
-    console.error('[KYC initiateKyc] InstantPay API error:', err?.response?.data ?? err.message);
-    res.status(502);
-    throw new Error('InstantPay API request failed. Please try again.');
+    const status = err?.response?.status;
+    const responseData = err?.response?.data;
+    const errorDetail = {
+      status,
+      responseData,
+      message: err.message,
+    };
+    console.error('[KYC initiateKyc] InstantPay API error:', errorDetail);
+    kycLogger.error('[KYC initiateKyc] InstantPay API error:', errorDetail);
+
+    const upstreamMessage = responseData?.message || responseData?.status || err.message;
+    res.status(status >= 400 && status < 600 ? status : 502);
+    throw new Error(
+      status && status < 500
+        ? `InstantPay request failed: ${upstreamMessage}`
+        : 'InstantPay API request failed. Please try again.'
+    );
   }
 
   console.info('[KYC initiateKyc] response for mobile', mobile, ipayResponse);
+  kycLogger.log('[KYC initiateKyc] response for mobile', mobile, { status: ipayResponse?.status, statuscode: ipayResponse?.statuscode });
 
   const otpReferenceID = ipayResponse?.data?.otpReferenceID ?? null;
   const hash = ipayResponse?.data?.hash ?? null;
@@ -204,12 +235,27 @@ const validateKycOtp = asyncHandler(async (req, res) => {
     );
     ipayResponse = data;
   } catch (err) {
-    console.error('[KYC validateKycOtp] InstantPay API error:', err?.response?.data ?? err.message);
-    res.status(502);
-    throw new Error('InstantPay OTP validation API request failed. Please try again later.');
+    const status = err?.response?.status;
+    const responseData = err?.response?.data;
+    const errorDetail = {
+      status,
+      responseData,
+      message: err.message,
+    };
+    console.error('[KYC validateKycOtp] InstantPay API error:', errorDetail);
+    kycLogger.error('[KYC validateKycOtp] InstantPay API error:', errorDetail);
+
+    const upstreamMessage = responseData?.message || responseData?.status || err.message;
+    res.status(status >= 400 && status < 600 ? status : 502);
+    throw new Error(
+      status && status < 500
+        ? `InstantPay OTP validation failed: ${upstreamMessage}`
+        : 'InstantPay OTP validation API request failed. Please try again later.'
+    );
   }
 
   console.info('[KYC validateKycOtp] response for otpReferenceID', otpReferenceID, ipayResponse);
+  kycLogger.log('[KYC validateKycOtp] response for otpReferenceID', otpReferenceID, { status: ipayResponse?.status, statuscode: ipayResponse?.statuscode });
 
   const outletIdRaw = ipayResponse?.data?.outletId ?? null;
   const outletId = outletIdRaw != null ? parseInt(outletIdRaw, 10) : null;
