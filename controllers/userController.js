@@ -1857,6 +1857,7 @@ const updateUser = asyncHandler(async (req, res) => {
     }
 
     const roleFieldProvided = req.body.role !== undefined;
+    const settlementTypeProvided = req.body.settlement_type !== undefined;
     const employeeAccessRoleFieldProvided = parsedEmployeeAccessRoleId.provided;
     const currentTargetRole = normalizeRole(targetUser.role);
     const requestedRole = roleFieldProvided ? normalizeRole(req.body.role) : currentTargetRole;
@@ -1874,6 +1875,15 @@ const updateUser = asyncHandler(async (req, res) => {
         success: false,
         message: 'Only admins can update role or employee access controls.',
       });
+    }
+
+    if (settlementTypeProvided && requesterRole !== 'admin') {
+      if (!isEmployee(req.user) || !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SETTLEMENT_UPDATE)) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have permission to update settlement type.',
+        });
+      }
     }
 
     if (permissionsFieldProvided) {
@@ -1954,7 +1964,7 @@ const updateUser = asyncHandler(async (req, res) => {
 
     // Fields only admin may touch:
     const adminOnlyFields = [
-      'status', 'is_approved', 'settlement_type',
+      'status', 'is_approved',
       'franchaise_id', 'ipay_outlet_id', 'role', 'is_payout_enabled',
     ];
 
@@ -1972,6 +1982,9 @@ const updateUser = asyncHandler(async (req, res) => {
           updates[field] = field === 'role' ? requestedRole : req.body[field];
         }
       }
+      if (settlementTypeProvided) {
+        updates.settlement_type = req.body.settlement_type;
+      }
 
       if (requestedRole === 'employee') {
         updates.employee_access_role_id = employeeAccessRole.id;
@@ -1980,6 +1993,9 @@ const updateUser = asyncHandler(async (req, res) => {
         updates.employee_access_role_id = null;
         updates.permissions = [];
       }
+    } else if (settlementTypeProvided && isEmployee(req.user)
+        && hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SETTLEMENT_UPDATE)) {
+      updates.settlement_type = req.body.settlement_type;
     }
 
     // ── File uploads (Cloudinary) ─────────────────────────────────────────
@@ -2137,13 +2153,17 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
 
 /**
  * PUT /api/user/:id/enable-ledger
- * Admin-only. Enables ledger tracking for the specified user (start_ledger = true).
+ * Admin or employee with ledger.manage. Enables ledger tracking for the specified user (start_ledger = true).
  * There is intentionally no route to set it back to false.
  */
 const enableLedger = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin') {
+  const isElevatedEmployee = req.user?.original_role === 'employee'
+    && Array.isArray(req.user?.employee_permission_elevation)
+    && req.user.employee_permission_elevation.includes(EMPLOYEE_PERMISSIONS.LEDGER_MANAGE);
+
+  if (req.user.role !== 'admin' && !isElevatedEmployee) {
     res.status(403);
-    throw new Error('Only admins can enable ledger tracking');
+    throw new Error('Only admins or permitted employees can enable ledger tracking');
   }
 
   const targetUser = await User.findByPk(req.params.id);

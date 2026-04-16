@@ -611,7 +611,7 @@ async function fetchFreshToken() {
       userId: vimoCredentials.userId,
     };
 
-    const endpoint = '/payoutapi/api/signature/authorizeuat';
+    const endpoint = '/payoutapi/api/signature/authorize';
     const response = await vimoClient.post(endpoint, {}, {
       headers: requestHeaders,
     });
@@ -650,7 +650,7 @@ async function fetchFreshToken() {
     logVimo('fetchFreshToken error', {
       userId: vimoCredentials.userId,
       request: {
-        endpoint: '/payoutapi/api/signature/authorizeuat',
+        endpoint: '/payoutapi/api/signature/authorize',
         headers: requestHeaders,
       },
       message: error.message,
@@ -821,15 +821,15 @@ async function fetchEncryptedList(path, successMessage) {
 }
 
 async function fetchBankList() {
-  return fetchEncryptedList('/masterapi/api/master/banklistuat', 'Bank list fetched successfully');
+  return fetchEncryptedList('/masterapi/api/master/banklist', 'Bank list fetched successfully');
 }
 
 async function fetchPurposeList() {
-  return fetchEncryptedList('/masterapi/api/master/purposelistuat', 'Purpose list fetched successfully');
+  return fetchEncryptedList('/masterapi/api/master/purposelist', 'Purpose list fetched successfully');
 }
 
 async function fetchStateList() {
-  return fetchEncryptedList('/masterapi/api/master/statelistuat', 'State list fetched successfully');
+  return fetchEncryptedList('/masterapi/api/master/statelist', 'State list fetched successfully');
 }
 
 async function createPayout(payload) {
@@ -848,14 +848,14 @@ async function createPayout(payload) {
       requestBody = { requestBody: encryptPlainText(JSON.stringify(payload)) };
 
       logVimo('createPayout outgoing request', {
-        url: vimoBaseURL + '/payoutapi/api/payment/payoutsuat',
+        url: vimoBaseURL + '/payoutapi/api/payment/payout',
         method: 'POST',
         headers: { userId: headers.userId, hasToken: Boolean(token) },
         rawPayload: payload,
         encryptedBody: requestBody,
       });
 
-      return vimoClient.post('/payoutapi/api/payment/payoutsuat', requestBody, { headers });
+      return vimoClient.post('/payoutapi/api/payment/payout', requestBody, { headers });
     });
 
     logVimo('createPayout provider response', {
@@ -895,14 +895,32 @@ async function createPayout(payload) {
     };
   } catch (error) {
     payoutReservation.release();
+    const responseData = error.response?.data;
+    const responseHeaders = error.response?.headers;
+    const responseStatus = error.response?.status || error.status || 502;
+    const requestConfig = error.config
+      ? {
+          method: error.config.method,
+          url: error.config.url,
+          headers: error.config.headers,
+          data: error.config.data,
+        }
+      : undefined;
+    const axiosErrorJson = axios.isAxiosError(error) && typeof error.toJSON === 'function'
+      ? error.toJSON()
+      : undefined;
 
     logVimo('createPayout provider error', {
       message: error.message,
       code: error.code,
-      status: error.response?.status || error.statusCode,
-      responseData: error.response?.data,
+      status: responseStatus,
+      responseData,
+      responseHeaders,
+      request: requestConfig,
+      axiosError: axiosErrorJson,
       providerResponse: response?.data,
-      details: error.details || null,
+      details: error.details || error.message || null,
+      stack: error.stack || null,
     });
 
     if (error.code === 'PAYOUT_PROVIDER_ERROR') {

@@ -85,4 +85,32 @@ async function postRaw(endpoint, xmlBody) {
   return response.data;
 }
 
-module.exports = { postForm, postRaw };
+async function postJson(endpoint, jsonBody) {
+  const base = billAvenueConfig.apiUrl.replace(/\/+$/, '');
+  const url = `${base}${endpoint}`;
+
+  const requestBody = JSON.stringify(jsonBody);
+  try {
+    const response = await axios.post(url, jsonBody, {
+      headers: { 'Content-Type': 'application/json' },
+      responseType: 'json',
+      timeout: 60000,
+    });
+
+    const responseBody = response.data;
+    appendBillAvenueLog(buildBillAvenueLog({ url, endpoint, requestBody, responseBody: typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody) }));
+    return responseBody;
+  } catch (err) {
+    const responseBody = err?.response?.data != null ? err.response.data : err.message;
+    appendBillAvenueLog(buildBillAvenueLog({
+      url,
+      endpoint,
+      requestBody,
+      responseBody: typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody),
+      errorMessage: err.message,
+    }));
+    throw err;
+  }
+}
+
+module.exports = { postForm, postRaw, postJson };

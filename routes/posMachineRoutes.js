@@ -38,10 +38,13 @@ router.get("/list", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_READ
   elevateRole: "admin",
 }), getPosMachineList);            // role-based filtered list with pagination
 
-// 🔎 Get POS machines assigned to a specific user (admin only)
-router.get("/assigned/:userId", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_READ, {
-  message: "You do not have permission to view stock POS data.",
-  elevateRole: "admin",
+// 🔎 Get POS machines assigned to a specific user
+router.get("/assigned/:userId", ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.USERS_READ,
+  EMPLOYEE_PERMISSIONS.USERS_LIST,
+  EMPLOYEE_PERMISSIONS.STOCK_POS_READ,
+], {
+  message: "You do not have permission to view assigned POS machines.",
 }), getPosMachinesByUserId);
 
 // ➕ Create

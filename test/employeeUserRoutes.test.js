@@ -64,6 +64,11 @@ const employeeReadToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_READ]);
 const employeeUpdateToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_UPDATE]);
 const employeeStatusToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_STATUS_UPDATE]);
 const employeeCreateToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.USERS_CREATE]);
+const employeeLedgerToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.LEDGER_MANAGE]);
+const employeeSettlementToken = makeEmployeeToken([
+  EMPLOYEE_PERMISSIONS.USERS_UPDATE,
+  EMPLOYEE_PERMISSIONS.USERS_SETTLEMENT_UPDATE,
+]);
 const noPermissionEmployeeToken = makeEmployeeToken([]);
 
 let stubs = {};
@@ -79,6 +84,7 @@ beforeEach(() => {
     userCreate: User.create,
     employeeAccessRoleFindByPk: EmployeeAccessRole.findByPk,
     usernameSequenceFindOne: UsernameSequence.findOne,
+    usernameSequenceFindOrCreate: UsernameSequence.findOrCreate,
     usernameSequenceCreate: UsernameSequence.create,
     tpinFindOne: Tpin.findOne,
     posMachineFindAll: PosMachine.findAll,
@@ -100,6 +106,7 @@ afterEach(() => {
   User.create = stubs.userCreate;
   EmployeeAccessRole.findByPk = stubs.employeeAccessRoleFindByPk;
   UsernameSequence.findOne = stubs.usernameSequenceFindOne;
+  UsernameSequence.findOrCreate = stubs.usernameSequenceFindOrCreate;
   UsernameSequence.create = stubs.usernameSequenceCreate;
   Tpin.findOne = stubs.tpinFindOne;
   PosMachine.findAll = stubs.posMachineFindAll;
@@ -125,8 +132,10 @@ describe('Employee role on user routes', () => {
         return { ...this };
       },
     });
-    UsernameSequence.findOne = async () => null;
-    UsernameSequence.create = async () => ({ current_value: 1, save: async function () { return this; } });
+    UsernameSequence.findOrCreate = async () => ([{
+      current_value: 0,
+      save: async function () { return this; },
+    }]);
     db.transaction = async (handler) => handler({ LOCK: { UPDATE: 'UPDATE' } });
     User.create = async (data) => ({
       id: 22,
@@ -203,8 +212,10 @@ describe('Employee role on user routes', () => {
   });
   it('allows an employee with users.create to create a merchant user', async () => {
     User.findOne = async () => null;
-    UsernameSequence.findOne = async () => null;
-    UsernameSequence.create = async () => ({ current_value: 1, save: async function () { return this; } });
+    UsernameSequence.findOrCreate = async () => ([{
+      current_value: 0,
+      save: async function () { return this; },
+    }]);
     db.transaction = async (handler) => handler({ LOCK: { UPDATE: 'UPDATE' } });
     User.create = async (data) => ({
       id: 23,
@@ -625,6 +636,24 @@ describe('Employee role on user routes', () => {
       ba_cc_bill_pay: true,
     });
   });
+  it('allows employee with ledger.manage permission to enable ledger tracking', async () => {
+    const targetUser = {
+      id: 77,
+      start_ledger: false,
+      save: async function () {
+        return this;
+      },
+    };
+    User.findByPk = async () => targetUser;
+
+    const res = await request(app)
+      .put('/api/user/77/enable-ledger')
+      .set('Authorization', `Bearer ${employeeLedgerToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.start_ledger).to.equal(true);
+  });
   it('allows employee with users.update permission to edit common fields only', async () => {
     const targetUser = {
       id: 42,
@@ -659,6 +688,66 @@ describe('Employee role on user routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.data.name).to.equal('Updated Merchant');
+  });
+  it('allows employee with settlement permission to update settlement_type', async () => {
+    const targetUser = {
+      id: 55,
+      role: 'merchant',
+      settlement_type: 'today_settlement',
+      update: async function (updates) {
+        Object.assign(this, updates);
+      },
+      reload: async function () {
+        return this;
+      },
+      toJSON() {
+        return {
+          id: this.id,
+          role: this.role,
+          settlement_type: this.settlement_type,
+        };
+      }
+    };
+    User.findByPk = async () => targetUser;
+
+    const res = await request(app)
+      .put('/api/user/55')
+      .set('Authorization', `Bearer ${employeeSettlementToken}`)
+      .send({ settlement_type: 'next_day_settlement' });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.data.settlement_type).to.equal('next_day_settlement');
+  });
+
+  it('rejects employee settlement updates without permission', async () => {
+    const targetUser = {
+      id: 56,
+      role: 'merchant',
+      settlement_type: 'today_settlement',
+      update: async function () {
+        return this;
+      },
+      reload: async function () {
+        return this;
+      },
+      toJSON() {
+        return {
+          id: this.id,
+          role: this.role,
+          settlement_type: this.settlement_type,
+        };
+      }
+    };
+    User.findByPk = async () => targetUser;
+
+    const res = await request(app)
+      .put('/api/user/56')
+      .set('Authorization', `Bearer ${employeeUpdateToken}`)
+      .send({ settlement_type: 'next_day_settlement' });
+
+    expect(res.status).to.equal(403);
+    expect(res.body.message).to.match(/permission to update settlement type/i);
   });
 
   it('rejects employee attempts to change role or access controls', async () => {

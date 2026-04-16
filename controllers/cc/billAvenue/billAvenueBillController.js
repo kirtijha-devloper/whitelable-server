@@ -83,9 +83,42 @@ const getBillers = asyncHandler(async (req, res) => {
   try {
     const { category } = req.query;
     const result = await billAvenueService.getBillerInfo({ category });
+    fileLog(`getBillers response=${JSON.stringify(result)}`);
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
     console.error('[billAvenue] getBillers error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+const getBillerInfoById = asyncHandler(async (req, res) => {
+  try {
+    const { billerId } = req.body;
+    if (!billerId) {
+      return res.status(400).json({ success: false, message: 'Required: billerId' });
+    }
+
+    const result = await billAvenueService.getBillerInfoByIdXml({ billerId });
+    fileLog(`getBillerInfoById billerId=${billerId} response=${JSON.stringify(result)}`);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('[billAvenue] getBillerInfoById error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+const getBillerInfoByIdJson = asyncHandler(async (req, res) => {
+  try {
+    const { billerId } = req.body;
+    if (!billerId) {
+      return res.status(400).json({ success: false, message: 'Required: billerId' });
+    }
+
+    const result = await billAvenueService.getBillerInfoByIdJson({ billerId });
+    fileLog(`getBillerInfoByIdJson billerId=${JSON.stringify(billerId)} response=${JSON.stringify(result)}`);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('[billAvenue] getBillerInfoByIdJson error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
@@ -449,6 +482,83 @@ const registerComplaint = asyncHandler(async (req, res) => {
   }
 });
 
+const trackComplaint = asyncHandler(async (req, res) => {
+  try {
+    const { billerId, transactionRefId, complaintId, reason, description } = req.body;
+
+    if (!billerId || !transactionRefId) {
+      return res.status(400).json({ success: false, message: 'Required: billerId, transactionRefId' });
+    }
+
+    const result = await billAvenueService.trackComplaint({
+      billerId,
+      transactionRefId,
+      complaintId,
+      reason,
+      description,
+    });
+
+    fileLog(`trackComplaint billerId=${billerId} txnRef=${transactionRefId} response=${JSON.stringify(result)}`);
+
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('[billAvenue] trackComplaint error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+const depositEnquiry = asyncHandler(async (req, res) => {
+  try {
+    const { billerId, customerParams, amount, paymentMode, quickPay, splitPay } = req.body;
+
+    if (!billerId || !customerParams) {
+      return res.status(400).json({ success: false, message: 'Required: billerId, customerParams' });
+    }
+
+    const result = await billAvenueService.depositEnquiry({
+      billerId,
+      customerParams,
+      amount,
+      paymentMode,
+      quickPay,
+      splitPay,
+    });
+
+    fileLog(`depositEnquiry billerId=${billerId} response=${JSON.stringify(result)}`);
+
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('[billAvenue] depositEnquiry error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
+const validateBill = asyncHandler(async (req, res) => {
+  try {
+    const { billerId, customerParams, amount, paymentMode, quickPay, splitPay } = req.body;
+
+    if (!billerId || !customerParams) {
+      return res.status(400).json({ success: false, message: 'Required: billerId, customerParams' });
+    }
+
+    const result = await billAvenueService.validateBill({
+      billerId,
+      customerParams,
+      amount,
+      paymentMode,
+      quickPay,
+      splitPay,
+    });
+
+    fileLog(`validateBill billerId=${billerId} response=${JSON.stringify(result)}`);
+
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('[billAvenue] validateBill error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /api/bill-avenue/transaction-status
 // Body: { transactionRefId }
@@ -473,9 +583,14 @@ const getTransactionStatus = asyncHandler(async (req, res) => {
 module.exports = {
   getBillers,
   getBillerCategories,
+  getBillerInfoById,
+  getBillerInfoByIdJson,
   uploadBillersFromFile,
   fetchBill,
+  validateBill,
   payBill,
+  depositEnquiry,
+  trackComplaint,
   getPayments,
   getPayment,
   registerComplaint,

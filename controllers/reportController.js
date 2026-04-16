@@ -375,8 +375,14 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
 
     // ── Pagination ────────────────────────────────────────────────────────────
     const pageNum  = Math.max(1, parseInt(page)  || 1);
-    const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50)); // cap at 200
-    const offset   = (pageNum - 1) * limitNum;
+    const rawLimit = parseInt(limit) || 50;
+    const rangeMs = toDate.getTime() - fromDate.getTime();
+    const rangeDays = rangeMs / (24 * 60 * 60 * 1000);
+    const useUnlimited = rangeDays > 1;
+    const limitNum = useUnlimited
+      ? null
+      : Math.min(1000, Math.max(1, rawLimit)); // cap at 1000 for 1-day or less
+    const offset   = useUnlimited ? null : (pageNum - 1) * limitNum;
 
     const { count, rows } = await RazorpayNotification.findAndCountAll({
       where,
@@ -385,7 +391,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
           model: User,
           as: 'user',
           required: false,   // LEFT JOIN — keep unlinked rows
-          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name']
+          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name', 'franchaise_id']
         },
         {
           model: PosMachine,
@@ -399,11 +405,38 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         ['posting_date', 'DESC'],
         ['createdAt',    'DESC']
       ],
-      limit:  limitNum,
-      offset,
+      ...(useUnlimited ? {} : { limit: limitNum, offset }),
       // subQuery:false avoids a double-COUNT when includes are present
       subQuery: false
     });
+
+    const franchiseIds = [...new Set(rows
+      .map((row) => row?.user?.franchaise_id)
+      .filter((value) => value !== null && value !== undefined)
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0))];
+
+    const franchiseUsers = franchiseIds.length
+      ? await User.findAll({
+          where: {
+            id: { [Op.in]: franchiseIds },
+            role: { [Op.in]: ['franchaise', 'franchise'] },
+          },
+          attributes: ['id', 'name', 'abheepay_id'],
+        })
+      : [];
+
+    const franchiseMap = new Map(franchiseUsers.map((franchise) => {
+      const plainFranchise = franchise?.toJSON ? franchise.toJSON() : franchise;
+      return [
+        Number(plainFranchise.id),
+        {
+          id: Number(plainFranchise.id),
+          name: plainFranchise.name || null,
+          abheepay_id: plainFranchise.abheepay_id || null,
+        },
+      ];
+    }));
 
     // Bulk-fetch Ledger entries for balance figures (pos_charge = final debit row)
     const txnIds = rows.map(n => n.txn_id).filter(Boolean);
@@ -413,7 +446,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
             transaction_id: { [Op.in]: txnIds },
             transaction_type: 'pos_charge'
           },
-          attributes: ['transaction_id', 'balance_before', 'balance', 'debit']
+          attributes: ['transaction_id', 'balance_before', 'balance', 'debit', 'metadata']
         })
       : [];
     const razorpayLedgerMap = {};
@@ -421,6 +454,30 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
 
     const data = rows.map(n => {
       const ledger = razorpayLedgerMap[n.txn_id] || null;
+      const eventData = (() => {
+        if (!n.event_json) return null;
+        if (typeof n.event_json === 'object') return n.event_json;
+        try {
+          return JSON.parse(n.event_json);
+        } catch (_) {
+          return null;
+        }
+      })();
+      const authCode = eventData?.authCode || eventData?.auth_code || null;
+      const rrNumber = eventData?.rrNumber || eventData?.rr_number || n.rr_number || null;
+      const cardClassification =
+        eventData?.cardClassification
+        || eventData?.card_classification
+        || eventData?.cardClassificationType
+        || null;
+      const paymentCardType = eventData?.paymentCardType || eventData?.payment_card_type || n.payment_card_type || null;
+      const ledgerMeta = ledger?.metadata ? (() => { try { return JSON.parse(ledger.metadata); } catch (_) { return ledger.metadata; } })() : null;
+      const mdr = ledger ? parseFloat(ledger.debit) : null;
+      const netCredit = ledgerMeta?.net_amount !== undefined ? parseFloat(ledgerMeta.net_amount) : null;
+      const mdrPercent = ledgerMeta?.charge_rate !== undefined ? parseFloat(ledgerMeta.charge_rate) : null;
+      const balanceAfterMdr = ledger ? parseFloat(ledger.balance) : null;
+      const franchiseId = n.user?.franchaise_id ? Number(n.user.franchaise_id) : null;
+      const franchise = franchiseId ? franchiseMap.get(franchiseId) || null : null;
       return {
         id:                n.id,
         txn_id:            n.txn_id,
@@ -430,18 +487,32 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         currency_code:     n.currency_code,
         payment_mode:      n.payment_mode,
         payment_card_type: n.payment_card_type,
+        paymentCardType,
         payment_card_brand:n.payment_card_brand,
         rr_number:         n.rr_number,
+        authCode,
+        rrNumber,
+        cardClassification,
         device_serial:     n.device_serial,
         posting_date:      n.posting_date,
         status:            n.status,
         user_id:           n.user_id,
         pos_machine_id:    n.pos_machine_id,
         user:              n.user        || null,
+        franchise_id:      franchiseId,
+        franchise_name:    franchise?.name || null,
+        franchise,
         pos_machine:       n.posMachine  || null,
         created_at:        n.createdAt,
         balance_before:    ledger ? parseFloat(ledger.balance_before) : null,
-        balance_after:     ledger ? parseFloat(ledger.balance)        : null
+        balance_after:     ledger ? parseFloat(ledger.balance)        : null,
+        mdr,
+        mdr_percent:       mdrPercent,
+        net_credit:        netCredit,
+        balance_after_mdr: balanceAfterMdr,
+        remaining_balance: netCredit, // per-txn net credit after MDR cut
+        remaining_balance_1: netCredit,
+        remaining_balance_2: netCredit
       };
     });
 
@@ -449,7 +520,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       success: true,
       message: 'Razorpay notification report fetched successfully',
       count,
-      pagination: {
+      pagination: useUnlimited ? null : {
         total:      count,
         page:       pageNum,
         limit:      limitNum,
