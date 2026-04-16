@@ -10,6 +10,10 @@ const PosRentalBilling = require('../models/PosRentalBilling');
 const { response } = require("express");
 const { parse } = require('csv-parse/sync');
 const fs = require('fs');
+const {
+  normalizeRole,
+  canFranchiseAccessTarget,
+} = require('../utils/permissions');
 
 // ---------------------------------------------------------------------------
 // Helper – create / refresh a PosRentalBilling record when a machine is
@@ -574,18 +578,49 @@ const getPosMachineList = asyncHandler(async (req, res) => {
 };
   });
 
-// Get assigned POS machines by user id (admin-only)
+// Get assigned POS machines by user id
 const getPosMachinesByUserId = asyncHandler(async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Only admin can access this endpoint' });
+    const requesterRole = normalizeRole(req.user?.role);
+
+    if (requesterRole === 'merchant') {
+      return res.status(403).json({
+        success: false,
+        message: 'Merchants cannot access assigned POS machine details.',
+      });
     }
 
     const { userId } = req.params;
     const { status, page = 1, limit = 50 } = req.query;
+    const targetUserId = Number.parseInt(userId, 10);
+
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid userId is required',
+      });
+    }
+
+    const targetUser = await User.findByPk(targetUserId, {
+      attributes: ['id', 'role', 'franchaise_id'],
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (requesterRole === 'franchaise' && !canFranchiseAccessTarget(req.user, targetUser)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Franchise users can only view assigned POS machines for their own merchants.',
+      });
+    }
 
     const offset = (page - 1) * limit;
-    const where = { assigned_to: userId };
+    const where = { assigned_to: targetUserId };
     if (status) where.status = status;
 
     const { count, rows } = await PosMachine.findAndCountAll({
