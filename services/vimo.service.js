@@ -848,14 +848,14 @@ async function createPayout(payload) {
       requestBody = { requestBody: encryptPlainText(JSON.stringify(payload)) };
 
       logVimo('createPayout outgoing request', {
-        url: vimoBaseURL + '/payoutapi/api/payment/payouts',
+        url: vimoBaseURL + '/payoutapi/api/payment/payout',
         method: 'POST',
         headers: { userId: headers.userId, hasToken: Boolean(token) },
         rawPayload: payload,
         encryptedBody: requestBody,
       });
 
-      return vimoClient.post('/payoutapi/api/payment/payouts', requestBody, { headers });
+      return vimoClient.post('/payoutapi/api/payment/payout', requestBody, { headers });
     });
 
     logVimo('createPayout provider response', {
