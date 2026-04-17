@@ -786,6 +786,63 @@ async function executeAuthorizedRequest(requestFactory) {
   }
 }
 
+function normalizeBankName(value) {
+  if (!value) return '';
+  return String(value)
+    .normalize('NFKD')
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .toLowerCase();
+}
+
+function isBankCode(value) {
+  return typeof value === 'string' && /^[0-9]{1,10}$/.test(value.trim());
+}
+
+async function getCachedBankList() {
+  if (bankListCache.value && Date.now() < bankListCache.expiresAt) {
+    return bankListCache.value;
+  }
+
+  const result = await fetchBankList();
+  bankListCache.value = Array.isArray(result.data) ? result.data : [];
+  bankListCache.expiresAt = Date.now() + BANK_LIST_TTL_MS;
+  return bankListCache.value;
+}
+
+async function resolveBankCode(bankNameOrCode) {
+  const value = String(bankNameOrCode || '').trim();
+  if (!value) {
+    return null;
+  }
+
+  if (isBankCode(value)) {
+    return value;
+  }
+
+  const normalizedValue = normalizeBankName(value);
+  const bankList = await getCachedBankList();
+  if (!Array.isArray(bankList) || bankList.length === 0) {
+    return null;
+  }
+
+  const exactMatch = bankList.find((item) => {
+    if (typeof item.description !== 'string' || typeof item.code !== 'string') return false;
+    const normalizedDescription = normalizeBankName(item.description);
+    return normalizedDescription === normalizedValue || normalizeBankName(item.code) === normalizedValue;
+  });
+  if (exactMatch) {
+    return exactMatch.code;
+  }
+
+  const partialMatch = bankList.find((item) => {
+    if (typeof item.description !== 'string') return false;
+    const normalizedDescription = normalizeBankName(item.description);
+    return normalizedDescription.includes(normalizedValue) || normalizedValue.includes(normalizedDescription);
+  });
+
+  return partialMatch ? partialMatch.code : null;
+}
+
 async function fetchEncryptedList(path, successMessage) {
   try {
     const response = await executeAuthorizedRequest((token) =>
@@ -965,4 +1022,5 @@ module.exports = {
   fetchStateList,
   createPayout,
   getAuthorizeTokenResponse,
+  resolveBankCode,
 };

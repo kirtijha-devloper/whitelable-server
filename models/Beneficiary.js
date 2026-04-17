@@ -21,6 +21,11 @@ const Beneficiary = db.define(
       type: Sequelize.STRING,
       allowNull: false,
     },
+    bank_code: {
+      type: Sequelize.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
     account_number: {
       type: Sequelize.STRING,
       allowNull: false,

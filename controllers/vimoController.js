@@ -157,7 +157,16 @@ async function createPayout(req, res) {
     }
   }
 
-  const resolvedBeneficiaryBank = beneficiaryBank || selectedBeneficiary?.bank_name || null;
+  const resolvedBeneficiaryBank = beneficiaryBank || selectedBeneficiary?.bank_code || selectedBeneficiary?.bank_name || null;
+  const resolvedBeneficiaryBankCode = await vimoService.resolveBankCode(resolvedBeneficiaryBank);
+  if (selectedBeneficiary && !selectedBeneficiary.bank_code && resolvedBeneficiaryBankCode) {
+    try {
+      await selectedBeneficiary.update({ bank_code: resolvedBeneficiaryBankCode });
+    } catch (_) {
+      // best-effort backfill only; payout should still proceed if code is resolved
+    }
+  }
+
   const resolvedBeneficiaryAccountNumber = beneficiaryAccountNumber || selectedBeneficiary?.account_number || null;
   const resolvedBeneficiaryIFSC = beneficiaryIFSC || selectedBeneficiary?.ifsc_code || null;
   const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile_number || null;
@@ -172,6 +181,14 @@ async function createPayout(req, res) {
   if (!resolvedBeneficiaryName) missingBeneficiaryFields.push('beneficiaryName');
   if (missingBeneficiaryFields.length > 0) {
     return res.status(400).json({ success: false, message: 'Beneficiary information missing', missing: missingBeneficiaryFields });
+  }
+
+  if (!resolvedBeneficiaryBankCode) {
+    return res.status(400).json({
+      success: false,
+      message: 'Unable to resolve Vimo bank code for beneficiaryBank. Provide a valid bank code or bank name from /api/vimo/banks.',
+      beneficiaryBank: resolvedBeneficiaryBank,
+    });
   }
 
   if (!resolvedBeneficiaryLocation) {
@@ -309,7 +326,7 @@ async function createPayout(req, res) {
         beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
         beneficiaryIFSC: resolvedBeneficiaryIFSC,
         beneficiaryName: resolvedBeneficiaryName,
-        beneficiaryBank: resolvedBeneficiaryBank,
+        beneficiaryBank: resolvedBeneficiaryBankCode,
       }),
       service_charge: serviceCharge,
     }, { transaction });
@@ -344,7 +361,7 @@ async function createPayout(req, res) {
       description: `Vimo payout ${merchantRefId || payoutTransaction.id}`,
       metadata: {
         service: 'vimo',
-        beneficiaryBank: resolvedBeneficiaryBank,
+        beneficiaryBank: resolvedBeneficiaryBankCode,
         beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
         beneficiaryIFSC: resolvedBeneficiaryIFSC,
         beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
@@ -371,7 +388,7 @@ async function createPayout(req, res) {
     const result = await vimoService.createPayout({
       amount,
       merchantRefId,
-      beneficiaryBank: resolvedBeneficiaryBank,
+      beneficiaryBank: resolvedBeneficiaryBankCode,
       paymentPurpose: normalizedPaymentPurpose,
       paymentMode,
       beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
@@ -838,7 +855,7 @@ async function handleCallback(req, res) {
 
 // Vimo beneficiary management
 async function createBeneficiary(req, res) {
-  const { name, account_number, ifsc_code, bank_name, branch_name, state, mobile, email } = req.body;
+  const { name, account_number, ifsc_code, bank_name, bank_code, branch_name, state, mobile, email } = req.body;
   const userId = req.user?.id;
 
   if (!userId || !name || !account_number || !ifsc_code || !bank_name || !state) {
@@ -851,6 +868,7 @@ async function createBeneficiary(req, res) {
     account_number,
     ifsc_code,
     bank_name,
+    bank_code:      bank_code || null,
     branch_name:   branch_name || null,
     state,
     mobile_number: mobile || '',
