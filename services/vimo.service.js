@@ -355,9 +355,14 @@ const tokenCache = {
   authorizeResponse: null,
 };
 
+const bankListCache = {
+  value: null,
+  expiresAt: 0,
+};
+const BANK_LIST_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
 
 const payoutResponseFields = [
-  'txnStatus',
+  'txnStatus', 
   'rrn',
   'txnStatusCode',
   'responseMessage',
