@@ -441,7 +441,7 @@ console.log("nexxxxt linenne", req.body);
     const beneficiaries = await Beneficiary.findAll({
       where: {
         merchant_id: merchantId,
-        status: ['active', 'verified'] // Only get active and verified beneficiaries
+        status: { [Op.in]: ['active', 'verified'] } // Only get active and verified beneficiaries
       },
       order: [['createdAt', 'DESC']]
     });
