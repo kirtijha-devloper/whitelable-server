@@ -73,6 +73,42 @@ const getDateRange = (startDate, endDate) => {
   return { start, end };
 };
 
+const IST_OFFSET_MINUTES = 330;
+
+function parseIstBusinessDateRange(fromDateInput, toDateInput) {
+  const today = new Date();
+  const fallbackDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(today);
+
+  const fromDateText = fromDateInput || fallbackDate;
+  const toDateText = toDateInput || fallbackDate;
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (!datePattern.test(fromDateText) || !datePattern.test(toDateText)) {
+    return { error: 'Invalid date format. Use YYYY-MM-DD.' };
+  }
+
+  const [fromYear, fromMonth, fromDay] = fromDateText.split('-').map(Number);
+  const [toYear, toMonth, toDay] = toDateText.split('-').map(Number);
+
+  const fromDate = new Date(Date.UTC(fromYear, fromMonth - 1, fromDay, 0, -IST_OFFSET_MINUTES, 0, 0));
+  const toDate = new Date(Date.UTC(toYear, toMonth - 1, toDay, 23, 59 - IST_OFFSET_MINUTES, 59, 999));
+
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+    return { error: 'Invalid date format. Use YYYY-MM-DD.' };
+  }
+
+  if (fromDate > toDate) {
+    return { error: 'from_date must not be after to_date' };
+  }
+
+  return { fromDate, toDate };
+}
+
 /**
  * Build a WHERE-scope object for the given user-id field based on the
  * caller's role.  Throws with .statusCode = 403 on franchise access denial.
@@ -692,15 +728,11 @@ const getPayoutReport = asyncHandler(async (req, res) => {
   try {
     const { from_date, to_date, user_id, status, page = 1, limit = 50 } = req.query;
 
-    const today = new Date();
-    const fromDate = from_date ? new Date(from_date) : new Date(today);
-    fromDate.setHours(0, 0, 0, 0);
-    const toDate = to_date ? new Date(to_date) : new Date(today);
-    toDate.setHours(23, 59, 59, 999);
-
-    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
-      return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
+    const parsedDateRange = parseIstBusinessDateRange(from_date, to_date);
+    if (parsedDateRange.error) {
+      return res.status(400).json({ success: false, message: parsedDateRange.error });
     }
+    const { fromDate, toDate } = parsedDateRange;
 
     const where = { createdAt: { [Op.between]: [fromDate, toDate] } };
 

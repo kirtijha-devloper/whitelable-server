@@ -671,6 +671,29 @@ describe('GET /api/report/payout', () => {
     expect(capturedWhere.status).to.equal('FAILED');
   });
 
+  it('uses IST business-day boundaries for payout date filters', async () => {
+    let capturedWhere;
+    PayoutTransaction.findAndCountAll = async ({ where }) => {
+      capturedWhere = where;
+      return { count: 0, rows: [] };
+    };
+    Ledger.findAll = emptyFindAll;
+
+    const res = await request(app)
+      .get('/api/report/payout?from_date=2026-04-19&to_date=2026-04-19')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+
+    const range = capturedWhere.createdAt[require('sequelize').Op.between];
+    expect(range[0].toISOString()).to.equal('2026-04-18T18:30:00.000Z');
+    expect(range[1].toISOString()).to.equal('2026-04-19T18:29:59.999Z');
+    expect(res.body.date_range).to.deep.equal({
+      from: '2026-04-18T18:30:00.000Z',
+      to: '2026-04-19T18:29:59.999Z',
+    });
+  });
+
   it('merchant is scoped to their own merchant_id in WHERE', async () => {
     let capturedWhere;
     PayoutTransaction.findAndCountAll = async ({ where }) => {
