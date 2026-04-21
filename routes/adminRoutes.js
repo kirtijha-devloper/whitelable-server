@@ -13,12 +13,21 @@ const {
   updateLoginPopup,
   deleteLoginPopup,
 } = require("../controllers/loginPopupController");
+const { listLogFiles, downloadLogFile } = require("../controllers/logController");
 const { loginPopupUpload } = require("../middleware/loginPopupUpload");
 const validateToken = require("../middleware/validateTokenHandler");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 
 router.route("/").get(getAdminDashboard);
+
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Admin access only." });
+  }
+
+  return next();
+}
 
 // GET /api/admin/merchants/unassigned
 //   Returns merchants with no franchise (franchaise_id IS NULL)
@@ -88,4 +97,15 @@ router.get("/login-popups", validateToken, listLoginPopupsForAdmin);
 router.post("/login-popups", validateToken, loginPopupUpload, createLoginPopup);
 router.put("/login-popups/:id", validateToken, loginPopupUpload, updateLoginPopup);
 router.delete("/login-popups/:id", validateToken, deleteLoginPopup);
+
+router.get("/logs", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, {
+  message: "You do not have permission to view server logs.",
+  elevateRole: "admin",
+}), requireAdmin, listLogFiles);
+
+router.get("/logs/:filename/download", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, {
+  message: "You do not have permission to view server logs.",
+  elevateRole: "admin",
+}), requireAdmin, downloadLogFile);
+
 module.exports = router;

@@ -23,6 +23,7 @@ const EMPLOYEE_PERMISSIONS = Object.freeze({
   RATE_SETTINGS_MANAGE: 'rate.settings.manage',
   RAZORPAY_NOTIFICATIONS_LIST: 'razorpay.notifications.list',
   RAZORPAY_NOTIFICATIONS_READ: 'razorpay.notifications.read',
+  SYSTEM_LOGS_READ: 'system.logs.read',
 });
 
 const EMPLOYEE_PERMISSION_CATALOG = Object.freeze([
@@ -102,6 +103,13 @@ const EMPLOYEE_PERMISSION_CATALOG = Object.freeze([
     permissions: [
       { slug: EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_LIST, label: 'List Razorpay Notifications' },
       { slug: EMPLOYEE_PERMISSIONS.RAZORPAY_NOTIFICATIONS_READ, label: 'View Razorpay Notification Detail' },
+    ],
+  },
+  {
+    module: 'system',
+    label: 'System',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, label: 'View Server Logs' },
     ],
   },
 ]);

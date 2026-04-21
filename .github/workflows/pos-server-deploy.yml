@@ -38,6 +38,9 @@ jobs:
             echo "📦 Install dependencies"
             npm install --production
 
+            echo "Ensure log folder exists"
+            mkdir -p logs
+
             echo "🗄️ Run migrations"
             npx sequelize db:migrate || { echo "❌ Migration failed"; exit 1; }
 
