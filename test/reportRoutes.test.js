@@ -554,6 +554,21 @@ describe('GET /api/report/ledger', () => {
     expect(capturedWhere.transaction_type).to.equal('payout');
   });
 
+  it('uses IST business-day boundaries for ledger date filters', async () => {
+    let capturedWhere;
+    Ledger.findAll = async ({ where }) => { capturedWhere = where; return []; };
+
+    const res = await request(app)
+      .get('/api/report/ledger?from_date=2026-04-22&to_date=2026-04-22')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+
+    const range = capturedWhere.createdAt[require('sequelize').Op.between];
+    expect(range[0].toISOString()).to.equal('2026-04-21T18:30:00.000Z');
+    expect(range[1].toISOString()).to.equal('2026-04-22T18:29:59.999Z');
+  });
+
   it('returns 400 for invalid date', async () => {
     const res = await request(app)
       .get('/api/report/ledger?from_date=2026-13-01')
@@ -793,10 +808,13 @@ describe('GET /api/report/bbps', () => {
     };
 
     await request(app)
-      .get('/api/report/bbps')
+      .get('/api/report/bbps?from_date=2026-04-22&to_date=2026-04-22')
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(capturedWhere.transaction_type).to.equal('bbps_payment');
+    const range = capturedWhere.createdAt[require('sequelize').Op.between];
+    expect(range[0].toISOString()).to.equal('2026-04-21T18:30:00.000Z');
+    expect(range[1].toISOString()).to.equal('2026-04-22T18:29:59.999Z');
   });
 
   it('merchant is scoped by user_id', async () => {
@@ -900,11 +918,14 @@ describe('GET /api/report/all-transactions', () => {
     };
 
     await request(app)
-      .get('/api/report/all-transactions?transaction_type=payout')
+      .get('/api/report/all-transactions?transaction_type=payout&from_date=2026-04-22&to_date=2026-04-22')
       .set('Authorization', `Bearer ${adminToken}`);
 
     const inClause = capturedWhere.transaction_type[require('sequelize').Op.in];
     expect(inClause).to.deep.equal(['payout']);
+    const range = capturedWhere.createdAt[require('sequelize').Op.between];
+    expect(range[0].toISOString()).to.equal('2026-04-21T18:30:00.000Z');
+    expect(range[1].toISOString()).to.equal('2026-04-22T18:29:59.999Z');
   });
 
   it('merchant is scoped to their own user_id', async () => {

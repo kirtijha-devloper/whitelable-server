@@ -1,6 +1,7 @@
 const Ledger = require('../models/Ledger');
 const User = require('../models/User');
 const SettlementHold = require('../models/SettlementHold');
+const { parseIstBusinessDateRange } = require('../utils/dateRange');
 const { Op } = require('sequelize');
 
 // ---------------------------------------------------------------------------
@@ -308,14 +309,19 @@ async function getLedgerEntries({
   const where = { user_id: userId };
 
   if (startDate || endDate) {
-    where.createdAt = {};
-    if (startDate) {
-      where.createdAt[Op.gte] = new Date(startDate);
+    const parsedDateRange = parseIstBusinessDateRange(startDate, endDate, { defaultToToday: false });
+    if (parsedDateRange.error) {
+      const error = new Error(parsedDateRange.error);
+      error.statusCode = 400;
+      throw error;
     }
-    if (endDate) {
-      const endDateObj = new Date(endDate);
-      endDateObj.setHours(23, 59, 59, 999);
-      where.createdAt[Op.lte] = endDateObj;
+
+    where.createdAt = {};
+    if (parsedDateRange.fromDate) {
+      where.createdAt[Op.gte] = parsedDateRange.fromDate;
+    }
+    if (parsedDateRange.toDate) {
+      where.createdAt[Op.lte] = parsedDateRange.toDate;
     }
   }
 

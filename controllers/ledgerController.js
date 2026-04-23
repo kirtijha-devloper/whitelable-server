@@ -209,7 +209,7 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('Get ledger entries error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Something went wrong'
     });
