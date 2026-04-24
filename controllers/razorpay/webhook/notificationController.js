@@ -370,7 +370,7 @@ async function _resolvePosContext(notification) {
         paymentMode: (notification.payment_mode || eventData.paymentMode || '').toUpperCase(),
         paymentCardType: notification.payment_card_type || eventData.paymentCardType || null,
         paymentCardBrand: notification.payment_card_brand || eventData.paymentCardBrand || null,
-        classificationFromJson: eventData.card_classification || eventData.cardClassification || null,
+        classificationFromJson: eventData.card_classification || eventData.cardClassification || eventData.cardClassificationType || null,
         rrNumber: notification.rr_number || eventData.rrNumber || null,
         customerName: eventData.customerName || null
     };

@@ -142,6 +142,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       // Card payment fields
       paymentCardType,
       paymentCardBrand,
+      cardClassificationType,
       formattedPan,
       authCode,
       acquirerCode,
@@ -199,7 +200,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       userAgreement
     } = data;
     // card classification might be supplied as either snake_case or camelCase
-    const classificationFromJson = data.card_classification || data.cardClassification || null;
+    const classificationFromJson = data.card_classification || data.cardClassification || cardClassificationType || null;
 
     // derive merchant, terminal, and amount using the notification columns when available
     // fall back to JSON payload values if the column was not back‑filled yet

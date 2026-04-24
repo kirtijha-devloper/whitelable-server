@@ -97,5 +97,30 @@ describe('ChargeService', () => {
       });
       expect(stub.calledOnce).to.be.true;
     });
+
+    it('normalizes card lookup values and performs case-insensitive SQL matching', async () => {
+      sinon.stub(db, 'query').callsFake((query, opts) => {
+        expect(query).to.include('UPPER(payment_mode) = $3');
+        expect(query).to.include('UPPER(card_type)    = $4');
+        expect(query).to.include('UPPER(card_brand)   = $5');
+        expect(query).to.include('UPPER(card_classification) = $6');
+        expect(opts.bind[2]).to.equal('CARD');
+        expect(opts.bind[3]).to.equal('CREDIT');
+        expect(opts.bind[4]).to.equal('VISA');
+        expect(opts.bind[5]).to.equal('BUSINESS');
+        return [];
+      });
+
+      await ChargeService.getTransactionChargeRule({
+        userId: 7,
+        franchiseId: 5,
+        paymentMode: 'Card',
+        cardType: 'Credit',
+        cardBrand: 'visa',
+        classification: 'Business',
+        settlement: 'today_settlement',
+        amount: 100
+      });
+    });
   });
 });

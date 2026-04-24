@@ -22,6 +22,11 @@ function normalizeCardBrand(cardBrand) {
   return CARD_BRAND_MAPPINGS[normalized] || normalized;
 }
 
+function normalizeLookupValue(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return normalized || null;
+}
+
 function getCardBrandCandidates(cardBrand) {
   const normalized = normalizeCardBrand(cardBrand);
   if (!normalized) return [];
@@ -87,6 +92,9 @@ async function getTransactionChargeRule({
   //   admin_franchise     16    (admin set rate for a franchise)
   //   admin_default        0    (global default)
 
+  const normalizedPaymentMode = normalizeLookupValue(paymentMode);
+  const normalizedCardType = normalizeLookupValue(cardType);
+  const normalizedClassification = normalizeLookupValue(classification);
   const cardBrandCandidates = getCardBrandCandidates(cardBrand);
 
   const query = `
@@ -117,10 +125,10 @@ async function getTransactionChargeRule({
          OR (user_id IS NULL AND (franchaise_id = $2 OR franchaise_id IS NULL))
       )
       -- dimension matching (each is optional in the rule)
-      AND (payment_mode = $3 OR payment_mode IS NULL)
-      AND (card_type    = $4 OR card_type    IS NULL)
-      AND (card_brand   = $5 OR card_brand   IS NULL)
-      AND (card_classification = $6 OR card_classification IS NULL)
+      AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL)
+      AND (UPPER(card_type)    = $4 OR card_type    IS NULL)
+      AND (UPPER(card_brand)   = $5 OR card_brand   IS NULL)
+      AND (UPPER(card_classification) = $6 OR card_classification IS NULL)
       AND (settlement_type     = $7 OR settlement_type     IS NULL)
       -- amount slab
       AND $8 >= min_amount
@@ -132,9 +140,9 @@ async function getTransactionChargeRule({
   const replacementBase = [
     userId || null,
     franchiseId || null,
-    paymentMode || null,
-    cardType || null,
-    classification || null,
+    normalizedPaymentMode,
+    normalizedCardType,
+    normalizedClassification,
     settlement || null,
     amount
   ];
@@ -169,6 +177,9 @@ async function getAdminChargeRuleForFranchise({
   settlement,
   amount
 }) {
+  const normalizedPaymentMode = normalizeLookupValue(paymentMode);
+  const normalizedCardType = normalizeLookupValue(cardType);
+  const normalizedClassification = normalizeLookupValue(classification);
   const cardBrandCandidates = getCardBrandCandidates(cardBrand);
 
   const query = `
@@ -189,10 +200,10 @@ async function getAdminChargeRuleForFranchise({
       AND scope IN ('admin_franchise', 'admin_default')
       AND user_id IS NULL
       AND (franchaise_id = $1 OR franchaise_id IS NULL)
-      AND (payment_mode = $2 OR payment_mode IS NULL)
-      AND (card_type    = $3 OR card_type    IS NULL)
-      AND (card_brand   = $4 OR card_brand   IS NULL)
-      AND (card_classification = $5 OR card_classification IS NULL)
+      AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL)
+      AND (UPPER(card_type)    = $3 OR card_type    IS NULL)
+      AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL)
+      AND (UPPER(card_classification) = $5 OR card_classification IS NULL)
       AND (settlement_type     = $6 OR settlement_type     IS NULL)
       AND $7 >= min_amount
       AND ($7 <= max_amount OR max_amount IS NULL)
@@ -202,9 +213,9 @@ async function getAdminChargeRuleForFranchise({
 
   const replacementBase = [
     franchiseId || null,
-    paymentMode || null,
-    cardType || null,
-    classification || null,
+    normalizedPaymentMode,
+    normalizedCardType,
+    normalizedClassification,
     settlement || null,
     amount
   ];
@@ -272,6 +283,7 @@ module.exports = {
   getAdminChargeRuleForFranchise,
   calculateCharge,
   deriveScope,
+  normalizeLookupValue,
   normalizeCardBrand,
   getCardBrandCandidates
 };
