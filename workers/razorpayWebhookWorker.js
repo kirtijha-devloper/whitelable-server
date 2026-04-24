@@ -458,46 +458,24 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       logger.log(`[Razorpay Webhook Worker] Transaction charge record exists for txn: ${txnId} but notification status is ${notification.processing_status}. Continuing to repair ledger entries if needed.`);
     }
 
-    // Step 6: If merchant belongs to a franchise record, apply the franchise-level ledger entries
-    if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
-      const franchiseId = posOperator.franchaise_id;
+    // Step 6: If merchant belongs to a franchise, credit the franchise its net earning
+    // (merchant charge minus the admin's share) as a single ledger entry.
+    if (posOperator.role === 'merchant' && posOperator.franchaise_id && franchiseEarning > 0) {
       const ledgerService = require("../services/ledgerService");
-
-      if (franchiseChargeAmount > 0) {
-        // debit franchise
-        const desc = `Admin charge for Razorpay txn ${txnId}`;
-        await ledgerService.createLedgerEntry({
-          userId: franchiseId,
-          transactionType: "franchise_admin_fee",
-          transactionId: txnId,
-          description: desc,
-          debit: franchiseChargeAmount,
-          metadata: {
-            merchant_id: posOperator.id,
-            transaction_amount: transactionAmount,
-            charge_rate: chargeRate,
-            franchise_charge: franchiseChargeAmount
-          }
-        });
-        logger.log(`[Razorpay Webhook Worker] Debited franchise ${franchiseId} ₹${franchiseChargeAmount}`);
-      }
-
-      if (chargeAmount > 0) {
-        const desc2 = `Merchant charge for Razorpay txn ${txnId}`;
-        await ledgerService.createLedgerEntry({
-          userId: franchiseId,
-          transactionType: "franchise_merchant_charge",
-          transactionId: txnId,
-          description: desc2,
-          credit: chargeAmount,
-          metadata: {
-            merchant_id: posOperator.id,
-            transaction_amount: transactionAmount,
-            charge_rate: chargeRate
-          }
-        });
-        logger.log(`[Razorpay Webhook Worker] Credited franchise ${franchiseId} ₹${chargeAmount}`);
-      }
+      await ledgerService.createFranchiseEarningEntry({
+        userId: posOperator.franchaise_id,
+        razorpayTransactionId: txnId,
+        amount: franchiseEarning,
+        description: `Merchant ${posOperator.name || posOperator.id} did a ₹${transactionAmount} POS txn (${paymentMethod || 'CARD'}) | Merchant charged ₹${chargeAmount} (${chargeRate}%) | Admin share ₹${franchiseChargeAmount} deducted | Net earning ₹${franchiseEarning}`,
+        metadata: {
+          merchant_id: posOperator.id,
+          transaction_amount: transactionAmount,
+          charge_amount: chargeAmount,
+          franchise_charge: franchiseChargeAmount,
+          charge_rate: chargeRate
+        }
+      });
+      logger.log(`[Razorpay Webhook Worker] ✅ Franchise earning ₹${franchiseEarning} credited to franchise ${posOperator.franchaise_id}`);
     }
 
     // Step 7: Create MerchantTransactionCharge record to track deducted amount
