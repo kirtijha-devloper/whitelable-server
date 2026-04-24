@@ -583,29 +583,10 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       // Don't throw - ledger is for tracking, transaction is already processed
     }
 
-    // Step 9: Franchise earning (replaces previous commission logic)
-    if (posOperator.role === 'merchant' && posOperator.franchaise_id && typeof franchiseEarning === 'number' && franchiseEarning > 0) {
-      try {
-        // ledger entry for franchise earning
-        await ledgerService.createFranchiseEarningEntry({
-          userId: posOperator.franchaise_id,
-          razorpayTransactionId: txnId,
-          amount: franchiseEarning,
-          transactionType: "pos_franchise_earning",
-          description: `Franchise earning ₹${franchiseEarning} | Merchant: ${posOperator.id}`,
-          metadata: {
-            merchant_id: posOperator.id,
-            transaction_amount: transactionAmount,
-            charge_amount: chargeAmount,
-            franchise_charge: franchiseChargeAmount,
-          }
-        });
-
-        logger.log(`[Razorpay Webhook Worker] ✅ Franchise earning ₹${franchiseEarning} credited to user ${posOperator.franchaise_id}`);
-      } catch (earnError) {
-        logger.error(`[Razorpay Webhook Worker] ⚠️ Error crediting franchise earning for txn: ${txnId}`, earnError);
-      }
-    }
+    // NOTE: Franchise earning is already accounted for in Step 6 via the
+    // franchise_merchant_charge credit (chargeAmount) and franchise_admin_fee
+    // debit (franchiseChargeAmount), which nets to franchiseEarning.
+    // A separate createFranchiseEarningEntry here would double-credit the franchise.
 
   } catch (error) {
     logger.error(`[Razorpay Webhook Worker] Error in handleAuthorizedTransaction for txn: ${txnId}`, error);
