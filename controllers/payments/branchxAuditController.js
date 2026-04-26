@@ -166,12 +166,13 @@ async function getPayoutAuditLogsByRequest(req, res) {
     }
 
     const normalizedLogs = logs.map(normalizeAuditLogEntry);
+    const extractedRequestId = requestId || normalizedLogs.find((log) => !!log.request_id)?.request_id || null;
 
     return res.json({
       success: true,
       message: 'Payout audit logs retrieved successfully',
       payout_id: payout_id ? parseInt(payout_id, 10) : null,
-      requestId: requestId || null,
+      requestId: extractedRequestId,
       totalLogs: normalizedLogs.length,
       data: normalizedLogs
     });

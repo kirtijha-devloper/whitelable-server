@@ -569,6 +569,7 @@ describe('GET /api/payment/v2/payout/audit-logs/by-payout', () => {
     expect(res.status).to.equal(200);
     expect(res.body.success).to.be.true;
     expect(res.body.totalLogs).to.equal(1);
+    expect(res.body.requestId).to.equal('REQ-123');
     expect(res.body.data[0].request_id).to.equal('REQ-123');
     expect(res.body.payout_id).to.equal(123);
   });
