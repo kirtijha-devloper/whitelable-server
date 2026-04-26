@@ -38,6 +38,7 @@ let tpinFindOneOrig;
 let bcryptCompareOrig;
 let payoutFindByPkOrig;
 let payoutAuditCreateOrig;
+let payoutAuditFindAllOrig;
 
 beforeEach(() => {
   stubs = {
@@ -51,6 +52,7 @@ beforeEach(() => {
     payoutTransactionCreate: PayoutTransaction.create,
     payoutFindByPk: PayoutTransaction.findByPk,
     payoutAuditCreate: PayoutAuditLog.create,
+    payoutAuditFindAll: PayoutAuditLog.findAll,
     ledgerEntry: ledgerService.createLedgerEntry,
     payoutEntry: ledgerService.createPayoutEntry,
     availableBalance: ledgerService.getAvailableBalance
@@ -62,6 +64,7 @@ beforeEach(() => {
   bcryptCompareOrig = bcrypt.compare;
   payoutFindByPkOrig = PayoutTransaction.findByPk;
   payoutAuditCreateOrig = PayoutAuditLog.create;
+  payoutAuditFindAllOrig = PayoutAuditLog.findAll;
 
   User.findByPk = async (id) => ({ id, is_payout_enabled: true, wallet: 100000, role: 'merchant', name: 'TestMerchant' });
   Beneficiary.findByPk = async (id) => ({ id, mobile_number: '9999999999', account_number: '1234567890', ifsc_code: 'IFSC0001', beneficiary_name: 'Test', bank_name: 'Test Bank', status: 'active' });
@@ -83,6 +86,7 @@ afterEach(() => {
   PayoutTransaction.create = stubs.payoutTransactionCreate;
   PayoutTransaction.findByPk = stubs.payoutFindByPk;
   PayoutAuditLog.create = payoutAuditCreateOrig;
+  PayoutAuditLog.findAll = payoutAuditFindAllOrig;
   ledgerService.createLedgerEntry = stubs.ledgerEntry;
   ledgerService.createPayoutEntry = stubs.payoutEntry;
   ledgerService.getAvailableBalance = stubs.availableBalance;
@@ -486,5 +490,59 @@ describe('POST /api/payment/v2/payout/status-check', () => {
     expect(res.status).to.equal(200);
     expect(res.body.action).to.equal('unknown_status_no_action');
     expect(refundCalled).to.be.false;
+  });
+});
+
+describe('GET /api/payment/v2/payout/audit-logs', () => {
+  it('allows admin to fetch payout audit logs grouped by payout_id', async () => {
+    const auditLogs = [
+      {
+        id: 1,
+        payout_id: 123,
+        action: 'BRANCHX_STATUS_CHECK',
+        details: { requestId: 'REQ-123' },
+        created_at: new Date('2026-04-25T10:00:00Z'),
+        updated_at: new Date('2026-04-25T10:00:00Z')
+      },
+      {
+        id: 2,
+        payout_id: 123,
+        action: 'BRANCHX_STATUS_CHECK_FAILED',
+        details: { requestId: 'REQ-123' },
+        created_at: new Date('2026-04-25T10:05:00Z'),
+        updated_at: new Date('2026-04-25T10:05:00Z')
+      },
+      {
+        id: 3,
+        payout_id: 456,
+        action: 'BRANCHX_STATUS_CHECK',
+        details: { requestId: 'REQ-456' },
+        created_at: new Date('2026-04-25T11:00:00Z'),
+        updated_at: new Date('2026-04-25T11:00:00Z')
+      }
+    ];
+
+    PayoutAuditLog.findAll = async () => auditLogs;
+
+    const res = await request(app)
+      .get('/api/payment/v2/payout/audit-logs')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.be.true;
+    expect(res.body.data).to.be.an('array');
+    expect(res.body.data.length).to.equal(2);
+    expect(res.body.data[0].payout_id).to.equal(123);
+    expect(res.body.data[0].logs[0].request_id).to.equal('REQ-123');
+    expect(res.body.data[1].payout_id).to.equal(456);
+  });
+
+  it('rejects non-admin users', async () => {
+    const res = await request(app)
+      .get('/api/payment/v2/payout/audit-logs')
+      .set('Authorization', `Bearer ${merchantToken}`);
+
+    expect(res.status).to.equal(403);
+    expect(res.body.success).to.be.false;
   });
 });
