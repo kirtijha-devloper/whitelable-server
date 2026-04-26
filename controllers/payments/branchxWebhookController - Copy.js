@@ -71,18 +71,6 @@ function normalizeBranchxStatus(statusRaw) {
   return s;
 }
 
-function getBranchxStatusCode(payload) {
-  return payload.statuscode || payload.statusCode || payload.status_code || payload.code || payload.responseCode || payload.response_code || null;
-}
-
-function getCallbackResponseCode(status) {
-  return status === 'PENDING' ? 119 : 200;
-}
-
-function getCallbackResponseMessage(status) {
-  return status === 'PENDING' ? 'Pending' : 'Callback received successfully';
-}
-
 const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
   const payload = (req.method === 'GET' ? req.query : req.body) || {};
   logBranchxCallback(payload, req);
@@ -106,14 +94,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
   if (!payoutTransaction) {
     logBranchxEvent(`NOT PROCESSED — no payout transaction found for refs: ${referenceCandidates.join(', ')}`);
-    return res.status(getCallbackResponseCode(status)).json({
-      success: true,
-      message: getCallbackResponseMessage(status),
-      payoutTransactionFound: false,
-      callbackPayload: payload,
-      branchxStatusCode: getBranchxStatusCode(payload),
-      status
-    });
+    return res.status(404).json({ success: false, message: 'Payout transaction not found for callback payload', callbackPayload: payload });
   }
 
   logBranchxEvent(`Found payout transaction id=${payoutTransaction.id} ref=${payoutTransaction.reference_id} currentStatus=${payoutTransaction.status} incomingStatus=${status}`);
@@ -184,11 +165,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
         details: {
           from: previousStatus,
           to: newStatus,
-          callback: payload,
-          callbackResponse: {
-            statusCode: getCallbackResponseCode(newStatus),
-            message: getCallbackResponseMessage(newStatus)
-          }
+          callback: payload
         }
       }, { transaction: trx });
     }
@@ -197,12 +174,11 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
 
     logBranchxEvent(`PROCESSED successfully — payout id=${locked.id} finalStatus=${newStatus}`);
 
-    const branchxStatusCode = getBranchxStatusCode(payload);
-    return res.status(getCallbackResponseCode(newStatus)).json({
+    const branchxStatusCode = payload.statuscode || payload.statusCode || payload.status_code || payload.code || payload.responseCode || payload.response_code || null;
+    return res.status(200).json({
       success: true,
-      message: getCallbackResponseMessage(newStatus),
+      message: 'BranchX callback processed successfully',
       payoutTransactionId: locked.id,
-      payoutTransactionFound: true,
       status: newStatus,
       branchxStatusCode,
       callbackPayload: payload,

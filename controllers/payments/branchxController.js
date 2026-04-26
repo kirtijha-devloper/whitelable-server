@@ -10,6 +10,7 @@ const PayoutTransaction = require('../../models/PayoutTransaction');
 const Ledger = require('../../models/Ledger');
 const payoutReferenceService = require('../../services/payoutReferenceService');
 const ledgerService = require('../../services/ledgerService');
+const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const ServiceFee = require('../../models/ServiceFee');
 const PayoutCharge = require('../../models/PayoutCharge');
 const { serviceNames } = require('../../constants');
@@ -19,6 +20,8 @@ const {
   assertServiceEnabledOrRespond,
 } = require('../../services/serviceSettingsService');
 
+const payoutLocks = new Map();
+
 function normalizeBranchxStatus(statusRaw) {
   if (!statusRaw) return 'PENDING';
   const status = statusRaw.toString().trim().toUpperCase();
@@ -26,6 +29,42 @@ function normalizeBranchxStatus(statusRaw) {
   if (['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'].includes(status)) return 'FAILED';
   if (['PENDING', 'PROCESSING', 'IN_PROGRESS'].includes(status)) return 'PENDING';
   return 'PENDING';
+}
+
+function getBranchxStatusCategory(statusRaw) {
+  if (statusRaw === undefined || statusRaw === null) return 'UNKNOWN';
+  const status = statusRaw.toString().trim().toUpperCase();
+  if (['SUCCESS', 'COMPLETED'].includes(status)) return 'SUCCESS';
+  if (['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'].includes(status)) return 'FAILED';
+  if (['PENDING', 'PROCESSING', 'IN_PROGRESS'].includes(status)) return 'PENDING';
+  return 'UNKNOWN';
+}
+
+function isAdminUser(req) {
+  return req.user && req.user.role === 'admin';
+}
+
+function isCreatorUser(req, payoutTransaction) {
+  return req.user && payoutTransaction && req.user.id === payoutTransaction.merchant_id;
+}
+
+function cleanupPayoutLocks() {
+  const now = Date.now();
+  for (const [key, info] of payoutLocks.entries()) {
+    if (info.expiresAt <= now) {
+      payoutLocks.delete(key);
+    }
+  }
+}
+
+function isPayoutLocked(lockKey) {
+  cleanupPayoutLocks();
+  const lock = payoutLocks.get(lockKey);
+  return !!lock;
+}
+
+function lockPayout(lockKey, durationMs = 180000) {
+  payoutLocks.set(lockKey, { expiresAt: Date.now() + durationMs });
 }
 
 async function resolvePayoutServiceCharge(amount) {
@@ -139,9 +178,41 @@ router.post('/payout', asyncHandler(async (req, res) => {
       return res.status(404).json({ message: "Beneficiary not found" });
     }
 
+    const lockKey = `${merchant_id}:${beneficiary_id}:${amount}`;
+    if (isPayoutLocked(lockKey)) {
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate payout detected. Please wait a few minutes before retrying.'
+      });
+    }
+
+    const recentDuplicate = await PayoutTransaction.findOne({
+      where: {
+        merchant_id,
+        beneficiary_id,
+        amount,
+        status: {
+          [Op.notIn]: ['FAILED']
+        },
+        createdAt: {
+          [Op.gte]: new Date(Date.now() - 3 * 60 * 1000)
+        }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+
+    if (recentDuplicate) {
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate payout detected. Please wait a few minutes before retrying.'
+      });
+    }
+
     if (beneficiary.status === 'inactive') {
       return res.status(400).json({ message: "Beneficiary is disabled" });
     }
+
+    lockPayout(lockKey);
 
     currentDate = getCurrentDate();
     let requestId = req.body.requestId || null;
@@ -182,8 +253,27 @@ router.post('/payout', asyncHandler(async (req, res) => {
       service_charge: service_charge
     });
 
-    // Always write the payout debit ledger entry immediately.
-    // If the API returned FAILED right away, we also create a credit refund.
+    await PayoutAuditLog.create({
+      payout_id: payoutTx.id,
+      action: 'BRANCHX_PAYOUT_REQUEST',
+      details: {
+        requestPayload: payload,
+        reference_id: requestId || data.api_ref
+      }
+    });
+
+    await PayoutAuditLog.create({
+      payout_id: payoutTx.id,
+      action: 'BRANCHX_PAYOUT_RESPONSE',
+      details: {
+        responsePayload: data,
+        status: payoutStatus,
+        reference_id: requestId || data.api_ref
+      }
+    });
+
+    // Debit the wallet immediately on payout initiation regardless of initial status.
+    // Refund will only happen via the callback webhook if BranchX confirms FAILED.
     await ledgerService.createPayoutEntry({
       userId: merchant_id,
       payoutTransactionId: payoutTx.id,
@@ -200,35 +290,6 @@ router.post('/payout', asyncHandler(async (req, res) => {
         branchx_status: payoutStatus
       }
     });
-
-    if (payoutStatus === 'FAILED') {
-      // API returned FAILED immediately — refund the debit right away
-      await ledgerService.createLedgerEntry({
-        userId: merchant_id,
-        transactionType: 'payout_refund',
-        referenceId: payoutTx.id,
-        referenceTable: 'PayoutTransactions',
-        description: `Payout failed immediately: refund ₹${total_amount} for ref: ${requestId}`,
-        credit: total_amount,
-        metadata: {
-          beneficiary_name: beneficiary.beneficiary_name,
-          account_number: beneficiary.account_number,
-          ifsc_code: beneficiary.ifsc_code,
-          bank_name: beneficiary.bank_name,
-          payout_amount: amount,
-          service_charge: service_charge,
-          reference_id: requestId,
-          branchx_status: payoutStatus,
-        }
-      });
-      return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
-        success: false,
-        message: data.message || 'Payout request failed',
-        payout_provider: 'BranchX',
-        reference_id: requestId || data.api_ref,
-        data
-      });
-    }
 
     res.json({
       success: true,
@@ -683,21 +744,18 @@ router.get('/payout-transactions', asyncHandler(async (req, res) => {
 router.post('/payout/status-check', asyncHandler(async (req, res) => {
   try {
     const { payout_transaction_id, requestId } = req.body;
-
     let referenceId = requestId;
+    let payoutTransaction = null;
 
-    // If payout_transaction_id is provided, get the reference_id from PayoutTransaction
-    if (payout_transaction_id && !requestId) {
-      const payoutTransaction = await PayoutTransaction.findByPk(payout_transaction_id);
-      
+    if (payout_transaction_id) {
+      payoutTransaction = await PayoutTransaction.findByPk(payout_transaction_id);
       if (!payoutTransaction) {
         return res.status(404).json({
           success: false,
           message: 'Payout transaction not found'
         });
       }
-
-      referenceId = payoutTransaction.reference_id;
+      referenceId = referenceId || payoutTransaction.reference_id;
     }
 
     if (!referenceId) {
@@ -707,79 +765,171 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
       });
     }
 
-    // Call BranchX status check API
-    const data = await branchxService.statusCheck(referenceId);
-
-    // Extract and normalize the actual transaction status from nested response
-    // Response structure: { data: { data: { status: "FAILED" }, status: "SUCCESS" } }
-    const transactionStatus = normalizeBranchxStatus(data?.data?.status || data?.status || 'PENDING');
-
-    // Find PayoutTransaction to update
-    let payoutTransaction = null;
-    
-    if (payout_transaction_id) {
-      payoutTransaction = await PayoutTransaction.findByPk(payout_transaction_id);
-    } else if (referenceId) {
-      // If only requestId is provided, find by reference_id
+    if (!payoutTransaction) {
       payoutTransaction = await PayoutTransaction.findOne({
         where: { reference_id: referenceId },
         order: [['createdAt', 'DESC']]
       });
+      if (!payoutTransaction) {
+        return res.status(404).json({
+          success: false,
+          message: 'Payout transaction not found'
+        });
+      }
     }
 
-    // Update PayoutTransaction status if found
-    if (payoutTransaction) {
-      const previousStatus = payoutTransaction.status;
-      const newStatus = transactionStatus;
+    const isAdmin = isAdminUser(req);
+    const isCreator = isCreatorUser(req, payoutTransaction);
+    if (!isAdmin && !isCreator) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to check this payout status'
+      });
+    }
 
-        // Update status and data if status changed
-        if (previousStatus !== newStatus) {
-          await payoutTransaction.update({ 
-            status: newStatus,
-            data: JSON.stringify(data)
-          });
+    const data = await branchxService.statusCheck(referenceId);
+    const rawStatus = data?.data?.status ?? data?.data?.Status ?? null;
+    const statusCode = data?.statuscode ?? data?.statusCode ?? data?.data?.statuscode ?? data?.data?.statusCode ?? null;
+    const statusCategory = getBranchxStatusCategory(rawStatus);
+    const previousStatus = payoutTransaction.status;
+    let action = 'no_action';
+    let refundCreated = false;
 
-          // Handle wallet refund if payout transitions to FAILED
-          if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && newStatus === 'FAILED') {
-            const existingRefund = await Ledger.findOne({
-              where: {
-                transaction_type: 'payout_refund',
-                reference_id: payoutTransaction.id,
-                reference_table: 'PayoutTransactions',
-              },
-            });
+    if (statusCategory === 'SUCCESS' || statusCategory === 'PENDING') {
+      if (previousStatus !== statusCategory) {
+        await payoutTransaction.update({
+          status: statusCategory,
+          data: JSON.stringify(data)
+        });
+        action = 'status_updated';
+      } else {
+        await payoutTransaction.update({
+          data: JSON.stringify(data)
+        });
+        action = 'data_refreshed';
+      }
 
-            if (!existingRefund) {
-              const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
-              await ledgerService.createLedgerEntry({
-                userId: payoutTransaction.merchant_id,
-                transactionType: 'payout_refund',
-                referenceId: payoutTransaction.id,
-                referenceTable: 'PayoutTransactions',
-                description: `Payout failed (status check): refund ₹${refundAmount} for ${payoutTransaction.reference_id}`,
-                credit: refundAmount,
-                metadata: {
-                  payout_reference: payoutTransaction.reference_id,
-                  previous_status: previousStatus,
-                  new_status: newStatus,
-                  payout_amount: payoutTransaction.amount,
-                  service_charge: payoutTransaction.service_charge
-                }
-              });
-            }
-          }
-        } else {
-          // Update data field even if status hasn't changed
-          await payoutTransaction.update({ 
-            data: JSON.stringify(data)
-          });
+      await PayoutAuditLog.create({
+        payout_id: payoutTransaction.id,
+        action: 'BRANCHX_STATUS_CHECK',
+        details: {
+          requestedBy: req.user?.id,
+          requestedRole: req.user?.role,
+          from: previousStatus,
+          to: statusCategory,
+          responseStatus: statusCategory,
+          rawStatus,
+          statusCode,
+          branchxResponse: data,
+          action
         }
+      });
+    } else if (statusCategory === 'FAILED') {
+      if (isAdmin) {
+        await payoutTransaction.update({
+          data: JSON.stringify(data)
+        });
+        action = 'admin_failed_ignored';
+        await PayoutAuditLog.create({
+          payout_id: payoutTransaction.id,
+          action: 'BRANCHX_STATUS_CHECK_IGNORED_FAILED',
+          details: {
+            requestedBy: req.user?.id,
+            requestedRole: req.user?.role,
+            responseStatus: 'FAILED',
+            rawStatus,
+            statusCode,
+            branchxResponse: data,
+            reason: 'Admin checks do not update FAILED status or refund'
+          }
+        });
+      } else {
+        if (previousStatus !== 'FAILED') {
+          await payoutTransaction.update({
+            status: 'FAILED',
+            data: JSON.stringify(data)
+          });
+
+          const existingRefund = await Ledger.findOne({
+            where: {
+              transaction_type: 'payout_refund',
+              reference_id: payoutTransaction.id,
+              reference_table: 'PayoutTransactions'
+            }
+          });
+
+          if (!existingRefund) {
+            const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
+            await ledgerService.createLedgerEntry({
+              userId: payoutTransaction.merchant_id,
+              transactionType: 'payout_refund',
+              referenceId: payoutTransaction.id,
+              referenceTable: 'PayoutTransactions',
+              description: `Payout failed (status check): refund ₹${refundAmount} for ${payoutTransaction.reference_id}`,
+              credit: refundAmount,
+              metadata: {
+                payout_reference: payoutTransaction.reference_id,
+                previous_status: previousStatus,
+                new_status: 'FAILED',
+                payout_amount: payoutTransaction.amount,
+                service_charge: payoutTransaction.service_charge
+              }
+            });
+            refundCreated = true;
+          }
+          action = 'creator_failed_refunded';
+        } else {
+          await payoutTransaction.update({
+            data: JSON.stringify(data)
+          });
+          action = 'creator_failed_no_change';
+        }
+
+        await PayoutAuditLog.create({
+          payout_id: payoutTransaction.id,
+          action: 'BRANCHX_STATUS_CHECK_FAILED',
+          details: {
+            requestedBy: req.user?.id,
+            requestedRole: req.user?.role,
+            from: previousStatus,
+            to: 'FAILED',
+            responseStatus: 'FAILED',
+            rawStatus,
+            statusCode,
+            branchxResponse: data,
+            refundCreated,
+            action
+          }
+        });
+      }
+    } else {
+      await payoutTransaction.update({
+        data: JSON.stringify(data)
+      });
+      action = 'unknown_status_no_action';
+      await PayoutAuditLog.create({
+        payout_id: payoutTransaction.id,
+        action: 'BRANCHX_STATUS_CHECK_NO_ACTION',
+        details: {
+          requestedBy: req.user?.id,
+          requestedRole: req.user?.role,
+          responseStatus: 'UNKNOWN',
+          rawStatus,
+          statusCode,
+          branchxResponse: data,
+          reason: 'Explicit BranchX status not found; keep current status pending if applicable'
+        }
+      });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Status check completed successfully',
-      data: data
+      action,
+      payoutTransactionId: payoutTransaction.id,
+      status: payoutTransaction.status,
+      branchxStatus: statusCategory,
+      data
     });
   } catch (error) {
     console.error('Status check error:', error);

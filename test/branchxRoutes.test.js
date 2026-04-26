@@ -29,12 +29,15 @@ app.use((err, req, res, _next) => {
 
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const merchantToken = jwt.sign({ user: { id: 9, role: 'merchant' } }, SECRET);
+const adminToken = jwt.sign({ user: { id: 1, role: 'admin' } }, SECRET);
 
 let stubs;
 let userFindByPkOrig;
 let beneficiaryFindByPkOrig;
 let tpinFindOneOrig;
 let bcryptCompareOrig;
+let payoutFindByPkOrig;
+let payoutAuditCreateOrig;
 
 beforeEach(() => {
   stubs = {
@@ -46,6 +49,8 @@ beforeEach(() => {
     serviceFeeFindOne: ServiceFee.findOne,
     payoutChargeFindOne: PayoutCharge.findOne,
     payoutTransactionCreate: PayoutTransaction.create,
+    payoutFindByPk: PayoutTransaction.findByPk,
+    payoutAuditCreate: PayoutAuditLog.create,
     ledgerEntry: ledgerService.createLedgerEntry,
     payoutEntry: ledgerService.createPayoutEntry,
     availableBalance: ledgerService.getAvailableBalance
@@ -55,6 +60,8 @@ beforeEach(() => {
   beneficiaryFindByPkOrig = Beneficiary.findByPk;
   tpinFindOneOrig = Tpin.findOne;
   bcryptCompareOrig = bcrypt.compare;
+  payoutFindByPkOrig = PayoutTransaction.findByPk;
+  payoutAuditCreateOrig = PayoutAuditLog.create;
 
   User.findByPk = async (id) => ({ id, is_payout_enabled: true, wallet: 100000, role: 'merchant', name: 'TestMerchant' });
   Beneficiary.findByPk = async (id) => ({ id, mobile_number: '9999999999', account_number: '1234567890', ifsc_code: 'IFSC0001', beneficiary_name: 'Test', bank_name: 'Test Bank', status: 'active' });
@@ -62,6 +69,7 @@ beforeEach(() => {
   bcrypt.compare = async () => true;
   ledgerService.getAvailableBalance = async () => 100000;
   PayoutTransaction.create = async (payload) => ({ id: 1, ...payload });
+  PayoutAuditLog.create = async () => ({});
 });
 afterEach(() => {
   branchxService.bankValidation = stubs.branchx.bankValidation;
@@ -73,6 +81,8 @@ afterEach(() => {
   ServiceFee.findOne = stubs.serviceFeeFindOne;
   PayoutCharge.findOne = stubs.payoutChargeFindOne;
   PayoutTransaction.create = stubs.payoutTransactionCreate;
+  PayoutTransaction.findByPk = stubs.payoutFindByPk;
+  PayoutAuditLog.create = payoutAuditCreateOrig;
   ledgerService.createLedgerEntry = stubs.ledgerEntry;
   ledgerService.createPayoutEntry = stubs.payoutEntry;
   ledgerService.getAvailableBalance = stubs.availableBalance;
@@ -191,9 +201,83 @@ describe('BranchX webhook callback', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.success).to.be.true;
+    expect(res.body.message).to.equal('Callback received successfully');
+    expect(res.body.branchxStatusCode).to.equal(null);
     expect(payoutTx.status).to.equal('FAILED');
     expect(payoutTx.callback_status).to.equal('FAILED');
     expect(user.wallet).to.equal(49100); // 100 + 49000 refund
+  });
+
+  it('returns 119 Pending for BranchX PENDING callback status', async () => {
+    const payoutTx = {
+      id: 2,
+      merchant_id: 9,
+      amount: 1000.0,
+      service_charge: 0,
+      reference_id: 'AP0000013226',
+      status: 'PENDING',
+      data: JSON.stringify({ initial: 'x' }),
+      update: async function(fields) { Object.assign(this, fields); return this; }
+    };
+
+    PayoutTransaction.findOne = async () => payoutTx;
+    PayoutTransaction.findByPk = async () => payoutTx;
+    Ledger.findOne = async () => null;
+    PayoutAuditLog.create = async () => ({});
+    ledgerService.createLedgerEntry = async () => ({ id: 100 });
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/callback')
+      .send({
+        status: 'PENDING',
+        message: 'Transaction still in progress',
+        requestId: 'AP0000013226',
+        amount: '1000.0'
+      });
+
+    expect(res.status).to.equal(119);
+    expect(res.body.success).to.be.true;
+    expect(res.body.message).to.equal('Pending');
+    expect(res.body.status).to.equal('PENDING');
+    expect(res.body.payoutTransactionFound).to.be.true;
+  });
+
+  it('returns the full callback payload and BranchX status code when present', async () => {
+    const payoutTx = {
+      id: 1,
+      merchant_id: 9,
+      amount: 1000.0,
+      service_charge: 0,
+      reference_id: 'AP0000013225',
+      status: 'PENDING',
+      data: JSON.stringify({ initial: 'x' }),
+      update: async function(fields) { Object.assign(this, fields); return this; }
+    };
+
+    PayoutTransaction.findOne = async () => payoutTx;
+    PayoutTransaction.findByPk = async () => payoutTx;
+    Ledger.findOne = async () => null;
+    PayoutAuditLog.create = async () => ({});
+    ledgerService.createLedgerEntry = async () => ({ id: 99 });
+
+    const callbackPayload = {
+      status: 'SUCCESS',
+      statuscode: '200',
+      message: 'Transaction Completed',
+      requestId: 'AP0000013225',
+      amount: '1000.0'
+    };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/callback')
+      .send(callbackPayload);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.be.true;
+    expect(res.body.branchxStatusCode).to.equal('200');
+    expect(res.body.callbackPayload).to.deep.equal(callbackPayload);
+    expect(res.body.payoutTransactionId).to.equal(1);
+    expect(res.body.status).to.equal('SUCCESS');
   });
 });
 
@@ -245,6 +329,19 @@ describe('POST /api/payment/v2/payout', () => {
     expect(ledgerArgs.amount).to.equal(107);
   });
 
+  it('blocks duplicate payout within 3 minutes for the same merchant/beneficiary/amount', async () => {
+    PayoutTransaction.findOne = async () => ({ id: 99 });
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout')
+      .set('Authorization', `Bearer ${merchantToken}`)
+      .send({ merchant_id: 9, beneficiary_id: 1, amount: 100, service_charge: 7, requestId: 'APTEST0005', tpin: '0000' });
+
+    expect(res.status).to.equal(409);
+    expect(res.body.success).to.be.false;
+    expect(res.body.message).to.include('Duplicate payout detected');
+  });
+
   it('calculates service_charge from payout rules when none provided', async () => {
     let ledgerArgs;
     // slab returns 10 flat fee for amount range
@@ -258,5 +355,136 @@ describe('POST /api/payment/v2/payout', () => {
 
     expect(res.status).to.not.equal(400);
     expect(ledgerArgs.amount).to.equal(210);
+  });
+});
+
+describe('POST /api/payment/v2/payout/status-check', () => {
+  it('admin updates payout from pending to success and logs the check', async () => {
+    branchxService.statusCheck = async () => ({
+      data: { status: 'SUCCESS', message: 'Txn successful', opRefId: 'OP1', apiTxnId: 'ATX1', mobileNumber: '9999999999', amount: 100 },
+      statuscode: '200',
+      status: 'SUCCESS',
+      message: 'Txn Found'
+    });
+
+    let auditArgs = null;
+    PayoutAuditLog.create = async (args) => { auditArgs = args; return {}; };
+    PayoutTransaction.findByPk = async () => ({
+      id: 1,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ123',
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    ledgerService.createLedgerEntry = async () => { throw new Error('No refund expected'); };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/status-check')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ payout_transaction_id: 1 });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.action).to.equal('status_updated');
+    expect(res.body.status).to.equal('SUCCESS');
+    expect(auditArgs).to.not.be.null;
+    expect(auditArgs.action).to.equal('BRANCHX_STATUS_CHECK');
+  });
+
+  it('admin ignores explicit failed status and does not refund', async () => {
+    branchxService.statusCheck = async () => ({
+      data: { status: 'FAILED', message: 'failure', opRefId: '-', apiTxnId: 'ATX2', mobileNumber: '9999999999', amount: 100 },
+      statuscode: '200',
+      status: 'SUCCESS',
+      message: 'Txn Found'
+    });
+
+    let refundCalled = false;
+    PayoutAuditLog.create = async () => ({});
+    PayoutTransaction.findByPk = async () => ({
+      id: 2,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ124',
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    ledgerService.createLedgerEntry = async () => { refundCalled = true; return {}; };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/status-check')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ payout_transaction_id: 2 });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.action).to.equal('admin_failed_ignored');
+    expect(refundCalled).to.be.false;
+  });
+
+  it('creator updates explicit failed status, refunds once, and logs audit', async () => {
+    branchxService.statusCheck = async () => ({
+      data: { status: 'FAILED', message: 'failure', opRefId: '-', apiTxnId: 'ATX3', mobileNumber: '9999999999', amount: 100 },
+      statuscode: '200',
+      status: 'SUCCESS',
+      message: 'Txn Found'
+    });
+
+    let refundArgs = null;
+    let auditArgs = null;
+    PayoutAuditLog.create = async (args) => { auditArgs = args; return {}; };
+    PayoutTransaction.findByPk = async () => ({
+      id: 3,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ125',
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    Ledger.findOne = async () => null;
+    ledgerService.createLedgerEntry = async (args) => { refundArgs = args; return {}; };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/status-check')
+      .set('Authorization', `Bearer ${merchantToken}`)
+      .send({ payout_transaction_id: 3 });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.action).to.equal('creator_failed_refunded');
+    expect(refundArgs).to.not.be.null;
+    expect(refundArgs.credit).to.equal(110);
+    expect(auditArgs.action).to.equal('BRANCHX_STATUS_CHECK_FAILED');
+  });
+
+  it('creator keeps pending on unknown/null branchx response without refund', async () => {
+    branchxService.statusCheck = async () => ({
+      statuscode: '5000',
+      status: 'FAILED',
+      message: 'Record not found'
+    });
+
+    let refundCalled = false;
+    PayoutAuditLog.create = async () => ({});
+    PayoutTransaction.findByPk = async () => ({
+      id: 4,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ126',
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    ledgerService.createLedgerEntry = async () => { refundCalled = true; return {}; };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/status-check')
+      .set('Authorization', `Bearer ${merchantToken}`)
+      .send({ payout_transaction_id: 4 });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.action).to.equal('unknown_status_no_action');
+    expect(refundCalled).to.be.false;
   });
 });
