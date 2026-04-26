@@ -546,3 +546,71 @@ describe('GET /api/payment/v2/payout/audit-logs', () => {
     expect(res.body.success).to.be.false;
   });
 });
+
+describe('GET /api/payment/v2/payout/audit-logs/by-payout', () => {
+  it('returns logs for a specific payout_id', async () => {
+    const auditLogs = [
+      {
+        id: 10,
+        payout_id: 123,
+        action: 'BRANCHX_STATUS_CHECK',
+        details: { requestId: 'REQ-123' },
+        created_at: new Date('2026-04-26T10:00:00Z'),
+        updated_at: new Date('2026-04-26T10:00:00Z')
+      }
+    ];
+
+    PayoutAuditLog.findAll = async () => auditLogs;
+
+    const res = await request(app)
+      .get('/api/payment/v2/payout/audit-logs/by-payout?payout_id=123')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.be.true;
+    expect(res.body.totalLogs).to.equal(1);
+    expect(res.body.data[0].request_id).to.equal('REQ-123');
+    expect(res.body.payout_id).to.equal(123);
+  });
+
+  it('returns logs for a specific requestId', async () => {
+    const auditLogs = [
+      {
+        id: 11,
+        payout_id: 123,
+        action: 'BRANCHX_STATUS_CHECK',
+        details: { requestId: 'REQ-999' },
+        created_at: new Date('2026-04-26T10:10:00Z'),
+        updated_at: new Date('2026-04-26T10:10:00Z')
+      },
+      {
+        id: 12,
+        payout_id: 456,
+        action: 'BRANCHX_STATUS_CHECK_FAILED',
+        details: { request_id: 'REQ-999' },
+        created_at: new Date('2026-04-26T10:20:00Z'),
+        updated_at: new Date('2026-04-26T10:20:00Z')
+      }
+    ];
+
+    PayoutAuditLog.findAll = async () => auditLogs;
+
+    const res = await request(app)
+      .get('/api/payment/v2/payout/audit-logs/by-payout?requestId=REQ-999')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.be.true;
+    expect(res.body.totalLogs).to.equal(2);
+    expect(res.body.data[0].request_id).to.equal('REQ-999');
+  });
+
+  it('returns 400 when payout_id and requestId are both missing', async () => {
+    const res = await request(app)
+      .get('/api/payment/v2/payout/audit-logs/by-payout')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(400);
+    expect(res.body.success).to.be.false;
+  });
+});

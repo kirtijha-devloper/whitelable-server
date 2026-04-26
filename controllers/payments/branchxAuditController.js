@@ -41,6 +41,30 @@ function normalizeAuditLogEntry(log) {
   };
 }
 
+function normalizeRequestId(value) {
+  if (value === undefined || value === null) return null;
+  return String(value).trim();
+}
+
+function matchesRequestId(details, requestId) {
+  if (!details || typeof details !== 'object') return false;
+  const normalized = normalizeRequestId(requestId);
+  if (!normalized) return false;
+
+  const candidates = [];
+  if (details.requestId) candidates.push(details.requestId);
+  if (details.request_id) candidates.push(details.request_id);
+  if (details.reference_id) candidates.push(details.reference_id);
+  if (details.branchxResponse && typeof details.branchxResponse === 'object') {
+    if (details.branchxResponse.requestId) candidates.push(details.branchxResponse.requestId);
+    if (details.branchxResponse.data && details.branchxResponse.data.requestId) {
+      candidates.push(details.branchxResponse.data.requestId);
+    }
+  }
+
+  return candidates.some((candidate) => normalizeRequestId(candidate) === normalized);
+}
+
 async function getPayoutAuditLogs(req, res) {
   try {
     if (!req.user || req.user.role !== 'admin') {
@@ -98,6 +122,66 @@ async function getPayoutAuditLogs(req, res) {
   }
 }
 
+async function getPayoutAuditLogsByRequest(req, res) {
+  try {
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const { payout_id, requestId, fromDate, toDate } = req.query;
+    if (!payout_id && !requestId) {
+      return res.status(400).json({ success: false, message: 'Either payout_id or requestId is required' });
+    }
+
+    const today = new Date();
+    const startDate = fromDate ? parseDate(fromDate, false) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const endDate = toDate ? parseDate(toDate, true) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, message: 'Invalid fromDate or toDate' });
+    }
+
+    const where = {
+      created_at: {
+        [Op.gte]: startDate,
+        [Op.lte]: endDate
+      }
+    };
+
+    if (payout_id) {
+      where.payout_id = payout_id;
+    }
+
+    let logs = await PayoutAuditLog.findAll({
+      where,
+      order: [['created_at', 'ASC']]
+    });
+
+    if (!payout_id && requestId) {
+      logs = logs.filter((log) => matchesRequestId(log.details, requestId));
+    }
+
+    if (payout_id && requestId) {
+      logs = logs.filter((log) => matchesRequestId(log.details, requestId));
+    }
+
+    const normalizedLogs = logs.map(normalizeAuditLogEntry);
+
+    return res.json({
+      success: true,
+      message: 'Payout audit logs retrieved successfully',
+      payout_id: payout_id ? parseInt(payout_id, 10) : null,
+      requestId: requestId || null,
+      totalLogs: normalizedLogs.length,
+      data: normalizedLogs
+    });
+  } catch (error) {
+    console.error('Get payout audit logs by id error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+}
+
 module.exports = {
-  getPayoutAuditLogs
+  getPayoutAuditLogs,
+  getPayoutAuditLogsByRequest
 };

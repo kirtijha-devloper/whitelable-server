@@ -40,6 +40,78 @@ The frontend should display the audit stream and include the associated `request
 
 ---
 
+## Lookup by payout ID or request ID
+
+The admin UI can also retrieve audit logs for a single payout transaction using either the payout ID or the original BranchX request ID.
+
+### Route
+
+**GET** `/api/payment/v2/payout/audit-logs/by-payout`
+
+### Query parameters
+
+| Name | Type | Required | Notes |
+|------|------|----------|-------|
+| `payout_id` | number | Conditionally | Return logs for this payout transaction ID |
+| `requestId` | string | Conditionally | Return logs for this BranchX request ID |
+| `fromDate` | string | No | Date string like `YYYY-MM-DD` |
+| `toDate` | string | No | Date string like `YYYY-MM-DD` |
+
+> Either `payout_id` or `requestId` must be provided.
+
+### Example: fetch by payout ID
+
+```js
+const response = await fetch('/api/payment/v2/payout/audit-logs/by-payout?payout_id=123', {
+  headers: {
+    Authorization: `Bearer ${token}`
+  }
+});
+const result = await response.json();
+```
+
+### Example: fetch by request ID
+
+```js
+const response = await fetch('/api/payment/v2/payout/audit-logs/by-payout?requestId=REQ-123', {
+  headers: {
+    Authorization: `Bearer ${token}`
+  }
+});
+const result = await response.json();
+```
+
+### Response
+
+The response contains a flat list of audit log entries for the matched payout or request:
+
+```json
+{
+  "success": true,
+  "message": "Payout audit logs retrieved successfully",
+  "payout_id": 123,
+  "requestId": "REQ-123",
+  "totalLogs": 2,
+  "data": [
+    {
+      "id": 1,
+      "payout_id": 123,
+      "action": "BRANCHX_STATUS_CHECK",
+      "details": { ... },
+      "request_id": "REQ-123",
+      "created_at": "2026-04-26T10:00:00.000Z",
+      "updated_at": "2026-04-26T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+If both `payout_id` and `requestId` are provided, the route returns logs matching both values.
+
+---
+
+---
+
 ## Response
 
 ### Success response `200`

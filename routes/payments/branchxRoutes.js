@@ -1,7 +1,7 @@
 const express = require('express');
 const branchxController = require('../../controllers/payments/branchxController');
 const { handleBranchxPayoutCallback } = require('../../controllers/payments/branchxWebhookController');
-const { getPayoutAuditLogs } = require('../../controllers/payments/branchxAuditController');
+const { getPayoutAuditLogs, getPayoutAuditLogsByRequest } = require('../../controllers/payments/branchxAuditController');
 
 const router = express.Router();
 
@@ -14,8 +14,9 @@ router.get('/payout/callback', handleBranchxPayoutCallback);
 
 router.use(validateToken);
 
-// Admin route for payout audit logs.
+// Admin routes for payout audit logs.
 router.get('/payout/audit-logs', getPayoutAuditLogs);
+router.get('/payout/audit-logs/by-payout', getPayoutAuditLogsByRequest);
 
 // All other BranchX routes require JWT auth.
 router.use('', branchxController);
