@@ -182,6 +182,7 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
         payout_id: locked.id,
         action: 'BRANCHX_CALLBACK_STATUS_UPDATE',
         details: {
+          reference_id: locked.reference_id,
           from: previousStatus,
           to: newStatus,
           callback: payload,

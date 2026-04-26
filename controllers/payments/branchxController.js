@@ -813,6 +813,7 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
         payout_id: payoutTransaction.id,
         action: 'BRANCHX_STATUS_CHECK',
         details: {
+          reference_id: payoutTransaction.reference_id,
           requestedBy: req.user?.id,
           requestedRole: req.user?.role,
           from: previousStatus,
@@ -834,6 +835,7 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
           payout_id: payoutTransaction.id,
           action: 'BRANCHX_STATUS_CHECK_IGNORED_FAILED',
           details: {
+            reference_id: payoutTransaction.reference_id,
             requestedBy: req.user?.id,
             requestedRole: req.user?.role,
             responseStatus: 'FAILED',
@@ -889,6 +891,7 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
           payout_id: payoutTransaction.id,
           action: 'BRANCHX_STATUS_CHECK_FAILED',
           details: {
+            reference_id: payoutTransaction.reference_id,
             requestedBy: req.user?.id,
             requestedRole: req.user?.role,
             from: previousStatus,
@@ -911,6 +914,7 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
         payout_id: payoutTransaction.id,
         action: 'BRANCHX_STATUS_CHECK_NO_ACTION',
         details: {
+          reference_id: payoutTransaction.reference_id,
           requestedBy: req.user?.id,
           requestedRole: req.user?.role,
           responseStatus: 'UNKNOWN',

@@ -574,6 +574,32 @@ describe('GET /api/payment/v2/payout/audit-logs/by-payout', () => {
     expect(res.body.payout_id).to.equal(123);
   });
 
+  it('returns reference_id when audit details include it', async () => {
+    const auditLogs = [
+      {
+        id: 13,
+        payout_id: 123,
+        action: 'BRANCHX_CALLBACK_STATUS_UPDATE',
+        details: { reference_id: 'REF-123', from: 'PENDING', to: 'FAILED' },
+        created_at: new Date('2026-04-26T10:15:00Z'),
+        updated_at: new Date('2026-04-26T10:15:00Z')
+      }
+    ];
+
+    PayoutAuditLog.findAll = async () => auditLogs;
+
+    const res = await request(app)
+      .get('/api/payment/v2/payout/audit-logs/by-payout?payout_id=123')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.be.true;
+    expect(res.body.totalLogs).to.equal(1);
+    expect(res.body.reference_id).to.equal('REF-123');
+    expect(res.body.data[0].reference_id).to.equal('REF-123');
+    expect(res.body.payout_id).to.equal(123);
+  });
+
   it('returns logs for a specific requestId', async () => {
     const auditLogs = [
       {

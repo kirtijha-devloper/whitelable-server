@@ -36,6 +36,7 @@ function normalizeAuditLogEntry(log) {
     action: log.action,
     details: log.details,
     request_id: extractRequestId(log.details),
+    reference_id: log.details && typeof log.details === 'object' ? log.details.reference_id || null : null,
     created_at: log.created_at,
     updated_at: log.updated_at
   };
@@ -167,12 +168,14 @@ async function getPayoutAuditLogsByRequest(req, res) {
 
     const normalizedLogs = logs.map(normalizeAuditLogEntry);
     const extractedRequestId = requestId || normalizedLogs.find((log) => !!log.request_id)?.request_id || null;
+    const extractedReferenceId = normalizedLogs.find((log) => !!log.reference_id)?.reference_id || null;
 
     return res.json({
       success: true,
       message: 'Payout audit logs retrieved successfully',
       payout_id: payout_id ? parseInt(payout_id, 10) : null,
       requestId: extractedRequestId,
+      reference_id: extractedReferenceId,
       totalLogs: normalizedLogs.length,
       data: normalizedLogs
     });
