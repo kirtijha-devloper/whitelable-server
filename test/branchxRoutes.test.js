@@ -39,6 +39,7 @@ let bcryptCompareOrig;
 let payoutFindByPkOrig;
 let payoutAuditCreateOrig;
 let payoutAuditFindAllOrig;
+let ledgerFindOneOrig;
 
 beforeEach(() => {
   stubs = {
@@ -55,7 +56,8 @@ beforeEach(() => {
     payoutAuditFindAll: PayoutAuditLog.findAll,
     ledgerEntry: ledgerService.createLedgerEntry,
     payoutEntry: ledgerService.createPayoutEntry,
-    availableBalance: ledgerService.getAvailableBalance
+    availableBalance: ledgerService.getAvailableBalance,
+    ledgerFindOne: Ledger.findOne
   };
 
   userFindByPkOrig = User.findByPk;
@@ -73,6 +75,7 @@ beforeEach(() => {
   ledgerService.getAvailableBalance = async () => 100000;
   PayoutTransaction.create = async (payload) => ({ id: 1, ...payload });
   PayoutAuditLog.create = async () => ({});
+  Ledger.findOne = async () => null;
 });
 afterEach(() => {
   branchxService.bankValidation = stubs.branchx.bankValidation;
@@ -87,6 +90,7 @@ afterEach(() => {
   PayoutTransaction.findByPk = stubs.payoutFindByPk;
   PayoutAuditLog.create = payoutAuditCreateOrig;
   PayoutAuditLog.findAll = payoutAuditFindAllOrig;
+  Ledger.findOne = stubs.ledgerFindOne;
   ledgerService.createLedgerEntry = stubs.ledgerEntry;
   ledgerService.createPayoutEntry = stubs.payoutEntry;
   ledgerService.getAvailableBalance = stubs.availableBalance;
@@ -490,6 +494,132 @@ describe('POST /api/payment/v2/payout/status-check', () => {
     expect(res.status).to.equal(200);
     expect(res.body.action).to.equal('unknown_status_no_action');
     expect(refundCalled).to.be.false;
+  });
+
+  it('allows admin to manually refund a BranchX payout when stored status is FAILED and no prior refund exists', async () => {
+    branchxService.statusCheck = async () => { throw new Error('manual-refund should not call statusCheck'); };
+
+    let refundArgs = null;
+    PayoutTransaction.findByPk = async () => ({
+      id: 10,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ200',
+      createdAt: new Date('2026-04-26T12:00:00Z'),
+      data: JSON.stringify({
+        data: { status: 'FAILED', message: 'failure', opRefId: '-', apiTxnId: 'ATX10', mobileNumber: '9999999999', amount: 100 },
+        statuscode: '200',
+        status: 'FAILED',
+        message: 'Txn Found'
+      }),
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    Ledger.findOne = async () => null;
+    PayoutAuditLog.create = async () => ({});
+    ledgerService.createLedgerEntry = async (args) => { refundArgs = args; return { id: 910 }; };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/manual-refund')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ payout_transaction_id: 10 });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.be.true;
+    expect(res.body.refundCreated).to.be.true;
+    expect(res.body.action).to.equal('manual_refund_created');
+    expect(refundArgs).to.not.be.null;
+    expect(refundArgs.credit).to.equal(110);
+  });
+
+  it('does not create a manual refund when stored BranchX status is non-FAILED', async () => {
+    branchxService.statusCheck = async () => { throw new Error('manual-refund should not call statusCheck'); };
+
+    PayoutTransaction.findByPk = async () => ({
+      id: 11,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ201',
+      createdAt: new Date('2026-04-26T12:00:00Z'),
+      data: JSON.stringify({
+        data: { status: 'SUCCESS', message: 'success', opRefId: '-', apiTxnId: 'ATX11', mobileNumber: '9999999999', amount: 100 },
+        statuscode: '200',
+        status: 'SUCCESS',
+        message: 'Txn Found'
+      }),
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    Ledger.findOne = async () => null;
+    ledgerService.createLedgerEntry = async () => { throw new Error('Should not create refund'); };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/manual-refund')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ payout_transaction_id: 11 });
+
+    expect(res.status).to.equal(400);
+    expect(res.body.success).to.be.false;
+    expect(res.body.message).to.include('Stored BranchX status must be FAILED');
+  });
+
+  it('rejects manual refund when no stored BranchX status has been fetched', async () => {
+    branchxService.statusCheck = async () => { throw new Error('manual-refund should not call statusCheck'); };
+
+    PayoutTransaction.findByPk = async () => ({
+      id: 13,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ203',
+      createdAt: new Date('2026-04-26T12:00:00Z'),
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    Ledger.findOne = async () => null;
+    ledgerService.createLedgerEntry = async () => { throw new Error('Should not create refund'); };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/manual-refund')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ payout_transaction_id: 13 });
+
+    expect(res.status).to.equal(400);
+    expect(res.body.success).to.be.false;
+    expect(res.body.message).to.include('previously fetched BranchX status response');
+  });
+
+  it('does not refund legacy payouts created before manual refund policy start date', async () => {
+    branchxService.statusCheck = async () => ({
+      data: { status: 'FAILED', message: 'failure', opRefId: '-', apiTxnId: 'ATX12', mobileNumber: '9999999999', amount: 100 },
+      statuscode: '200',
+      status: 'SUCCESS',
+      message: 'Txn Found'
+    });
+
+    PayoutTransaction.findByPk = async () => ({
+      id: 12,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ202',
+      createdAt: new Date('2026-04-25T23:59:59Z'),
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    Ledger.findOne = async () => null;
+    ledgerService.createLedgerEntry = async () => { throw new Error('Should not create refund for legacy payout'); };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/manual-refund')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ payout_transaction_id: 12 });
+
+    expect(res.status).to.equal(400);
+    expect(res.body.success).to.be.false;
+    expect(res.body.message).to.include('Manual refund is allowed only for payouts created on or after');
   });
 });
 

@@ -67,6 +67,8 @@ function lockPayout(lockKey, durationMs = 180000) {
   payoutLocks.set(lockKey, { expiresAt: Date.now() + durationMs });
 }
 
+const BRANCHX_MANUAL_REFUND_EFFECTIVE_DATE = new Date('2026-04-26T00:00:00Z');
+
 async function resolvePayoutServiceCharge(amount) {
   const slab = await PayoutCharge.findOne({
     where: {
@@ -91,6 +93,41 @@ async function resolvePayoutServiceCharge(amount) {
   }
 
   return parseFloat(((amount * percent) / 100).toFixed(2));
+}
+
+function isEligibleForBranchxManualRefund(payoutTransaction) {
+  if (!payoutTransaction || !payoutTransaction.createdAt) return false;
+  return new Date(payoutTransaction.createdAt) >= BRANCHX_MANUAL_REFUND_EFFECTIVE_DATE;
+}
+
+function getStoredBranchxResponse(payoutTransaction) {
+  if (!payoutTransaction) return null;
+
+  const parseJson = (value) => {
+    if (!value) return null;
+    try {
+      return typeof value === 'string' ? JSON.parse(value) : value;
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const parsedData = parseJson(payoutTransaction.data);
+  if (parsedData && typeof parsedData === 'object') {
+    if (parsedData.data || parsedData.status || parsedData.Status || parsedData.statuscode || parsedData.statusCode) {
+      return parsedData;
+    }
+    if (parsedData.callback) {
+      return parsedData.callback;
+    }
+  }
+
+  const callbackData = parseJson(payoutTransaction.callback_data || payoutTransaction.callbackData);
+  if (callbackData && typeof callbackData === 'object') {
+    return callbackData;
+  }
+
+  return null;
 }
 
 // Payout API
@@ -239,8 +276,8 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     const data = await branchxService.payout(payload);
 
-    // Save payout transaction with normalized status from response
-    const payoutStatus = normalizeBranchxStatus(data.status || data.Status || 'PENDING');
+    const branchxStatus = normalizeBranchxStatus(data.status || data.Status || 'PENDING');
+    const payoutStatus = 'PENDING';
     const payoutTx = await PayoutTransaction.create({
       merchant_id: merchant_id,
       beneficiary_id: beneficiary_id,
@@ -267,6 +304,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
       action: 'BRANCHX_PAYOUT_RESPONSE',
       details: {
         responsePayload: data,
+        branchxStatus,
         status: payoutStatus,
         reference_id: requestId || data.api_ref
       }
@@ -287,7 +325,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
         payout_amount: amount,
         service_charge: service_charge,
         reference_id: requestId,
-        branchx_status: payoutStatus
+        branchx_status: branchxStatus
       }
     });
 
@@ -941,6 +979,137 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
       success: false,
       message: error.message || 'Something went wrong',
       error: error
+    });
+  }
+}));
+
+router.post('/payout/manual-refund', asyncHandler(async (req, res) => {
+  try {
+    if (!isAdminUser(req)) {
+      return res.status(403).json({ success: false, message: 'Only admin can perform manual refunds' });
+    }
+
+    const { payout_transaction_id, requestId } = req.body;
+    let referenceId = requestId;
+    let payoutTransaction = null;
+
+    if (payout_transaction_id) {
+      payoutTransaction = await PayoutTransaction.findByPk(payout_transaction_id);
+      if (!payoutTransaction) {
+        return res.status(404).json({ success: false, message: 'Payout transaction not found' });
+      }
+      referenceId = referenceId || payoutTransaction.reference_id;
+    }
+
+    if (!referenceId) {
+      return res.status(400).json({ success: false, message: 'Either payout_transaction_id or requestId is required' });
+    }
+
+    if (!payoutTransaction) {
+      payoutTransaction = await PayoutTransaction.findOne({
+        where: { reference_id: referenceId },
+        order: [['createdAt', 'DESC']]
+      });
+      if (!payoutTransaction) {
+        return res.status(404).json({ success: false, message: 'Payout transaction not found' });
+      }
+    }
+
+    if (!isEligibleForBranchxManualRefund(payoutTransaction)) {
+      return res.status(400).json({
+        success: false,
+        message: `Manual refund is allowed only for payouts created on or after ${BRANCHX_MANUAL_REFUND_EFFECTIVE_DATE.toISOString()}`
+      });
+    }
+
+    const branchxResponse = getStoredBranchxResponse(payoutTransaction);
+    if (!branchxResponse) {
+      return res.status(400).json({
+        success: false,
+        message: 'Manual refund requires a previously fetched BranchX status response. Please use status check first.'
+      });
+    }
+
+    const rawStatus = branchxResponse?.data?.status ?? branchxResponse?.data?.Status ?? branchxResponse?.status ?? branchxResponse?.Status ?? null;
+    const statusCode = branchxResponse?.statuscode ?? branchxResponse?.statusCode ?? branchxResponse?.data?.statuscode ?? branchxResponse?.data?.statusCode ?? null;
+    const statusCategory = getBranchxStatusCategory(rawStatus);
+
+    if (statusCategory !== 'FAILED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Stored BranchX status must be FAILED to issue a manual refund',
+        branchxStatus: statusCategory,
+        statusCode,
+        data: branchxResponse
+      });
+    }
+
+    let refundCreated = false;
+    const existingRefund = await Ledger.findOne({
+      where: {
+        transaction_type: 'payout_refund',
+        reference_id: payoutTransaction.id,
+        reference_table: 'PayoutTransactions'
+      }
+    });
+
+    if (!existingRefund) {
+      const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
+      await ledgerService.createLedgerEntry({
+        userId: payoutTransaction.merchant_id,
+        transactionType: 'payout_refund',
+        referenceId: payoutTransaction.id,
+        referenceTable: 'PayoutTransactions',
+        description: `Manual refund for failed BranchX payout ${payoutTransaction.reference_id}`,
+        credit: refundAmount,
+        metadata: {
+          payout_reference: payoutTransaction.reference_id,
+          performed_by: req.user?.id,
+          performed_role: req.user?.role,
+          branchx_status_code: statusCode,
+          refund_source: 'stored_status'
+        }
+      });
+      refundCreated = true;
+    }
+
+    const updatedData = payoutTransaction.data || JSON.stringify(branchxResponse);
+    await payoutTransaction.update({
+      status: 'FAILED',
+      data: updatedData
+    });
+
+    await PayoutAuditLog.create({
+      payout_id: payoutTransaction.id,
+      action: refundCreated ? 'BRANCHX_MANUAL_REFUND' : 'BRANCHX_MANUAL_REFUND_SKIPPED',
+      details: {
+        reference_id: payoutTransaction.reference_id,
+        requestedBy: req.user?.id,
+        requestedRole: req.user?.role,
+        branchxStatus: 'FAILED',
+        rawStatus,
+        statusCode,
+        refundCreated,
+        branchxResponse: branchxResponse
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: refundCreated ? 'Manual refund created successfully' : 'Refund already exists; no action taken',
+      action: refundCreated ? 'manual_refund_created' : 'manual_refund_skipped_existing',
+      refundCreated,
+      payoutTransactionId: payoutTransaction.id,
+      status: payoutTransaction.status,
+      branchxStatus: statusCategory,
+      data: branchxResponse
+    });
+  } catch (error) {
+    console.error('Manual refund error:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Something went wrong',
+      error
     });
   }
 }));
