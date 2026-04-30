@@ -15,6 +15,7 @@ const EMPLOYEE_PERMISSIONS = Object.freeze({
   WALLET_DEBIT: 'wallet.debit',
   REPORTS_READ: 'reports.read',
   PAYOUT_READ: 'payout.read',
+  PAYOUT_MANAGE: 'payout.manage',
   LEDGER_READ: 'ledger.read',
   LEDGER_MANAGE: 'ledger.manage',
   COMPLAINTS_READ: 'complaints.read',
@@ -71,6 +72,7 @@ const EMPLOYEE_PERMISSION_CATALOG = Object.freeze([
     label: 'Payout',
     permissions: [
       { slug: EMPLOYEE_PERMISSIONS.PAYOUT_READ, label: 'View Payout' },
+      { slug: EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE, label: 'Manage Payout' },
     ],
   },
   {

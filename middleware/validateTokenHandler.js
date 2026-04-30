@@ -12,6 +12,7 @@ const {
 const AUTH_USER_ATTRIBUTES = [
   'id',
   'name',
+  'username',
   'mobile_number',
   'role',
   'status',
@@ -32,6 +33,7 @@ function buildAuthUser(userLike) {
   return {
     id: userLike.id,
     name: userLike.name || null,
+    username: userLike.username || null,
     mobile_number: userLike.mobile_number || null,
     role: normalizeRole(userLike.role || 'merchant'),
     status: userLike.status || 'active',

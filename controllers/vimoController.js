@@ -2,7 +2,7 @@ const vimoService = require('../services/vimo.service');
 const User = require('../models/User');
 const Beneficiary = require('../models/Beneficiary');
 const { Op } = require('sequelize');
-const { isAdmin } = require('../utils/permissions');
+const { isAdmin, hasPermission, EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
@@ -454,8 +454,8 @@ async function fetchBankList(req, res) {
 }
 
 async function failProcessingPayout(req, res) {
-  if (!isAdmin(req.user)) {
-    return res.status(403).json({ success: false, message: 'Admin access required' });
+  if (!isAdmin(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE)) {
+    return res.status(403).json({ success: false, message: 'Admin or authorized employee access required' });
   }
 
   const referenceId = req.body.reference_id || req.body.merchantRefId || req.body.referenceId;
@@ -503,12 +503,20 @@ async function failProcessingPayout(req, res) {
       transaction: tr
     });
 
+    const actor = {
+      id: req.user.id,
+      name: req.user.name || null,
+      username: req.user.username || null,
+      role: req.user.role || null,
+    };
+    const failReason = 'Manual failure enforced after 10+ minutes processing';
+
     locked.status = 'FAILED';
     locked.callback_status = 'FAILED';
     locked.callback_data = JSON.stringify({
-      adminAction: 'mark_failed',
-      adminId: req.user.id,
-      reason: 'Admin forced failure after 10+ minutes processing',
+      action: 'manual_fail',
+      performed_by: actor,
+      reason: failReason,
       timestamp: new Date().toISOString()
     });
     locked.callback_received_at = new Date();
@@ -521,9 +529,9 @@ async function failProcessingPayout(req, res) {
         existingData = { original: locked.data };
       }
     }
-    existingData.adminAction = {
-      adminId: req.user.id,
-      reason: 'Admin forced failure after 10+ minutes processing',
+    existingData.manualFailAction = {
+      performed_by: actor,
+      reason: failReason,
       timestamp: new Date().toISOString()
     };
     locked.data = JSON.stringify(existingData);
@@ -536,12 +544,14 @@ async function failProcessingPayout(req, res) {
         transactionType: 'payout_refund',
         referenceId: locked.id,
         referenceTable: 'PayoutTransactions',
-        description: `Refund for admin-failed Vimo payout ${locked.reference_id}`,
+        description: `Refund for manual-failed Vimo payout ${locked.reference_id}`,
         credit: refundAmount,
         metadata: {
           payout_reference: locked.reference_id,
           payout_provider: locked.payout_provider,
-          admin_id: req.user.id,
+          actor_id: req.user.id,
+          actor_name: req.user.name || null,
+          actor_username: req.user.username || null,
           original_amount: locked.amount,
           service_charge: locked.service_charge
         }
@@ -550,15 +560,15 @@ async function failProcessingPayout(req, res) {
 
     await PayoutAuditLog.create({
       payout_id: locked.id,
-      action: 'ADMIN_VIMO_FAIL_PAYOUT',
+      action: 'VIMO_MANUAL_FAIL_PAYOUT',
       details: {
-        admin_id: req.user.id,
+        actor: actor,
         merchant_id: locked.merchant_id,
         reference_id: locked.reference_id,
         amount: locked.amount,
         service_charge: locked.service_charge,
         refundAmount,
-        reason: 'Admin forced failure after 10+ minutes processing'
+        reason: failReason
       }
     }, { transaction: tr });
 

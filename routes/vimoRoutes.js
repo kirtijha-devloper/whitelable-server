@@ -1,6 +1,8 @@
 const express = require('express');
 const vimoController = require('../controllers/vimoController');
 const validateToken = require('../middleware/validateTokenHandler');
+const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
+const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const router = express.Router();
 
 // Webhook callback should be open to Vimo provider; no user JWT required.
@@ -17,7 +19,7 @@ router.get('/states', vimoController.fetchStateList);
 // Vimo payout and beneficiary management
 router.get('/payout/reference', vimoController.getPayoutReference);
 router.post('/payout', vimoController.createPayout);
-router.post('/payout/admin/fail', vimoController.failProcessingPayout);
+router.post('/payout/admin/fail', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE), vimoController.failProcessingPayout);
 
 router.post('/beneficiaries', vimoController.createBeneficiary);
 router.get('/beneficiaries', vimoController.listBeneficiaries);
