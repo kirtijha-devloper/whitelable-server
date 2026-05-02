@@ -954,6 +954,8 @@ async function createPayout(payload) {
         'Payout processed successfully',
       responseCode: normalizedResponse.raw?.txnStatusCode || normalizedResponse.responseCode,
       data: sanitizePayoutResponse(payoutPayload),
+      rawResponse: response.data,
+      decryptedResponse: normalizedResponse,
     };
   } catch (error) {
     payoutReservation.release();

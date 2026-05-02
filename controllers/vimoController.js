@@ -265,6 +265,24 @@ async function createPayout(req, res) {
   const serviceCharge = chargeResolution.charge;
   const total_amount = amount + serviceCharge;
 
+  const vimoRequestPayload = {
+    amount,
+    merchantRefId,
+    beneficiaryBank: resolvedBeneficiaryBankCode,
+    paymentPurpose: normalizedPaymentPurpose,
+    paymentMode,
+    beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+    beneficiaryIFSC: resolvedBeneficiaryIFSC,
+    beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
+    beneficiaryName: resolvedBeneficiaryName,
+    beneficiaryLocation: resolvedBeneficiaryLocation,
+    lat: normalizedLat,
+    long: normalizedLong,
+    udf1: udf1 || '',
+    udf2: udf2 || '',
+    udf3: udf3 || ''
+  };
+
   vimoLog && vimoLog('INFO', 'Service charge resolved', {
     user_id,
     payoutAmount: amount,
@@ -354,6 +372,15 @@ async function createPayout(req, res) {
       }
     }, { transaction });
 
+    await PayoutAuditLog.create({
+      payout_id: payoutTransaction.id,
+      action: 'VIMO_PAYOUT_REQUEST',
+      details: {
+        merchantRefId,
+        requestPayload: vimoRequestPayload,
+      }
+    }, { transaction });
+
     await ledgerService.createPayoutEntry({
       userId: user_id,
       payoutTransactionId: payoutTransaction.id,
@@ -403,6 +430,23 @@ async function createPayout(req, res) {
       udf3: udf3 || ''
     });
 
+    try {
+      await PayoutAuditLog.create({
+        payout_id: payoutTransaction.id,
+        action: 'VIMO_PAYOUT_RESPONSE',
+        details: {
+          merchantRefId,
+          responseCode: result.responseCode,
+          message: result.message,
+          rawResponse: result.rawResponse,
+          decryptedResponse: result.decryptedResponse,
+          sanitizedResponse: result.data
+        }
+      });
+    } catch (_) {
+      // non-fatal audit failure
+    }
+
     return res.status(200).json({
       success: true,
       message: result.message,
@@ -414,6 +458,24 @@ async function createPayout(req, res) {
       data: result.data
     });
   } catch (error) {
+    try {
+      await PayoutAuditLog.create({
+        payout_id: payoutTransaction.id,
+        action: 'VIMO_PAYOUT_FAILURE',
+        details: {
+          merchantRefId,
+          error: {
+            message: error.message,
+            code: error.code || null,
+            statusCode: error.statusCode || null,
+            details: error.details || null,
+          }
+        }
+      });
+    } catch (_) {
+      // non-fatal: keep original error handling path
+    }
+
     // NOTE: we choose not to rollback ledger here; a separate job/webhook should settle
     console.error('Vimo payout failed', error);
     const normalized = normalizeError(error);
@@ -748,6 +810,21 @@ async function handleCallback(req, res) {
         }
 
         vimoCallbackLog('INFO', `Found PayoutTransaction`, { id: txn.id, currentStatus: txn.status, amount: txn.amount, service_charge: txn.service_charge, merchant_id: txn.merchant_id });
+
+        try {
+          await PayoutAuditLog.create({
+            payout_id: txn.id,
+            action: 'VIMO_CALLBACK_RECEIVED',
+            details: {
+              merchantRefId,
+              source_ip: sourceIp,
+              receivedAt,
+              callbackPayload: payload
+            }
+          }, { transaction: tr });
+        } catch (auditErr) {
+          vimoCallbackLog('WARN', 'Failed to save Vimo callback audit log', { message: auditErr.message, merchantRefId });
+        }
 
         // Terminal check inside the lock.
         if (TERMINAL.includes((txn.status || '').toUpperCase())) {
