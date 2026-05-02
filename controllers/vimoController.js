@@ -747,6 +747,47 @@ async function getPayoutReference(req, res) {
   }
 }
 
+async function getPayoutAuditLogsByReference(req, res) {
+  try {
+    if (!req.user || (!isAdmin(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.PAYOUT_READ))) {
+      return res.status(403).json({ success: false, message: 'Admin or authorized employee access required' });
+    }
+
+    const referenceId = req.query.reference_id || req.query.merchantRefId || req.query.referenceId;
+    if (!referenceId) {
+      return res.status(400).json({ success: false, message: 'reference_id or merchantRefId is required' });
+    }
+
+    const payoutTransaction = await PayoutTransaction.findOne({
+      where: {
+        reference_id: referenceId,
+        payout_provider: 'Vimo'
+      }
+    });
+
+    if (!payoutTransaction) {
+      return res.status(404).json({ success: false, message: 'No Vimo payout transaction found for the given reference id' });
+    }
+
+    const logs = await PayoutAuditLog.findAll({
+      where: { payout_id: payoutTransaction.id },
+      order: [['created_at', 'ASC']]
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Vimo payout audit logs retrieved successfully',
+      payout_id: payoutTransaction.id,
+      reference_id: payoutTransaction.reference_id,
+      totalLogs: logs.length,
+      data: logs
+    });
+  } catch (error) {
+    console.error('Get Vimo payout audit logs by reference error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
+  }
+}
+
 async function handleCallback(req, res) {
   const payload = req.body;
   const receivedAt = new Date().toISOString();
@@ -1008,6 +1049,7 @@ module.exports = {
   fetchPurposeList,
   fetchStateList,
   getPayoutReference,
+  getPayoutAuditLogsByReference,
   handleCallback,
   failProcessingPayout,
   createBeneficiary,
