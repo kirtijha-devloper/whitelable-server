@@ -417,6 +417,8 @@ async function importBillerListFromFile(filePath) {
 
 module.exports = {
   getBillerInfo,
+  getBillerInfoByIdXml,
+  getBillerInfoByIdJson,
   getBillerCategories,
   fetchBill,
   payBill,
