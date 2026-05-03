@@ -8,6 +8,18 @@ const BillAvenueBiller = require('../../../models/BillAvenueBiller');
 const { encrypt, decrypt } = require('./billAvenueEncryptionService');
 const { postForm, postJson } = require('./billAvenueRequestService');
 
+const BILLAVENUE_TEXT_LOG_FILE = path.join(__dirname, '../../../logs/billAvenue.log');
+
+function appendBillAvenueTextLog(label, data) {
+  try {
+    const ts = new Date().toISOString();
+    const body = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    fs.appendFileSync(BILLAVENUE_TEXT_LOG_FILE, `[${ts}] [${label}]\n${body}\n\n`, 'utf8');
+  } catch (_) {
+    // never crash due to log failure
+  }
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 const REQUEST_ID_PREFIX = 'ABL';
@@ -76,6 +88,14 @@ async function callBillAvenue(endpoint, xmlPayload) {
   const rawResponse = await postForm(endpoint, formParams);
   const raw = String(rawResponse).trim();
 
+  appendBillAvenueTextLog('callBillAvenue', {
+    endpoint,
+    requestId: formParams.requestId,
+    requestXml: xmlPayload,
+    responsePreview: raw.substring(0, 200),
+    responseLength: raw.length,
+  });
+
   // Log for debugging
   console.error('[billAvenue] raw response length:', raw.length);
   console.error('[billAvenue] raw response preview:', raw.substring(0, 200));
@@ -85,6 +105,12 @@ async function callBillAvenue(endpoint, xmlPayload) {
     // Extract <title> for a readable error
     const titleMatch = raw.match(/<title>(.*?)<\/title>/i);
     const errorTitle = titleMatch ? titleMatch[1] : 'Access Denied';
+    appendBillAvenueTextLog('callBillAvenueError', {
+      endpoint,
+      requestId: formParams.requestId,
+      responseHtml: raw,
+      errorTitle,
+    });
     throw new Error(`BillAvenue API rejected the request: ${errorTitle}. Check API credentials, IP whitelist, and institute ID.`);
   }
 
