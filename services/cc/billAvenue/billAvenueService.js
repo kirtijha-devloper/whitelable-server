@@ -88,6 +88,7 @@ async function callBillAvenue(endpoint, xmlPayload) {
   const rawResponse = await postForm(endpoint, formParams);
   const raw = String(rawResponse).trim();
 
+  // Log the raw response preview immediately
   appendBillAvenueTextLog('callBillAvenue', {
     endpoint,
     requestId: formParams.requestId,
@@ -125,12 +126,22 @@ async function callBillAvenue(endpoint, xmlPayload) {
 
   // If the response is XML (e.g. error response), parse directly
   if (encryptedPayload.startsWith('<') || encryptedPayload.startsWith('<?xml')) {
+    appendBillAvenueTextLog('callBillAvenueXmlResponse', {
+      endpoint,
+      requestId: formParams.requestId,
+      responseXml: encryptedPayload,
+    });
     const parsed = await parseXml(encryptedPayload);
     return parsed;
   }
 
   // Decrypt (tries hex first, then base64)
   const decryptedXml = decrypt(encryptedPayload);
+  appendBillAvenueTextLog('callBillAvenueDecrypted', {
+    endpoint,
+    requestId: formParams.requestId,
+    decryptedXml,
+  });
   const parsed = await parseXml(decryptedXml);
   return parsed;
 }
