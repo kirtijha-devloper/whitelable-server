@@ -19,6 +19,7 @@ const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
 } = require('../../services/serviceSettingsService');
+const { hasPermission, EMPLOYEE_PERMISSIONS } = require('../../utils/permissions');
 
 const payoutLocks = new Map();
 
@@ -985,8 +986,8 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
 
 router.post('/payout/manual-refund', asyncHandler(async (req, res) => {
   try {
-    if (!isAdminUser(req)) {
-      return res.status(403).json({ success: false, message: 'Only admin can perform manual refunds' });
+    if (!isAdminUser(req) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE)) {
+      return res.status(403).json({ success: false, message: 'Admin or authorized employee access required' });
     }
 
     const { payout_transaction_id, requestId } = req.body;

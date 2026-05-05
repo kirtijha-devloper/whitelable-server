@@ -30,6 +30,7 @@ app.use((err, req, res, _next) => {
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const merchantToken = jwt.sign({ user: { id: 9, role: 'merchant' } }, SECRET);
 const adminToken = jwt.sign({ user: { id: 1, role: 'admin' } }, SECRET);
+const employeeToken = jwt.sign({ user: { id: 2, role: 'employee', employee_access_role: { status: 'active', permissions: ['payout.manage'] } } }, SECRET);
 
 let stubs;
 let userFindByPkOrig;
@@ -524,6 +525,43 @@ describe('POST /api/payment/v2/payout/status-check', () => {
       .post('/api/payment/v2/payout/manual-refund')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ payout_transaction_id: 10 });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.be.true;
+    expect(res.body.refundCreated).to.be.true;
+    expect(res.body.action).to.equal('manual_refund_created');
+    expect(refundArgs).to.not.be.null;
+    expect(refundArgs.credit).to.equal(110);
+  });
+
+  it('allows employee with payout.manage permission to manually refund a BranchX payout', async () => {
+    branchxService.statusCheck = async () => { throw new Error('manual-refund should not call statusCheck'); };
+
+    let refundArgs = null;
+    PayoutTransaction.findByPk = async () => ({
+      id: 14,
+      merchant_id: 9,
+      status: 'PENDING',
+      amount: '100',
+      service_charge: '10',
+      reference_id: 'REQ204',
+      createdAt: new Date('2026-04-26T12:00:00Z'),
+      data: JSON.stringify({
+        data: { status: 'FAILED', message: 'failure', opRefId: '-', apiTxnId: 'ATX14', mobileNumber: '9999999999', amount: 100 },
+        statuscode: '200',
+        status: 'FAILED',
+        message: 'Txn Found'
+      }),
+      update: async function (updates) { Object.assign(this, updates); }
+    });
+    Ledger.findOne = async () => null;
+    PayoutAuditLog.create = async () => ({});
+    ledgerService.createLedgerEntry = async (args) => { refundArgs = args; return { id: 914 }; };
+
+    const res = await request(app)
+      .post('/api/payment/v2/payout/manual-refund')
+      .set('Authorization', `Bearer ${employeeToken}`)
+      .send({ payout_transaction_id: 14 });
 
     expect(res.status).to.equal(200);
     expect(res.body.success).to.be.true;
