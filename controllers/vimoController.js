@@ -111,6 +111,43 @@ function normalizeVimoPaymentPurpose(input) {
   return null;
 }
 
+function escapeSqlLike(value) {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
+async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccountNumber, beneficiaryIFSC }) {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  const where = {
+    payout_provider: 'Vimo',
+    createdAt: { [Op.gte]: monthStart, [Op.lt]: nextMonthStart },
+    status: { [Op.notIn]: ['FAILED', 'REVERSED', 'CANCELLED'] },
+  };
+
+  if (beneficiaryId) {
+    where.beneficiary_id = beneficiaryId;
+  } else {
+    const normalizedAccount = beneficiaryAccountNumber ? escapeSqlLike(beneficiaryAccountNumber) : null;
+    const normalizedIfsc = beneficiaryIFSC ? escapeSqlLike(beneficiaryIFSC) : null;
+
+    if (!normalizedAccount) {
+      return 0;
+    }
+
+    where.data = { [Op.like]: `%"beneficiaryAccountNumber":"${normalizedAccount}"%` };
+    if (normalizedIfsc) {
+      where[Op.and] = [
+        { data: { [Op.like]: `%"beneficiaryIFSC":"${normalizedIfsc}"%` } }
+      ];
+    }
+  }
+
+  const total = await PayoutTransaction.sum('amount', { where });
+  return parseFloat(total || 0);
+}
+
 function formatVimoCoordinate(value) {
   if (value === undefined || value === null || value === '') {
     return null;
@@ -253,6 +290,24 @@ async function createPayout(req, res) {
         retryAfter: 180,
       });
     }
+  }
+
+  // ── Vimo beneficiary monthly cap ──────────────────────────────────────────
+  const beneficiaryMonthlyTotal = await getVimoBeneficiaryMonthlyTotal({
+    beneficiaryId: beneficiary_id,
+    beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+    beneficiaryIFSC: resolvedBeneficiaryIFSC,
+  });
+
+  const beneficiaryLimit = 500000;
+  if (beneficiaryMonthlyTotal + amount > beneficiaryLimit) {
+    return res.status(400).json({
+      success: false,
+      message: `Vimo payout limit exceeded for this beneficiary in the current calendar month. Maximum allowed is ₹${beneficiaryLimit.toLocaleString('en-IN')}.`,
+      monthlyTotal: beneficiaryMonthlyTotal,
+      attemptedAmount: amount,
+      beneficiaryLimit,
+    });
   }
 
   // Generate merchantRefId if not supplied (idempotency key).

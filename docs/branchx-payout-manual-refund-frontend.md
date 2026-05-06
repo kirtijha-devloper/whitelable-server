@@ -30,17 +30,15 @@ The status check must have been executed at least once for this payout so the se
 
 ### Request body
 
-One of these fields is required:
+The request must include:
 
-- `payout_transaction_id` — internal payout transaction ID
-- `requestId` — BranchX request/reference ID (`reference_id`)
+- `reference_id` — BranchX request/reference ID stored on the `PayoutTransaction` record
 
 Example:
 
 ```json
 {
-  "payout_transaction_id": 123,
-  "requestId": "BRX-REF-20260427-0001"
+  "reference_id": "BRX-REF-20260427-0001"
 }
 ```
 
@@ -94,7 +92,7 @@ If the payout already has an existing refund entry, the response is still succes
 ```json
 {
   "success": false,
-  "message": "Either payout_transaction_id or requestId is required"
+  "message": "reference_id is required"
 }
 ```
 
@@ -144,7 +142,7 @@ If the payout already has an existing refund entry, the response is still succes
 1. Display payout details on the admin payout review screen.
 2. If the payout is eligible for manual refund, call `/payout/status-check` first.
 3. Confirm the stored BranchX status is `FAILED`.
-4. Call `/payout/manual-refund` with `payout_transaction_id` or `requestId`.
+4. Call `/payout/manual-refund` with `reference_id`.
 5. If `refundCreated` is `true`, show a success toast and update UI state.
 6. If `refundCreated` is `false`, show a notice that the refund was already issued.
 
@@ -154,4 +152,4 @@ If the payout already has an existing refund entry, the response is still succes
 
 - The endpoint only issues a ledger credit; it does not change the payout amount or reverse the original debit entry.
 - A manual refund is only allowed for payouts created on or after the effective policy date.
-- Use the same `requestId`/`reference_id` stored from the payout record or previous BranchX status-check result.
+- Use the same `reference_id` stored in the payout record or returned from a previous BranchX status-check.

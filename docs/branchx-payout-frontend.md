@@ -243,14 +243,10 @@ Use this after receiving a `PENDING` status, or to let users manually refresh.
 
 **POST** `/api/payment/v2/payout/status-check`
 
-### Request body (use one of):
+### Request body
 
 ```json
-{ "payout_transaction_id": 17 }
-```
-or
-```json
-{ "requestId": "REF-XXXXXXXX" }
+{ "reference_id": "REF-XXXXXXXX" }
 ```
 
 ### Response `200`
