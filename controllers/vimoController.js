@@ -792,6 +792,31 @@ async function fetchTokenStatus(req, res) {
   }
 }
 
+async function getWalletBalance(req, res) {
+  if (!req.user || (!isAdmin(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.PAYOUT_READ))) {
+    return res.status(403).json({ success: false, message: 'Admin or authorized employee access required' });
+  }
+
+  try {
+    const merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo' });
+    const result = await vimoService.fetchWalletBalance(merchantRefId);
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      responseCode: result.responseCode,
+      merchantRefId,
+      data: result.data,
+    });
+  } catch (error) {
+    const normalized = normalizeError(error);
+    return res.status(normalized.statusCode || 500).json({
+      success: false,
+      message: normalized.message,
+      error: normalized,
+    });
+  }
+}
+
 async function getPayoutReference(req, res) {
   try {
     const reference = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo' });
@@ -1103,6 +1128,7 @@ module.exports = {
   fetchBankList,
   fetchPurposeList,
   fetchStateList,
+  getWalletBalance,
   getPayoutReference,
   getPayoutAuditLogsByReference,
   handleCallback,

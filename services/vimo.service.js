@@ -848,11 +848,12 @@ async function resolveBankCode(bankNameOrCode) {
   return partialMatch ? partialMatch.code : null;
 }
 
-async function fetchEncryptedList(path, successMessage) {
+async function fetchEncryptedList(path, successMessage, params = {}) {
   try {
     const response = await executeAuthorizedRequest((token) =>
       vimoClient.get(path, {
         headers: buildAuthorizedHeaders(token),
+        params,
       })
     );
 
@@ -884,6 +885,35 @@ async function fetchEncryptedList(path, successMessage) {
 
 async function fetchBankList() {
   return fetchEncryptedList('/masterapi/api/master/banklist', 'Bank list fetched successfully');
+}
+
+async function fetchWalletBalance(merchantRefId) {
+  if (!merchantRefId || typeof merchantRefId !== 'string' || merchantRefId.trim() === '') {
+    throw new AppError('merchantRefId is required', {
+      code: 'MISSING_MERCHANT_REF_ID',
+      statusCode: 400,
+      details: 'Vimo wallet detail lookup requires merchantRefId as query parameter.',
+    });
+  }
+
+  const response = await executeAuthorizedRequest((token) =>
+    vimoClient.get('/gateway/api/payment/getwalletDetail', {
+      headers: buildAuthorizedHeaders(token),
+      params: { merchantRefId: merchantRefId.trim() },
+    })
+  );
+
+  const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Wallet detail fetched successfully');
+
+  const data = typeof normalizedResponse.data === 'string'
+    ? parseMaybeJson(normalizedResponse.data) || normalizedResponse.data
+    : normalizedResponse.data;
+
+  return {
+    message: normalizedResponse.message,
+    responseCode: normalizedResponse.responseCode,
+    data,
+  };
 }
 
 async function fetchPurposeList() {
@@ -1027,6 +1057,7 @@ module.exports = {
   fetchBankList,
   fetchPurposeList,
   fetchStateList,
+  fetchWalletBalance,
   createPayout,
   getAuthorizeTokenResponse,
   resolveBankCode,
