@@ -419,7 +419,23 @@ async function createRentalChargeEntry({
   amount,
   description = null,
   metadata = null,
-}) {
+}, opts = {}) {
+  // Prevent duplicate rental charge entries for the same billing row
+  const existingCharge = await Ledger.findOne({
+    where: {
+      user_id: userId,
+      transaction_type: 'rental_charge',
+      reference_id: billingId,
+      reference_table: 'PosRentalBillings',
+      debit: amount,
+    },
+    transaction: opts.transaction,
+  });
+
+  if (existingCharge) {
+    return existingCharge;
+  }
+
   return await createLedgerEntry({
     userId,
     transactionType: 'rental_charge',
@@ -428,7 +444,7 @@ async function createRentalChargeEntry({
     description: description || `Rental charge: ₹${amount}`,
     debit: amount,
     metadata,
-  });
+  }, opts);
 }
 
 /**
@@ -449,7 +465,22 @@ async function createRentalCreditEntry({
   amount,
   description = null,
   metadata = null,
-}) {
+}, opts = {}) {
+  const existingCredit = await Ledger.findOne({
+    where: {
+      user_id: userId,
+      transaction_type: 'rental_income',
+      reference_id: billingId,
+      reference_table: 'PosRentalBillings',
+      credit: amount,
+    },
+    transaction: opts.transaction,
+  });
+
+  if (existingCredit) {
+    return existingCredit;
+  }
+
   return await createLedgerEntry({
     userId,
     transactionType: 'rental_income',
@@ -458,7 +489,7 @@ async function createRentalCreditEntry({
     description: description || `Rental income: ₹${amount}`,
     credit: amount,
     metadata,
-  });
+  }, opts);
 }
 
 /**

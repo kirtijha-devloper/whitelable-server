@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { Op } = require('sequelize');
 const PosRentalBilling = require('../models/PosRentalBilling');
 const Rental = require('../models/Rental');
+const db = require('../config/database');
 const {
   createRentalChargeEntry,
   createRentalCreditEntry,
@@ -73,8 +74,26 @@ async function chargeRentals() {
 
   for (const billing of dueBillings) {
     const { id: billingId, assigned_to, assigned_to_role, franchise_id, pos_machine_id } = billing;
+    const transaction = await db.transaction();
 
     try {
+      const billingRow = await PosRentalBilling.findOne({
+        where: { id: billingId, status: 'active' },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+
+      if (!billingRow) {
+        await transaction.rollback();
+        continue;
+      }
+
+      const todayIso = today.toISOString().slice(0, 10);
+      if (billingRow.next_charge_date > todayIso) {
+        await transaction.rollback();
+        continue;
+      }
+
       if (assigned_to_role === 'merchant' && franchise_id) {
         // ── Case A: merchant under a franchise ──────────────────────────────
 
@@ -91,7 +110,7 @@ async function chargeRentals() {
             amount:      merchantAmount,
             description: `POS rental charge: ₹${merchantAmount}`,
             metadata:    { billing_id: billingId, pos_machine_id, charged_by: 'franchise', franchise_id }
-          });
+          }, { transaction });
 
           // Step 2: credit franchise (rental income from merchant)
           await createRentalCreditEntry({
@@ -100,7 +119,7 @@ async function chargeRentals() {
             amount:      merchantAmount,
             description: `POS rental income from merchant #${assigned_to}: ₹${merchantAmount}`,
             metadata:    { billing_id: billingId, pos_machine_id, merchant_id: assigned_to }
-          });
+          }, { transaction });
         }
 
         // Step 3: debit franchise by admin's franchise rate
@@ -112,7 +131,7 @@ async function chargeRentals() {
             amount:      platformAmount,
             description: `POS rental platform fee: ₹${platformAmount}`,
             metadata:    { billing_id: billingId, pos_machine_id, charged_by: 'admin' }
-          });
+          }, { transaction });
         }
 
       } else if (assigned_to_role === 'merchant' && !franchise_id) {
@@ -125,7 +144,7 @@ async function chargeRentals() {
             amount,
             description: `POS rental charge: ₹${amount}`,
             metadata:    { billing_id: billingId, pos_machine_id }
-          });
+          }, { transaction });
         }
 
       } else if (assigned_to_role === 'franchaise') {
@@ -138,21 +157,23 @@ async function chargeRentals() {
             amount,
             description: `POS rental charge: ₹${amount}`,
             metadata:    { billing_id: billingId, pos_machine_id }
-          });
+          }, { transaction });
         }
       }
 
       // Advance the billing cycle by 30 days
       const nextCharge = new Date(today);
       nextCharge.setDate(nextCharge.getDate() + 30);
-      await billing.update({
+      await billingRow.update({
         last_charged_at: new Date(),
         next_charge_date: nextCharge.toISOString().slice(0, 10)
-      });
+      }, { transaction });
 
+      await transaction.commit();
       console.log(`[cron] chargeRentals: charged billing #${billingId} (machine ${pos_machine_id}, user ${assigned_to})`);
 
     } catch (err) {
+      await transaction.rollback();
       console.error(`[cron] chargeRentals: error for billing #${billingId}:`, err.message || err);
     }
   }
