@@ -932,10 +932,9 @@ async function fetchWalletBalance(merchantRefId) {
   }
 
   if (lastError) {
-    const normalized = normalizeError(lastError);
     throw new AppError('Wallet balance endpoint not found on Vimo provider', {
       code: 'VIMO_WALLET_BALANCE_NOT_FOUND',
-      statusCode: normalized.statusCode || 502,
+      statusCode: lastError.response?.status || 502,
       details: lastError.response?.data || lastError.message,
     });
   }
