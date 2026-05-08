@@ -896,24 +896,55 @@ async function fetchWalletBalance(merchantRefId) {
     });
   }
 
-  const response = await executeAuthorizedRequest((token) =>
-    vimoClient.get('/gateway/api/payment/getwalletDetail', {
-      headers: buildAuthorizedHeaders(token),
-      params: { merchantRefId: merchantRefId.trim() },
-    })
-  );
+  const pathCandidates = [
+    '/gateway/api/payment/getwalletDetail',
+    '/gateway/api/payment/getWalletDetail',
+    '/payoutapi/api/payment/getwalletDetail',
+    '/payoutapi/api/payment/getWalletDetail',
+  ];
 
-  const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Wallet detail fetched successfully');
+  let lastError;
+  for (const path of pathCandidates) {
+    try {
+      const response = await executeAuthorizedRequest((token) =>
+        vimoClient.get(path, {
+          headers: buildAuthorizedHeaders(token),
+          params: { merchantRefId: merchantRefId.trim() },
+        })
+      );
 
-  const data = typeof normalizedResponse.data === 'string'
-    ? parseMaybeJson(normalizedResponse.data) || normalizedResponse.data
-    : normalizedResponse.data;
+      const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Wallet detail fetched successfully');
+      const data = typeof normalizedResponse.data === 'string'
+        ? parseMaybeJson(normalizedResponse.data) || normalizedResponse.data
+        : normalizedResponse.data;
 
-  return {
-    message: normalizedResponse.message,
-    responseCode: normalizedResponse.responseCode,
-    data,
-  };
+      return {
+        message: normalizedResponse.message,
+        responseCode: normalizedResponse.responseCode,
+        data,
+      };
+    } catch (error) {
+      lastError = error;
+      if (!axios.isAxiosError(error) || error.response?.status !== 404) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) {
+    const normalized = normalizeError(lastError);
+    throw new AppError('Wallet balance endpoint not found on Vimo provider', {
+      code: 'VIMO_WALLET_BALANCE_NOT_FOUND',
+      statusCode: normalized.statusCode || 502,
+      details: lastError.response?.data || lastError.message,
+    });
+  }
+
+  throw new AppError('Unable to fetch Vimo wallet balance', {
+    code: 'VIMO_WALLET_BALANCE_FAILED',
+    statusCode: 502,
+    details: 'No valid wallet balance endpoint found',
+  });
 }
 
 async function fetchPurposeList() {
