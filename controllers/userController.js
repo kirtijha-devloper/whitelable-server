@@ -2070,6 +2070,45 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 });
 
+const promoteEmployeeToAdmin = asyncHandler(async (req, res) => {
+  const requesterRole = normalizeRole(req.user?.role);
+  if (requesterRole !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  }
+
+  const targetId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    return res.status(400).json({ success: false, message: 'Valid user ID is required.' });
+  }
+
+  const targetUser = await User.findByPk(targetId);
+  if (!targetUser) {
+    return res.status(404).json({ success: false, message: 'User not found.' });
+  }
+
+  const currentTargetRole = normalizeRole(targetUser.role);
+  if (currentTargetRole !== 'employee') {
+    return res.status(400).json({
+      success: false,
+      message: 'Only employee users can be promoted to admin.',
+    });
+  }
+
+  await targetUser.update({
+    role: 'admin',
+    employee_access_role_id: null,
+    permissions: [],
+  });
+  await targetUser.reload();
+
+  const { password: _pw, ...safeUser } = serializeUserWithResolvedAccessRole(targetUser, null);
+  return res.status(200).json({
+    success: true,
+    message: 'User promoted to admin successfully.',
+    data: safeUser,
+  });
+});
+
 const promoteUserToFranchise = asyncHandler(async (req, res) => {
   const requesterRole = req.user?.role;
   const requesterId = req.user?.id;
@@ -2192,4 +2231,4 @@ const enableLedger = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, searchUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger }
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, searchUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, promoteEmployeeToAdmin, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger }

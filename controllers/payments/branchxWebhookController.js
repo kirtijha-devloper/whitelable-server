@@ -142,6 +142,31 @@ const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
       parsedData = { original: locked.data };
     }
 
+    if (parsedData.branchxCronResolved) {
+      await PayoutAuditLog.create({
+        payout_id: locked.id,
+        action: 'BRANCHX_CALLBACK_SKIPPED_BY_CRON',
+        details: {
+          reference_id: locked.reference_id,
+          previousStatus,
+          incomingStatus: newStatus,
+          reason: 'Ignored because cron already resolved this payout'
+        }
+      }, { transaction: trx });
+
+      const skippedMsg = `SKIPPED_BY_CRON — payout id=${locked.id} ref=${locked.reference_id} previousStatus=${previousStatus} incomingStatus=${newStatus}`;
+      logBranchxEvent(skippedMsg);
+      await trx.commit();
+      return res.status(200).json({
+        success: true,
+        message: 'Callback ignored because cron already resolved this payout',
+        payoutTransactionId: locked.id,
+        payoutTransactionFound: true,
+        status: previousStatus,
+        skippedByCron: true
+      });
+    }
+
     parsedData.callback = payload;
 
     const payloadStr = JSON.stringify(payload);

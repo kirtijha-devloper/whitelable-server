@@ -4,6 +4,7 @@ const cron = require('node-cron');
 const { Op } = require('sequelize');
 const PayoutTransaction = require('../models/PayoutTransaction');
 const Ledger = require('../models/Ledger');
+const PayoutAuditLog = require('../models/PayoutAuditLog');
 const branchxService = require('../services/payments/branchxService');
 const db = require('../config/database');
 const ledgerService = require('../services/ledgerService');
@@ -14,7 +15,9 @@ if (!fs.existsSync(path.dirname(LOG_FILE))) {
 }
 
 const ONE_MINUTE_MS = 60 * 1000;
-const FIVE_MINUTES_MS = 5 * 60 * 1000;
+const THREE_MINUTES_MS = 3 * ONE_MINUTE_MS;
+const FIVE_MINUTES_MS = 5 * ONE_MINUTE_MS;
+const MAX_NOT_FOUND_RETRIES = 3;
 const ENABLE_BRANCHX_PENDING_CRON = process.env.ENABLE_BRANCHX_PENDING_CRON !== 'false';
 let resolvePendingInFlight = false;
 
@@ -24,11 +27,26 @@ function appendLog(message) {
   fs.appendFile(LOG_FILE, line, (err) => { if (err) console.error('Failed to write cron log', err); });
 }
 
+function parseData(data) {
+  if (!data) return {};
+  if (typeof data === 'object') return data;
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    return {};
+  }
+}
+
+function getNotFoundAttemptCount(parsedData) {
+  return Number(parsedData.branchxNotFoundAttempts || 0);
+}
+
 function normalizeBranchxStatus(statusRaw) {
   if (!statusRaw) return 'PENDING';
   const s = statusRaw.toString().trim().toUpperCase();
   if (['SUCCESS', 'COMPLETED'].includes(s)) return 'SUCCESS';
   if (['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'].includes(s)) return 'FAILED';
+  if (['NOT_FOUND', 'NOTFOUND'].includes(s)) return 'NOT_FOUND';
   if (['PENDING', 'PROCESSING', 'IN_PROGRESS'].includes(s)) return 'PENDING';
   return 'PENDING';
 }
@@ -42,12 +60,12 @@ function shouldPollBranchxPayout(tx, now = Date.now()) {
   const createdAtMs = toTimestamp(tx.createdAt);
   if (!createdAtMs) return false;
 
-  // Never poll brand-new rows. The first refresh happens only after 1 minute.
-  if (now - createdAtMs < ONE_MINUTE_MS) return false;
+  // Never poll brand-new rows. The first refresh happens only after 3 minutes.
+  if (now - createdAtMs < THREE_MINUTES_MS) return false;
 
   const updatedAtMs = toTimestamp(tx.updatedAt || tx.createdAt);
 
-  // If the row has never been refreshed yet, poll it once after the 1-minute mark.
+  // If the row has never been refreshed yet, poll it once after the 3-minute mark.
   if (updatedAtMs <= createdAtMs) return true;
 
   // Once refreshed, wait 5 minutes between follow-up checks while still pending.
@@ -66,7 +84,7 @@ function getBranchxPollDebug(tx, now = Date.now()) {
 function getBranchxPollSkipReason(tx, now = Date.now()) {
   const createdAtMs = toTimestamp(tx.createdAt);
   if (!createdAtMs) return 'missing createdAt';
-  if (now - createdAtMs < ONE_MINUTE_MS) return 'too new for first poll';
+  if (now - createdAtMs < THREE_MINUTES_MS) return 'too new for first poll';
 
   const updatedAtMs = toTimestamp(tx.updatedAt || tx.createdAt);
   if (updatedAtMs > createdAtMs && now - updatedAtMs < FIVE_MINUTES_MS) {
@@ -104,17 +122,18 @@ async function resolvePending() {
   appendLog('resolvePendingBranchx started');
 
   try {
-    const initialCutoff = new Date(Date.now() - ONE_MINUTE_MS);
+    const initialCutoff = new Date(Date.now() - THREE_MINUTES_MS);
 
     const pendingTxns = await PayoutTransaction.findAll({
       where: {
         status: 'PENDING',
+        payout_provider: 'BranchX',
         createdAt: { [Op.lt]: initialCutoff }
       },
       order: [['updatedAt', 'ASC'], ['createdAt', 'ASC']]
     });
 
-    const scanMsg = `[cron] BranchX pending scan: found ${pendingTxns.length} row(s) older than 1 minute`;
+    const scanMsg = `[cron] BranchX pending scan: found ${pendingTxns.length} row(s) older than 3 minutes`;
     console.log(scanMsg);
     appendLog(scanMsg);
 
@@ -146,7 +165,7 @@ async function resolvePending() {
 
         const response = await branchxService.statusCheck(tx.reference_id);
         const rawStatus = response?.data?.status || response?.status || 'PENDING';
-        const transactionStatus = normalizeBranchxStatus(rawStatus);
+        let transactionStatus = normalizeBranchxStatus(rawStatus);
         const responseSummary = getBranchxResponseSummary(response);
         const responseMsg = `[cron] BranchX response ${sequenceLabel} payoutTxn=${tx.id} ref=${tx.reference_id} rawStatus=${JSON.stringify(rawStatus)} normalizedStatus=${transactionStatus} summary=${JSON.stringify(responseSummary)}`;
         console.log(responseMsg);
@@ -167,9 +186,59 @@ async function resolvePending() {
           }
 
           const previousStatus = locked.status;
-          locked.data = JSON.stringify(response);
+          const parsedData = parseData(locked.data);
+          parsedData.lastCronStatusCheck = {
+            timestamp: new Date().toISOString(),
+            rawStatus,
+            normalizedStatus: transactionStatus,
+            summary: responseSummary
+          };
+
+          if (transactionStatus === 'NOT_FOUND') {
+            parsedData.branchxNotFoundAttempts = getNotFoundAttemptCount(parsedData) + 1;
+            parsedData.branchxCronStatus = 'NOT_FOUND';
+            parsedData.lastCronStatusCheck.rawStatus = rawStatus;
+            parsedData.lastCronStatusCheck.summary = responseSummary;
+            locked.data = JSON.stringify(parsedData);
+
+            if (parsedData.branchxNotFoundAttempts < MAX_NOT_FOUND_RETRIES) {
+              await locked.save({ transaction: tr });
+              await PayoutAuditLog.create({
+                payout_id: locked.id,
+                action: 'BRANCHX_CRON_NOT_FOUND_RETRY',
+                details: {
+                  reference_id: locked.reference_id,
+                  attempt: parsedData.branchxNotFoundAttempts,
+                  maxAttempts: MAX_NOT_FOUND_RETRIES,
+                  status: 'NOT_FOUND',
+                  response: responseSummary
+                }
+              }, { transaction: tr });
+              await tr.commit();
+
+              const msg = `[cron] BranchX NOT_FOUND retry ${parsedData.branchxNotFoundAttempts}/${MAX_NOT_FOUND_RETRIES} for payout ${locked.reference_id} (${sequenceLabel}); deferring refund`;
+              console.log(msg);
+              appendLog(msg);
+              continue;
+            }
+
+            transactionStatus = 'FAILED';
+            parsedData.branchxCronResolved = true;
+            parsedData.branchxCronResolution = {
+              finalStatus: 'FAILED',
+              reason: 'NOT_FOUND after retries',
+              attempts: parsedData.branchxNotFoundAttempts,
+              resolvedAt: new Date().toISOString()
+            };
+          }
+
+          parsedData.branchxNotFoundAttempts = transactionStatus === 'NOT_FOUND' ? getNotFoundAttemptCount(parsedData) : 0;
+          if (transactionStatus !== 'NOT_FOUND') {
+            parsedData.branchxNotFoundAttempts = 0;
+          }
 
           if (transactionStatus === 'PENDING') {
+            locked.data = JSON.stringify(parsedData);
             await locked.save({ transaction: tr });
             await tr.commit();
             const msg = `[cron] refreshed BranchX payout ${locked.reference_id} (${sequenceLabel}) -> ${transactionStatus}`;
@@ -182,6 +251,13 @@ async function resolvePending() {
           }
 
           locked.status = transactionStatus;
+          if (['SUCCESS', 'FAILED'].includes(transactionStatus)) {
+            parsedData.branchxCronResolved = true;
+            parsedData.branchxCronResolution = parsedData.branchxCronResolution || {};
+            parsedData.branchxCronResolution.finalStatus = transactionStatus;
+            parsedData.branchxCronResolution.resolvedAt = new Date().toISOString();
+          }
+          locked.data = JSON.stringify(parsedData);
 
           if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && transactionStatus === 'FAILED') {
             const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
@@ -223,6 +299,22 @@ async function resolvePending() {
           }
 
           await locked.save({ transaction: tr });
+
+          if (['SUCCESS', 'FAILED'].includes(transactionStatus)) {
+            await PayoutAuditLog.create({
+              payout_id: locked.id,
+              action: 'BRANCHX_CRON_RESOLVED',
+              details: {
+                reference_id: locked.reference_id,
+                from: previousStatus,
+                to: transactionStatus,
+                rawStatus,
+                response: responseSummary,
+                resolvedByCron: true
+              }
+            }, { transaction: tr });
+          }
+
           await tr.commit();
           const msg = `[cron] resolved BranchX payout ${locked.reference_id} (${sequenceLabel}) -> ${transactionStatus}`;
           console.log(msg);

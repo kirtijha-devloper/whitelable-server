@@ -768,6 +768,55 @@ describe('Employee role on user routes', () => {
     expect(res.body.message).to.match(/only admins can update role or employee access controls/i);
   });
 
+  it('allows admin to promote an employee to admin', async () => {
+    const targetUser = {
+      id: 99,
+      role: 'employee',
+      employee_access_role_id: 3,
+      permissions: ['users.read'],
+      update: async function (updates) {
+        Object.assign(this, updates);
+      },
+      reload: async function () {
+        return this;
+      },
+      toJSON() {
+        return {
+          id: this.id,
+          role: this.role,
+          employee_access_role_id: this.employee_access_role_id,
+          permissions: this.permissions,
+        };
+      },
+    };
+
+    User.findByPk = async () => targetUser;
+
+    const res = await request(app)
+      .post('/api/user/99/promote-to-admin')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.data.role).to.equal('admin');
+    expect(res.body.data.employee_access_role_id).to.equal(null);
+    expect(res.body.data.permissions).to.deep.equal([]);
+  });
+
+  it('rejects admin promotion for non-employee users', async () => {
+    User.findByPk = async () => ({
+      id: 100,
+      role: 'merchant',
+    });
+
+    const res = await request(app)
+      .post('/api/user/100/promote-to-admin')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(400);
+    expect(res.body.message).to.match(/only employee users can be promoted to admin/i);
+  });
+
   it('allows employee with users.status.update permission to soft deactivate a user', async () => {
     const targetUser = {
       id: 42,
