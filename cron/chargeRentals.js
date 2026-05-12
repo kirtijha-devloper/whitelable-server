@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { Op } = require('sequelize');
 const PosRentalBilling = require('../models/PosRentalBilling');
+const PosMachine = require('../models/posMachine');
 const Rental = require('../models/Rental');
 const db = require('../config/database');
 const {
@@ -83,6 +84,20 @@ async function chargeRentals() {
         lock: transaction.LOCK.UPDATE,
       });
 
+      const posMachine = pos_machine_id
+        ? await PosMachine.findByPk(pos_machine_id, { transaction })
+        : null;
+
+      const baseMetadata = {
+        billing_id: billingId,
+        pos_machine_id,
+        machine_mid: posMachine?.mid_number || null,
+        machine_tid: posMachine?.tid_number || null,
+        assigned_to_role,
+        assigned_to,
+        franchise_id: franchise_id || null
+      };
+
       if (!billingRow) {
         await transaction.rollback();
         continue;
@@ -109,7 +124,7 @@ async function chargeRentals() {
             billingId,
             amount:      merchantAmount,
             description: `POS rental charge: ₹${merchantAmount}`,
-            metadata:    { billing_id: billingId, pos_machine_id, charged_by: 'franchise', franchise_id }
+            metadata:    { ...baseMetadata, charged_by: 'franchise' }
           }, { transaction });
 
           // Step 2: credit franchise (rental income from merchant)
@@ -118,7 +133,7 @@ async function chargeRentals() {
             billingId,
             amount:      merchantAmount,
             description: `POS rental income from merchant #${assigned_to}: ₹${merchantAmount}`,
-            metadata:    { billing_id: billingId, pos_machine_id, merchant_id: assigned_to }
+            metadata:    { ...baseMetadata, merchant_id: assigned_to }
           }, { transaction });
         }
 
@@ -130,7 +145,7 @@ async function chargeRentals() {
             billingId,
             amount:      platformAmount,
             description: `POS rental platform fee: ₹${platformAmount}`,
-            metadata:    { billing_id: billingId, pos_machine_id, charged_by: 'admin' }
+            metadata:    { ...baseMetadata, charged_by: 'admin' }
           }, { transaction });
         }
 
@@ -143,7 +158,7 @@ async function chargeRentals() {
             billingId,
             amount,
             description: `POS rental charge: ₹${amount}`,
-            metadata:    { billing_id: billingId, pos_machine_id }
+            metadata:    baseMetadata
           }, { transaction });
         }
 
@@ -156,7 +171,7 @@ async function chargeRentals() {
             billingId,
             amount,
             description: `POS rental charge: ₹${amount}`,
-            metadata:    { billing_id: billingId, pos_machine_id }
+            metadata:    baseMetadata
           }, { transaction });
         }
       }
