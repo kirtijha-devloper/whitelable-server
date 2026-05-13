@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId } = require("../controllers/adminController");
+const { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId, setUserSettlementType, setAllUsersSettlementType } = require("../controllers/adminController");
 const { adminDirectCredit, adminDirectDebit, reconcileWallet, reconcileAllWallets } = require("../controllers/adminWalletController");
 const {
   getServiceSettings,
@@ -55,6 +55,16 @@ router.post("/wallet/debit", validateToken, ensureEmployeePermission(EMPLOYEE_PE
 // PUT /api/admin/user/:id/ipay-outlet
 //   Admin-only: set or update the InstantPay outlet ID for any user.
 router.put("/user/:id/ipay-outlet", validateToken, setUserIpayOutletId);
+
+// PUT /api/admin/users/settlement-type
+//   Admin-only: update settlement type for all merchant and franchise users.
+//   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
+router.put("/users/settlement-type", validateToken, requireAdmin, setAllUsersSettlementType);
+
+// PUT /api/admin/user/:id/settlement-type
+//   Admin-only: update settlement type for a single merchant or franchise user.
+//   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
+router.put("/user/:id/settlement-type", validateToken, requireAdmin, setUserSettlementType);
 
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.

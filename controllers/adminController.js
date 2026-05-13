@@ -159,5 +159,88 @@ const setUserIpayOutletId = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId };
+const setUserSettlementType = asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  }
+
+  const { id } = req.params;
+  const { settlement_type } = req.body;
+  const supportedTypes = ['today_settlement', 'next_day_settlement'];
+
+  if (!settlement_type || typeof settlement_type !== 'string') {
+    res.status(400);
+    throw new Error('settlement_type is required and must be a string');
+  }
+
+  if (!supportedTypes.includes(settlement_type)) {
+    res.status(400);
+    throw new Error('settlement_type must be either "today_settlement" or "next_day_settlement"');
+  }
+
+  const user = await User.findByPk(id);
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  if (!['merchant', 'franchaise'].includes(user.role)) {
+    res.status(400);
+    throw new Error('Settlement type can only be updated for merchant or franchise users');
+  }
+
+  user.settlement_type = settlement_type;
+  await user.save();
+
+  return res.status(200).json({
+    success: true,
+    message: 'Settlement type updated successfully',
+    data: {
+      id: user.id,
+      role: user.role,
+      settlement_type: user.settlement_type,
+    },
+  });
+});
+
+const setAllUsersSettlementType = asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  }
+
+  const { settlement_type } = req.body;
+  const supportedTypes = ['today_settlement', 'next_day_settlement'];
+
+  if (!settlement_type || typeof settlement_type !== 'string') {
+    res.status(400);
+    throw new Error('settlement_type is required and must be a string');
+  }
+
+  if (!supportedTypes.includes(settlement_type)) {
+    res.status(400);
+    throw new Error('settlement_type must be either "today_settlement" or "next_day_settlement"');
+  }
+
+  const [updatedCount] = await User.update(
+    { settlement_type },
+    {
+      where: {
+        role: {
+          [Op.in]: ['merchant', 'franchaise'],
+        },
+      },
+    }
+  );
+
+  return res.status(200).json({
+    success: true,
+    message: `Settlement type updated to '${settlement_type}' for ${updatedCount} merchant/franchise users.`,
+    data: {
+      settlement_type,
+      updatedCount,
+    },
+  });
+});
+
+module.exports = { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId, setUserSettlementType, setAllUsersSettlementType };
 
