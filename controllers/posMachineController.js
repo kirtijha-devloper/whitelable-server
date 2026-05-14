@@ -43,6 +43,38 @@ async function upsertRentalBilling(posMachineId, assignedUser) {
   });
 }
 
+async function buildPosMachineWithAssignedUser(posMachine) {
+  let assignedUser = null;
+
+  if (posMachine.assigned_to) {
+    assignedUser = await User.findByPk(posMachine.assigned_to, {
+      attributes: ['id', 'name', 'email', 'role', 'username', 'mobile_number'],
+    });
+  }
+
+  return {
+    id: posMachine.id,
+    tid_number: posMachine.tid_number,
+    mid_number: posMachine.mid_number,
+    device_serial_number: posMachine.device_serial_number,
+    razorpay_id: posMachine.razorpay_id,
+    status: posMachine.status,
+    remarks: posMachine.remarks,
+    company_name: posMachine.company_name,
+    bank_name: posMachine.bank_name,
+    assigned_to: posMachine.assigned_to,
+    assigned_user: assignedUser ? {
+      id: assignedUser.id,
+      name: assignedUser.name,
+      email: assignedUser.email,
+      role: assignedUser.role,
+      username: assignedUser.username,
+      mobile_number: assignedUser.mobile_number,
+    } : null,
+    createdAt: posMachine.createdAt,
+    updatedAt: posMachine.updatedAt,
+  };
+}
 
 const getAllPosMachine = asyncHandler(async (req, res) => {
   const { 
@@ -90,35 +122,7 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     });
 
     const formattedPosMachines = await Promise.all(posMachines.map(async (posMachine) => {
-      let assignedUser = null;
-
-      if (posMachine.assigned_to) {
-        assignedUser = await User.findByPk(posMachine.assigned_to, {
-          attributes: ['id', 'name', 'email', 'role', 'abheepay_id'],
-        });
-      }
-
-      return {
-        id: posMachine.id,
-        tid_number: posMachine.tid_number,
-        mid_number: posMachine.mid_number,
-        device_serial_number: posMachine.device_serial_number,
-        razorpay_id: posMachine.razorpay_id,
-        status: posMachine.status,
-        remarks: posMachine.remarks,
-        company_name: posMachine.company_name,
-        bank_name: posMachine.bank_name,
-        assigned_to: posMachine.assigned_to,
-        assigned_user: assignedUser ? {
-          id: assignedUser.id,
-          name: assignedUser.name,
-          email: assignedUser.email,
-          role: assignedUser.role,
-          username : assignedUser.username
-        } : null,
-        createdAt: posMachine.createdAt,
-        updatedAt: posMachine.updatedAt,
-      };
+      return await buildPosMachineWithAssignedUser(posMachine);
     }));
     
     res.status(200).json({
@@ -217,9 +221,10 @@ const createPosMachine = asyncHandler(async (req, res ) => {
 
 const getPosMachine = asyncHandler( async (req, res) => {
     const id = req.params.id;
-    const posMachineById = await PosMachine.findByPk(id)
+    const posMachineById = await PosMachine.findByPk(id);
     if (posMachineById) {
-        res.status(200).json(posMachineById)
+        const formatted = await buildPosMachineWithAssignedUser(posMachineById);
+        res.status(200).json(formatted);
     } else {
         res.status(404);
             throw new Error ("NoT Found !")
@@ -540,30 +545,7 @@ const getPosMachineList = asyncHandler(async (req, res) => {
     const formattedPosMachines = await Promise.all(machines.map(async (posMachine) => {
       let assignedUser = null;
       
-      if (posMachine.assigned_to) {
-        assignedUser = await User.findByPk(posMachine.assigned_to, {
-          attributes: ['id', 'name', 'email', 'role'],
-        });
-      }
-
-      return {
-        id: posMachine.id,
-        tid_number: posMachine.tid_number,
-        status: posMachine.status,
-        remarks: posMachine.remarks,
-        company_name: posMachine.company_name,
-        bank_name: posMachine.bank_name,
-        assigned_to: posMachine.assigned_to,
-        assigned_user: assignedUser ? {
-          id: assignedUser.id,
-          name: assignedUser.name,
-          email: assignedUser.email,
-          role: assignedUser.role,
-          username: assignedUser.username
-        } : null,
-        createdAt: posMachine.createdAt,
-        updatedAt: posMachine.updatedAt,
-      };
+      return await buildPosMachineWithAssignedUser(posMachine);
     }));
 
     res.status(200).json({
