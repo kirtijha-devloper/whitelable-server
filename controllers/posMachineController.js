@@ -114,6 +114,7 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
           name: assignedUser.name,
           email: assignedUser.email,
           role: assignedUser.role,
+          username : assignedUser.username
         } : null,
         createdAt: posMachine.createdAt,
         updatedAt: posMachine.updatedAt,
@@ -558,6 +559,7 @@ const getPosMachineList = asyncHandler(async (req, res) => {
           name: assignedUser.name,
           email: assignedUser.email,
           role: assignedUser.role,
+          username: assignedUser.username
         } : null,
         createdAt: posMachine.createdAt,
         updatedAt: posMachine.updatedAt,
