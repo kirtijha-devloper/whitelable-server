@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const branchxService = require('../../services/payments/branchxService');
 const asyncHandler = require("express-async-handler");
+const db = require('../../config/database');
 const Beneficiary = require('../../models/Beneficiary');
 const Tpin = require('../../models/Tpin');
 const User = require('../../models/User');
@@ -404,7 +405,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
     lockPayout(lockKey);
 
-    currentDate = getCurrentDate();
+    const currentDate = getCurrentDate();
     let requestId = req.body.requestId || null;
     if (!requestId) {
       requestId = await payoutReferenceService.getNextPayoutReference();
