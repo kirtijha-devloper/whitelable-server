@@ -24,42 +24,51 @@ function buildNullableMatch(column, value) {
   };
 }
 
-function getRuleSpecificityScore(rule) {
-  let score = 0;
-
-  switch (rule.scope) {
+function getScopeWeight(scope) {
+  switch (scope) {
     case 'franchise_merchant':
-      score += 64;
-      break;
+      return 64;
     case 'admin_merchant':
-      score += 48;
-      break;
+      return 48;
     case 'franchise_default':
-      score += 32;
-      break;
+      return 32;
     case 'admin_franchise':
-      score += 16;
-      break;
+      return 16;
     default:
-      score += 0;
-      break;
+      return 0;
   }
+}
 
-  if (rule.settlement_type != null) score += 8;
-  if (rule.card_classification != null) score += 4;
-  if (rule.card_brand != null) score += 2;
-  if (rule.card_type != null) score += 1;
+function getSpecificityBreakdown(rule) {
+  const scopeWeight = getScopeWeight(rule.scope);
+  const settlementWeight = rule.settlement_type != null ? 8 : 0;
+  const classificationWeight = rule.card_classification != null ? 4 : 0;
+  const brandWeight = rule.card_brand != null ? 2 : 0;
+  const cardTypeWeight = rule.card_type != null ? 1 : 0;
+  let amountWeight = 0;
 
   if (rule.min_amount != null && rule.max_amount != null) {
     const min = parseFloat(rule.min_amount);
     const max = parseFloat(rule.max_amount);
     if (!Number.isNaN(min) && !Number.isNaN(max)) {
       const range = Math.max(0, max - min);
-      score += Math.max(0, Math.floor(1000 / (range + 1)));
+      amountWeight = Math.max(0, Math.floor(1000 / (range + 1)));
     }
   }
 
-  return score;
+  return {
+    scope_weight: scopeWeight,
+    settlement_weight: settlementWeight,
+    card_classification_weight: classificationWeight,
+    card_brand_weight: brandWeight,
+    card_type_weight: cardTypeWeight,
+    amount_range_weight: amountWeight
+  };
+}
+
+function getRuleSpecificityScore(rule) {
+  const breakdown = getSpecificityBreakdown(rule);
+  return Object.values(breakdown).reduce((sum, value) => sum + value, 0);
 }
 
 function summarizeChargeRule(rule) {
@@ -82,6 +91,16 @@ function summarizeChargeRule(rule) {
     gst_required: Boolean(rule.gst_required),
     gst_percent: rule.gst_percent !== undefined && rule.gst_percent !== null ? parseFloat(rule.gst_percent) : 0,
     is_active: Boolean(rule.is_active)
+  };
+}
+
+function summarizeRankedRuleCandidate(candidate, index) {
+  return {
+    rank: index + 1,
+    specificity_score: candidate.specificity_score,
+    specificity_breakdown: candidate.specificity_breakdown,
+    brand_candidate: candidate.brand_candidate,
+    rule: summarizeChargeRule(candidate.rule)
   };
 }
 
@@ -177,6 +196,97 @@ async function resolveBestChargeRuleWithoutAmount({
   return null;
 }
 
+async function findRankedChargeRuleCandidates({
+  userId,
+  franchiseId,
+  paymentMode,
+  cardType,
+  cardBrand,
+  classification,
+  settlement,
+  amount,
+}) {
+  const normalizedPaymentMode = normalizeLookupValue(paymentMode);
+  const normalizedCardType = normalizeLookupValue(cardType);
+  const normalizedClassification = normalizeLookupValue(classification);
+  const normalizedSettlement = normalizeLookupValue(settlement);
+  const amountProvided = amount !== undefined && amount !== null && String(amount).trim() !== '';
+  const numericAmount = amountProvided ? parseFloat(amount) : null;
+  const cardBrandCandidates = getCardBrandCandidates(cardBrand);
+  const candidateBrands = cardBrandCandidates.length ? cardBrandCandidates : [null];
+  const seen = new Map();
+
+  for (const brandCandidate of candidateBrands) {
+    const where = {
+      is_active: true,
+      [Op.or]: [
+        { user_id: userId },
+        {
+          user_id: null,
+          [Op.or]: [
+            { franchaise_id: franchiseId },
+            { franchaise_id: null }
+          ]
+        }
+      ],
+      [Op.and]: [
+        buildNullableMatch('payment_mode', normalizedPaymentMode),
+        buildNullableMatch('card_type', normalizedCardType),
+        buildNullableMatch('card_brand', brandCandidate),
+        buildNullableMatch('card_classification', normalizedClassification),
+        buildNullableMatch('settlement_type', normalizedSettlement)
+      ]
+    };
+
+    if (amountProvided && !Number.isNaN(numericAmount) && numericAmount > 0) {
+      where[Op.and].push({
+        min_amount: { [Op.lte]: numericAmount }
+      });
+      where[Op.and].push({
+        [Op.or]: [
+          { max_amount: { [Op.gte]: numericAmount } },
+          { max_amount: null }
+        ]
+      });
+    }
+
+    const rows = await PosChargeRule.findAll({
+      where,
+      order: [['createdAt', 'DESC']]
+    });
+
+    for (const row of rows) {
+      const plain = toPlainRule(row);
+      if (seen.has(plain.id)) {
+        continue;
+      }
+
+      const specificity_breakdown = getSpecificityBreakdown(plain);
+      const specificity_score = Object.values(specificity_breakdown).reduce((sum, value) => sum + value, 0);
+      seen.set(plain.id, {
+        rule: plain,
+        specificity_score,
+        specificity_breakdown,
+        brand_candidate: brandCandidate
+      });
+    }
+  }
+
+  return Array.from(seen.values()).sort((left, right) => {
+    if (right.specificity_score !== left.specificity_score) {
+      return right.specificity_score - left.specificity_score;
+    }
+
+    const rightCreated = right.rule.createdAt ? new Date(right.rule.createdAt).getTime() : 0;
+    const leftCreated = left.rule.createdAt ? new Date(left.rule.createdAt).getTime() : 0;
+    if (rightCreated !== leftCreated) {
+      return rightCreated - leftCreated;
+    }
+
+    return (right.rule.id || 0) - (left.rule.id || 0);
+  });
+}
+
 async function resolveChargeDebugSnapshot({
   user,
   paymentMode,
@@ -211,11 +321,39 @@ async function resolveChargeDebugSnapshot({
     settlement
   });
 
-  const selectedRule = exactRule || candidateRule;
+  const rankedCandidates = amountProvided
+    ? await findRankedChargeRuleCandidates({
+        userId: user.id,
+        franchiseId: user.franchaise_id || (user.role === 'franchaise' ? user.id : null),
+        paymentMode,
+        cardType,
+        cardBrand,
+        classification,
+        settlement,
+        amount: numericAmount
+      })
+    : [];
+
+  const rankedRuleSummaries = rankedCandidates.map((candidate, index) => summarizeRankedRuleCandidate(candidate, index));
+  const selectedRule = exactRule || candidateRule || (rankedCandidates[0] ? rankedCandidates[0].rule : null);
   const matchMode = exactRule ? 'exact' : (amountProvided ? 'best_effort' : 'rate_only');
   const preview = amountProvided
     ? buildChargePreview(selectedRule, numericAmount)
     : null;
+
+  let selectionExplanation = null;
+  if (rankedRuleSummaries.length >= 2) {
+    const winner = rankedRuleSummaries[0];
+    const runnerUp = rankedRuleSummaries[1];
+    const winnerScope = winner.rule ? winner.rule.scope : null;
+    const runnerScope = runnerUp.rule ? runnerUp.rule.scope : null;
+
+    if (winnerScope && runnerScope && winnerScope !== runnerScope) {
+      selectionExplanation = `Rule ${winner.rule.id} won because ${winnerScope} has a higher scope weight than ${runnerScope}.`;
+    } else if (winner.specificity_score !== runnerUp.specificity_score) {
+      selectionExplanation = `Rule ${winner.rule.id} won because its specificity score (${winner.specificity_score}) is higher than rule ${runnerUp.rule.id} (${runnerUp.specificity_score}).`;
+    }
+  }
 
   return {
     match_mode: matchMode,
@@ -224,7 +362,9 @@ async function resolveChargeDebugSnapshot({
     exact_rule: summarizeChargeRule(exactRule),
     candidate_rule: summarizeChargeRule(candidateRule),
     rule: summarizeChargeRule(selectedRule),
-    preview
+    preview,
+    ranked_rules: rankedRuleSummaries,
+    selection_explanation: selectionExplanation
   };
 }
 
