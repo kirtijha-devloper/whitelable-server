@@ -206,6 +206,158 @@ router.post('/payout', asyncHandler(async (req, res) => {
     // Allow zero charge if no slab or service charge is intentionally zero
 
     const total_amount = amount + service_charge;
+    {
+      const transaction = await db.transaction();
+      try {
+        const lockedUser = await User.findByPk(merchant_id, { transaction, lock: transaction.LOCK.UPDATE });
+        if (!lockedUser) {
+          await transaction.rollback();
+          return res.status(404).json({ message: "Merchant not found" });
+        }
+
+        const availableBalance = await ledgerService.getAvailableBalance(merchant_id);
+        if (availableBalance < total_amount) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message: `Insufficient balance. Available: ₹${availableBalance.toFixed(2)}, Required: ₹${total_amount.toFixed(2)}`
+          });
+        }
+
+        const safeBeneficiary = await Beneficiary.findByPk(beneficiary_id);
+        if (!safeBeneficiary) {
+          await transaction.rollback();
+          return res.status(404).json({ message: "Beneficiary not found" });
+        }
+
+        const lockKey = `${merchant_id}:${beneficiary_id}:${amount}`;
+        if (isPayoutLocked(lockKey)) {
+          await transaction.rollback();
+          return res.status(409).json({
+            success: false,
+            message: 'Duplicate payout detected. Please wait a few minutes before retrying.'
+          });
+        }
+
+        const recentDuplicate = await PayoutTransaction.findOne({
+          where: {
+            merchant_id,
+            beneficiary_id,
+            amount,
+            status: {
+              [Op.notIn]: ['FAILED']
+            },
+            createdAt: {
+              [Op.gte]: new Date(Date.now() - 3 * 60 * 1000)
+            }
+          },
+          order: [['createdAt', 'DESC']]
+        });
+
+        if (recentDuplicate) {
+          await transaction.rollback();
+          return res.status(409).json({
+            success: false,
+            message: 'Duplicate payout detected. Please wait a few minutes before retrying.'
+          });
+        }
+
+        if (safeBeneficiary.status === 'inactive') {
+          await transaction.rollback();
+          return res.status(400).json({ message: "Beneficiary is disabled" });
+        }
+
+        lockPayout(lockKey);
+
+        const currentDate = getCurrentDate();
+        let requestId = req.body.requestId || null;
+        if (!requestId) {
+          requestId = await payoutReferenceService.getNextPayoutReference();
+        }
+
+        const payload = {
+          amount,
+          mobileNumber: safeBeneficiary.mobile_number,
+          requestId,
+          accountNumber: safeBeneficiary.account_number,
+          ifscCode: safeBeneficiary.ifsc_code,
+          beneficiaryName: safeBeneficiary.beneficiary_name,
+          remitterName: user.name || '',
+          bankName: safeBeneficiary.bank_name,
+          transferMode: 'IMPS',
+          latitude: latitude || '',
+          longitude: longitude || '',
+          emailId: safeBeneficiary.email || '',
+          purpose: purpose || 'Payout Request'
+        };
+
+        const data = await branchxService.payout(payload);
+
+        const branchxStatus = normalizeBranchxStatus(data.status || data.Status || 'PENDING');
+        const payoutStatus = 'PENDING';
+        const payoutTx = await PayoutTransaction.create({
+          merchant_id,
+          beneficiary_id,
+          payout_provider: 'BranchX',
+          reference_id: requestId || data.api_ref,
+          amount,
+          status: payoutStatus,
+          purpose: purpose || null,
+          data: JSON.stringify(data),
+          service_charge
+        }, { transaction });
+
+        await PayoutAuditLog.create({
+          payout_id: payoutTx.id,
+          action: 'BRANCHX_PAYOUT_REQUEST',
+          details: {
+            requestPayload: payload,
+            reference_id: requestId || data.api_ref
+          }
+        }, { transaction });
+
+        await PayoutAuditLog.create({
+          payout_id: payoutTx.id,
+          action: 'BRANCHX_PAYOUT_RESPONSE',
+          details: {
+            responsePayload: data,
+            branchxStatus,
+            status: payoutStatus,
+            reference_id: requestId || data.api_ref
+          }
+        }, { transaction });
+
+        await ledgerService.createPayoutEntry({
+          userId: merchant_id,
+          payoutTransactionId: payoutTx.id,
+          amount: total_amount,
+          description: `Payout to ${safeBeneficiary.beneficiary_name} (${purpose || 'N/A'}) â€” ref: ${requestId}`,
+          metadata: {
+            beneficiary_name: safeBeneficiary.beneficiary_name,
+            account_number: safeBeneficiary.account_number,
+            ifsc_code: safeBeneficiary.ifsc_code,
+            bank_name: safeBeneficiary.bank_name,
+            payout_amount: amount,
+            service_charge,
+            reference_id: requestId,
+            branchx_status: branchxStatus
+          }
+        }, { transaction });
+
+        await transaction.commit();
+
+        return res.json({
+          success: true,
+          message: data.message || 'Payout request processed successfully',
+          payout_provider: 'BranchX',
+          reference_id: requestId || data.api_ref,
+          data
+        });
+      } catch (error) {
+        await transaction.rollback();
+        throw error;
+      }
+    }
     const availableBalance = await ledgerService.getAvailableBalance(merchant_id);
     if (availableBalance < total_amount) {
       return res.status(400).json({ message: "Insufficient wallet balance" });  
