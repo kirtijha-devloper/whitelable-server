@@ -551,36 +551,6 @@ const myChargesDebug = asyncHandler(async (req, res) => {
     const normalizedCardBrand = normalizeCardBrand(card_brand || network);
     const normalizedClassification = normalizeLookupValue(card_classification);
 
-    const uiTodaySnapshot = await resolveUiChargeSnapshot({
-      user,
-      paymentMode: normalizedPaymentMode,
-      cardType: normalizedCardType,
-      cardBrand: normalizedCardBrand,
-      classification: normalizedClassification,
-      settlement: user.settlement_type || null,
-      amount
-    });
-
-    const uiT0Snapshot = await resolveUiChargeSnapshot({
-      user,
-      paymentMode: normalizedPaymentMode,
-      cardType: normalizedCardType,
-      cardBrand: normalizedCardBrand,
-      classification: normalizedClassification,
-      settlement: 'today_settlement',
-      amount
-    });
-
-    const uiTplus1Snapshot = await resolveUiChargeSnapshot({
-      user,
-      paymentMode: normalizedPaymentMode,
-      cardType: normalizedCardType,
-      cardBrand: normalizedCardBrand,
-      classification: normalizedClassification,
-      settlement: 'next_day_settlement',
-      amount
-    });
-
     const transactionTodaySnapshot = await resolveTransactionChargeSnapshot({
       user,
       paymentMode: normalizedPaymentMode,
@@ -602,16 +572,37 @@ const myChargesDebug = asyncHandler(async (req, res) => {
     });
 
     const liveSettlementType = user.settlement_type || null;
-    const liveUiSnapshot = liveSettlementType === 'today_settlement'
-      ? uiT0Snapshot
-      : liveSettlementType === 'next_day_settlement'
-        ? uiTplus1Snapshot
-        : uiTodaySnapshot;
     const liveTransactionSnapshot = liveSettlementType === 'today_settlement'
       ? transactionTodaySnapshot
       : liveSettlementType === 'next_day_settlement'
         ? transactionTplus1Snapshot
         : transactionTodaySnapshot;
+
+    const selectedCharge = liveTransactionSnapshot ? {
+      amount: amountProvided ? parsedAmount : null,
+      charge_percent: liveTransactionSnapshot.rule ? parseFloat(liveTransactionSnapshot.rule.charge_percent) : null,
+      charge_amount: liveTransactionSnapshot.preview ? liveTransactionSnapshot.preview.charge_amount : null,
+      gst_amount: liveTransactionSnapshot.preview ? liveTransactionSnapshot.preview.gst_amount : null,
+      net_amount: liveTransactionSnapshot.preview ? liveTransactionSnapshot.preview.merchant_settlement : null,
+      rule_id: liveTransactionSnapshot.rule ? liveTransactionSnapshot.rule.id : null,
+      scope: liveTransactionSnapshot.rule ? liveTransactionSnapshot.rule.scope : null,
+      settlement_type: liveTransactionSnapshot.rule ? liveTransactionSnapshot.rule.settlement_type : null,
+      classification: liveTransactionSnapshot.rule ? liveTransactionSnapshot.rule.card_classification : null,
+      match_mode: liveTransactionSnapshot.match_mode,
+      result_source: liveTransactionSnapshot.result_source,
+    } : {
+      amount: amountProvided ? parsedAmount : null,
+      charge_percent: null,
+      charge_amount: null,
+      gst_amount: null,
+      net_amount: null,
+      rule_id: null,
+      scope: null,
+      settlement_type: null,
+      classification: null,
+      match_mode: null,
+      result_source: null,
+    };
 
     return res.status(200).json({
       success: true,
@@ -637,8 +628,7 @@ const myChargesDebug = asyncHandler(async (req, res) => {
         status: user.status || null
       },
       live_settlement_type: liveSettlementType,
-      live: liveTransactionSnapshot,
-      display: liveUiSnapshot
+      selected_charge: selectedCharge
     });
   } catch (error) {
     console.error('myChargesDebug error:', error);
