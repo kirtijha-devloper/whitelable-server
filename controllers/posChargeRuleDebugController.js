@@ -24,6 +24,11 @@ function buildNullableMatch(column, value) {
   };
 }
 
+function normalizeSettlementValue(value) {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
 function getScopeWeight(scope) {
   switch (scope) {
     case 'franchise_merchant':
@@ -126,6 +131,131 @@ function buildChargePreview(rule, amount) {
     gst_amount: gstAmount,
     total_deducted: totalDeducted,
     merchant_settlement: merchantSettlement
+  };
+}
+
+function buildExactMatchWhere({
+  paymentMode,
+  cardType,
+  cardBrand,
+  classification,
+  settlement,
+  amount,
+}) {
+  const where = {
+    is_active: true
+  };
+
+  if (paymentMode) where.payment_mode = paymentMode;
+  if (cardType) where.card_type = cardType;
+  if (cardBrand) where.card_brand = cardBrand;
+  if (classification) where.card_classification = classification;
+  if (settlement) where.settlement_type = settlement;
+
+  const amountProvided = amount !== undefined && amount !== null && String(amount).trim() !== '';
+  const numericAmount = amountProvided ? parseFloat(amount) : null;
+  if (amountProvided && !Number.isNaN(numericAmount) && numericAmount > 0) {
+    where.min_amount = { [Op.lte]: numericAmount };
+    where[Op.or] = [
+      { max_amount: { [Op.gte]: numericAmount } },
+      { max_amount: null }
+    ];
+  }
+
+  return { where, amountProvided, numericAmount };
+}
+
+function getUiScopeOrder(userRole) {
+  if (userRole === 'franchaise' || userRole === 'franchise') {
+    return ['admin_default', 'admin_franchise', 'franchise_default', 'franchise_merchant'];
+  }
+
+  return ['admin_default', 'admin_merchant', 'franchise_default', 'franchise_merchant'];
+}
+
+function buildUiScopeWhere(scope, user) {
+  const isFranchiseRole = user.role === 'franchaise' || user.role === 'franchise';
+  const franchiseId = user.franchaise_id || (isFranchiseRole ? user.id : null);
+  const userId = user.id;
+
+  switch (scope) {
+    case 'admin_default':
+      return { scope: 'admin_default' };
+    case 'admin_merchant':
+      return { scope: 'admin_merchant', user_id: userId };
+    case 'admin_franchise':
+      return franchiseId ? { scope: 'admin_franchise', franchaise_id: franchiseId } : null;
+    case 'franchise_default':
+      return franchiseId ? { scope: 'franchise_default', franchaise_id: franchiseId } : null;
+    case 'franchise_merchant':
+      return franchiseId ? { scope: 'franchise_merchant', user_id: userId, franchaise_id: franchiseId } : null;
+    default:
+      return null;
+  }
+}
+
+async function resolveUiChargeSnapshot({
+  user,
+  paymentMode,
+  cardType,
+  cardBrand,
+  classification,
+  settlement,
+  amount,
+}) {
+  const exactSettlement = normalizeSettlementValue(settlement);
+  const exactCardBrand = cardBrand ? normalizeCardBrand(cardBrand) : null;
+  const exactPaymentMode = normalizeLookupValue(paymentMode);
+  const exactCardType = normalizeLookupValue(cardType);
+  const exactClassification = normalizeLookupValue(classification);
+  const { where: exactWhere, amountProvided, numericAmount } = buildExactMatchWhere({
+    paymentMode: exactPaymentMode,
+    cardType: exactCardType,
+    cardBrand: exactCardBrand,
+    classification: exactClassification,
+    settlement: exactSettlement,
+    amount
+  });
+
+  const scopeOrder = getUiScopeOrder(user.role);
+  const groupResults = {};
+  let selectedRule = null;
+  let selectedGroup = null;
+
+  for (const scope of scopeOrder) {
+    const scopeWhere = buildUiScopeWhere(scope, user);
+    if (!scopeWhere) {
+      groupResults[scope] = [];
+      continue;
+    }
+
+    const rows = await PosChargeRule.findAll({
+      where: {
+        ...exactWhere,
+        ...scopeWhere
+      },
+      order: [['createdAt', 'DESC']]
+    });
+
+    const summarizedRows = rows.map(toPlainRule);
+    groupResults[scope] = summarizedRows.map(summarizeChargeRule);
+
+    if (!selectedRule && summarizedRows.length > 0) {
+      selectedRule = summarizedRows[0];
+      selectedGroup = scope;
+    }
+  }
+
+  return {
+    mode: 'ui_display',
+    scope_order: scopeOrder,
+    selected_group: selectedGroup,
+    rule: summarizeChargeRule(selectedRule),
+    preview: amountProvided ? buildChargePreview(selectedRule, numericAmount) : null,
+    groups: groupResults,
+    selection_explanation: selectedRule
+      ? `Selected from ${selectedGroup} using exact UI list filters.`
+      : 'No exact UI rule matched the provided filters.'
   };
 }
 
@@ -287,7 +417,7 @@ async function findRankedChargeRuleCandidates({
   });
 }
 
-async function resolveChargeDebugSnapshot({
+async function resolveTransactionChargeSnapshot({
   user,
   paymentMode,
   cardType,
@@ -421,7 +551,17 @@ const myChargesDebug = asyncHandler(async (req, res) => {
     const normalizedCardBrand = normalizeCardBrand(card_brand || network);
     const normalizedClassification = normalizeLookupValue(card_classification);
 
-    const todaySnapshot = await resolveChargeDebugSnapshot({
+    const uiTodaySnapshot = await resolveUiChargeSnapshot({
+      user,
+      paymentMode: normalizedPaymentMode,
+      cardType: normalizedCardType,
+      cardBrand: normalizedCardBrand,
+      classification: normalizedClassification,
+      settlement: user.settlement_type || null,
+      amount
+    });
+
+    const uiT0Snapshot = await resolveUiChargeSnapshot({
       user,
       paymentMode: normalizedPaymentMode,
       cardType: normalizedCardType,
@@ -431,7 +571,27 @@ const myChargesDebug = asyncHandler(async (req, res) => {
       amount
     });
 
-    const nextDaySnapshot = await resolveChargeDebugSnapshot({
+    const uiTplus1Snapshot = await resolveUiChargeSnapshot({
+      user,
+      paymentMode: normalizedPaymentMode,
+      cardType: normalizedCardType,
+      cardBrand: normalizedCardBrand,
+      classification: normalizedClassification,
+      settlement: 'next_day_settlement',
+      amount
+    });
+
+    const transactionTodaySnapshot = await resolveTransactionChargeSnapshot({
+      user,
+      paymentMode: normalizedPaymentMode,
+      cardType: normalizedCardType,
+      cardBrand: normalizedCardBrand,
+      classification: normalizedClassification,
+      settlement: 'today_settlement',
+      amount
+    });
+
+    const transactionTplus1Snapshot = await resolveTransactionChargeSnapshot({
       user,
       paymentMode: normalizedPaymentMode,
       cardType: normalizedCardType,
@@ -442,11 +602,11 @@ const myChargesDebug = asyncHandler(async (req, res) => {
     });
 
     const liveSettlementType = user.settlement_type || null;
-    const liveSnapshot = liveSettlementType === 'today_settlement'
-      ? todaySnapshot
+    const liveUiSnapshot = liveSettlementType === 'today_settlement'
+      ? uiT0Snapshot
       : liveSettlementType === 'next_day_settlement'
-        ? nextDaySnapshot
-        : null;
+        ? uiTplus1Snapshot
+        : uiTodaySnapshot;
 
     return res.status(200).json({
       success: true,
@@ -472,9 +632,19 @@ const myChargesDebug = asyncHandler(async (req, res) => {
         status: user.status || null
       },
       live_settlement_type: liveSettlementType,
-      live: liveSnapshot,
-      t0: todaySnapshot,
-      tplus1: nextDaySnapshot
+      live: liveUiSnapshot,
+      ui: {
+        live: uiTodaySnapshot,
+        t0: uiT0Snapshot,
+        tplus1: uiTplus1Snapshot
+      },
+      transaction: {
+        live: transactionTodaySnapshot,
+        t0: transactionTodaySnapshot,
+        tplus1: transactionTplus1Snapshot
+      },
+      t0: uiT0Snapshot,
+      tplus1: uiTplus1Snapshot
     });
   } catch (error) {
     console.error('myChargesDebug error:', error);
