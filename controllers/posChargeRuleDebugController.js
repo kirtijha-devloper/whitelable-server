@@ -638,18 +638,6 @@ const myChargesDebug = asyncHandler(async (req, res) => {
       },
       live_settlement_type: liveSettlementType,
       live: liveTransactionSnapshot,
-      ui: {
-        live: uiTodaySnapshot,
-        t0: uiT0Snapshot,
-        tplus1: uiTplus1Snapshot
-      },
-      transaction: {
-        live: liveTransactionSnapshot,
-        t0: transactionTodaySnapshot,
-        tplus1: transactionTplus1Snapshot
-      },
-      t0: transactionTodaySnapshot,
-      tplus1: transactionTplus1Snapshot,
       display: liveUiSnapshot
     });
   } catch (error) {
