@@ -607,6 +607,11 @@ const myChargesDebug = asyncHandler(async (req, res) => {
       : liveSettlementType === 'next_day_settlement'
         ? uiTplus1Snapshot
         : uiTodaySnapshot;
+    const liveTransactionSnapshot = liveSettlementType === 'today_settlement'
+      ? transactionTodaySnapshot
+      : liveSettlementType === 'next_day_settlement'
+        ? transactionTplus1Snapshot
+        : transactionTodaySnapshot;
 
     return res.status(200).json({
       success: true,
@@ -632,19 +637,20 @@ const myChargesDebug = asyncHandler(async (req, res) => {
         status: user.status || null
       },
       live_settlement_type: liveSettlementType,
-      live: liveUiSnapshot,
+      live: liveTransactionSnapshot,
       ui: {
         live: uiTodaySnapshot,
         t0: uiT0Snapshot,
         tplus1: uiTplus1Snapshot
       },
       transaction: {
-        live: transactionTodaySnapshot,
+        live: liveTransactionSnapshot,
         t0: transactionTodaySnapshot,
         tplus1: transactionTplus1Snapshot
       },
-      t0: uiT0Snapshot,
-      tplus1: uiTplus1Snapshot
+      t0: transactionTodaySnapshot,
+      tplus1: transactionTplus1Snapshot,
+      display: liveUiSnapshot
     });
   } catch (error) {
     console.error('myChargesDebug error:', error);
