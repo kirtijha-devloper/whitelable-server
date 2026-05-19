@@ -44,12 +44,23 @@ function getScopeWeight(scope) {
   }
 }
 
-function getSpecificityBreakdown(rule) {
+function getSpecificityBreakdown(rule, search = {}) {
   const scopeWeight = getScopeWeight(rule.scope);
-  const settlementWeight = rule.settlement_type != null ? 8 : 0;
-  const classificationWeight = rule.card_classification != null ? 4 : 0;
-  const brandWeight = rule.card_brand != null ? 2 : 0;
-  const cardTypeWeight = rule.card_type != null ? 1 : 0;
+  const normalizedSearchPaymentMode = normalizeLookupValue(search.paymentMode);
+  const normalizedSearchCardType = normalizeLookupValue(search.cardType);
+  const normalizedSearchBrand = search.cardBrand ? normalizeCardBrand(search.cardBrand) : null;
+  const normalizedSearchClassification = normalizeLookupValue(search.classification);
+  const normalizedSearchSettlement = normalizeLookupValue(search.settlement);
+  const normalizedRulePaymentMode = normalizeLookupValue(rule.payment_mode);
+  const normalizedRuleCardType = normalizeLookupValue(rule.card_type);
+  const normalizedRuleBrand = normalizeCardBrand(rule.card_brand);
+  const normalizedRuleClassification = normalizeLookupValue(rule.card_classification);
+  const normalizedRuleSettlement = normalizeLookupValue(rule.settlement_type);
+  const paymentModeWeight = normalizedSearchPaymentMode && normalizedRulePaymentMode === normalizedSearchPaymentMode ? 16000 : 0;
+  const settlementWeight = normalizedSearchSettlement && normalizedRuleSettlement === normalizedSearchSettlement ? 8000 : 0;
+  const classificationWeight = normalizedSearchClassification && normalizedRuleClassification === normalizedSearchClassification ? 4000 : 0;
+  const brandWeight = normalizedSearchBrand && normalizedRuleBrand === normalizedSearchBrand ? 2000 : 0;
+  const cardTypeWeight = normalizedSearchCardType && normalizedRuleCardType === normalizedSearchCardType ? 1000 : 0;
   let amountWeight = 0;
 
   if (rule.min_amount != null && rule.max_amount != null) {
@@ -63,16 +74,17 @@ function getSpecificityBreakdown(rule) {
 
   return {
     scope_weight: scopeWeight,
-    settlement_weight: settlementWeight,
-    card_classification_weight: classificationWeight,
-    card_brand_weight: brandWeight,
+    payment_mode_weight: paymentModeWeight,
     card_type_weight: cardTypeWeight,
+    card_brand_weight: brandWeight,
+    card_classification_weight: classificationWeight,
+    settlement_weight: settlementWeight,
     amount_range_weight: amountWeight
   };
 }
 
-function getRuleSpecificityScore(rule) {
-  const breakdown = getSpecificityBreakdown(rule);
+function getRuleSpecificityScore(rule, search = {}) {
+  const breakdown = getSpecificityBreakdown(rule, search);
   return Object.values(breakdown).reduce((sum, value) => sum + value, 0);
 }
 
@@ -308,10 +320,17 @@ async function resolveBestChargeRuleWithoutAmount({
 
     let best = null;
     let bestScore = -Infinity;
+    const scoreSearch = {
+      paymentMode: normalizedPaymentMode,
+      cardType: normalizedCardType,
+      cardBrand: brandCandidate,
+      classification: normalizedClassification,
+      settlement: normalizedSettlement
+    };
 
     for (const row of rows) {
       const plain = toPlainRule(row);
-      const score = getRuleSpecificityScore(plain);
+      const score = getRuleSpecificityScore(plain, scoreSearch);
       if (score > bestScore) {
         bestScore = score;
         best = plain;
@@ -385,13 +404,21 @@ async function findRankedChargeRuleCandidates({
       order: [['createdAt', 'DESC']]
     });
 
+    const scoreSearch = {
+      paymentMode: normalizedPaymentMode,
+      cardType: normalizedCardType,
+      cardBrand: brandCandidate,
+      classification: normalizedClassification,
+      settlement: normalizedSettlement
+    };
+
     for (const row of rows) {
       const plain = toPlainRule(row);
       if (seen.has(plain.id)) {
         continue;
       }
 
-      const specificity_breakdown = getSpecificityBreakdown(plain);
+      const specificity_breakdown = getSpecificityBreakdown(plain, scoreSearch);
       const specificity_score = Object.values(specificity_breakdown).reduce((sum, value) => sum + value, 0);
       seen.set(plain.id, {
         rule: plain,
