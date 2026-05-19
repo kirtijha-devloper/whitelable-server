@@ -43,9 +43,12 @@ function getCardBrandCandidates(cardBrand) {
 async function executeChargeRuleQuery(query, replacementBase, cardBrandCandidates) {
   for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
     const replacements = [
-      ...replacementBase.slice(0, 4),
+      replacementBase[0],
+      replacementBase[1],
       candidate || null,
-      ...replacementBase.slice(4)
+      replacementBase[2],
+      replacementBase[3],
+      replacementBase[4]
     ];
     const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
     if (results && results.length) return results[0];
@@ -102,11 +105,11 @@ async function getTransactionChargeRule({
     (
       -- exact matches should outrank scope, so each matched dimension gets a
       -- large multiplier.
-      (CASE WHEN UPPER(payment_mode) = $3 THEN 16000 ELSE 0 END) +
-      (CASE WHEN settlement_type     = $7 THEN 8000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_classification) = $6 THEN 4000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_brand)   = $5 THEN 2000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_type)    = $4 THEN 1000 ELSE 0 END)
+      (CASE WHEN UPPER(payment_mode) = $1 THEN 16000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_type)    = $2 THEN 1000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_brand)   = $3 THEN 2000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_classification) = $4 THEN 4000 ELSE 0 END) +
+      (CASE WHEN settlement_type     = $5 THEN 8000 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
@@ -114,22 +117,20 @@ async function getTransactionChargeRule({
       AND user_id IS NULL
       AND franchaise_id IS NULL
       -- dimension matching (each is optional in the rule)
-      AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL)
-      AND (UPPER(card_type)    = $4 OR card_type    IS NULL)
-      AND (UPPER(card_brand)   = $5 OR card_brand   IS NULL)
+      AND (UPPER(payment_mode) = $1 OR payment_mode IS NULL)
+      AND (UPPER(card_type)    = $2 OR card_type    IS NULL)
+      AND (UPPER(card_brand)   = $3 OR card_brand   IS NULL)
       -- Keep this as an OR check so NULL binds stay type-safe in PostgreSQL.
-      AND (UPPER(card_classification) = $6 OR card_classification IS NULL)
-      AND (settlement_type     = $7 OR settlement_type     IS NULL)
+      AND (UPPER(card_classification) = $4 OR card_classification IS NULL)
+      AND (settlement_type     = $5 OR settlement_type     IS NULL)
       -- amount slab
-      AND $8 >= min_amount
-      AND ($8 <= max_amount OR max_amount IS NULL)
+      AND $6 >= min_amount
+      AND ($6 <= max_amount OR max_amount IS NULL)
     ORDER BY specificity DESC
     LIMIT 1
   `;
 
   const exactReplacementBase = [
-    userId || null,
-    franchiseId || null,
     normalizedPaymentMode,
     normalizedCardType,
     normalizedClassification,
@@ -143,8 +144,6 @@ async function getTransactionChargeRule({
   }
 
   const fallbackReplacementBase = [
-    userId || null,
-    franchiseId || null,
     normalizedPaymentMode,
     normalizedCardType,
     null,
@@ -182,31 +181,30 @@ async function getAdminChargeRuleForFranchise({
   const query = `
     SELECT *,
     (
-      (CASE WHEN UPPER(payment_mode) = $2 THEN 16000 ELSE 0 END) +
-      (CASE WHEN settlement_type     = $6 THEN 8000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_classification) = $5 THEN 4000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_brand)   = $4 THEN 2000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_type)    = $3 THEN 1000 ELSE 0 END)
+      (CASE WHEN UPPER(payment_mode) = $1 THEN 16000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_type)    = $2 THEN 1000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_brand)   = $3 THEN 2000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_classification) = $4 THEN 4000 ELSE 0 END) +
+      (CASE WHEN settlement_type     = $5 THEN 8000 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
       AND scope = 'admin_default'
       AND user_id IS NULL
       AND franchaise_id IS NULL
-      AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL)
-      AND (UPPER(card_type)    = $3 OR card_type    IS NULL)
-      AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL)
+      AND (UPPER(payment_mode) = $1 OR payment_mode IS NULL)
+      AND (UPPER(card_type)    = $2 OR card_type    IS NULL)
+      AND (UPPER(card_brand)   = $3 OR card_brand   IS NULL)
       -- Keep this as an OR check so NULL binds stay type-safe in PostgreSQL.
-      AND (UPPER(card_classification) = $5 OR card_classification IS NULL)
-      AND (settlement_type     = $6 OR settlement_type     IS NULL)
-      AND $7 >= min_amount
-      AND ($7 <= max_amount OR max_amount IS NULL)
+      AND (UPPER(card_classification) = $4 OR card_classification IS NULL)
+      AND (settlement_type     = $5 OR settlement_type     IS NULL)
+      AND $6 >= min_amount
+      AND ($6 <= max_amount OR max_amount IS NULL)
     ORDER BY specificity DESC
     LIMIT 1
   `;
 
   const exactReplacementBase = [
-    franchiseId || null,
     normalizedPaymentMode,
     normalizedCardType,
     normalizedClassification,
@@ -220,7 +218,6 @@ async function getAdminChargeRuleForFranchise({
   }
 
   const fallbackReplacementBase = [
-    franchiseId || null,
     normalizedPaymentMode,
     normalizedCardType,
     null,
