@@ -14,7 +14,9 @@ function isFranchiseRole(role) {
 const ChargeService = require('../services/chargeService');
 const { deriveScope, normalizeCardBrand } = ChargeService;
 
-const ENABLE_MERCHANT_ADMIN_RULE_LIST = String(process.env.ENABLE_MERCHANT_ADMIN_RULE_LIST || '').toLowerCase() === 'true';
+// Code-level fallback for environments where .env is not editable.
+// Flip this to `false` when you want to disable merchant access again.
+const ENABLE_MERCHANT_ADMIN_RULE_LIST = true;
 
 // simple file logger for debugging
 const logFile = path.join(__dirname, '../logs/posChargeRule.log');
