@@ -14,6 +14,8 @@ function isFranchiseRole(role) {
 const ChargeService = require('../services/chargeService');
 const { deriveScope, normalizeCardBrand } = ChargeService;
 
+const ENABLE_MERCHANT_ADMIN_RULE_LIST = String(process.env.ENABLE_MERCHANT_ADMIN_RULE_LIST || '').toLowerCase() === 'true';
+
 // simple file logger for debugging
 const logFile = path.join(__dirname, '../logs/posChargeRule.log');
 function fileLog(message) {
@@ -228,7 +230,14 @@ const getPosChargeRule = asyncHandler(async (req, res) => {
 // to see the non‑editable set: global defaults plus any franchise‑level rules
 // *not* created by the franchise itself.
 const listFranchiseAdminRules = asyncHandler(async (req, res) => {
-  if (!isFranchiseRole(req.user.role)) {
+  const isMerchantRole = req.user.role === 'merchant';
+  const isFranchiseCaller = isFranchiseRole(req.user.role);
+
+  if (isMerchantRole && !ENABLE_MERCHANT_ADMIN_RULE_LIST) {
+    return res.status(403).json({ success: false, message: 'Merchant access to this endpoint is disabled' });
+  }
+
+  if (!isFranchiseCaller && !isMerchantRole) {
     return res.status(403).json({ success: false, message: 'Only franchise users may call this endpoint' });
   }
 
@@ -252,11 +261,18 @@ const listFranchiseAdminRules = asyncHandler(async (req, res) => {
   if (settlement_type) where.settlement_type = settlement_type;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
-  // only global defaults or admin-set franchise rules (not editable by franchise)
-  where[Op.or] = [
-    { scope: 'admin_default' },
-    { scope: 'admin_franchise', franchaise_id: req.user.id }
-  ];
+  if (isMerchantRole) {
+    // Global-only mode for merchants: expose only admin_default rows.
+    where[Op.or] = [
+      { scope: 'admin_default' }
+    ];
+  } else {
+    // only global defaults or admin-set franchise rules (not editable by franchise)
+    where[Op.or] = [
+      { scope: 'admin_default' },
+      { scope: 'admin_franchise', franchaise_id: req.user.id }
+    ];
+  }
 
   const { count, rows } = await PosChargeRule.findAndCountAll({
     where,
