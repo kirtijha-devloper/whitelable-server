@@ -340,7 +340,7 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
     scope,
     is_active,
     page = 1,
-    limit = 20
+    limit = 100
   } = req.query;
 
   const offset = (parseInt(page) - 1) * parseInt(limit);
