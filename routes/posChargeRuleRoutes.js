@@ -12,6 +12,7 @@ const {
   listFranchiseCustomRules,
   updatePosChargeRule,
   deletePosChargeRule,
+  deleteAllUserSpecificRules,
   calculateCharge
 } = require('../controllers/posChargeRuleController');
 const { myChargesDebug } = require('../controllers/posChargeRuleDebugController');
@@ -41,6 +42,13 @@ router.put('/:id', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_M
   message: 'You do not have permission to manage rate settings.',
   elevateRole: 'admin',
 }), updatePosChargeRule);
+// delete ALL user-specific rules across all users (admin only)
+// NOTE: must be declared before /:id to prevent Express matching 'user' as :id
+router.delete('/user/all', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+  message: 'You do not have permission to manage rate settings.',
+  elevateRole: 'admin',
+}), deleteAllUserSpecificRules);
+
 router.delete('/:id', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
   message: 'You do not have permission to manage rate settings.',
   elevateRole: 'admin',

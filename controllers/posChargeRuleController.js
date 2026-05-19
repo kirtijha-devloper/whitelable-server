@@ -14,10 +14,6 @@ function isFranchiseRole(role) {
 const ChargeService = require('../services/chargeService');
 const { deriveScope, normalizeCardBrand } = ChargeService;
 
-// Code-level fallback for environments where .env is not editable.
-// Flip this to `false` when you want to disable merchant access again.
-const ENABLE_MERCHANT_ADMIN_RULE_LIST = true;
-
 // simple file logger for debugging
 const logFile = path.join(__dirname, '../logs/posChargeRule.log');
 function fileLog(message) {
@@ -232,14 +228,7 @@ const getPosChargeRule = asyncHandler(async (req, res) => {
 // to see the non‑editable set: global defaults plus any franchise‑level rules
 // *not* created by the franchise itself.
 const listFranchiseAdminRules = asyncHandler(async (req, res) => {
-  const isMerchantRole = req.user.role === 'merchant';
-  const isFranchiseCaller = isFranchiseRole(req.user.role);
-
-  if (isMerchantRole && !ENABLE_MERCHANT_ADMIN_RULE_LIST) {
-    return res.status(403).json({ success: false, message: 'Merchant access to this endpoint is disabled' });
-  }
-
-  if (!isFranchiseCaller && !isMerchantRole) {
+  if (!isFranchiseRole(req.user.role)) {
     return res.status(403).json({ success: false, message: 'Only franchise users may call this endpoint' });
   }
 
@@ -263,18 +252,11 @@ const listFranchiseAdminRules = asyncHandler(async (req, res) => {
   if (settlement_type) where.settlement_type = settlement_type;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
-  if (isMerchantRole) {
-    // Global-only mode for merchants: expose only admin_default rows.
-    where[Op.or] = [
-      { scope: 'admin_default' }
-    ];
-  } else {
-    // only global defaults or admin-set franchise rules (not editable by franchise)
-    where[Op.or] = [
-      { scope: 'admin_default' },
-      { scope: 'admin_franchise', franchaise_id: req.user.id }
-    ];
-  }
+  // only global defaults or admin-set franchise rules (not editable by franchise)
+  where[Op.or] = [
+    { scope: 'admin_default' },
+    { scope: 'admin_franchise', franchaise_id: req.user.id }
+  ];
 
   const { count, rows } = await PosChargeRule.findAndCountAll({
     where,
@@ -710,6 +692,23 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, message: 'Rule updated', record: rec });
 });
 
+// delete ALL user-specific rules across all users (admin only)
+const deleteAllUserSpecificRules = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Only admin may call this endpoint' });
+  }
+
+  // deletes every rule scoped to an individual user (admin_merchant + franchise_merchant)
+  // leaving global / franchise-level rules (admin_default, admin_franchise, franchise_default) intact
+  const deleted = await PosChargeRule.destroy({
+    where: {
+      scope: { [Op.in]: ['admin_merchant', 'franchise_merchant'] }
+    }
+  });
+
+  res.status(200).json({ success: true, message: `Deleted ${deleted} user-specific rule(s)`, deleted });
+});
+
 // delete rule
 const deletePosChargeRule = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -780,18 +779,10 @@ const calculateCharge = asyncHandler(async (req, res) => {
     amount: amt
   });
 
+  const DEFAULT_MDR = 2.5;
   if (!rule) {
-    fileLog('CALCULATE no admin_default rule found');
-    return res.status(200).json({
-      success: true,
-      needs_admin: true,
-      message: 'No admin_default charge rule found. Use admin custom processing.',
-      rule: null,
-      charge_percent: null,
-      charge_amount: 0,
-      gst_amount: 0,
-      merchant_settlement: amt
-    });
+    // fallback
+    rule = { charge_percent: DEFAULT_MDR, charge_flat: 0 };
   }
 
   const { charge: chargeAmt, gstAmount } = ChargeService.calculateCharge(amt, rule);
@@ -818,5 +809,6 @@ module.exports = {
   listFranchiseCustomRules,
   updatePosChargeRule,
   deletePosChargeRule,
+  deleteAllUserSpecificRules,
   calculateCharge
 };

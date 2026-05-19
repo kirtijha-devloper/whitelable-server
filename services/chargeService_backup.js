@@ -40,6 +40,22 @@ function getCardBrandCandidates(cardBrand) {
   return Array.from(new Set(candidates));
 }
 
+async function executeChargeRuleQuery(query, replacementBase, cardBrandCandidates) {
+  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
+    const replacements = [
+      replacementBase[0],
+      replacementBase[1],
+      candidate || null,
+      replacementBase[2],
+      replacementBase[3],
+      replacementBase[4]
+    ];
+    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
+    if (results && results.length) return results[0];
+  }
+  return null;
+}
+
 const VALID_SCOPES = [
   'admin_default',
   'admin_franchise',
@@ -49,18 +65,12 @@ const VALID_SCOPES = [
 ];
 
 /**
- * Resolve the best-matching charge rule for a transaction.
+ * Resolve the global admin_default charge rule for a transaction.
  *
- * Resolution order (highest wins):
- *   franchise_merchant  → franchise set a rate for THIS merchant
- *   admin_merchant      → admin set a rate for THIS non-franchised merchant
- *   franchise_default   → franchise default for all its merchants
- *   admin_franchise     → admin rate for the franchise
- *   admin_default       → global fall-back
- *
- * Within the same scope tier the query further ranks by how many optional
- * dimensions (settlement_type, card_classification, card_brand, card_type) are
- * matched — a more specific combination beats a less specific one.
+ * In the current production mode, only `admin_default` rules are eligible.
+ * All merchant/franchise override scopes are ignored for automatic charging.
+ * The most specific admin_default row still wins when multiple global rows
+ * match the same transaction dimensions.
  *
  * @param {Object}      opts
  * @param {number|null} opts.userId           Merchant/franchise user id
@@ -83,14 +93,7 @@ async function getTransactionChargeRule({
   settlement,
   amount
 }) {
-  // Scope tier weights — determines precedence between rule origins.
-  // Within the same tier, optional-dimension specificity (0-15) breaks ties.
-  //
-  //   franchise_merchant  64    (franchise set rate for a specific merchant)
-  //   admin_merchant      48    (admin set rate for a specific non-franchised merchant)
-  //   franchise_default   32    (franchise default for all its merchants)
-  //   admin_franchise     16    (admin set rate for a franchise)
-  //   admin_default        0    (global default)
+  // Global-only mode: only admin_default rows are eligible.
 
   const normalizedPaymentMode = normalizeLookupValue(paymentMode);
   const normalizedCardType = normalizeLookupValue(cardType);
@@ -100,46 +103,34 @@ async function getTransactionChargeRule({
   const query = `
     SELECT *,
     (
-      -- scope tier weight
-      CASE scope
-        WHEN 'franchise_merchant' THEN 64
-        WHEN 'admin_merchant'     THEN 48
-        WHEN 'franchise_default'  THEN 32
-        WHEN 'admin_franchise'    THEN 16
-        ELSE 0
-      END
-      +
-      -- optional-dimension specificity within the tier
-      (CASE WHEN settlement_type IS NOT NULL THEN 8 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL THEN 4 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL THEN 2 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL THEN 1 ELSE 0 END)
+      -- exact matches should outrank scope, so each matched dimension gets a
+      -- large multiplier.
+      (CASE WHEN UPPER(payment_mode) = $1 THEN 16000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_type)    = $2 THEN 1000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_brand)   = $3 THEN 2000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_classification) = $4 THEN 4000 ELSE 0 END) +
+      (CASE WHEN settlement_type     = $5 THEN 8000 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      -- scope-aware row filtering: only pull in rows that CAN apply
-      AND (
-            -- user-specific rules (admin_merchant or franchise_merchant)
-            (user_id = $1)
-            -- franchise-level or global (no user_id)
-         OR (user_id IS NULL AND (franchaise_id = $2 OR franchaise_id IS NULL))
-      )
+      AND scope = 'admin_default'
+      AND user_id IS NULL
+      AND franchaise_id IS NULL
       -- dimension matching (each is optional in the rule)
-      AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL)
-      AND (UPPER(card_type)    = $4 OR card_type    IS NULL)
-      AND (UPPER(card_brand)   = $5 OR card_brand   IS NULL)
-      AND (UPPER(card_classification) = $6 OR card_classification IS NULL)
-      AND (settlement_type     = $7 OR settlement_type     IS NULL)
+      AND (UPPER(payment_mode) = $1 OR payment_mode IS NULL)
+      AND (UPPER(card_type)    = $2 OR card_type    IS NULL)
+      AND (UPPER(card_brand)   = $3 OR card_brand   IS NULL)
+      -- Keep this as an OR check so NULL binds stay type-safe in PostgreSQL.
+      AND (UPPER(card_classification) = $4 OR card_classification IS NULL)
+      AND (settlement_type     = $5 OR settlement_type     IS NULL)
       -- amount slab
-      AND $8 >= min_amount
-      AND ($8 <= max_amount OR max_amount IS NULL)
+      AND $6 >= min_amount
+      AND ($6 <= max_amount OR max_amount IS NULL)
     ORDER BY specificity DESC
     LIMIT 1
   `;
 
-  const replacementBase = [
-    userId || null,
-    franchiseId || null,
+  const exactReplacementBase = [
     normalizedPaymentMode,
     normalizedCardType,
     normalizedClassification,
@@ -147,26 +138,31 @@ async function getTransactionChargeRule({
     amount
   ];
 
-  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
-    const replacements = [
-      ...replacementBase.slice(0, 4),
-      candidate || null,
-      ...replacementBase.slice(4)
-    ];
-    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
-    if (results && results.length) return results[0];
+  if (normalizedClassification) {
+    const exactResult = await executeChargeRuleQuery(query, exactReplacementBase, cardBrandCandidates);
+    if (exactResult) return exactResult;
   }
+
+  const fallbackReplacementBase = [
+    normalizedPaymentMode,
+    normalizedCardType,
+    null,
+    settlement || null,
+    amount
+  ];
+
+  const fallbackResult = await executeChargeRuleQuery(query, fallbackReplacementBase, cardBrandCandidates);
+  if (fallbackResult) return fallbackResult;
+
   return null;
 }
 
 /**
- * Resolve the admin-level charge that a franchise owes the platform.
+ * Resolve the global admin_default rule used for franchise-side calculations.
  *
- * This only looks at rules scoped to: admin_franchise (for the given franchise)
- * or admin_default.  It explicitly excludes any franchise-created rules so that
- * franchise adjustments for merchants do not influence what the franchise owes.
- *
- * Used in the webhook worker to compute franchise earnings.
+ * Automatic charging is global-only, so this helper also resolves only
+ * `admin_default`.  It is used wherever we need a stable, single system-wide
+ * rate.
  */
 async function getAdminChargeRuleForFranchise({
   franchiseId,
@@ -185,34 +181,30 @@ async function getAdminChargeRuleForFranchise({
   const query = `
     SELECT *,
     (
-      CASE scope
-        WHEN 'admin_franchise' THEN 16
-        ELSE 0
-      END
-      +
-      (CASE WHEN settlement_type IS NOT NULL THEN 8 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL THEN 4 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL THEN 2 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL THEN 1 ELSE 0 END)
+      (CASE WHEN UPPER(payment_mode) = $1 THEN 16000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_type)    = $2 THEN 1000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_brand)   = $3 THEN 2000 ELSE 0 END) +
+      (CASE WHEN UPPER(card_classification) = $4 THEN 4000 ELSE 0 END) +
+      (CASE WHEN settlement_type     = $5 THEN 8000 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      AND scope IN ('admin_franchise', 'admin_default')
+      AND scope = 'admin_default'
       AND user_id IS NULL
-      AND (franchaise_id = $1 OR franchaise_id IS NULL)
-      AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL)
-      AND (UPPER(card_type)    = $3 OR card_type    IS NULL)
-      AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL)
-      AND (UPPER(card_classification) = $5 OR card_classification IS NULL)
-      AND (settlement_type     = $6 OR settlement_type     IS NULL)
-      AND $7 >= min_amount
-      AND ($7 <= max_amount OR max_amount IS NULL)
+      AND franchaise_id IS NULL
+      AND (UPPER(payment_mode) = $1 OR payment_mode IS NULL)
+      AND (UPPER(card_type)    = $2 OR card_type    IS NULL)
+      AND (UPPER(card_brand)   = $3 OR card_brand   IS NULL)
+      -- Keep this as an OR check so NULL binds stay type-safe in PostgreSQL.
+      AND (UPPER(card_classification) = $4 OR card_classification IS NULL)
+      AND (settlement_type     = $5 OR settlement_type     IS NULL)
+      AND $6 >= min_amount
+      AND ($6 <= max_amount OR max_amount IS NULL)
     ORDER BY specificity DESC
     LIMIT 1
   `;
 
-  const replacementBase = [
-    franchiseId || null,
+  const exactReplacementBase = [
     normalizedPaymentMode,
     normalizedCardType,
     normalizedClassification,
@@ -220,19 +212,22 @@ async function getAdminChargeRuleForFranchise({
     amount
   ];
 
-  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
-    const replacements = [
-      replacementBase[0],
-      replacementBase[1],
-      replacementBase[2],
-      candidate || null,
-      replacementBase[3],
-      replacementBase[4],
-      replacementBase[5]
-    ];
-    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
-    if (results && results.length) return results[0];
+  if (normalizedClassification) {
+    const exactResult = await executeChargeRuleQuery(query, exactReplacementBase, cardBrandCandidates);
+    if (exactResult) return exactResult;
   }
+
+  const fallbackReplacementBase = [
+    normalizedPaymentMode,
+    normalizedCardType,
+    null,
+    settlement || null,
+    amount
+  ];
+
+  const fallbackResult = await executeChargeRuleQuery(query, fallbackReplacementBase, cardBrandCandidates);
+  if (fallbackResult) return fallbackResult;
+
   return null;
 }
 
