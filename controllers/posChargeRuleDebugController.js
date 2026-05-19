@@ -178,29 +178,13 @@ function buildExactMatchWhere({
 }
 
 function getUiScopeOrder(userRole) {
-  if (userRole === 'franchaise' || userRole === 'franchise') {
-    return ['admin_default', 'admin_franchise', 'franchise_default', 'franchise_merchant'];
-  }
-
-  return ['admin_default', 'admin_merchant', 'franchise_default', 'franchise_merchant'];
+  return ['admin_default'];
 }
 
 function buildUiScopeWhere(scope, user) {
-  const isFranchiseRole = user.role === 'franchaise' || user.role === 'franchise';
-  const franchiseId = user.franchaise_id || (isFranchiseRole ? user.id : null);
-  const userId = user.id;
-
   switch (scope) {
     case 'admin_default':
       return { scope: 'admin_default' };
-    case 'admin_merchant':
-      return { scope: 'admin_merchant', user_id: userId };
-    case 'admin_franchise':
-      return franchiseId ? { scope: 'admin_franchise', franchaise_id: franchiseId } : null;
-    case 'franchise_default':
-      return franchiseId ? { scope: 'franchise_default', franchaise_id: franchiseId } : null;
-    case 'franchise_merchant':
-      return franchiseId ? { scope: 'franchise_merchant', user_id: userId, franchaise_id: franchiseId } : null;
     default:
       return null;
   }
@@ -290,16 +274,9 @@ async function resolveBestChargeRuleWithoutAmount({
   for (const brandCandidate of candidateBrands) {
     const where = {
       is_active: true,
-      [Op.or]: [
-        { user_id: userId },
-        {
-          user_id: null,
-          [Op.or]: [
-            { franchaise_id: franchiseId },
-            { franchaise_id: null }
-          ]
-        }
-      ],
+      scope: 'admin_default',
+      user_id: null,
+      franchaise_id: null,
       [Op.and]: [
         buildNullableMatch('payment_mode', normalizedPaymentMode),
         buildNullableMatch('card_type', normalizedCardType),
@@ -368,16 +345,9 @@ async function findRankedChargeRuleCandidates({
   for (const brandCandidate of candidateBrands) {
     const where = {
       is_active: true,
-      [Op.or]: [
-        { user_id: userId },
-        {
-          user_id: null,
-          [Op.or]: [
-            { franchaise_id: franchiseId },
-            { franchaise_id: null }
-          ]
-        }
-      ],
+      scope: 'admin_default',
+      user_id: null,
+      franchaise_id: null,
       [Op.and]: [
         buildNullableMatch('payment_mode', normalizedPaymentMode),
         buildNullableMatch('card_type', normalizedCardType),

@@ -119,24 +119,13 @@ async function getTransactionChargeRule({
       (CASE WHEN settlement_type     = $7 THEN 8000 ELSE 0 END) +
       (CASE WHEN UPPER(card_classification) = $6 THEN 4000 ELSE 0 END) +
       (CASE WHEN UPPER(card_brand)   = $5 THEN 2000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_type)    = $4 THEN 1000 ELSE 0 END) +
-      (CASE scope
-        WHEN 'franchise_merchant' THEN 64
-        WHEN 'admin_merchant'     THEN 48
-        WHEN 'franchise_default'  THEN 32
-        WHEN 'admin_franchise'    THEN 16
-        ELSE 0
-      END)
+      (CASE WHEN UPPER(card_type)    = $4 THEN 1000 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      -- scope-aware row filtering: only pull in rows that CAN apply
-      AND (
-            -- user-specific rules (admin_merchant or franchise_merchant)
-            (user_id = $1)
-            -- franchise-level or global (no user_id)
-         OR (user_id IS NULL AND (franchaise_id = $2 OR franchaise_id IS NULL))
-      )
+      AND scope = 'admin_default'
+      AND user_id IS NULL
+      AND franchaise_id IS NULL
       -- dimension matching (each is optional in the rule)
       AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL)
       AND (UPPER(card_type)    = $4 OR card_type    IS NULL)
@@ -212,17 +201,13 @@ async function getAdminChargeRuleForFranchise({
       (CASE WHEN settlement_type     = $6 THEN 8000 ELSE 0 END) +
       (CASE WHEN UPPER(card_classification) = $5 THEN 4000 ELSE 0 END) +
       (CASE WHEN UPPER(card_brand)   = $4 THEN 2000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_type)    = $3 THEN 1000 ELSE 0 END) +
-      (CASE scope
-        WHEN 'admin_franchise' THEN 16
-        ELSE 0
-      END)
+      (CASE WHEN UPPER(card_type)    = $3 THEN 1000 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      AND scope IN ('admin_franchise', 'admin_default')
+      AND scope = 'admin_default'
       AND user_id IS NULL
-      AND (franchaise_id = $1 OR franchaise_id IS NULL)
+      AND franchaise_id IS NULL
       AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL)
       AND (UPPER(card_type)    = $3 OR card_type    IS NULL)
       AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL)

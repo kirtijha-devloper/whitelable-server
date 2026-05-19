@@ -762,18 +762,10 @@ const calculateCharge = asyncHandler(async (req, res) => {
     amount: amt
   });
 
+  const DEFAULT_MDR = 2.5;
   if (!rule) {
-    fileLog('CALCULATE no admin_default rule found');
-    return res.status(200).json({
-      success: true,
-      needs_admin: true,
-      message: 'No admin_default charge rule found. Use admin custom processing.',
-      rule: null,
-      charge_percent: null,
-      charge_amount: 0,
-      gst_amount: 0,
-      merchant_settlement: amt
-    });
+    // fallback
+    rule = { charge_percent: DEFAULT_MDR, charge_flat: 0 };
   }
 
   const { charge: chargeAmt, gstAmount } = ChargeService.calculateCharge(amt, rule);

@@ -62,18 +62,12 @@ const VALID_SCOPES = [
 ];
 
 /**
- * Resolve the best-matching charge rule for a transaction.
+ * Resolve the global admin_default charge rule for a transaction.
  *
- * Resolution order (highest wins):
- *   franchise_merchant  → franchise set a rate for THIS merchant
- *   admin_merchant      → admin set a rate for THIS non-franchised merchant
- *   franchise_default   → franchise default for all its merchants
- *   admin_franchise     → admin rate for the franchise
- *   admin_default       → global fall-back
- *
- * Within the same scope tier the query further ranks by how many optional
- * dimensions (settlement_type, card_classification, card_brand, card_type) are
- * matched — a more specific combination beats a less specific one.
+ * In the current production mode, only `admin_default` rules are eligible.
+ * All merchant/franchise override scopes are ignored for automatic charging.
+ * The most specific admin_default row still wins when multiple global rows
+ * match the same transaction dimensions.
  *
  * @param {Object}      opts
  * @param {number|null} opts.userId           Merchant/franchise user id
@@ -96,14 +90,7 @@ async function getTransactionChargeRule({
   settlement,
   amount
 }) {
-  // Exact dimension matches outrank scope. Scope only breaks ties after the
-  // rule has matched the requested payment/card/settlement fields.
-  //
-  //   franchise_merchant  64    (franchise set rate for a specific merchant)
-  //   admin_merchant      48    (admin set rate for a specific non-franchised merchant)
-  //   franchise_default   32    (franchise default for all its merchants)
-  //   admin_franchise     16    (admin set rate for a franchise)
-  //   admin_default        0    (global default)
+  // Global-only mode: only admin_default rows are eligible.
 
   const normalizedPaymentMode = normalizeLookupValue(paymentMode);
   const normalizedCardType = normalizeLookupValue(cardType);
@@ -114,29 +101,18 @@ async function getTransactionChargeRule({
     SELECT *,
     (
       -- exact matches should outrank scope, so each matched dimension gets a
-      -- large multiplier and scope only breaks ties between otherwise-equal rows.
+      -- large multiplier.
       (CASE WHEN UPPER(payment_mode) = $3 THEN 16000 ELSE 0 END) +
       (CASE WHEN settlement_type     = $7 THEN 8000 ELSE 0 END) +
       (CASE WHEN UPPER(card_classification) = $6 THEN 4000 ELSE 0 END) +
       (CASE WHEN UPPER(card_brand)   = $5 THEN 2000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_type)    = $4 THEN 1000 ELSE 0 END) +
-      (CASE scope
-        WHEN 'franchise_merchant' THEN 64
-        WHEN 'admin_merchant'     THEN 48
-        WHEN 'franchise_default'  THEN 32
-        WHEN 'admin_franchise'    THEN 16
-        ELSE 0
-      END)
+      (CASE WHEN UPPER(card_type)    = $4 THEN 1000 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      -- scope-aware row filtering: only pull in rows that CAN apply
-      AND (
-            -- user-specific rules (admin_merchant or franchise_merchant)
-            (user_id = $1)
-            -- franchise-level or global (no user_id)
-         OR (user_id IS NULL AND (franchaise_id = $2 OR franchaise_id IS NULL))
-      )
+      AND scope = 'admin_default'
+      AND user_id IS NULL
+      AND franchaise_id IS NULL
       -- dimension matching (each is optional in the rule)
       AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL)
       AND (UPPER(card_type)    = $4 OR card_type    IS NULL)
@@ -183,13 +159,11 @@ async function getTransactionChargeRule({
 }
 
 /**
- * Resolve the admin-level charge that a franchise owes the platform.
+ * Resolve the global admin_default rule used for franchise-side calculations.
  *
- * This only looks at rules scoped to: admin_franchise (for the given franchise)
- * or admin_default.  It explicitly excludes any franchise-created rules so that
- * franchise adjustments for merchants do not influence what the franchise owes.
- *
- * Used in the webhook worker to compute franchise earnings.
+ * Automatic charging is global-only, so this helper also resolves only
+ * `admin_default`.  It is used wherever we need a stable, single system-wide
+ * rate.
  */
 async function getAdminChargeRuleForFranchise({
   franchiseId,
@@ -212,17 +186,13 @@ async function getAdminChargeRuleForFranchise({
       (CASE WHEN settlement_type     = $6 THEN 8000 ELSE 0 END) +
       (CASE WHEN UPPER(card_classification) = $5 THEN 4000 ELSE 0 END) +
       (CASE WHEN UPPER(card_brand)   = $4 THEN 2000 ELSE 0 END) +
-      (CASE WHEN UPPER(card_type)    = $3 THEN 1000 ELSE 0 END) +
-      (CASE scope
-        WHEN 'admin_franchise' THEN 16
-        ELSE 0
-      END)
+      (CASE WHEN UPPER(card_type)    = $3 THEN 1000 ELSE 0 END)
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      AND scope IN ('admin_franchise', 'admin_default')
+      AND scope = 'admin_default'
       AND user_id IS NULL
-      AND (franchaise_id = $1 OR franchaise_id IS NULL)
+      AND franchaise_id IS NULL
       AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL)
       AND (UPPER(card_type)    = $3 OR card_type    IS NULL)
       AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL)
