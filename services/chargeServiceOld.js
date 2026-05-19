@@ -40,19 +40,6 @@ function getCardBrandCandidates(cardBrand) {
   return Array.from(new Set(candidates));
 }
 
-async function executeChargeRuleQuery(query, replacementBase, cardBrandCandidates) {
-  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
-    const replacements = [
-      ...replacementBase.slice(0, 4),
-      candidate || null,
-      ...replacementBase.slice(4)
-    ];
-    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
-    if (results && results.length) return results[0];
-  }
-  return null;
-}
-
 const VALID_SCOPES = [
   'admin_default',
   'admin_franchise',
@@ -141,10 +128,7 @@ async function getTransactionChargeRule({
       AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL)
       AND (UPPER(card_type)    = $4 OR card_type    IS NULL)
       AND (UPPER(card_brand)   = $5 OR card_brand   IS NULL)
-      AND (CASE
-            WHEN $6 IS NULL THEN card_classification IS NULL
-            ELSE UPPER(card_classification) = $6
-          END)
+      AND (UPPER(card_classification) = $6 OR card_classification IS NULL)
       AND (settlement_type     = $7 OR settlement_type     IS NULL)
       -- amount slab
       AND $8 >= min_amount
@@ -153,7 +137,7 @@ async function getTransactionChargeRule({
     LIMIT 1
   `;
 
-  const exactReplacementBase = [
+  const replacementBase = [
     userId || null,
     franchiseId || null,
     normalizedPaymentMode,
@@ -163,24 +147,15 @@ async function getTransactionChargeRule({
     amount
   ];
 
-  if (normalizedClassification) {
-    const exactResult = await executeChargeRuleQuery(query, exactReplacementBase, cardBrandCandidates);
-    if (exactResult) return exactResult;
+  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
+    const replacements = [
+      ...replacementBase.slice(0, 4),
+      candidate || null,
+      ...replacementBase.slice(4)
+    ];
+    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
+    if (results && results.length) return results[0];
   }
-
-  const fallbackReplacementBase = [
-    userId || null,
-    franchiseId || null,
-    normalizedPaymentMode,
-    normalizedCardType,
-    null,
-    settlement || null,
-    amount
-  ];
-
-  const fallbackResult = await executeChargeRuleQuery(query, fallbackReplacementBase, cardBrandCandidates);
-  if (fallbackResult) return fallbackResult;
-
   return null;
 }
 
@@ -228,10 +203,7 @@ async function getAdminChargeRuleForFranchise({
       AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL)
       AND (UPPER(card_type)    = $3 OR card_type    IS NULL)
       AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL)
-      AND (CASE
-            WHEN $5 IS NULL THEN card_classification IS NULL
-            ELSE UPPER(card_classification) = $5
-          END)
+      AND (UPPER(card_classification) = $5 OR card_classification IS NULL)
       AND (settlement_type     = $6 OR settlement_type     IS NULL)
       AND $7 >= min_amount
       AND ($7 <= max_amount OR max_amount IS NULL)
@@ -239,7 +211,7 @@ async function getAdminChargeRuleForFranchise({
     LIMIT 1
   `;
 
-  const exactReplacementBase = [
+  const replacementBase = [
     franchiseId || null,
     normalizedPaymentMode,
     normalizedCardType,
@@ -248,23 +220,19 @@ async function getAdminChargeRuleForFranchise({
     amount
   ];
 
-  if (normalizedClassification) {
-    const exactResult = await executeChargeRuleQuery(query, exactReplacementBase, cardBrandCandidates);
-    if (exactResult) return exactResult;
+  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
+    const replacements = [
+      replacementBase[0],
+      replacementBase[1],
+      replacementBase[2],
+      candidate || null,
+      replacementBase[3],
+      replacementBase[4],
+      replacementBase[5]
+    ];
+    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
+    if (results && results.length) return results[0];
   }
-
-  const fallbackReplacementBase = [
-    franchiseId || null,
-    normalizedPaymentMode,
-    normalizedCardType,
-    null,
-    settlement || null,
-    amount
-  ];
-
-  const fallbackResult = await executeChargeRuleQuery(query, fallbackReplacementBase, cardBrandCandidates);
-  if (fallbackResult) return fallbackResult;
-
   return null;
 }
 
