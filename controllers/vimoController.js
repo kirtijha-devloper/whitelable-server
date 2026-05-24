@@ -312,7 +312,7 @@ async function createPayout(req, res) {
 
   // Generate merchantRefId if not supplied (idempotency key).
   if (!merchantRefId) {
-    merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo' });
+    merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId: user_id });
   }
 
   // ── Resolve service charge from DB rules (admin-configured PayoutCharge) ──
@@ -798,7 +798,7 @@ async function getWalletBalance(req, res) {
   }
 
   try {
-    const merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo' });
+    const merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId: req.user?.id });
     const result = await vimoService.fetchWalletBalance(merchantRefId);
     return res.status(200).json({
       success: true,
@@ -819,7 +819,7 @@ async function getWalletBalance(req, res) {
 
 async function getPayoutReference(req, res) {
   try {
-    const reference = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo' });
+    const reference = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId: req.user?.id });
     return res.status(200).json({ success: true, merchantRefId: reference });
   } catch (err) {
     const normalized = normalizeError(err, { statusCode: 500, message: 'Could not generate merchantRefId', code: 'REFERENCE_GENERATION_FAILED' });

@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const RefSequence = require('../models/RefSequence');
+const PayoutReferenceLog = require('../models/PayoutReferenceLog');
 
 const DEFAULT_SERVICE = 'payout';
 const DIGIT_COUNT = 10;
@@ -52,7 +53,18 @@ async function reserveNextSequence({ service = DEFAULT_SERVICE, transaction } = 
 
 async function getNextPayoutReference(opts = {}) {
   const next = await reserveNextSequence({ service: DEFAULT_SERVICE, ...opts });
-  return formatReference(next, opts.provider);
+  const reference = formatReference(next, opts.provider);
+
+  // Record who generated this reference so transactions can be traced
+  // even if the corresponding PayoutTransaction record was never committed.
+  await PayoutReferenceLog.create({
+    reference,
+    sequence_number: next,
+    provider: opts.provider || null,
+    user_id: opts.userId || null,
+  });
+
+  return reference;
 }
 
 module.exports = {

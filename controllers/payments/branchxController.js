@@ -72,6 +72,12 @@ function lockPayout(lockKey, durationMs = 180000) {
 const BRANCHX_MANUAL_REFUND_EFFECTIVE_DATE = new Date('2026-04-26T00:00:00Z');
 
 async function resolvePayoutServiceCharge(amount) {
+  const computeCharge = (row) => {
+    if (row.rate_type === 'flat') return parseFloat(row.rate || 0);
+    const pct = parseFloat(row.rate || 0);
+    return (isNaN(pct) || pct < 0) ? 0 : parseFloat(((amount * pct) / 100).toFixed(2));
+  };
+
   const slab = await PayoutCharge.findOne({
     where: {
       is_active: true,
@@ -81,20 +87,27 @@ async function resolvePayoutServiceCharge(amount) {
     order: [['from_amount', 'DESC']]
   });
 
-  if (!slab) {
-    return 0;
+  if (slab) {
+    const charge = computeCharge(slab);
+    if (charge > 0) return charge;
   }
 
-  if (slab.rate_type === 'flat') {
-    return parseFloat(slab.rate || 0);
+  // No matching slab (or slab had zero rate) — fall back to the highest active rate
+  const maxSlab = await PayoutCharge.findOne({
+    where: { is_active: true },
+    order: [['rate', 'DESC']]
+  });
+
+  if (!maxSlab) {
+    throw Object.assign(new Error('Payout service charge is not configured. Please contact support.'), { status: 503 });
   }
 
-  const percent = parseFloat(slab.rate || 0);
-  if (isNaN(percent) || percent < 0) {
-    return 0;
+  const maxCharge = computeCharge(maxSlab);
+  if (maxCharge <= 0) {
+    throw Object.assign(new Error('Payout service charge configuration is invalid. Please contact support.'), { status: 503 });
   }
 
-  return parseFloat(((amount * percent) / 100).toFixed(2));
+  return maxCharge;
 }
 
 function isEligibleForBranchxManualRefund(payoutTransaction) {
@@ -187,26 +200,27 @@ router.post('/payout', asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "Invalid transfer amount" });
     }
 
-    // service_charge may be sent by client, but if not provided (or zero) we
-    // calculate it from admin payout rules (PayoutCharge table). This unifies
-    // branchx and vimo payout charge logic under a single source of truth.
-    let service_charge = parseFloat(req.body.service_charge || 0);
-    if (!service_charge || isNaN(service_charge) || service_charge <= 0) {
-      service_charge = await resolvePayoutServiceCharge(amount);
-    }
+    // service_charge is always resolved from admin payout rules (PayoutCharge table).
+    let service_charge = await resolvePayoutServiceCharge(amount);
 
     if (service_charge === null || service_charge === undefined || isNaN(service_charge)) {
       return res.status(400).json({ message: "Invalid service charge" });
     }
 
     service_charge = Number(service_charge);
-    if (service_charge < 0) {
+    if (service_charge <= 0) {
       return res.status(400).json({ message: "Invalid service charge" });
     }
 
     // Allow zero charge if no slab or service charge is intentionally zero
 
     const total_amount = amount + service_charge;
+
+    // Phase 1: Validate, create DB record, and debit wallet BEFORE calling BranchX.
+    // This ensures a record always exists even if the BranchX network call fails or times out.
+    let payoutTx;
+    let safeBeneficiary;
+    let requestId;
     {
       const transaction = await db.transaction();
       try {
@@ -225,7 +239,7 @@ router.post('/payout', asyncHandler(async (req, res) => {
           });
         }
 
-        const safeBeneficiary = await Beneficiary.findByPk(beneficiary_id);
+        safeBeneficiary = await Beneficiary.findByPk(beneficiary_id);
         if (!safeBeneficiary) {
           await transaction.rollback();
           return res.status(404).json({ message: "Beneficiary not found" });
@@ -270,41 +284,20 @@ router.post('/payout', asyncHandler(async (req, res) => {
 
         lockPayout(lockKey);
 
-        const currentDate = getCurrentDate();
-        let requestId = req.body.requestId || null;
+        requestId = req.body.requestId || null;
         if (!requestId) {
-          requestId = await payoutReferenceService.getNextPayoutReference();
+          requestId = await payoutReferenceService.getNextPayoutReference({ provider: 'branchx', userId: merchant_id });
         }
 
-        const payload = {
-          amount,
-          mobileNumber: safeBeneficiary.mobile_number,
-          requestId,
-          accountNumber: safeBeneficiary.account_number,
-          ifscCode: safeBeneficiary.ifsc_code,
-          beneficiaryName: safeBeneficiary.beneficiary_name,
-          remitterName: user.name || '',
-          bankName: safeBeneficiary.bank_name,
-          transferMode: 'IMPS',
-          latitude: latitude || '',
-          longitude: longitude || '',
-          emailId: safeBeneficiary.email || '',
-          purpose: purpose || 'Payout Request'
-        };
-
-        const data = await branchxService.payout(payload);
-
-        const branchxStatus = normalizeBranchxStatus(data.status || data.Status || 'PENDING');
-        const payoutStatus = 'PENDING';
-        const payoutTx = await PayoutTransaction.create({
+        // Create PayoutTransaction as PENDING before calling BranchX
+        payoutTx = await PayoutTransaction.create({
           merchant_id,
           beneficiary_id,
           payout_provider: 'BranchX',
-          reference_id: requestId || data.api_ref,
+          reference_id: requestId,
           amount,
-          status: payoutStatus,
+          status: 'PENDING',
           purpose: purpose || null,
-          data: JSON.stringify(data),
           service_charge
         }, { transaction });
 
@@ -312,27 +305,17 @@ router.post('/payout', asyncHandler(async (req, res) => {
           payout_id: payoutTx.id,
           action: 'BRANCHX_PAYOUT_REQUEST',
           details: {
-            requestPayload: payload,
-            reference_id: requestId || data.api_ref
+            requestPayload: { amount, requestId, accountNumber: safeBeneficiary.account_number, ifscCode: safeBeneficiary.ifsc_code, beneficiaryName: safeBeneficiary.beneficiary_name },
+            reference_id: requestId
           }
         }, { transaction });
 
-        await PayoutAuditLog.create({
-          payout_id: payoutTx.id,
-          action: 'BRANCHX_PAYOUT_RESPONSE',
-          details: {
-            responsePayload: data,
-            branchxStatus,
-            status: payoutStatus,
-            reference_id: requestId || data.api_ref
-          }
-        }, { transaction });
-
+        // Debit wallet before calling BranchX
         await ledgerService.createPayoutEntry({
           userId: merchant_id,
           payoutTransactionId: payoutTx.id,
           amount: total_amount,
-          description: `Payout to ${safeBeneficiary.beneficiary_name} (${purpose || 'N/A'}) â€” ref: ${requestId}`,
+          description: `Payout to ${safeBeneficiary.beneficiary_name} (${purpose || 'N/A'}) — ref: ${requestId}`,
           metadata: {
             beneficiary_name: safeBeneficiary.beneficiary_name,
             account_number: safeBeneficiary.account_number,
@@ -340,154 +323,73 @@ router.post('/payout', asyncHandler(async (req, res) => {
             bank_name: safeBeneficiary.bank_name,
             payout_amount: amount,
             service_charge,
-            reference_id: requestId,
-            branchx_status: branchxStatus
+            reference_id: requestId
           }
         }, { transaction });
 
         await transaction.commit();
-
-        return res.json({
-          success: true,
-          message: data.message || 'Payout request processed successfully',
-          payout_provider: 'BranchX',
-          reference_id: requestId || data.api_ref,
-          data
-        });
       } catch (error) {
         await transaction.rollback();
         throw error;
       }
     }
-    const availableBalance = await ledgerService.getAvailableBalance(merchant_id);
-    if (availableBalance < total_amount) {
-      return res.status(400).json({ message: "Insufficient wallet balance" });  
-    }
 
-    const beneficiary = await Beneficiary.findByPk(beneficiary_id)
-     if (!beneficiary) {
-      return res.status(404).json({ message: "Beneficiary not found" });
-    }
-
-    const lockKey = `${merchant_id}:${beneficiary_id}:${amount}`;
-    if (isPayoutLocked(lockKey)) {
-      return res.status(409).json({
-        success: false,
-        message: 'Duplicate payout detected. Please wait a few minutes before retrying.'
-      });
-    }
-
-    const recentDuplicate = await PayoutTransaction.findOne({
-      where: {
-        merchant_id,
-        beneficiary_id,
-        amount,
-        status: {
-          [Op.notIn]: ['FAILED']
-        },
-        createdAt: {
-          [Op.gte]: new Date(Date.now() - 3 * 60 * 1000)
-        }
-      },
-      order: [['createdAt', 'DESC']]
-    });
-
-    if (recentDuplicate) {
-      return res.status(409).json({
-        success: false,
-        message: 'Duplicate payout detected. Please wait a few minutes before retrying.'
-      });
-    }
-
-    if (beneficiary.status === 'inactive') {
-      return res.status(400).json({ message: "Beneficiary is disabled" });
-    }
-
-    lockPayout(lockKey);
-
-    const currentDate = getCurrentDate();
-    let requestId = req.body.requestId || null;
-    if (!requestId) {
-      requestId = await payoutReferenceService.getNextPayoutReference();
-    }
-
+    // Phase 2: Call BranchX AFTER records are committed.
+    // If this call throws or times out, the record and debit already exist.
+    // The callback or cron will handle final status resolution.
     const payload = {
       amount,
-      mobileNumber: beneficiary.mobile_number,
-      requestId: requestId,
-      accountNumber: beneficiary.account_number,
-      ifscCode: beneficiary.ifsc_code,
-      beneficiaryName: beneficiary.beneficiary_name,
+      mobileNumber: safeBeneficiary.mobile_number,
+      requestId,
+      accountNumber: safeBeneficiary.account_number,
+      ifscCode: safeBeneficiary.ifsc_code,
+      beneficiaryName: safeBeneficiary.beneficiary_name,
       remitterName: user.name || '',
-      bankName: beneficiary.bank_name,
+      bankName: safeBeneficiary.bank_name,
       transferMode: 'IMPS',
       latitude: latitude || '',
       longitude: longitude || '',
-      emailId: beneficiary.email || '',
+      emailId: safeBeneficiary.email || '',
       purpose: purpose || 'Payout Request'
     };
 
+    let data;
+    try {
+      data = await branchxService.payout(payload);
+    } catch (branchxError) {
+      // BranchX call failed — record and debit already saved.
+      // Status remains PENDING; refund will only be issued via BranchX callback or cron job.
+      await payoutTx.update({ data: JSON.stringify({ error: branchxError?.message || branchxError }) });
+      await PayoutAuditLog.create({
+        payout_id: payoutTx.id,
+        action: 'BRANCHX_PAYOUT_GATEWAY_ERROR',
+        details: { error: branchxError?.message || branchxError, reference_id: requestId }
+      });
+      const isHtml = typeof branchxError === 'string' && branchxError.trim().startsWith('<');
+      const message = isHtml ? 'Payout gateway error. Please try again later.' : (branchxError?.message || branchxError?.msg || 'Something went wrong');
+      return res.status(502).json({ success: false, message, reference_id: requestId });
+    }
 
-    const data = await branchxService.payout(payload);
-
-    const branchxStatus = normalizeBranchxStatus(data.status || data.Status || 'PENDING');
-    const payoutStatus = 'PENDING';
-    const payoutTx = await PayoutTransaction.create({
-      merchant_id: merchant_id,
-      beneficiary_id: beneficiary_id,
-      payout_provider: 'BranchX',
-      reference_id: requestId || data.api_ref,
-      amount: amount,
-      status: payoutStatus,
-      purpose: purpose || null,
-      data: JSON.stringify(data),
-      service_charge: service_charge
-    });
-
-    await PayoutAuditLog.create({
-      payout_id: payoutTx.id,
-      action: 'BRANCHX_PAYOUT_REQUEST',
-      details: {
-        requestPayload: payload,
-        reference_id: requestId || data.api_ref
-      }
-    });
-
+    // Phase 3: Update record with BranchX response
+    const rawBranchxStatus = data.status || data.Status || null;
+    const branchxStatus = rawBranchxStatus ? normalizeBranchxStatus(rawBranchxStatus) : 'NOT_RECEIVED';
+    await payoutTx.update({ data: JSON.stringify(data) });
     await PayoutAuditLog.create({
       payout_id: payoutTx.id,
       action: 'BRANCHX_PAYOUT_RESPONSE',
       details: {
         responsePayload: data,
         branchxStatus,
-        status: payoutStatus,
-        reference_id: requestId || data.api_ref
+        status: branchxStatus,
+        reference_id: requestId
       }
     });
 
-    // Debit the wallet immediately on payout initiation regardless of initial status.
-    // Refund will only happen via the callback webhook if BranchX confirms FAILED.
-    await ledgerService.createPayoutEntry({
-      userId: merchant_id,
-      payoutTransactionId: payoutTx.id,
-      amount: total_amount,
-      description: `Payout to ${beneficiary.beneficiary_name} (${purpose || 'N/A'}) — ref: ${requestId}`,
-      metadata: {
-        beneficiary_name: beneficiary.beneficiary_name,
-        account_number: beneficiary.account_number,
-        ifsc_code: beneficiary.ifsc_code,
-        bank_name: beneficiary.bank_name,
-        payout_amount: amount,
-        service_charge: service_charge,
-        reference_id: requestId,
-        branchx_status: branchxStatus
-      }
-    });
-
-    res.json({
+    return res.json({
       success: true,
       message: data.message || 'Payout request processed successfully',
       payout_provider: 'BranchX',
-      reference_id: requestId || data.api_ref,
+      reference_id: requestId,
       data
     });
   } catch (error) {
