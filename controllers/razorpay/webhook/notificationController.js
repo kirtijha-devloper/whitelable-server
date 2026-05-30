@@ -480,37 +480,6 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                 franchiseChargeAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
             }
             franchiseEarning = parseFloat((chargeAmount - franchiseChargeAmount).toFixed(2));
-
-            if (franchiseChargeAmount > 0) {
-                await ledgerService.createLedgerEntry({
-                    userId: posOperator.franchaise_id,
-                    transactionType: 'franchise_admin_fee',
-                    transactionId: notification.txn_id,
-                    description: `Admin charge for Razorpay txn ${notification.txn_id}`,
-                    debit: franchiseChargeAmount,
-                    metadata: {
-                        merchant_id: posOperator.id,
-                        transaction_amount: transactionAmount,
-                        charge_rate: effectiveChargePercent,
-                        franchise_charge: franchiseChargeAmount
-                    }
-                });
-            }
-
-            if (chargeAmount > 0) {
-                await ledgerService.createLedgerEntry({
-                    userId: posOperator.franchaise_id,
-                    transactionType: 'franchise_merchant_charge',
-                    transactionId: notification.txn_id,
-                    description: `Merchant charge for Razorpay txn ${notification.txn_id}`,
-                    credit: chargeAmount,
-                    metadata: {
-                        merchant_id: posOperator.id,
-                        transaction_amount: transactionAmount,
-                        charge_rate: effectiveChargePercent
-                    }
-                });
-            }
         }
 
         const merchantTransactionCharge = await MerchantTransactionCharge.create({
@@ -550,13 +519,17 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             merchantTransactionChargeId: merchantTransactionCharge.id,
             description: `Admin-adjusted Razorpay txn ${notification.txn_id}`,
             metadata: {
-                payment_mode: paymentMode,
+                razorpay_notification_id: notification.id,
+                payment_method: paymentMode,
                 charge_rate: effectiveChargePercent,
                 charge_flat: parsedFlat || 0,
                 gst_amount: gstAmount,
                 gst_percent: 0,
                 pos_machine_id: posMachine.id,
-                merchant_id: posOperator.id
+                mid_number: merchantId.toString(),
+                tid_number: terminalId.toString(),
+                merchant_id: posOperator.id,
+                customer_name: customerName
             }
         });
 
@@ -566,13 +539,13 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                     userId: posOperator.franchaise_id,
                     razorpayTransactionId: notification.txn_id,
                     amount: franchiseEarning,
-                    transactionType: 'pos_franchise_earning',
-                    description: `Franchise earning ₹${franchiseEarning} for merchant ${posOperator.id}`,
+                    description: `Franchise earning on Razorpay txn ${notification.txn_id}`,
                     metadata: {
                         merchant_id: posOperator.id,
                         transaction_amount: transactionAmount,
                         charge_amount: chargeAmount,
-                        franchise_charge: franchiseChargeAmount
+                        franchise_charge: franchiseChargeAmount,
+                        charge_rate: effectiveChargePercent
                     }
                 });
             } catch (earnError) {
