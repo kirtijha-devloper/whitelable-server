@@ -26,7 +26,7 @@ const REQUEST_ID_PREFIX = 'ABL';
 let requestIdSequence = 0;
 
 function buildXml(rootTag, fields) {
-  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: false } });
+  const builder = new xml2js.Builder({ headless: false, rootName: rootTag, renderOpts: { pretty: false } });
   return builder.buildObject(fields);
 }
 
