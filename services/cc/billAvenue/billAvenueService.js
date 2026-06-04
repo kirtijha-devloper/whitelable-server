@@ -26,8 +26,11 @@ const REQUEST_ID_PREFIX = 'ABL';
 let requestIdSequence = 0;
 
 function buildXml(rootTag, fields) {
-  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: false } });
-  return builder.buildObject(fields);
+  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: true } });
+  let xmlStr = builder.buildObject(fields);
+  // Expand self-closing tags like <customerEmail/> to <customerEmail></customerEmail>
+  xmlStr = xmlStr.replace(/<([^\s>]+)\/>/g, '<$1></$1>');
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' + xmlStr;
 }
 
 async function parseXml(xmlStr) {
@@ -290,7 +293,6 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
 
   const fields = {
     agentId: 'CC01CC01513515340681',
-    billerAdhoc: 'false',
     agentDeviceInfo: {
       ip: '192.168.2.73',
       initChannel: 'AGT',
