@@ -43,14 +43,14 @@ function buildBillAvenueLog({ url, endpoint, requestBody, responseBody, errorMes
  */
 async function postForm(endpoint, formParams) {
   const base = billAvenueConfig.apiUrl.replace(/\/+$/, '');
-  const url = `${base}${endpoint}`;
   const params = new URLSearchParams(formParams);
-  const requestBody = params.toString();
+  const url = `${base}${endpoint}?${params.toString()}`;
+  const requestBody = ''; // No body since params are in the URL
 
   console.error('[billAvenue] POST →', url);
 
   try {
-    const response = await axios.post(url, requestBody, {
+    const response = await axios.post(url, null, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       responseType: 'text',
       timeout: 60000,
