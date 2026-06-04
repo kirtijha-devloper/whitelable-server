@@ -26,8 +26,9 @@ const REQUEST_ID_PREFIX = 'ABL';
 let requestIdSequence = 0;
 
 function buildXml(rootTag, fields) {
-  const builder = new xml2js.Builder({ headless: false, rootName: rootTag, renderOpts: { pretty: false } });
-  return builder.buildObject(fields);
+  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: true } });
+  let xmlStr = builder.buildObject(fields);
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' + xmlStr;
 }
 
 async function parseXml(xmlStr) {
@@ -132,6 +133,10 @@ async function callBillAvenue(endpoint, xmlPayload) {
       responseXml: encryptedPayload,
     });
     const parsed = await parseXml(encryptedPayload);
+    // Inject debug payload for troubleshooting UM001
+    if (parsed && typeof parsed === 'object') {
+      parsed._debug = { sentXml: xmlPayload };
+    }
     return parsed;
   }
 

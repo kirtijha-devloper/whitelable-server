@@ -397,11 +397,11 @@ const payBill = asyncHandler(async (req, res) => {
     }
 
     return res.status(200).json({
-      success:          isSuccess,
-      message:          isSuccess ? 'Bill payment successful' : 'Bill payment failed',
+      success: isSuccess,
+      message: isSuccess ? 'Bill payment successful' : 'Bill payment failed',
       transactionRefId,
       responseCode,
-      data:             result,
+      data: result,
     });
   } catch (error) {
     console.error('[billAvenue] payBill error:', error.message);
