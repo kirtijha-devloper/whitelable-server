@@ -194,7 +194,7 @@ async function getBillerInfo({ category } = {}) {
   }
 
   const xml = buildXml('billerInfoRequest', {});
-  const result = await callBillAvenue('/extMdmCntrl/mdmRequestNew/xml', xml);
+  const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
 
   const billersFromApi =
     (result?.billers?.biller || result?.billers || result?.BillerInfo?.biller || result?.BillerInfo) || [];
@@ -239,7 +239,7 @@ async function getBillerInfoByIdXml({ billerId } = {}) {
   }
 
   const xml = buildXml('billerInfoRequest', { billerId });
-  const result = await callBillAvenue('/extMdmCntrl/mdmRequestNew/xml', xml);
+  const result = await callBillAvenue('/getBillerInfoCntrl/billerInfoRequest/xml', xml);
   return result;
 }
 
