@@ -127,6 +127,22 @@ async function callBillAvenue(endpoint, xmlPayload) {
     encryptedPayload = raw;
   }
 
+  const base = require('../../../config/billavenue').apiUrl.replace(/\/+$/, '');
+  let fullUrl = '';
+  if (endpoint.includes('mdmRequestNew')) {
+    const { encRequest, ...urlParamsObj } = formParams;
+    fullUrl = `${base}${endpoint}?${new URLSearchParams(urlParamsObj).toString()}`;
+  } else {
+    fullUrl = `${base}${endpoint}?${new URLSearchParams(formParams).toString()}`;
+  }
+
+  const _debugObj = {
+    url: fullUrl,
+    encryptedRequest: formParams.encRequest,
+    encryptedResponse: encryptedPayload,
+    sentXml: xmlPayload,
+  };
+
   // If the response is XML (e.g. error response), parse directly
   if (encryptedPayload.startsWith('<') || encryptedPayload.startsWith('<?xml')) {
     appendBillAvenueTextLog('callBillAvenueXmlResponse', {
@@ -137,7 +153,7 @@ async function callBillAvenue(endpoint, xmlPayload) {
     const parsed = await parseXml(encryptedPayload);
     // Inject debug payload for troubleshooting UM001
     if (parsed && typeof parsed === 'object') {
-      parsed._debug = { sentXml: xmlPayload };
+      parsed._debug = _debugObj;
     }
     return parsed;
   }
@@ -151,7 +167,7 @@ async function callBillAvenue(endpoint, xmlPayload) {
   });
   const parsed = await parseXml(decryptedXml);
   if (parsed && typeof parsed === 'object') {
-    parsed._debug = { sentXml: xmlPayload };
+    parsed._debug = _debugObj;
   }
   return parsed;
 }
