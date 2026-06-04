@@ -26,9 +26,8 @@ const REQUEST_ID_PREFIX = 'ABL';
 let requestIdSequence = 0;
 
 function buildXml(rootTag, fields) {
-  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: true } });
-  let xmlStr = builder.buildObject(fields);
-  return '<?xml version="1.0" encoding="UTF-8"?>\n' + xmlStr;
+  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: false } });
+  return builder.buildObject(fields);
 }
 
 async function parseXml(xmlStr) {
@@ -269,17 +268,17 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
   if (Array.isArray(customerParams)) {
     customerParams.forEach((param) => {
       if (param.name && param.value) {
-        inputs.push({ paramName: param.name, paramValue: param.value });
+        inputs.push({ paramName: param.name.trim(), paramValue: param.value.trim() });
         if (param.name.toLowerCase().includes('mobile')) {
-          customerMobile = param.value;
+          customerMobile = param.value.trim();
         }
       }
     });
   } else if (customerParams && typeof customerParams === 'object') {
     Object.entries(customerParams).forEach(([key, value]) => {
-      inputs.push({ paramName: key, paramValue: value });
+      inputs.push({ paramName: key.trim(), paramValue: String(value).trim() });
       if (key.toLowerCase().includes('mobile')) {
-        customerMobile = value;
+        customerMobile = String(value).trim();
       }
     });
   }
