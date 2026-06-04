@@ -79,8 +79,8 @@ async function callBillAvenue(endpoint, xmlPayload) {
 
   const formParams = {
     accessCode: billAvenueConfig.accessCode,
-    requestId:  generateRequestId(),
-    ver:        billAvenueConfig.ver,
+    requestId: generateRequestId(),
+    ver: billAvenueConfig.ver,
     instituteId: billAvenueConfig.instituteId,
     encRequest,
   };
@@ -132,6 +132,9 @@ async function callBillAvenue(endpoint, xmlPayload) {
       responseXml: encryptedPayload,
     });
     const parsed = await parseXml(encryptedPayload);
+    if (parsed && typeof parsed === 'object') {
+      parsed._billAvenue_request_debug = { xmlPayload, formParams };
+    }
     return parsed;
   }
 
@@ -143,6 +146,9 @@ async function callBillAvenue(endpoint, xmlPayload) {
     decryptedXml,
   });
   const parsed = await parseXml(decryptedXml);
+  if (parsed && typeof parsed === 'object') {
+    parsed._billAvenue_request_debug = { xmlPayload, formParams };
+  }
   return parsed;
 }
 
