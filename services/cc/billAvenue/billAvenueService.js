@@ -290,6 +290,7 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
 
   const fields = {
     agentId: 'CC01CC01513515340681',
+    billerAdhoc: 'false',
     agentDeviceInfo: {
       ip: '192.168.2.73',
       initChannel: 'AGT',
