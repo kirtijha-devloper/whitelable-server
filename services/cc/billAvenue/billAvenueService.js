@@ -268,13 +268,25 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
 
   if (Array.isArray(customerParams)) {
     customerParams.forEach((param) => {
-      inputs.push({ paramName: param.name, paramValue: param.value });
-      
-      // If we find a mobile parameter, use it for customerMobile
-      if (param.name.toLowerCase().includes('mobile')) {
-        customerMobile = param.value;
+      if (param.name && param.value) {
+        inputs.push({ paramName: param.name, paramValue: param.value });
+        if (param.name.toLowerCase().includes('mobile')) {
+          customerMobile = param.value;
+        }
       }
     });
+  } else if (customerParams && typeof customerParams === 'object') {
+    Object.entries(customerParams).forEach(([key, value]) => {
+      inputs.push({ paramName: key, paramValue: value });
+      if (key.toLowerCase().includes('mobile')) {
+        customerMobile = value;
+      }
+    });
+  }
+
+  // If inputs is empty, the BBPS parser will crash. We must ensure it's not empty.
+  if (inputs.length === 0) {
+    throw new Error('customerParams cannot be empty');
   }
 
   const fields = {
