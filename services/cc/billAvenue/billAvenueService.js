@@ -124,11 +124,6 @@ async function callBillAvenue(endpoint, xmlPayload) {
     encryptedPayload = raw;
   }
 
-  // Build the full URL just for the debug response (excluding encRequest which goes in the body)
-  const base = billAvenueConfig.apiUrl.replace(/\/+$/, '');
-  const { encRequest: _enc, ...urlParamsObj } = formParams;
-  const fullUrl = `${base}${endpoint}?${new URLSearchParams(urlParamsObj).toString()}`;
-
   // If the response is XML (e.g. error response), parse directly
   if (encryptedPayload.startsWith('<') || encryptedPayload.startsWith('<?xml')) {
     appendBillAvenueTextLog('callBillAvenueXmlResponse', {
@@ -137,14 +132,6 @@ async function callBillAvenue(endpoint, xmlPayload) {
       responseXml: encryptedPayload,
     });
     const parsed = await parseXml(encryptedPayload);
-    if (parsed && typeof parsed === 'object') {
-      parsed._billAvenue_request_debug = { 
-        xmlPayload, 
-        formParams, 
-        fullUrl,
-        rawEncryptedResponse: encryptedPayload
-      };
-    }
     return parsed;
   }
 
@@ -156,14 +143,6 @@ async function callBillAvenue(endpoint, xmlPayload) {
     decryptedXml,
   });
   const parsed = await parseXml(decryptedXml);
-  if (parsed && typeof parsed === 'object') {
-    parsed._billAvenue_request_debug = { 
-      xmlPayload, 
-      formParams, 
-      fullUrl,
-      rawEncryptedResponse: encryptedPayload
-    };
-  }
   return parsed;
 }
 
