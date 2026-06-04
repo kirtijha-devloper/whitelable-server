@@ -255,16 +255,35 @@ async function getBillerCategories() {
  * @param {object} params
  */
 async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
-  const inputParams = {};
-  if (customerParams && typeof customerParams === 'object') {
-    Object.entries(customerParams).forEach(([key, value]) => {
-      inputParams[key] = value;
+  const inputs = [];
+  let customerMobile = '9999999999'; // Default fallback
+
+  if (Array.isArray(customerParams)) {
+    customerParams.forEach((param) => {
+      inputs.push({ paramName: param.name, paramValue: param.value });
+      
+      // If we find a mobile parameter, use it for customerMobile
+      if (param.name.toLowerCase().includes('mobile')) {
+        customerMobile = param.value;
+      }
     });
   }
 
   const fields = {
+    agentId: 'CC01CC01513515340681',
+    agentDeviceInfo: {
+      ip: '192.168.2.73',
+      initChannel: 'AGT',
+      mac: '01-23-45-67-89-ab'
+    },
+    customerInfo: {
+      customerMobile: customerMobile,
+      customerEmail: '',
+      customerAdhaar: '',
+      customerPan: ''
+    },
     billerId,
-    inputParams,
+    inputParams: { input: inputs }
   };
 
   if (amount) fields.amount = amount;
