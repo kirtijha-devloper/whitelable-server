@@ -137,7 +137,12 @@ async function callBillAvenue(endpoint, xmlPayload) {
     });
     const parsed = await parseXml(encryptedPayload);
     if (parsed && typeof parsed === 'object') {
-      parsed._billAvenue_request_debug = { xmlPayload, formParams, fullUrl };
+      parsed._billAvenue_request_debug = { 
+        xmlPayload, 
+        formParams, 
+        fullUrl,
+        rawEncryptedResponse: encryptedPayload
+      };
     }
     return parsed;
   }
@@ -151,7 +156,12 @@ async function callBillAvenue(endpoint, xmlPayload) {
   });
   const parsed = await parseXml(decryptedXml);
   if (parsed && typeof parsed === 'object') {
-    parsed._billAvenue_request_debug = { xmlPayload, formParams, fullUrl };
+    parsed._billAvenue_request_debug = { 
+      xmlPayload, 
+      formParams, 
+      fullUrl,
+      rawEncryptedResponse: encryptedPayload
+    };
   }
   return parsed;
 }
