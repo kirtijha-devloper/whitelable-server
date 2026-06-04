@@ -148,6 +148,9 @@ async function callBillAvenue(endpoint, xmlPayload) {
     decryptedXml,
   });
   const parsed = await parseXml(decryptedXml);
+  if (parsed && typeof parsed === 'object') {
+    parsed._debug = { sentXml: xmlPayload };
+  }
   return parsed;
 }
 
