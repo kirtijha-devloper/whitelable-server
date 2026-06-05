@@ -312,7 +312,7 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
     agentId: require('../../../config/billavenue').agentId,
     agentDeviceInfo: {
       ip: '147.93.110.29',
-      initChannel: 'INT',
+      initChannel: 'AGT',
       mac: require('../../../config/billavenue').mac
     },
     customerInfo: {
