@@ -178,7 +178,7 @@ const fetchBill = asyncHandler(async (req, res) => {
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
-    if (!rawXml && (!billerId || !customerParams)) {
+    if (rawXml === undefined && (!billerId || !customerParams)) {
       return res.status(400).json({ success: false, message: 'Required: billerId, customerParams (or rawXml for direct testing)' });
     }
 
