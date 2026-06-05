@@ -278,7 +278,7 @@ async function getBillerCategories() {
  * @param {object} params
  */
 async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, rawXml }) {
-  if (rawXml) {
+  if (rawXml !== undefined) {
     return callBillAvenue('/extBillCntrl/billFetchRequest/xml', rawXml);
   }
 
