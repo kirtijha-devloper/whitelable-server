@@ -207,15 +207,17 @@ const fetchBill = asyncHandler(async (req, res) => {
 
     fileLog(`fetchBill billerId=${billerId} response=${JSON.stringify(result)}`);
 
-    // Save the bill fetch record
-    await BillAvenueBillFetch.create({
-      user_id: userId,
-      biller_id: billerId,
-      customer_params: customerParams,
-      amount: txnAmount,
-      response: result,
-      status: 'completed',
-    });
+    if (billerId) {
+      // Save the bill fetch record
+      await BillAvenueBillFetch.create({
+        user_id: userId,
+        biller_id: billerId,
+        customer_params: customerParams,
+        amount: txnAmount,
+        response: result,
+        status: 'completed',
+      });
+    }
 
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
