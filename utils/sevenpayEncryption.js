@@ -18,7 +18,23 @@ function resolvePublicKeyPath() {
   return path.resolve(process.cwd(), configuredPath);
 }
 
+
 function loadPublicKey() {
+  const publicKeyPath = resolvePublicKeyPath();
+
+  if (cachedPublicKey && cachedPublicKeyPath === publicKeyPath) {
+    return cachedPublicKey;
+  }
+
+  const keyString = fs.readFileSync(publicKeyPath, 'utf8');
+
+  cachedPublicKey = crypto.createPublicKey(keyString);
+  cachedPublicKeyPath = publicKeyPath;
+
+  return cachedPublicKey;
+}
+
+function loadPublicKey_backup() {
   const publicKeyPath = resolvePublicKeyPath();
   if (cachedPublicKey && cachedPublicKeyPath === publicKeyPath) {
     return cachedPublicKey;
