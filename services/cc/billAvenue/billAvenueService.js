@@ -26,10 +26,8 @@ const REQUEST_ID_PREFIX = 'ABL';
 let requestIdSequence = 0;
 
 function buildXml(rootTag, fields) {
-  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: true } });
+  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: false } });
   let xmlStr = builder.buildObject(fields);
-  // Expand self-closing tags like <customerEmail/> to <customerEmail></customerEmail>
-  xmlStr = xmlStr.replace(/<([^\s>]+)\/>/g, '<$1></$1>');
   return '<?xml version="1.0" encoding="UTF-8"?>\n' + xmlStr;
 }
 
@@ -310,8 +308,8 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
   const fields = {
     agentId: require('../../../config/billavenue').agentId,
     agentDeviceInfo: {
-      ip: '192.168.2.73',
-      initChannel: 'AGT',
+      ip: '147.93.110.29',
+      initChannel: 'INT',
       mac: require('../../../config/billavenue').mac
     },
     customerInfo: {
