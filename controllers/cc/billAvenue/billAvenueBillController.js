@@ -172,14 +172,14 @@ const uploadBillersFromFile = asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 const fetchBill = asyncHandler(async (req, res) => {
   try {
-    const { billerId, customerParams, amount } = req.body;
+    const { billerId, customerParams, amount, rawXml } = req.body;
     const userId = req.user?.id;
 
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
-    if (!billerId || !customerParams) {
-      return res.status(400).json({ success: false, message: 'Required: billerId, customerParams' });
+    if (!rawXml && (!billerId || !customerParams)) {
+      return res.status(400).json({ success: false, message: 'Required: billerId, customerParams (or rawXml for direct testing)' });
     }
 
     const txnAmount = amount ? parseFloat(amount) : null;
@@ -202,6 +202,7 @@ const fetchBill = asyncHandler(async (req, res) => {
       billerId,
       customerParams,
       amount: txnAmount,
+      rawXml,
     });
 
     fileLog(`fetchBill billerId=${billerId} response=${JSON.stringify(result)}`);

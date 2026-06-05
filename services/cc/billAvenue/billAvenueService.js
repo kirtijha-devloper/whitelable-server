@@ -277,7 +277,11 @@ async function getBillerCategories() {
  * Fetch a bill (bill fetch / validation).
  * @param {object} params
  */
-async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
+async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, rawXml }) {
+  if (rawXml) {
+    return callBillAvenue('/extBillCntrl/billFetchRequest/xml', rawXml);
+  }
+
   const inputs = [];
   let customerMobile = '9999999999'; // Default fallback
 
