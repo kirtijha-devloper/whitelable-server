@@ -319,21 +319,57 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
  * Pay a bill via BillAvenue.
  * @param {object} params
  */
-async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf }) {
-  const inputParams = {};
-  if (customerParams && typeof customerParams === 'object') {
+function buildStandardFields(billerId, customerParams, amount, paymentMode) {
+  const inputs = [];
+  let customerMobile = '9999999999';
+
+  if (Array.isArray(customerParams)) {
+    customerParams.forEach((param) => {
+      if (param.name && param.value) {
+        inputs.push({ paramName: String(param.name).trim(), paramValue: String(param.value).trim() });
+        if (String(param.name).toLowerCase().includes('mobile')) {
+          customerMobile = String(param.value).trim();
+        }
+      }
+    });
+  } else if (customerParams && typeof customerParams === 'object') {
     Object.entries(customerParams).forEach(([key, value]) => {
-      inputParams[key] = value;
+      inputs.push({ paramName: key.trim(), paramValue: String(value).trim() });
+      if (key.toLowerCase().includes('mobile')) {
+        customerMobile = String(value).trim();
+      }
     });
   }
 
+  if (inputs.length === 0) {
+    throw new Error('customerParams cannot be empty');
+  }
+
   const fields = {
+    agentId: require('../../../config/billavenue').agentId,
+    agentDeviceInfo: {
+      ip: '147.93.110.29',
+      initChannel: 'AGT',
+      mac: require('../../../config/billavenue').mac
+    },
+    customerInfo: {
+      customerMobile: customerMobile,
+      customerEmail: '',
+      customerAdhaar: '',
+      customerPan: ''
+    },
     billerId,
-    inputParams,
-    amount: String(amount),
-    paymentMode: paymentMode || 'Cash',
+    inputParams: { input: inputs },
   };
 
+  if (amount) fields.amount = { '#text': String(amount) };
+  if (paymentMode) fields.paymentMode = paymentMode;
+
+  return fields;
+}
+
+async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf }) {
+  const fields = buildStandardFields(billerId, customerParams, amount, paymentMode || 'Cash');
   if (quickPay) fields.quickPay = quickPay;
   if (splitPay) fields.splitPay = splitPay;
   if (ccf) fields.ccf = ccf;
@@ -342,11 +378,9 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
   return callBillAvenue('/extBillPayCntrl/billPayRequest/xml', xml);
 }
 
-/**
- * Register a complaint for a failed transaction.
- */
 async function registerComplaint({ complaintType, billerId, transactionRefId, reason, description }) {
   const fields = {
+    agentId: require('../../../config/billavenue').agentId,
     complaintType: complaintType || 'Transaction',
     participationType: 'Agent',
     billerId,
@@ -361,6 +395,7 @@ async function registerComplaint({ complaintType, billerId, transactionRefId, re
 
 async function trackComplaint({ complaintType, billerId, transactionRefId, complaintId, reason, description }) {
   const fields = {
+    agentId: require('../../../config/billavenue').agentId,
     complaintType: complaintType || 'Transaction',
     participationType: 'Agent',
     billerId,
@@ -375,20 +410,7 @@ async function trackComplaint({ complaintType, billerId, transactionRefId, compl
 }
 
 async function depositEnquiry({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
-  const inputParams = {};
-  if (customerParams && typeof customerParams === 'object') {
-    Object.entries(customerParams).forEach(([key, value]) => {
-      inputParams[key] = value;
-    });
-  }
-
-  const fields = {
-    billerId,
-    inputParams,
-  };
-
-  if (amount) fields.amount = amount;
-  if (paymentMode) fields.paymentMode = paymentMode;
+  const fields = buildStandardFields(billerId, customerParams, amount, paymentMode);
   if (quickPay) fields.quickPay = quickPay;
   if (splitPay) fields.splitPay = splitPay;
 
@@ -397,20 +419,7 @@ async function depositEnquiry({ billerId, customerParams, amount, paymentMode, q
 }
 
 async function validateBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
-  const inputParams = {};
-  if (customerParams && typeof customerParams === 'object') {
-    Object.entries(customerParams).forEach(([key, value]) => {
-      inputParams[key] = value;
-    });
-  }
-
-  const fields = {
-    billerId,
-    inputParams,
-  };
-
-  if (amount) fields.amount = amount;
-  if (paymentMode) fields.paymentMode = paymentMode;
+  const fields = buildStandardFields(billerId, customerParams, amount, paymentMode);
   if (quickPay) fields.quickPay = quickPay;
   if (splitPay) fields.splitPay = splitPay;
 
