@@ -43,19 +43,31 @@ function buildBillAvenueLog({ url, endpoint, requestBody, responseBody, errorMes
  */
 async function postForm(endpoint, formParams) {
   const base = billAvenueConfig.apiUrl.replace(/\/+$/, '');
-  const url = `${base}${endpoint}`;
-  const params = new URLSearchParams(formParams);
-  const requestBody = params.toString();
-
-  console.error('[billAvenue] POST →', url);
+  let url = '';
+  let requestBody = '';
+  let contentType = '';
+  
+  // For Biller Info (MDM) API: encRequest is plain-text body, others in URL
+  if (endpoint.includes('mdmRequestNew')) {
+    const { encRequest, ...urlParamsObj } = formParams;
+    url = `${base}${endpoint}?${new URLSearchParams(urlParamsObj).toString()}`;
+    requestBody = encRequest;
+    contentType = 'text/plain';
+    console.error('[billAvenue] POST (MDM) →', url);
+  } else {
+    // For Other APIs: All parameters (including encRequest) in URL, empty body
+    url = `${base}${endpoint}?${new URLSearchParams(formParams).toString()}`;
+    requestBody = ''; // or null, but we log the string
+    contentType = 'application/x-www-form-urlencoded';
+    console.error('[billAvenue] POST (Other) →', url);
+  }
 
   try {
-    const response = await axios.post(url, requestBody, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    const response = await axios.post(url, requestBody || null, {
+      headers: { 'Content-Type': contentType },
       responseType: 'text',
       timeout: 60000,
     });
-
     const responseBody = String(response.data || '').trim();
     appendBillAvenueLog(buildBillAvenueLog({ url, endpoint, requestBody, responseBody }));
     return responseBody;

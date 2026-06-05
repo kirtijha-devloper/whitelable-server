@@ -26,8 +26,11 @@ const REQUEST_ID_PREFIX = 'ABL';
 let requestIdSequence = 0;
 
 function buildXml(rootTag, fields) {
-  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: false } });
-  return builder.buildObject(fields);
+  const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: true } });
+  let xmlStr = builder.buildObject(fields);
+  // Expand self-closing tags like <customerEmail/> to <customerEmail></customerEmail>
+  xmlStr = xmlStr.replace(/<([^\s>]+)\/>/g, '<$1></$1>');
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' + xmlStr;
 }
 
 async function parseXml(xmlStr) {
@@ -79,8 +82,8 @@ async function callBillAvenue(endpoint, xmlPayload) {
 
   const formParams = {
     accessCode: billAvenueConfig.accessCode,
-    requestId:  generateRequestId(),
-    ver:        billAvenueConfig.ver,
+    requestId: generateRequestId(),
+    ver: billAvenueConfig.ver,
     instituteId: billAvenueConfig.instituteId,
     encRequest,
   };
@@ -124,6 +127,22 @@ async function callBillAvenue(endpoint, xmlPayload) {
     encryptedPayload = raw;
   }
 
+  const base = require('../../../config/billavenue').apiUrl.replace(/\/+$/, '');
+  let fullUrl = '';
+  if (endpoint.includes('mdmRequestNew')) {
+    const { encRequest, ...urlParamsObj } = formParams;
+    fullUrl = `${base}${endpoint}?${new URLSearchParams(urlParamsObj).toString()}`;
+  } else {
+    fullUrl = `${base}${endpoint}?${new URLSearchParams(formParams).toString()}`;
+  }
+
+  const _debugObj = {
+    url: fullUrl,
+    encryptedRequest: formParams.encRequest,
+    encryptedResponse: encryptedPayload,
+    sentXml: xmlPayload,
+  };
+
   // If the response is XML (e.g. error response), parse directly
   if (encryptedPayload.startsWith('<') || encryptedPayload.startsWith('<?xml')) {
     appendBillAvenueTextLog('callBillAvenueXmlResponse', {
@@ -132,6 +151,10 @@ async function callBillAvenue(endpoint, xmlPayload) {
       responseXml: encryptedPayload,
     });
     const parsed = await parseXml(encryptedPayload);
+    // Inject debug payload for troubleshooting UM001
+    if (parsed && typeof parsed === 'object') {
+      parsed._debug = _debugObj;
+    }
     return parsed;
   }
 
@@ -143,6 +166,9 @@ async function callBillAvenue(endpoint, xmlPayload) {
     decryptedXml,
   });
   const parsed = await parseXml(decryptedXml);
+  if (parsed && typeof parsed === 'object') {
+    parsed._debug = _debugObj;
+  }
   return parsed;
 }
 
@@ -255,16 +281,47 @@ async function getBillerCategories() {
  * @param {object} params
  */
 async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
-  const inputParams = {};
-  if (customerParams && typeof customerParams === 'object') {
+  const inputs = [];
+  let customerMobile = '9999999999'; // Default fallback
+
+  if (Array.isArray(customerParams)) {
+    customerParams.forEach((param) => {
+      if (param.name && param.value) {
+        inputs.push({ paramName: param.name.trim(), paramValue: param.value.trim() });
+        if (param.name.toLowerCase().includes('mobile')) {
+          customerMobile = param.value.trim();
+        }
+      }
+    });
+  } else if (customerParams && typeof customerParams === 'object') {
     Object.entries(customerParams).forEach(([key, value]) => {
-      inputParams[key] = value;
+      inputs.push({ paramName: key.trim(), paramValue: String(value).trim() });
+      if (key.toLowerCase().includes('mobile')) {
+        customerMobile = String(value).trim();
+      }
     });
   }
 
+  // If inputs is empty, the BBPS parser will crash. We must ensure it's not empty.
+  if (inputs.length === 0) {
+    throw new Error('customerParams cannot be empty');
+  }
+
   const fields = {
+    agentId: require('../../../config/billavenue').agentId,
+    agentDeviceInfo: {
+      ip: '147.93.110.29',
+      initChannel: 'AGT',
+      mac: require('../../../config/billavenue').mac
+    },
+    customerInfo: {
+      customerMobile: customerMobile,
+      customerEmail: '',
+      customerAdhaar: '',
+      customerPan: ''
+    },
     billerId,
-    inputParams,
+    inputParams: { input: inputs }
   };
 
   if (amount) fields.amount = amount;
