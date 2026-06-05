@@ -347,7 +347,6 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
 
   const fields = {
     agentId: require('../../../config/billavenue').agentId,
-    billerAdhoc: 'true',
     agentDeviceInfo: {
       ip: '147.93.110.29',
       initChannel: 'AGT',
