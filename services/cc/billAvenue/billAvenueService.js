@@ -362,7 +362,7 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
     inputParams: { input: inputs },
   };
 
-  if (amount) fields.amount = { '#text': String(amount) };
+  if (amount) fields.amount = String(amount);
   if (paymentMode) fields.paymentMode = paymentMode;
 
   return fields;

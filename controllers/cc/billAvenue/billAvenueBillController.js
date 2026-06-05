@@ -324,7 +324,7 @@ const payBill = asyncHandler(async (req, res) => {
       });
       await payment.update({ status: 'failed', response: { error: apiError.message } });
 
-      return res.status(500).json({ success: false, message: 'BillAvenue API call failed. Amount reversed.' });
+      return res.status(500).json({ success: false, message: `BillAvenue API call failed. Amount reversed. Error: ${apiError.message}` });
     }
 
     fileLog(`payBill result billerId=${billerId}: ${JSON.stringify(result)}`);
