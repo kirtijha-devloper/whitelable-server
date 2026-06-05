@@ -310,7 +310,7 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
   const fields = {
     agentId: require('../../../config/billavenue').agentId,
     agentDeviceInfo: {
-      ip: '147.93.110.29',
+      ip: '192.168.2.73',
       initChannel: 'AGT',
       mac: require('../../../config/billavenue').mac
     },
