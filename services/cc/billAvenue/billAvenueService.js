@@ -376,11 +376,8 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
   fields.amountInfo = {
     amount: String(amount * 100), 
     currency: '356',
+    custConvFee: ccf || '0',
   };
-
-  if (ccf) {
-    fields.amountInfo.custConvFee = ccf;
-  }
 
   fields.paymentMethod = {
     paymentMode: paymentMode || 'Cash',
