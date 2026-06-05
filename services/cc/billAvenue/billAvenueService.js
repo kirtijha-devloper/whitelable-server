@@ -369,35 +369,51 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
 }
 
 async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo }) {
-  const fields = buildStandardFields(billerId, customerParams, null, null);
-  delete fields.amount;
-  delete fields.paymentMode;
+  const baseFields = buildStandardFields(billerId, customerParams, null, null);
+  delete baseFields.amount;
+  delete baseFields.paymentMode;
 
-  fields.amountInfo = {
+  // Strict XSD sequence reconstruction
+  const orderedFields = {};
+  
+  // 1. Core routing and agent info
+  orderedFields.agentId = baseFields.agentId;
+  orderedFields.agentDeviceInfo = baseFields.agentDeviceInfo;
+  orderedFields.customerInfo = baseFields.customerInfo;
+  
+  // 2. Biller specifics
+  orderedFields.billerId = baseFields.billerId;
+  orderedFields.inputParams = baseFields.inputParams;
+
+  // 3. Biller Response (MUST come before amountInfo per BBPS schema)
+  if (billerResponseInfo) {
+    orderedFields.billerResponse = billerResponseInfo;
+  }
+
+  // 4. Amount Info
+  orderedFields.amountInfo = {
     amount: String(amount * 100), 
     currency: '356',
     custConvFee: ccf || '0',
     amountTags: ''
   };
 
-  if (billerResponseInfo) {
-    fields.billerResponseInfo = billerResponseInfo;
-  }
-
-  fields.paymentMethod = {
+  // 5. Payment Method
+  orderedFields.paymentMethod = {
     paymentMode: paymentMode || 'Cash',
     quickPay: quickPay || 'Y',
     splitPay: splitPay || 'N'
   };
 
-  fields.paymentInfo = {
+  // 6. Payment Info
+  orderedFields.paymentInfo = {
     info: {
       infoName: 'Remarks',
       infoValue: 'Received'
     }
   };
 
-  const xml = buildXml('billPaymentRequest', fields);
+  const xml = buildXml('billPaymentRequest', orderedFields);
   return callBillAvenue('/extBillPayCntrl/billPayRequest/xml', xml);
 }
 
