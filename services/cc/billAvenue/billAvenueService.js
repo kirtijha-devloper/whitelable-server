@@ -133,13 +133,6 @@ async function callBillAvenue(endpoint, xmlPayload) {
     fullUrl = `${base}${endpoint}?${new URLSearchParams(formParams).toString()}`;
   }
 
-  const _debugObj = {
-    url: fullUrl,
-    encryptedRequest: formParams.encRequest,
-    encryptedResponse: encryptedPayload,
-    sentXml: xmlPayload,
-  };
-
   // If the response is XML (e.g. error response), parse directly
   if (encryptedPayload.startsWith('<') || encryptedPayload.startsWith('<?xml')) {
     appendBillAvenueTextLog('callBillAvenueXmlResponse', {
@@ -147,12 +140,7 @@ async function callBillAvenue(endpoint, xmlPayload) {
       requestId: formParams.requestId,
       responseXml: encryptedPayload,
     });
-    const parsed = await parseXml(encryptedPayload);
-    // Inject debug payload for troubleshooting UM001
-    if (parsed && typeof parsed === 'object') {
-      parsed._debug = _debugObj;
-    }
-    return parsed;
+    return await parseXml(encryptedPayload);
   }
 
   // Decrypt (tries hex first, then base64)
@@ -162,11 +150,7 @@ async function callBillAvenue(endpoint, xmlPayload) {
     requestId: formParams.requestId,
     decryptedXml,
   });
-  const parsed = await parseXml(decryptedXml);
-  if (parsed && typeof parsed === 'object') {
-    parsed._debug = _debugObj;
-  }
-  return parsed;
+  return await parseXml(decryptedXml);
 }
 
 // ─── public API methods ─────────────────────────────────────────────────────
@@ -277,10 +261,7 @@ async function getBillerCategories() {
  * Fetch a bill (bill fetch / validation).
  * @param {object} params
  */
-async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, rawXml }) {
-  if (rawXml !== undefined) {
-    return callBillAvenue('/extBillCntrl/billFetchRequest/xml', rawXml);
-  }
+async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
 
   const inputs = [];
   let customerMobile = '9999999999'; // Default fallback
