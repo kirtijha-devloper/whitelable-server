@@ -368,7 +368,7 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
   return fields;
 }
 
-async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf }) {
+async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo }) {
   const fields = buildStandardFields(billerId, customerParams, null, null);
   delete fields.amount;
   delete fields.paymentMode;
@@ -379,6 +379,10 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
     custConvFee: ccf || '0',
     amountTags: ''
   };
+
+  if (billerResponseInfo) {
+    fields.billerResponseInfo = billerResponseInfo;
+  }
 
   fields.paymentMethod = {
     paymentMode: paymentMode || 'Cash',
