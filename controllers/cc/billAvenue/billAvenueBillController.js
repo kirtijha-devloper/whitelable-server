@@ -230,7 +230,7 @@ const fetchBill = asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 const payBill = asyncHandler(async (req, res) => {
   try {
-    const { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf } = req.body;
+    const { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo } = req.body;
 
     const userId = req.user?.id;
     if (!userId) {
@@ -303,6 +303,7 @@ const payBill = asyncHandler(async (req, res) => {
         quickPay,
         splitPay,
         ccf,
+        billerResponseInfo,
       });
     } catch (apiError) {
       // API call itself failed (network error, timeout, etc.)
