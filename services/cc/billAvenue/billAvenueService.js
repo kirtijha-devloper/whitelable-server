@@ -27,8 +27,7 @@ let requestIdSequence = 0;
 
 function buildXml(rootTag, fields) {
   const builder = new xml2js.Builder({ headless: true, rootName: rootTag, renderOpts: { pretty: false } });
-  let xmlStr = builder.buildObject(fields);
-  return '<?xml version="1.0" encoding="UTF-8"?>\n' + xmlStr;
+  return builder.buildObject(fields);
 }
 
 async function parseXml(xmlStr) {
