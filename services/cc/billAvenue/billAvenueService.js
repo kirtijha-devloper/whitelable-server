@@ -347,6 +347,7 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
 
   const fields = {
     agentId: require('../../../config/billavenue').agentId,
+    billerAdhoc: 'true',
     agentDeviceInfo: {
       ip: '147.93.110.29',
       initChannel: 'AGT',
@@ -369,10 +370,29 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
 }
 
 async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf }) {
-  const fields = buildStandardFields(billerId, customerParams, amount, paymentMode || 'Cash');
-  if (quickPay) fields.quickPay = quickPay;
-  if (splitPay) fields.splitPay = splitPay;
-  if (ccf) fields.ccf = ccf;
+  const fields = buildStandardFields(billerId, customerParams, null, null);
+  delete fields.amount;
+  delete fields.paymentMode;
+
+  fields.amountInfo = {
+    amount: String(amount * 100), 
+    currency: '356',
+    custConvFee: ccf || '0',
+    amountTags: ''
+  };
+
+  fields.paymentMethod = {
+    paymentMode: paymentMode || 'Cash',
+    quickPay: quickPay || 'Y',
+    splitPay: splitPay || 'N'
+  };
+
+  fields.paymentInfo = {
+    info: {
+      infoName: 'Remarks',
+      infoValue: 'Received'
+    }
+  };
 
   const xml = buildXml('billPaymentRequest', fields);
   return callBillAvenue('/extBillPayCntrl/billPayRequest/xml', xml);
