@@ -370,20 +370,14 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
 
 async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf }) {
   const fields = buildStandardFields(billerId, customerParams, null, null);
-  delete fields.amount;
-  delete fields.paymentMode;
-
-  fields.amountInfo = {
-    amount: String(amount * 100), 
-    currency: '356',
-    custConvFee: ccf || '0',
-  };
-
-  fields.paymentMethod = {
-    paymentMode: paymentMode || 'Cash',
-    quickPay: quickPay || 'Y',
-    splitPay: splitPay || 'N'
-  };
+  
+  // Revert back to flat structure which successfully bypassed ICICI schema earlier
+  if (amount) fields.amount = String(amount * 100); // Wait, previously it was just String(amount). Let's use String(amount) to be exact.
+  if (amount) fields.amount = String(amount);
+  if (paymentMode) fields.paymentMode = paymentMode || 'Cash';
+  if (quickPay) fields.quickPay = quickPay || 'N';
+  if (splitPay) fields.splitPay = splitPay || 'N';
+  if (ccf) fields.ccf = ccf;
 
   const xml = buildXml('billPaymentRequest', fields);
   return callBillAvenue('/extBillPayCntrl/billPayRequest/xml', xml);
