@@ -143,6 +143,7 @@ async function callBillAvenue(endpoint, xmlPayload, forcedRequestId) {
     const parsed = await parseXml(encryptedPayload);
     if (parsed && typeof parsed === 'object') {
       Object.defineProperty(parsed, '_requestId', { value: formParams.requestId, enumerable: true });
+      Object.defineProperty(parsed, '_requestXml', { value: xmlPayload, enumerable: true });
     }
     return parsed;
   }
@@ -157,6 +158,7 @@ async function callBillAvenue(endpoint, xmlPayload, forcedRequestId) {
   const parsed = await parseXml(decryptedXml);
   if (parsed && typeof parsed === 'object') {
     Object.defineProperty(parsed, '_requestId', { value: formParams.requestId, enumerable: true });
+    Object.defineProperty(parsed, '_requestXml', { value: xmlPayload, enumerable: true });
   }
   return parsed;
 }
