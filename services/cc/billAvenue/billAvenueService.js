@@ -399,9 +399,29 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
   if (billerResponseInfo && Object.keys(billerResponseInfo).length > 0) {
     // To avoid E211: billerResponse value mismatch, we MUST pass the exact same object
     // without renaming properties (like billAmount -> amountDue).
-    orderedFields.billerResponse = billerResponseInfo;
-  }
+    // To avoid UM001: Invalid XML request, we MUST arrange the properties in the exact
+    // order defined by the BBPS XSD.
+    const xsdOrder = [
+      'customerName', 'amountDue', 'billAmount', 'dueDate', 
+      'billDate', 'billNumber', 'billPeriod', 'billerAdditionalInfo'
+    ];
 
+    const orderedBr = {};
+    xsdOrder.forEach(key => {
+      if (billerResponseInfo[key] !== undefined) {
+        orderedBr[key] = billerResponseInfo[key];
+      }
+    });
+
+    // Add any unexpected keys just in case, appended at the end
+    Object.keys(billerResponseInfo).forEach(key => {
+      if (!xsdOrder.includes(key) && key !== 'additionalInfo') {
+        orderedBr[key] = billerResponseInfo[key];
+      }
+    });
+
+    orderedFields.billerResponse = orderedBr;
+  }
   // BBPS requires additional info from fetch to be sent as additionalInfo in pay
   const addInfo = additionalInfo || (billerResponseInfo && (billerResponseInfo.additionalInfo || billerResponseInfo.billerAdditionalInfo));
   if (addInfo) {
