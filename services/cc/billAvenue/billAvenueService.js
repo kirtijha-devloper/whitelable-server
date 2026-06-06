@@ -397,25 +397,14 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
 
   // 3. Biller Response (MUST come before amountInfo per BBPS schema)
   if (billerResponseInfo && Object.keys(billerResponseInfo).length > 0) {
-    const br = {};
-    if (billerResponseInfo.customerName) br.customerName = String(billerResponseInfo.customerName);
-    
-    // amountDue is mandatory if billerResponse is provided
-    br.amountDue = String(billerResponseInfo.amountDue ?? billerResponseInfo.billAmount ?? '0');
-    
-    if (billerResponseInfo.dueDate) br.dueDate = String(billerResponseInfo.dueDate);
-    if (billerResponseInfo.billDate) br.billDate = String(billerResponseInfo.billDate);
-    if (billerResponseInfo.billNumber) br.billNumber = String(billerResponseInfo.billNumber);
-    if (billerResponseInfo.billPeriod) br.billPeriod = String(billerResponseInfo.billPeriod);
-    if (billerResponseInfo.billerAdditionalInfo) br.billerAdditionalInfo = billerResponseInfo.billerAdditionalInfo;
+    // To avoid E211: billerResponse value mismatch, we MUST pass the exact same object
+    // without renaming properties (like billAmount -> amountDue).
+    orderedFields.billerResponse = billerResponseInfo;
 
-    orderedFields.billerResponse = br;
-
-    // BBPS requires billerAdditionalInfo from fetch to be sent as additionalInfo in pay
-    if (billerResponseInfo.billerAdditionalInfo) {
-      // In payment request, the tag is <additionalInfo> with <info> children
-      // The structure of billerAdditionalInfo is usually { info: [...] }
-      orderedFields.additionalInfo = billerResponseInfo.billerAdditionalInfo;
+    // BBPS requires additional info from fetch to be sent as additionalInfo in pay
+    const addInfo = billerResponseInfo.additionalInfo || billerResponseInfo.billerAdditionalInfo;
+    if (addInfo) {
+      orderedFields.additionalInfo = addInfo;
     }
   }
   // 4. Amount Info
