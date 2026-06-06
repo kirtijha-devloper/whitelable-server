@@ -378,7 +378,7 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
   return fields;
 }
 
-async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, requestId }) {
+async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, additionalInfo, requestId }) {
   const baseFields = buildStandardFields(billerId, customerParams, null, null);
   delete baseFields.amount;
   delete baseFields.paymentMode;
@@ -400,12 +400,12 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
     // To avoid E211: billerResponse value mismatch, we MUST pass the exact same object
     // without renaming properties (like billAmount -> amountDue).
     orderedFields.billerResponse = billerResponseInfo;
+  }
 
-    // BBPS requires additional info from fetch to be sent as additionalInfo in pay
-    const addInfo = billerResponseInfo.additionalInfo || billerResponseInfo.billerAdditionalInfo;
-    if (addInfo) {
-      orderedFields.additionalInfo = addInfo;
-    }
+  // BBPS requires additional info from fetch to be sent as additionalInfo in pay
+  const addInfo = additionalInfo || (billerResponseInfo && (billerResponseInfo.additionalInfo || billerResponseInfo.billerAdditionalInfo));
+  if (addInfo) {
+    orderedFields.additionalInfo = addInfo;
   }
   // 4. Amount Info
   orderedFields.amountInfo = {
