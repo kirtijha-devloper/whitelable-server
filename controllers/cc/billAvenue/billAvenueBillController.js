@@ -114,8 +114,10 @@ const getBillerInfoByIdJson = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Required: billerId' });
     }
 
-    const result = await billAvenueService.getBillerInfoByIdJson({ billerId });
-    fileLog(`getBillerInfoByIdJson billerId=${JSON.stringify(billerId)} response=${JSON.stringify(result)}`);
+    // The raw JSON endpoint from BillAvenue requires authentication wrapper that our postJson doesn't support.
+    // However, the XML endpoint automatically encrypts the request, passes accessCode, and parses the XML response back into JSON.
+    const result = await billAvenueService.getBillerInfoByIdXml({ billerId });
+    fileLog(`getBillerInfoByIdJson (via XML) billerId=${JSON.stringify(billerId)} response=${JSON.stringify(result)}`);
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
     console.error('[billAvenue] getBillerInfoByIdJson error:', error.message);
@@ -226,11 +228,11 @@ const fetchBill = asyncHandler(async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /api/bill-avenue/pay
-// Body: { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf }
+// Body: { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, requestId }
 // ═══════════════════════════════════════════════════════════════════════════
 const payBill = asyncHandler(async (req, res) => {
   try {
-    const { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo } = req.body;
+    const { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, requestId } = req.body;
 
     const userId = req.user?.id;
     if (!userId) {
@@ -304,6 +306,7 @@ const payBill = asyncHandler(async (req, res) => {
         splitPay,
         ccf,
         billerResponseInfo,
+        requestId,
       });
     } catch (apiError) {
       // API call itself failed (network error, timeout, etc.)

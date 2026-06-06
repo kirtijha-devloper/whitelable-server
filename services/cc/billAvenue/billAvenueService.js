@@ -65,7 +65,7 @@ function generateRequestId() {
 /**
  * POST encrypted XML to BillAvenue and return decrypted + parsed response.
  */
-async function callBillAvenue(endpoint, xmlPayload) {
+async function callBillAvenue(endpoint, xmlPayload, forcedRequestId) {
   // Log loaded credentials for debugging (mask apiKey partially)
   const maskedKey = billAvenueConfig.apiKey
     ? billAvenueConfig.apiKey.substring(0, 4) + '***' + billAvenueConfig.apiKey.slice(-4)
@@ -79,7 +79,7 @@ async function callBillAvenue(endpoint, xmlPayload) {
 
   const formParams = {
     accessCode: billAvenueConfig.accessCode,
-    requestId: generateRequestId(),
+    requestId: forcedRequestId || generateRequestId(),
     ver: billAvenueConfig.ver,
     instituteId: billAvenueConfig.instituteId,
     encRequest,
@@ -140,7 +140,11 @@ async function callBillAvenue(endpoint, xmlPayload) {
       requestId: formParams.requestId,
       responseXml: encryptedPayload,
     });
-    return await parseXml(encryptedPayload);
+    const parsed = await parseXml(encryptedPayload);
+    if (parsed && typeof parsed === 'object') {
+      Object.defineProperty(parsed, '_requestId', { value: formParams.requestId, enumerable: true });
+    }
+    return parsed;
   }
 
   // Decrypt (tries hex first, then base64)
@@ -150,7 +154,11 @@ async function callBillAvenue(endpoint, xmlPayload) {
     requestId: formParams.requestId,
     decryptedXml,
   });
-  return await parseXml(decryptedXml);
+  const parsed = await parseXml(decryptedXml);
+  if (parsed && typeof parsed === 'object') {
+    Object.defineProperty(parsed, '_requestId', { value: formParams.requestId, enumerable: true });
+  }
+  return parsed;
 }
 
 // ─── public API methods ─────────────────────────────────────────────────────
@@ -368,7 +376,7 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
   return fields;
 }
 
-async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo }) {
+async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, requestId }) {
   const baseFields = buildStandardFields(billerId, customerParams, null, null);
   delete baseFields.amount;
   delete baseFields.paymentMode;
@@ -414,7 +422,7 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
   };
 
   const xml = buildXml('billPaymentRequest', orderedFields);
-  return callBillAvenue('/extBillPayCntrl/billPayRequest/xml', xml);
+  return callBillAvenue('/extBillPayCntrl/billPayRequest/xml', xml, requestId);
 }
 
 async function registerComplaint({ complaintType, billerId, transactionRefId, reason, description }) {
