@@ -389,15 +389,18 @@ const setIpayOutletId = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { ipay_outlet_id } = req.body;
 
-  if (!ipay_outlet_id && ipay_outlet_id !== 0) {
+  if (ipay_outlet_id === undefined) {
     res.status(400);
     throw new Error('ipay_outlet_id is required');
   }
 
-  const parsed = parseInt(ipay_outlet_id, 10);
-  if (isNaN(parsed)) {
-    res.status(400);
-    throw new Error('ipay_outlet_id must be a valid integer');
+  let parsed = null;
+  if (ipay_outlet_id !== null) {
+    parsed = parseInt(ipay_outlet_id, 10);
+    if (isNaN(parsed)) {
+      res.status(400);
+      throw new Error('ipay_outlet_id must be a valid integer or null');
+    }
   }
 
   const user = await User.findByPk(id);
