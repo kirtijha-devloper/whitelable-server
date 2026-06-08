@@ -506,10 +506,16 @@ async function validateBill({ billerId, customerParams, amount, paymentMode, qui
 /**
  * Check transaction status.
  */
-async function getTransactionStatus({ transactionRefId }) {
+async function getTransactionStatus({ transactionRefId, billerId }) {
   const fields = {
-    transactionRefId,
+    agentId: require('../../../config/billavenue').agentId,
+    billerId,
+    txnReferenceId: transactionRefId,
   };
+
+  if (!billerId) {
+    delete fields.billerId;
+  }
 
   const xml = buildXml('transactionStatusRequest', fields);
   return callBillAvenue('/transactionStatus/fetchInfo/xml', xml);
