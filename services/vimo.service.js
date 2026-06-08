@@ -694,14 +694,14 @@ function extractTokenFromPayload(payload) {
 }
 
 async function fetchFreshToken() {
-  try {
-    const requestHeaders = {
-      secretKey: vimoCredentials.secretKey,
-      saltKey: vimoCredentials.saltKey,
-      encryptdecryptKey: vimoCredentials.encryptdecryptKey,
-      userId: vimoCredentials.userId,
-    };
+  const requestHeaders = {
+    secretKey: vimoCredentials.secretKey,
+    saltKey: vimoCredentials.saltKey,
+    encryptdecryptKey: vimoCredentials.encryptdecryptKey,
+    userId: vimoCredentials.userId,
+  };
 
+  try {
     const endpoint = '/payoutapi/api/signature/authorize';
     const response = await vimoClient.post(endpoint, {}, {
       headers: requestHeaders,
