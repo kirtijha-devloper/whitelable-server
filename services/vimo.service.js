@@ -1083,12 +1083,117 @@ async function createPayout(payload) {
   }
 }
 
+async function checkPayoutStatus(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new AppError('Missing payout status check payload', {
+      code: 'MISSING_PAYOUT_STATUS_PAYLOAD',
+      statusCode: 400,
+      details: 'Request body must be a JSON object.',
+    });
+  }
+
+  if (!payload.merchantRefId && !payload.txnId) {
+    throw new AppError('Missing identifier', {
+      code: 'MISSING_IDENTIFIER',
+      statusCode: 400,
+      details: 'Either merchantRefId or txnId must be provided.',
+    });
+  }
+
+  try {
+    let requestBody;
+    const response = await executeAuthorizedRequest((token) => {
+      const headers = {
+        ...buildAuthorizedHeaders(token),
+        'Content-Type': 'application/json',
+      };
+      
+      const payloadToEncrypt = {};
+      if (payload.merchantRefId) payloadToEncrypt.merchantRefId = payload.merchantRefId;
+      if (payload.txnId) payloadToEncrypt.txnId = payload.txnId;
+
+      requestBody = { requestBody: encryptPlainText(JSON.stringify(payloadToEncrypt)) };
+
+      logVimo('checkPayoutStatus outgoing request', {
+        url: vimoBaseURL + '/payoutapi/api/payment/payoutstatuscheck',
+        method: 'POST',
+        headers: { userId: headers.userId, hasToken: Boolean(token) },
+        rawPayload: payloadToEncrypt,
+        encryptedBody: requestBody,
+      });
+
+      return vimoClient.post('/payoutapi/api/payment/payoutstatuscheck', requestBody, { headers });
+    });
+
+    logVimo('checkPayoutStatus provider response', {
+      status: response.status,
+      headers: response.headers,
+      data: response.data,
+    });
+
+    const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Status fetched successfully');
+    logVimo('checkPayoutStatus decrypted provider response', {
+      normalizedResponse: {
+        message: normalizedResponse.message,
+        responseCode: normalizedResponse.responseCode,
+        data: normalizedResponse.data,
+      },
+    });
+
+    const payoutPayload =
+      normalizedResponse.data && typeof normalizedResponse.data === 'object'
+        ? normalizedResponse.data
+        : normalizedResponse.raw;
+
+    return {
+      message:
+        normalizedResponse.raw?.responseMessage ||
+        normalizedResponse.raw?.message ||
+        'Status fetched successfully',
+      responseCode: normalizedResponse.raw?.txnStatusCode || normalizedResponse.responseCode,
+      data: sanitizePayoutResponse(payoutPayload),
+      rawResponse: response.data,
+      decryptedResponse: normalizedResponse,
+    };
+  } catch (error) {
+    const responseStatus = error.response?.status || error.status || 502;
+    const responseData = error.response?.data;
+    
+    logVimo('checkPayoutStatus provider error', {
+      message: error.message,
+      code: error.code,
+      status: responseStatus,
+      responseData,
+      details: error.details || error.message || null,
+    });
+
+    if (error.code === 'BANK_TIMEOUT' || error.statusCode) {
+      throw error;
+    }
+
+    if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+      throw new AppError('Bank request timed out', {
+        code: 'BANK_TIMEOUT',
+        statusCode: 504,
+        details: error.message,
+      });
+    }
+
+    throw new AppError('Bank API request failed', {
+      code: 'BANK_API_ERROR',
+      statusCode: responseStatus,
+      details: responseData || error.message,
+    });
+  }
+}
+
 module.exports = {
   fetchBankList,
   fetchPurposeList,
   fetchStateList,
   fetchWalletBalance,
   createPayout,
+  checkPayoutStatus,
   getAuthorizeTokenResponse,
   resolveBankCode,
 };

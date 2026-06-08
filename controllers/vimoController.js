@@ -1122,8 +1122,39 @@ async function deleteBeneficiary(req, res) {
   return res.status(200).json({ success: true, message: 'Beneficiary deleted successfully' });
 }
 
+async function checkPayoutStatus(req, res) {
+  try {
+    const merchantRefId = req.params.merchantRefId || req.query.merchantRefId || req.body.merchantRefId;
+    const txnId = req.query.txnId || req.body.txnId;
+
+    if (!merchantRefId && !txnId) {
+      return res.status(400).json({ success: false, message: 'merchantRefId or txnId is required' });
+    }
+
+    const result = await vimoService.checkPayoutStatus({ merchantRefId, txnId });
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      responseCode: result.responseCode,
+      data: result.data,
+    });
+  } catch (error) {
+    const normalized = normalizeError(error, {
+      statusCode: 502,
+      message: 'Failed to fetch payout status',
+      code: 'PAYOUT_STATUS_ERROR'
+    });
+    return res.status(normalized.statusCode || 500).json({
+      success: false,
+      message: normalized.message,
+      error: normalized
+    });
+  }
+}
+
 module.exports = {
   createPayout,
+  checkPayoutStatus,
   fetchTokenStatus,
   fetchBankList,
   fetchPurposeList,
