@@ -1137,6 +1137,8 @@ async function checkPayoutStatus(req, res) {
       message: result.message,
       responseCode: result.responseCode,
       data: result.data,
+      rawResponse: result.rawResponse,
+      decryptedResponse: result.decryptedResponse,
     });
   } catch (error) {
     const normalized = normalizeError(error, {
