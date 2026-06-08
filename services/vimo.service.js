@@ -266,6 +266,12 @@ const tryAesCbcDecrypt = (text) => {
 };
 
 const decryptCipherText = (text) => {
+  if (typeof text === 'string') {
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed === 'object' && parsed !== null) return text;
+    } catch (e) {}
+  }
   if (!text || typeof text !== 'string') {
     return text;
   }
