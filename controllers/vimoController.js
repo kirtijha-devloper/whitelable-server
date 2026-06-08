@@ -187,11 +187,25 @@ async function createPayout(req, res) {
   const normalizedLong = formatVimoCoordinate(lng);
   let merchantRefId = incomingMerchantRefId;
   let selectedBeneficiary = null;
+
+  if (!user_id) {
+    return res.status(400).json({ success: false, message: 'user_id is required' });
+  }
+
   if (beneficiary_id) {
     selectedBeneficiary = await Beneficiary.findOne({ where: { id: beneficiary_id, merchant_id: user_id } });
     if (!selectedBeneficiary) {
       return res.status(404).json({ success: false, message: 'Beneficiary not found' });
     }
+  }
+
+  const user = await User.findByPk(user_id);
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+
+  if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.VIMO_PAYOUT, user))) {
+    return;
   }
 
   const resolvedBeneficiaryBank = beneficiaryBank || selectedBeneficiary?.bank_code || selectedBeneficiary?.bank_name || null;
@@ -232,23 +246,10 @@ async function createPayout(req, res) {
     return res.status(400).json({ success: false, message: 'Beneficiary location is required from saved beneficiary state' });
   }
 
-  if (!user_id) {
-    return res.status(400).json({ success: false, message: 'user_id is required' });
-  }
-
   // NOTE: tpin is optional for Vimo payload; can be enforced by frontend or internal auth if needed.
   // if (!tpin) {
   //   return res.status(400).json({ success: false, message: 'tpin is required' });
   // }
-
-  const user = await User.findByPk(user_id);
-  if (!user) {
-    return res.status(404).json({ success: false, message: 'User not found' });
-  }
-
-  if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.VIMO_PAYOUT, user))) {
-    return;
-  }
 
   const amount = parseFloat(rawAmount);
   if (!amount || isNaN(amount) || amount <= 0) {

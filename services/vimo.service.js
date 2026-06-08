@@ -101,14 +101,16 @@ function buildIvBuffer(ivSourceBuffer, ivLength) {
   return ivBuffer;
 }
 
-function createCryptoContext(overrides = {}) {
+function createCryptoContext(overrides = {}, mode = 'gcm') {
   const keySource = process.env.VIMO_CRYPTO_KEY_SOURCE || 'secretKey';
   const ivSource = process.env.VIMO_CRYPTO_IV_SOURCE || 'saltKey';
   const keyEncoding = overrides.keyEncoding || process.env.VIMO_CRYPTO_KEY_ENCODING || 'utf8';
   const ivEncoding = overrides.ivEncoding || process.env.VIMO_CRYPTO_IV_ENCODING || 'utf8';
   const ivLength = Object.prototype.hasOwnProperty.call(overrides, 'ivLength')
     ? overrides.ivLength
-    : Number(process.env.VIMO_GCM_IV_BYTES || 0) || null;
+    : mode === 'cbc'
+      ? 16
+      : Number(process.env.VIMO_GCM_IV_BYTES || 0) || null;
 
   const keyCandidates = {
     secretKey: vimoCredentials.secretKey,
@@ -137,22 +139,31 @@ function createCryptoContext(overrides = {}) {
   const ivSourceBuffer = resolveBufferFromValue(ivSourceValue, ivEncoding, 'IV source');
   const ivBuffer = buildIvBuffer(ivSourceBuffer, ivLength);
 
+  if (mode === 'cbc' && ![16, 24, 32].includes(keyBuffer.length)) {
+    throw new AppError('Invalid crypto configuration', {
+      code: 'INVALID_CRYPTO_CONFIG',
+      statusCode: 500,
+      details: 'AES-CBC key must resolve to 16, 24, or 32 bytes.',
+    });
+  }
+
   return {
-    algorithm: getAesGcmAlgorithm(keyBuffer),
+    algorithm: mode === 'cbc' ? `aes-${keyBuffer.length * 8}-cbc` : getAesGcmAlgorithm(keyBuffer),
+    mode,
     keyBuffer,
     ivBuffer,
     authTagLength: 16,
   };
 }
 
-function getCryptoCandidateContexts() {
+function getCryptoCandidateContexts(mode = 'gcm') {
   const configs = [];
   const seenSignatures = new Set();
 
   const addCandidate = (overrides = {}) => {
     try {
-      const ctx = createCryptoContext(overrides);
-      const signature = `${ctx.algorithm}|${ctx.keyBuffer.length}|${ctx.ivBuffer.length}|${ctx.authTagLength}`;
+      const ctx = createCryptoContext(overrides, mode);
+      const signature = `${ctx.mode}|${ctx.algorithm}|${ctx.keyBuffer.length}|${ctx.ivBuffer.length}|${ctx.authTagLength}`;
       if (!seenSignatures.has(signature)) {
         seenSignatures.add(signature);
         configs.push(ctx);
@@ -169,12 +180,17 @@ function getCryptoCandidateContexts() {
   addCandidate({ keyEncoding: 'utf8', ivEncoding: 'utf8', ivLength: null });
   addCandidate({ keyEncoding: 'hex', ivEncoding: 'hex', ivLength: 12 });
   addCandidate({ keyEncoding: 'utf8', ivEncoding: 'utf8', ivLength: 12 });
+  if (mode === 'cbc') {
+    addCandidate({ keyEncoding: 'auto', ivEncoding: 'auto', ivLength: 16 });
+    addCandidate({ keyEncoding: 'hex', ivEncoding: 'hex', ivLength: 16 });
+    addCandidate({ keyEncoding: 'utf8', ivEncoding: 'utf8', ivLength: 16 });
+  }
 
   if (configs.length === 0) {
     throw new AppError('Invalid crypto configuration', {
       code: 'INVALID_CRYPTO_CONFIG',
       statusCode: 500,
-      details: 'Unable to derive a valid AES-GCM crypto context.',
+      details: `Unable to derive a valid AES-${mode.toUpperCase()} crypto context.`,
     });
   }
 
@@ -201,7 +217,7 @@ function decryptAesGcm(base64CipherText) {
 
   let lastError = null;
 
-  for (const ctx of getCryptoCandidateContexts()) {
+  for (const ctx of getCryptoCandidateContexts('gcm')) {
     try {
       const authTag = encryptedBuffer.subarray(encryptedBuffer.length - ctx.authTagLength);
       const ciphertext = encryptedBuffer.subarray(0, encryptedBuffer.length - ctx.authTagLength);
@@ -228,42 +244,103 @@ function decryptAesGcm(base64CipherText) {
 }
 
 const tryAesCbcDecrypt = (text) => {
-  const keySource = process.env.VIMO_CRYPTO_KEY_SOURCE || 'secretKey';
-  const ivSource = process.env.VIMO_CRYPTO_IV_SOURCE || 'saltKey';
-  const keyEncoding = process.env.VIMO_CRYPTO_KEY_ENCODING || 'utf8';
-  const ivEncoding = process.env.VIMO_CRYPTO_IV_ENCODING || 'utf8';
+  const encryptedBuffer = Buffer.from(text, 'base64');
+  let lastError = null;
 
-  const keyCandidates = {
-    secretKey: vimoCredentials.secretKey,
-    saltKey: vimoCredentials.saltKey,
-    encryptdecryptKey: vimoCredentials.encryptdecryptKey,
-  };
-  const ivCandidates = {
-    secretKey: vimoCredentials.secretKey,
-    saltKey: vimoCredentials.saltKey,
-    encryptdecryptKey: vimoCredentials.encryptdecryptKey,
-  };
-
-  const key = keyCandidates[keySource] || vimoCredentials.encryptdecryptKey;
-  const iv = ivCandidates[ivSource] || vimoCredentials.saltKey;
-
-  const keyBuf = resolveBufferFromValue(key, keyEncoding, 'Crypto key');
-  const ivBuf = resolveBufferFromValue(iv, ivEncoding, 'IV source');
-
-  if (![16, 24, 32].includes(keyBuf.length) || ivBuf.length !== 16) {
-    throw new AppError('Invalid Vimo crypto key/iv length', {
-      code: 'VIMO_CRYPTO_INVALID_LENGTH',
-      statusCode: 500,
-      details: `Key length=${keyBuf.length}, iv length=${ivBuf.length}`,
-    });
+  for (const ctx of getCryptoCandidateContexts('cbc')) {
+    try {
+      const decipher = crypto.createDecipheriv(ctx.algorithm, ctx.keyBuffer, ctx.ivBuffer);
+      const decryptedBuffer = Buffer.concat([decipher.update(encryptedBuffer), decipher.final()]);
+      return decryptedBuffer;
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  const algorithm = `aes-${keyBuf.length * 8}-cbc`;
-  const encryptedBuffer = Buffer.from(text, 'base64');
-  const decipher = crypto.createDecipheriv(algorithm, keyBuf, ivBuf);
-  const decryptedBuffer = Buffer.concat([decipher.update(encryptedBuffer), decipher.final()]);
-  return decryptedBuffer;
+  throw new AppError('Decryption failure', {
+    code: 'DECRYPTION_FAILURE',
+    statusCode: 502,
+    details: lastError ? lastError.message : 'Unable to decrypt AES-CBC payload.',
+  });
 };
+
+function looksLikeBase64(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const clean = value.trim();
+  return clean.length >= 16 && /^[A-Za-z0-9+/=_-]+$/.test(clean);
+}
+
+function isReadableUtf8(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const clean = value.trim();
+  if (!clean) {
+    return false;
+  }
+
+  let printable = 0;
+  let total = 0;
+  let replacementChars = 0;
+  for (const char of clean) {
+    total += 1;
+    const code = char.charCodeAt(0);
+    if (code === 0xfffd) {
+      replacementChars += 1;
+      continue;
+    }
+
+    if (code === 9 || code === 10 || code === 13 || (code >= 32 && code <= 126) || code >= 160) {
+      printable += 1;
+    }
+  }
+
+  return printable / total >= 0.85 && replacementChars / total <= 0.05;
+}
+
+function decodeReadableBase64(text) {
+  if (typeof text !== 'string') {
+    return null;
+  }
+
+  const clean = text.trim();
+  if (!looksLikeBase64(clean)) {
+    return null;
+  }
+
+  const normalized = clean.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+
+  try {
+    const decoded = Buffer.from(padded, 'base64');
+    if (!decoded.length) {
+      return null;
+    }
+
+    const decompressed = tryDecompressIfNeeded(decoded);
+    if (typeof decompressed === 'string' && decompressed.trim()) {
+      return decompressed;
+    }
+
+    const asText = decoded.toString('utf8');
+    if (!asText.trim()) {
+      return null;
+    }
+
+    const parsed = parseMaybeJson(asText);
+    if (parsed !== asText) {
+      return asText;
+    }
+
+    return isReadableUtf8(asText) ? asText : null;
+  } catch (error) {
+    return null;
+  }
+}
 
 const decryptCipherText = (text) => {
   if (typeof text === 'string') {
@@ -276,11 +353,20 @@ const decryptCipherText = (text) => {
     return text;
   }
 
+  if (isReadableUtf8(text) && !looksLikeBase64(text)) {
+    return text;
+  }
+
+  const readableBase64 = decodeReadableBase64(text);
+  if (readableBase64 && readableBase64.length > 0) {
+    return readableBase64;
+  }
+
   // First try AES-GCM with multiple key/iv formats from configs.
   try {
     return decryptAesGcm(text);
   } catch (gcmErr) {
-    console.warn('Vimo AES-GCM decrypt failed:', gcmErr.message || gcmErr);
+    // expected on non-GCM payloads
   }
 
   // Then try AES-CBC as fallback.
@@ -291,21 +377,14 @@ const decryptCipherText = (text) => {
       return decrypted;
     }
   } catch (cbcErr) {
-    console.warn('Vimo AES-CBC decrypt failed:', cbcErr.message || cbcErr);
+    // expected on non-CBC payloads
   }
 
-  // Fallback: base64-decoded plaintext.
-  try {
-    const plain = Buffer.from(text, 'base64');
-    if (plain && plain.length > 0) {
-      console.debug('Vimo base64 decode successful (no AES)', { len: plain.length });
-      return plain;
-    }
-  } catch (base64Err) {
-    console.warn('Vimo base64 fallback failed:', base64Err.message || base64Err);
-  }
-
-  return text;
+  throw new AppError('Decryption failure', {
+    code: 'DECRYPTION_FAILURE',
+    statusCode: 502,
+    details: 'Unable to decrypt or decode the provider payload.',
+  });
 };
 
 const encryptAesGcm = (text) => {
@@ -1203,4 +1282,10 @@ module.exports = {
   checkPayoutStatus,
   getAuthorizeTokenResponse,
   resolveBankCode,
+  __private__: {
+    decryptCipherText,
+    normalizeDecryptedEnvelope,
+    parseMaybeJson,
+    decodeReadableBase64,
+  },
 };
