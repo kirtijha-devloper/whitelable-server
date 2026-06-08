@@ -438,7 +438,7 @@ async function payBill({ billerId, customerParams, amount, paymentMode, quickPay
   // 5. Payment Method
   orderedFields.paymentMethod = {
     paymentMode: paymentMode || 'Cash',
-    quickPay: quickPay || 'Y',
+    quickPay: quickPay || 'N',
     splitPay: splitPay || 'N'
   };
 
