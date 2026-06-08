@@ -212,7 +212,7 @@ function decryptAesGcm(base64CipherText) {
       decipher.setAuthTag(authTag);
 
       const decryptedBuffer = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-      const result = decryptedBuffer.toString('utf8');
+      const result = decryptedBuffer;
       console.debug('Vimo decrypted by AES-GCM', { len: result.length, algorithm: ctx.algorithm });
       return result;
     } catch (error) {
@@ -262,7 +262,7 @@ const tryAesCbcDecrypt = (text) => {
   const encryptedBuffer = Buffer.from(text, 'base64');
   const decipher = crypto.createDecipheriv(algorithm, keyBuf, ivBuf);
   const decryptedBuffer = Buffer.concat([decipher.update(encryptedBuffer), decipher.final()]);
-  return decryptedBuffer.toString('utf8');
+  return decryptedBuffer;
 };
 
 const decryptCipherText = (text) => {
@@ -286,7 +286,7 @@ const decryptCipherText = (text) => {
   // Then try AES-CBC as fallback.
   try {
     const decrypted = tryAesCbcDecrypt(text);
-    if (decrypted && decrypted.trim().length > 0) {
+    if (decrypted && decrypted.length > 0) {
       console.debug('Vimo decrypted by AES-CBC', { len: decrypted.length });
       return decrypted;
     }
@@ -296,8 +296,8 @@ const decryptCipherText = (text) => {
 
   // Fallback: base64-decoded plaintext.
   try {
-    const plain = Buffer.from(text, 'base64').toString('utf8');
-    if (plain && plain.trim().length > 0) {
+    const plain = Buffer.from(text, 'base64');
+    if (plain && plain.length > 0) {
       console.debug('Vimo base64 decode successful (no AES)', { len: plain.length });
       return plain;
     }
@@ -410,7 +410,8 @@ function normalizeDecryptedEnvelope(bankResponse, defaultMessage) {
   let decryptedText = decryptCipherText(encryptedPayload);
 
   if (Buffer.isBuffer(decryptedText)) {
-    decryptedText = decryptedText.toString('utf8');
+    const decompressed = tryDecompressIfNeeded(decryptedText);
+    decryptedText = (decompressed && decompressed !== decryptedText) ? decompressed : decryptedText.toString('utf8');
   }
 
   let parsedPayload = parseMaybeJson(decryptedText);
