@@ -15,7 +15,8 @@ function logProfessionalVimoStatus(details) {
       "URL: " + details.url + "\n" +
       "METHOD: POST\n\n" +
       "--- HEADERS SENT ---\n" + JSON.stringify(details.headers, null, 2) + "\n\n" +
-      "--- PLAIN REQUEST BODY ---\n" + JSON.stringify(details.plainPayload, null, 2) + "\n\n" +
+      "--- PLAIN REQUEST BODY FROM FRONTEND ---\n" + JSON.stringify(details.plainPayload, null, 2) + "\n\n" +
+      "--- ENCRYPTION PLAIN VALUE ---\n" + details.valueEncrypted + "\n\n" +
       "--- ENCRYPTED REQUEST BODY ---\n" + JSON.stringify(details.encryptedBody, null, 2) + "\n\n" +
       "--- RAW RESPONSE FROM VIMO ---\n" + JSON.stringify(details.rawResponse, null, 2) + "\n\n" +
       "--- DECRYPTION DETAILS ---\nAlgorithm Used: " + (details.algorithm || 'Unknown') + "\n\n" +
@@ -1209,10 +1210,11 @@ async function checkPayoutStatus(payload) {
     });
   }
 
-  try {
+    try {
     let requestBody;
     let requestHeaders;
     let plainPayload;
+    let rawValueEncrypted;
     
     const response = await executeAuthorizedRequest((token) => {
       const headers = {
@@ -1227,6 +1229,7 @@ async function checkPayoutStatus(payload) {
       plainPayload = payloadToEncrypt;
 
       const valueToEncrypt = String(payload.merchantRefId || payload.txnId).trim();
+      rawValueEncrypted = valueToEncrypt;
       requestBody = { requestBody: encryptPlainText(valueToEncrypt) };
 
       logVimo('checkPayoutStatus outgoing request', {
@@ -1254,6 +1257,7 @@ async function checkPayoutStatus(payload) {
       url: vimoBaseURL + '/payoutapi/api/payment/payoutstatuscheck',
       headers: requestHeaders,
       plainPayload: plainPayload,
+      valueEncrypted: rawValueEncrypted,
       encryptedBody: requestBody,
       rawResponse: response.data,
       decryptedResponse: normalizedResponse,
