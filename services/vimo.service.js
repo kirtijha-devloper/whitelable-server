@@ -1226,7 +1226,9 @@ async function checkPayoutStatus(payload) {
       if (payload.txnId) payloadToEncrypt.txnId = payload.txnId;
       plainPayload = payloadToEncrypt;
 
-      requestBody = { requestBody: encryptPlainText(JSON.stringify(payloadToEncrypt)) };
+      requestBody = {};
+      if (payload.merchantRefId) requestBody.merchantRefId = encryptPlainText(payload.merchantRefId);
+      if (payload.txnId) requestBody.txnId = encryptPlainText(payload.txnId);
 
       logVimo('checkPayoutStatus outgoing request', {
         url: vimoBaseURL + '/payoutapi/api/payment/payoutstatuscheck',
