@@ -5,6 +5,29 @@ const fs = require('fs');
 const path = require('path');
 
 const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimo.log');
+const VIMO_STATUS_CHECK_LOG_FILE = path.join(__dirname, '../logs/vimoStatusCheck.log');
+
+function logProfessionalVimoStatus(details) {
+  try {
+    const ts = new Date().toISOString();
+    const border = "=".repeat(80);
+    const logEntry = "\n" + border + "\n[" + ts + "] VIMO STATUS CHECK API\n" + border + "\n" +
+      "URL: " + details.url + "\n" +
+      "METHOD: POST\n\n" +
+      "--- HEADERS SENT ---\n" + JSON.stringify(details.headers, null, 2) + "\n\n" +
+      "--- PLAIN REQUEST BODY ---\n" + JSON.stringify(details.plainPayload, null, 2) + "\n\n" +
+      "--- ENCRYPTED REQUEST BODY ---\n" + JSON.stringify(details.encryptedBody, null, 2) + "\n\n" +
+      "--- RAW RESPONSE FROM VIMO ---\n" + JSON.stringify(details.rawResponse, null, 2) + "\n\n" +
+      "--- DECRYPTION DETAILS ---\nAlgorithm Used: " + (details.algorithm || 'Unknown') + "\n\n" +
+      "--- DECRYPTED RESPONSE ---\n" + JSON.stringify(details.decryptedResponse, null, 2) + "\n" +
+      border + "\n";
+      
+    fs.appendFileSync(VIMO_STATUS_CHECK_LOG_FILE, logEntry);
+  } catch (err) {
+    console.error('Failed to write vimoStatusCheck.log', err);
+  }
+}
+
 function logVimo(label, data) {
   try {
     const ts = new Date().toISOString();
@@ -342,29 +365,28 @@ function decodeReadableBase64(text) {
   }
 }
 
-const decryptCipherText = (text) => {
+const decryptCipherText = (text, debugInfo = {}) => {
   if (typeof text === 'string') {
     try {
       const parsed = JSON.parse(text);
-      if (typeof parsed === 'object' && parsed !== null) return text;
+      if (typeof parsed === 'object' && parsed !== null) { debugInfo.algorithm = 'Plain JSON (Unencrypted)'; return text; }
     } catch (e) {}
   }
-  if (!text || typeof text !== 'string') {
-    return text;
-  }
+  if (!text || typeof text !== 'string') { debugInfo.algorithm = 'None (Not a string)'; return text; }
 
-  if (isReadableUtf8(text) && !looksLikeBase64(text)) {
-    return text;
-  }
+  if (isReadableUtf8(text) && !looksLikeBase64(text)) { debugInfo.algorithm = 'Plain Text (Readable UTF8)'; return text; }
 
   const readableBase64 = decodeReadableBase64(text);
   if (readableBase64 && readableBase64.length > 0) {
+    debugInfo.algorithm = 'Base64 Decoded Text';
     return readableBase64;
   }
 
   // First try AES-GCM with multiple key/iv formats from configs.
   try {
-    return decryptAesGcm(text);
+    const res = decryptAesGcm(text);
+    debugInfo.algorithm = 'AES-GCM';
+    return res;
   } catch (gcmErr) {
     // expected on non-GCM payloads
   }
@@ -374,6 +396,7 @@ const decryptCipherText = (text) => {
     const decrypted = tryAesCbcDecrypt(text);
     if (decrypted && decrypted.length > 0) {
       console.debug('Vimo decrypted by AES-CBC', { len: decrypted.length });
+      debugInfo.algorithm = 'AES-CBC';
       return decrypted;
     }
   } catch (cbcErr) {
@@ -470,7 +493,7 @@ const payoutResponseFields = [
   'udf3',
 ];
 
-function normalizeDecryptedEnvelope(bankResponse, defaultMessage) {
+function normalizeDecryptedEnvelope(bankResponse, defaultMessage, debugInfo = {}) {
   // Detect plain error envelope (successStatus: false, data: null) — not encrypted
   if (
     bankResponse &&
@@ -486,7 +509,7 @@ function normalizeDecryptedEnvelope(bankResponse, defaultMessage) {
   }
 
   const encryptedPayload = extractEncryptedPayload(bankResponse);
-  let decryptedText = decryptCipherText(encryptedPayload);
+  let decryptedText = decryptCipherText(encryptedPayload, debugInfo);
 
   if (Buffer.isBuffer(decryptedText)) {
     const decompressed = tryDecompressIfNeeded(decryptedText);
