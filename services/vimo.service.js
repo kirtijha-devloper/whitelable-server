@@ -1226,7 +1226,7 @@ async function checkPayoutStatus(payload) {
       if (payload.txnId) payloadToEncrypt.txnId = payload.txnId;
       plainPayload = payloadToEncrypt;
 
-      const valueToEncrypt = payload.merchantRefId || payload.txnId;
+      const valueToEncrypt = String(payload.merchantRefId || payload.txnId).trim();
       requestBody = { requestBody: encryptPlainText(valueToEncrypt) };
 
       logVimo('checkPayoutStatus outgoing request', {
