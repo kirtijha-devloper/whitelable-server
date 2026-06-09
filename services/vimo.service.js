@@ -1211,15 +1211,20 @@ async function checkPayoutStatus(payload) {
 
   try {
     let requestBody;
+    let requestHeaders;
+    let plainPayload;
+    
     const response = await executeAuthorizedRequest((token) => {
       const headers = {
         ...buildAuthorizedHeaders(token),
         'Content-Type': 'application/json',
       };
+      requestHeaders = headers;
       
       const payloadToEncrypt = {};
       if (payload.merchantRefId) payloadToEncrypt.merchantRefId = payload.merchantRefId;
       if (payload.txnId) payloadToEncrypt.txnId = payload.txnId;
+      plainPayload = payloadToEncrypt;
 
       requestBody = { requestBody: encryptPlainText(JSON.stringify(payloadToEncrypt)) };
 
@@ -1240,7 +1245,20 @@ async function checkPayoutStatus(payload) {
       data: response.data,
     });
 
-    const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Status fetched successfully');
+    const debugInfo = {};
+    const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Status fetched successfully', debugInfo);
+
+    // Log professional status check log
+    logProfessionalVimoStatus({
+      url: vimoBaseURL + '/payoutapi/api/payment/payoutstatuscheck',
+      headers: requestHeaders,
+      plainPayload: plainPayload,
+      encryptedBody: requestBody,
+      rawResponse: response.data,
+      decryptedResponse: normalizedResponse,
+      algorithm: debugInfo.algorithm
+    });
+
     logVimo('checkPayoutStatus decrypted provider response', {
       normalizedResponse: {
         message: normalizedResponse.message,
