@@ -5,6 +5,29 @@ const fs = require('fs');
 const path = require('path');
 
 const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimo.log');
+const VIMO_STATUS_CHECK_LOG_FILE = path.join(__dirname, '../logs/vimoStatusCheck.log');
+
+function logProfessionalVimoStatus(details) {
+  try {
+    const ts = new Date().toISOString();
+    const border = "================================================================================";
+    const logEntry = "\n" + border + "\n[" + ts + "] VIMO STATUS CHECK API\n" + border + "\n" +
+      "URL: " + details.url + "\n" +
+      "METHOD: POST\n\n" +
+      "--- HEADERS SENT ---\n" + JSON.stringify(details.headers, null, 2) + "\n\n" +
+      "--- PLAIN REQUEST BODY ---\n" + JSON.stringify(details.plainPayload, null, 2) + "\n\n" +
+      "--- ENCRYPTED REQUEST BODY ---\n" + JSON.stringify(details.encryptedBody, null, 2) + "\n\n" +
+      "--- RAW RESPONSE FROM VIMO ---\n" + JSON.stringify(details.rawResponse, null, 2) + "\n\n" +
+      "--- DECRYPTION DETAILS ---\nAlgorithm Used: " + (details.algorithm || 'Unknown') + "\n\n" +
+      "--- DECRYPTED RESPONSE ---\n" + JSON.stringify(details.decryptedResponse, null, 2) + "\n" +
+      border + "\n";
+      
+    fs.appendFileSync(VIMO_STATUS_CHECK_LOG_FILE, logEntry);
+  } catch (err) {
+    console.error('Failed to write vimoStatusCheck.log', err);
+  }
+}
+
 function logVimo(label, data) {
   try {
     const ts = new Date().toISOString();
@@ -342,29 +365,28 @@ function decodeReadableBase64(text) {
   }
 }
 
-const decryptCipherText = (text) => {
+const decryptCipherText = (text, debugInfo = {}) => {
   if (typeof text === 'string') {
     try {
       const parsed = JSON.parse(text);
-      if (typeof parsed === 'object' && parsed !== null) return text;
+      if (typeof parsed === 'object' && parsed !== null) { debugInfo.algorithm = 'Plain JSON (Unencrypted)'; return text; }
     } catch (e) {}
   }
-  if (!text || typeof text !== 'string') {
-    return text;
-  }
+  if (!text || typeof text !== 'string') { debugInfo.algorithm = 'None (Not a string)'; return text; }
 
-  if (isReadableUtf8(text) && !looksLikeBase64(text)) {
-    return text;
-  }
+  if (isReadableUtf8(text) && !looksLikeBase64(text)) { debugInfo.algorithm = 'Plain Text (Readable UTF8)'; return text; }
 
   const readableBase64 = decodeReadableBase64(text);
   if (readableBase64 && readableBase64.length > 0) {
+    debugInfo.algorithm = 'Base64 Decoded Text';
     return readableBase64;
   }
 
   // First try AES-GCM with multiple key/iv formats from configs.
   try {
-    return decryptAesGcm(text);
+    const res = decryptAesGcm(text);
+    debugInfo.algorithm = 'AES-GCM';
+    return res;
   } catch (gcmErr) {
     // expected on non-GCM payloads
   }
@@ -374,6 +396,7 @@ const decryptCipherText = (text) => {
     const decrypted = tryAesCbcDecrypt(text);
     if (decrypted && decrypted.length > 0) {
       console.debug('Vimo decrypted by AES-CBC', { len: decrypted.length });
+      debugInfo.algorithm = 'AES-CBC';
       return decrypted;
     }
   } catch (cbcErr) {
@@ -470,7 +493,7 @@ const payoutResponseFields = [
   'udf3',
 ];
 
-function normalizeDecryptedEnvelope(bankResponse, defaultMessage) {
+function normalizeDecryptedEnvelope(bankResponse, defaultMessage, debugInfo = {}) {
   // Detect plain error envelope (successStatus: false, data: null) — not encrypted
   if (
     bankResponse &&
@@ -486,7 +509,7 @@ function normalizeDecryptedEnvelope(bankResponse, defaultMessage) {
   }
 
   const encryptedPayload = extractEncryptedPayload(bankResponse);
-  let decryptedText = decryptCipherText(encryptedPayload);
+  let decryptedText = decryptCipherText(encryptedPayload, debugInfo);
 
   if (Buffer.isBuffer(decryptedText)) {
     const decompressed = tryDecompressIfNeeded(decryptedText);
@@ -1048,155 +1071,19 @@ async function createPayout(payload) {
 
   try {
     let requestBody;
-    response = await executeAuthorizedRequest((token) => {
-      const headers = {
-        ...buildAuthorizedHeaders(token),
-        'Content-Type': 'application/json',
-      };
-      requestBody = { requestBody: encryptPlainText(JSON.stringify(payload)) };
-
-      logVimo('createPayout outgoing request', {
-        url: vimoBaseURL + '/payoutapi/api/payment/payout',
-        method: 'POST',
-        headers: { userId: headers.userId, hasToken: Boolean(token) },
-        rawPayload: payload,
-        encryptedBody: requestBody,
-      });
-
-      return vimoClient.post('/payoutapi/api/payment/payout', requestBody, { headers });
-    });
-
-    logVimo('createPayout provider response', {
-      status: response.status,
-      headers: response.headers,
-      data: response.data,
-    });
-
-    const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Payout processed successfully');
-    logVimo('createPayout decrypted provider response', {
-      normalizedResponse: {
-        message: normalizedResponse.message,
-        responseCode: normalizedResponse.responseCode,
-        data: normalizedResponse.data,
-        raw: normalizedResponse.raw,
-      },
-    });
-
-    if (typeof response?.data?.data === 'string' && response.data.data.trim() !== '') {
-      payoutReservation.keepWindow();
-    }
-
-    payoutReservation.keepWindow();
-
-    const payoutPayload =
-      normalizedResponse.data && typeof normalizedResponse.data === 'object'
-        ? normalizedResponse.data
-        : normalizedResponse.raw;
-
-    return {
-      message:
-        normalizedResponse.raw?.responseMessage ||
-        normalizedResponse.raw?.message ||
-        'Payout processed successfully',
-      responseCode: normalizedResponse.raw?.txnStatusCode || normalizedResponse.responseCode,
-      data: sanitizePayoutResponse(payoutPayload),
-      rawResponse: response.data,
-      decryptedResponse: normalizedResponse,
-    };
-  } catch (error) {
-    payoutReservation.release();
-    const responseData = error.response?.data;
-    const responseHeaders = error.response?.headers;
-    const responseStatus = error.response?.status || error.status || 502;
-    const requestConfig = error.config
-      ? {
-          method: error.config.method,
-          url: error.config.url,
-          headers: error.config.headers,
-          data: error.config.data,
-        }
-      : undefined;
-    const axiosErrorJson = axios.isAxiosError(error) && typeof error.toJSON === 'function'
-      ? error.toJSON()
-      : undefined;
-
-    logVimo('createPayout provider error', {
-      message: error.message,
-      code: error.code,
-      status: responseStatus,
-      responseData,
-      responseHeaders,
-      request: requestConfig,
-      axiosError: axiosErrorJson,
-      providerResponse: response?.data,
-      details: error.details || error.message || null,
-      stack: error.stack || null,
-    });
-
-    if (error.code === 'PAYOUT_PROVIDER_ERROR') {
-      logVimo('createPayout provider failure details', {
-        reason: 'Provider returned explicit failure envelope',
-        rawProviderData: response?.data,
-        providerErrorDetails: error.details || error.message,
-      });
-    }
-
-    if (error.code === 'DECRYPTION_FAILURE' || error.code === 'INVALID_BANK_RESPONSE') {
-      logVimo('createPayout decryption failure', {
-        reason: 'Unable to decode or parse bank response',
-        rawProviderData: response?.data,
-        errorDetails: error.details || error.message,
-      });
-    }
-
-    if (error.code === 'BANK_TIMEOUT' || error.statusCode) {
-      throw error;
-    }
-
-    if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
-      throw new AppError('Bank request timed out', {
-        code: 'BANK_TIMEOUT',
-        statusCode: 504,
-        details: error.message,
-      });
-    }
-
-    throw new AppError('Bank API request failed', {
-      code: 'BANK_API_ERROR',
-      statusCode: error.response?.status || 502,
-      details: error.response?.data || error.message,
-    });
-  }
-}
-
-async function checkPayoutStatus(payload) {
-  if (!payload || typeof payload !== 'object') {
-    throw new AppError('Missing payout status check payload', {
-      code: 'MISSING_PAYOUT_STATUS_PAYLOAD',
-      statusCode: 400,
-      details: 'Request body must be a JSON object.',
-    });
-  }
-
-  if (!payload.merchantRefId && !payload.txnId) {
-    throw new AppError('Missing identifier', {
-      code: 'MISSING_IDENTIFIER',
-      statusCode: 400,
-      details: 'Either merchantRefId or txnId must be provided.',
-    });
-  }
-
-  try {
-    let requestBody;
+    let requestHeaders;
+    let plainPayload;
     const response = await executeAuthorizedRequest((token) => {
       const headers = {
         ...buildAuthorizedHeaders(token),
         'Content-Type': 'application/json',
       };
+      requestHeaders = headers;
       
       const payloadToEncrypt = {};
       if (payload.merchantRefId) payloadToEncrypt.merchantRefId = payload.merchantRefId;
       if (payload.txnId) payloadToEncrypt.txnId = payload.txnId;
+      plainPayload = payloadToEncrypt;
 
       requestBody = { requestBody: encryptPlainText(JSON.stringify(payloadToEncrypt)) };
 
@@ -1217,7 +1104,19 @@ async function checkPayoutStatus(payload) {
       data: response.data,
     });
 
-    const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Status fetched successfully');
+    const debugInfo = {};
+    const normalizedResponse = normalizeDecryptedEnvelope(response.data, 'Status fetched successfully', debugInfo);
+    
+    // Log professional status check log
+    logProfessionalVimoStatus({
+      url: vimoBaseURL + '/payoutapi/api/payment/payoutstatuscheck',
+      headers: requestHeaders,
+      plainPayload: plainPayload,
+      encryptedBody: requestBody,
+      rawResponse: response.data,
+      decryptedResponse: normalizedResponse,
+      algorithm: debugInfo.algorithm
+    });
     logVimo('checkPayoutStatus decrypted provider response', {
       normalizedResponse: {
         message: normalizedResponse.message,
