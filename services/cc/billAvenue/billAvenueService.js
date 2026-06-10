@@ -271,7 +271,7 @@ async function getBillerCategories() {
  * Fetch a bill (bill fetch / validation).
  * @param {object} params
  */
-async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay }) {
+async function fetchBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, initChannel }) {
 
   const inputs = [];
   let customerMobile = '9999999999'; // Default fallback
@@ -303,7 +303,7 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
     agentId: require('../../../config/billavenue').agentId,
     agentDeviceInfo: {
       ip: '147.93.110.29',
-      initChannel: 'AGT',
+      initChannel: initChannel || 'AGT',
       mac: require('../../../config/billavenue').mac
     },
     customerInfo: {
@@ -329,7 +329,7 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
  * Pay a bill via BillAvenue.
  * @param {object} params
  */
-function buildStandardFields(billerId, customerParams, amount, paymentMode) {
+function buildStandardFields(billerId, customerParams, amount, paymentMode, initChannel) {
   const inputs = [];
   let customerMobile = '9999999999';
 
@@ -359,7 +359,7 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
     agentId: require('../../../config/billavenue').agentId,
     agentDeviceInfo: {
       ip: '147.93.110.29',
-      initChannel: 'AGT',
+      initChannel: initChannel || 'AGT',
       mac: require('../../../config/billavenue').mac
     },
     customerInfo: {
@@ -378,8 +378,8 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode) {
   return fields;
 }
 
-async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, additionalInfo, requestId }) {
-  const baseFields = buildStandardFields(billerId, customerParams, null, null);
+async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, additionalInfo, requestId, initChannel }) {
+  const baseFields = buildStandardFields(billerId, customerParams, null, null, initChannel);
   delete baseFields.amount;
   delete baseFields.paymentMode;
 

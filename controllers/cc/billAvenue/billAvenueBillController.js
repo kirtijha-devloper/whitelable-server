@@ -170,11 +170,11 @@ const uploadBillersFromFile = asyncHandler(async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /api/bill-avenue/fetch-bill
-// Body: { billerId, customerParams: { param1: value, ... }, amount }
+// Body: { billerId, customerParams, amount, initChannel }
 // ═══════════════════════════════════════════════════════════════════════════
 const fetchBill = asyncHandler(async (req, res) => {
   try {
-    const { billerId, customerParams, amount } = req.body;
+    const { billerId, customerParams, amount, initChannel } = req.body;
     const userId = req.user?.id;
 
     if (!userId) {
@@ -204,6 +204,7 @@ const fetchBill = asyncHandler(async (req, res) => {
       billerId,
       customerParams,
       amount: txnAmount,
+      initChannel,
     });
 
     fileLog(`fetchBill billerId=${billerId} response=${JSON.stringify(result)}`);
@@ -228,11 +229,11 @@ const fetchBill = asyncHandler(async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /api/bill-avenue/pay
-// Body: { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, requestId }
+// Body: { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, requestId, initChannel }
 // ═══════════════════════════════════════════════════════════════════════════
 const payBill = asyncHandler(async (req, res) => {
   try {
-    const { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, additionalInfo, requestId } = req.body;
+    const { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, additionalInfo, requestId, initChannel } = req.body;
 
     const userId = req.user?.id;
     if (!userId) {
@@ -308,6 +309,7 @@ const payBill = asyncHandler(async (req, res) => {
         billerResponseInfo,
         additionalInfo,
         requestId,
+        initChannel,
       });
     } catch (apiError) {
       // API call itself failed (network error, timeout, etc.)
