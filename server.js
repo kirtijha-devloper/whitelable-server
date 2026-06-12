@@ -93,6 +93,7 @@ app.use((err, req, res, next) => {
 
 app.use('/uploads', express.static('uploads'));
 
+app.use('/', require('./routes/pinelabsTestPageRoutes'));
 app.use("/api/pos-machine", require("./routes/posMachineRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));
 app.use("/api/transaction", require("./routes/transactionRoutes"));
@@ -150,6 +151,7 @@ app.get('/api/debug/ipay', (req, res) => {
 // testing helpers
 app.use('/api/test', require('./routes/testRoutes'));
 
+app.use('/api/test', require('./routes/pinelabsTestApiRoutes'));
 app.use(errorHandler)
 
 const startServer = async () => {

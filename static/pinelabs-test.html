@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pine Labs UAT Test Console</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --panel: #fffdf8;
+      --ink: #1b1d21;
+      --muted: #6a6d75;
+      --accent: #0d6b5d;
+      --accent-2: #d97706;
+      --border: #d9cfbf;
+      --shadow: 0 18px 45px rgba(60, 40, 10, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(217, 119, 6, 0.15), transparent 28%),
+        radial-gradient(circle at right, rgba(13, 107, 93, 0.12), transparent 24%),
+        linear-gradient(135deg, #f7f1e8 0%, #efe6d8 100%);
+      min-height: 100vh;
+    }
+
+    .shell {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .hero,
+    .panel {
+      background: rgba(255, 253, 248, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+
+    .hero {
+      padding: 28px;
+      margin-bottom: 22px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      margin-bottom: 10px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 22px;
+    }
+
+    .panel {
+      padding: 22px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid #cbbca8;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font: inherit;
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    textarea {
+      min-height: 180px;
+      resize: vertical;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+      box-shadow: 0 10px 22px rgba(17, 24, 39, 0.12);
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+      transform: none;
+    }
+
+    .primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .secondary {
+      background: var(--accent-2);
+      color: #fff;
+    }
+
+    .ghost {
+      background: #fff6e8;
+      color: #71430b;
+    }
+
+    .status-line {
+      margin-top: 14px;
+      min-height: 24px;
+      color: #23413a;
+      font-weight: 700;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #191c22;
+      color: #f6f7fb;
+      border-radius: 18px;
+      padding: 18px;
+      min-height: 280px;
+      overflow: auto;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.88rem;
+      line-height: 1.55;
+    }
+
+    .history {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+      max-height: 420px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .history-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      background: #fffcf6;
+    }
+
+    .history-card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .history-card code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 768px) {
+      .shell {
+        padding: 18px 14px 36px;
+      }
+
+      .hero,
+      .panel {
+        border-radius: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <h1>Pine Labs UAT Test Console</h1>
+      <p>Use this isolated page to send raw JSON to the Pine Labs UAT test APIs and inspect the exact request and response payloads without touching existing payment flows.</p>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <h2>Request Builder</h2>
+        <p style="margin-top: 10px;">Edit JSON for the three actions below. The backend will forward the payload to the matching Pine Labs UAT endpoint from <code>.env</code>.</p>
+
+        <div class="field" style="margin-top: 18px;">
+          <label for="uploadPayload">Upload Transaction JSON</label>
+          <textarea id="uploadPayload">{
+  "TransactionNumber": "TEST123456",
+  "SequenceNumber": 1,
+  "AllowedPaymentMode": "1",
+  "Amount": 10000,
+  "UserID": "ADMIN",
+  "AutoCancelDurationInMinutes": 5
+}</textarea>
+        </div>
+
+        <div class="field">
+          <label for="statusPayload">Get Status JSON</label>
+          <textarea id="statusPayload">{
+  "PlutusTransactionReferenceID": 123456789
+}</textarea>
+        </div>
+
+        <div class="field">
+          <label for="cancelPayload">Cancel Transaction JSON</label>
+          <textarea id="cancelPayload">{
+  "PlutusTransactionReferenceID": 123456789
+}</textarea>
+        </div>
+
+        <div class="actions">
+          <button class="primary" data-action="upload">Upload Transaction</button>
+          <button class="secondary" data-action="status">Get Status</button>
+          <button class="ghost" data-action="cancel">Cancel Transaction</button>
+        </div>
+
+        <div class="status-line" id="statusLine"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Latest Exchange</h2>
+        <p style="margin-top: 10px;">The page shows the full JSON returned by the new test module, including request details, response JSON, status code, and timestamp.</p>
+        <div style="margin-top: 18px;">
+          <pre id="resultPane">Run an action to view request and response JSON here.</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top: 22px;">
+      <h2>Session History</h2>
+      <p style="margin-top: 10px;">Each request you send in this browser session is added here for quick comparison.</p>
+      <div class="history" id="historyPane"></div>
+    </section>
+  </main>
+
+  <script>
+    const actionMap = {
+      upload: {
+        endpoint: '/api/test/pinelabs/upload',
+        payloadId: 'uploadPayload',
+        label: 'Upload Transaction',
+      },
+      status: {
+        endpoint: '/api/test/pinelabs/status',
+        payloadId: 'statusPayload',
+        label: 'Get Status',
+      },
+      cancel: {
+        endpoint: '/api/test/pinelabs/cancel',
+        payloadId: 'cancelPayload',
+        label: 'Cancel Transaction',
+      },
+    };
+
+    const statusLine = document.getElementById('statusLine');
+    const resultPane = document.getElementById('resultPane');
+    const historyPane = document.getElementById('historyPane');
+    const actionButtons = Array.from(document.querySelectorAll('button[data-action]'));
+    const historyItems = [];
+
+    function setBusyState(isBusy) {
+      actionButtons.forEach((button) => {
+        button.disabled = isBusy;
+      });
+    }
+
+    function parseJsonFromField(fieldId) {
+      const rawValue = document.getElementById(fieldId).value.trim();
+      return rawValue ? JSON.parse(rawValue) : {};
+    }
+
+    function renderLatest(result) {
+      resultPane.textContent = JSON.stringify(result, null, 2);
+    }
+
+    function renderHistory() {
+      historyPane.innerHTML = historyItems.map((item) => `
+        <article class="history-card">
+          <strong>${item.label}</strong>
+          <div><code>${item.timestamp}</code></div>
+          <div><code>Status: ${item.statusCode}</code></div>
+        </article>
+      `).join('');
+    }
+
+    async function runAction(action) {
+      const actionConfig = actionMap[action];
+      if (!actionConfig) {
+        return;
+      }
+
+      let payload;
+      try {
+        payload = parseJsonFromField(actionConfig.payloadId);
+      } catch (error) {
+        statusLine.textContent = `Invalid JSON for ${actionConfig.label}: ${error.message}`;
+        return;
+      }
+
+      setBusyState(true);
+      statusLine.textContent = `${actionConfig.label} request in progress...`;
+
+      try {
+        const response = await fetch(actionConfig.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+        renderLatest(result);
+        statusLine.textContent = `${actionConfig.label} completed with status ${response.status}.`;
+        historyItems.unshift({
+          label: actionConfig.label,
+          timestamp: result.timestamp || new Date().toISOString(),
+          statusCode: result.statusCode || response.status,
+        });
+        renderHistory();
+      } catch (error) {
+        const fallback = {
+          success: false,
+          action,
+          timestamp: new Date().toISOString(),
+          error: {
+            message: error.message,
+          },
+        };
+        renderLatest(fallback);
+        statusLine.textContent = `${actionConfig.label} failed before receiving a response.`;
+      } finally {
+        setBusyState(false);
+      }
+    }
+
+    actionButtons.forEach((button) => {
+      button.addEventListener('click', () => runAction(button.dataset.action));
+    });
+  </script>
+</body>
+</html>
