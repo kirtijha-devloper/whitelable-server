@@ -13,7 +13,7 @@ const {
   assertServiceEnabledOrRespond,
 } = require('../../../services/serviceSettingsService');
 
-// ─── Logging ────────────────────────────────────────────────────────────────
+// ─── Logging ──.──────────────────────────────────────────────────────────────
 const logFile = path.join(__dirname, '../../../logs/billAvenue.log');
 function fileLog(message) {
   const timestamp = new Date().toISOString();
