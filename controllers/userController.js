@@ -1797,23 +1797,38 @@ const forgotPassword = asyncHandler(async (req, res) => {
         return;
     }
 
+    let otp;
+    let smsSuccess = false;
+    let emailSuccess = false;
+
+    // 1. Attempt SMS delivery via Bulk9 helper (which also persists the OTP in DB)
     try {
-        // email OTP takes precedence; mobile used only for storage
-        if (!user.email) {
-            throw new Error('User has no email address');
-        }
-        await sendEmailOtp(mobile_number, user.email, "forgot_password");
-        res.status(200).json({ 
-            success: true, 
-            message: "OTP sent successfully to your email address" 
-        });
-    } catch (err) {
-        console.error("Failed to send OTP:", err);
-        res.status(500).json({ 
-            success: false,
-            message: "Failed to send OTP. Please try again later." 
-        });
+        otp = await sendOtpHelper(mobile_number, "forgot_password", { name: user.name || "Customer" });
+        smsSuccess = true;
+        console.log(`Forgot password SMS OTP generated and sent for ${mobile_number}`);
+    } catch (smsErr) {
+        console.error("Forgot password SMS dispatch failed:", smsErr);
     }
+
+    // 2. Attempt Email delivery copy if user has an email address
+    if (user.email) {
+        try {
+            if (otp !== undefined) {
+                await sendEmailOtp(mobile_number, user.email, "forgot_password", otp);
+            } else {
+                otp = await sendEmailOtp(mobile_number, user.email, "forgot_password");
+            }
+            emailSuccess = true;
+            console.log(`Forgot password Email OTP sent to ${user.email}`);
+        } catch (emailErr) {
+            console.error("Forgot password Email dispatch failed:", emailErr);
+        }
+    }
+
+    res.status(200).json({ 
+        success: true, 
+        message: "OTP sent successfully" 
+    });
 });
 
 
