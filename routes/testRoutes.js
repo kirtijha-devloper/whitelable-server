@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const { sendOTP } = require("../utils/mail");
+const validateToken = require("../middleware/validateTokenHandler");
+const sevenpayTestStandalone = require("./sevenpayTestStandalone");
 
 // public testing route - remove or secure in production
 router.get("/test-otp", async (req, res) => {
@@ -13,5 +15,7 @@ router.get("/test-otp", async (req, res) => {
     res.status(500).send("Failed to send OTP");
   }
 });
+
+router.use("/sevenpay", validateToken, sevenpayTestStandalone);
 
 module.exports = router;
