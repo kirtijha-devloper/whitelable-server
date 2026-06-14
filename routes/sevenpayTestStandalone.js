@@ -96,6 +96,19 @@ function buildErrorPayload(error, context, requestData) {
   };
 }
 
+function logSevenPayTest(label, data) {
+  try {
+    const ts = new Date().toISOString();
+    const logDir = path.resolve(__dirname, '../logs');
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    const logFile = path.join(logDir, 'sevenpay-test.log');
+    const body = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    fs.appendFileSync(logFile, `[${ts}] ${label}\n${body}\n\n`);
+  } catch (_) { /* ignore log failures */ }
+}
+
 async function loginToSevenPay() {
   const client = getHttpClient();
   const requestBody = {
@@ -104,12 +117,32 @@ async function loginToSevenPay() {
     channelType: 'API',
   };
 
-  const response = await client.post('/api/Account/GetToken/Login', requestBody);
-  return {
-    requestBody,
-    responseData: response.data,
-    token: extractToken(response.data),
-  };
+  logSevenPayTest('LOGIN_REQUEST', {
+    url: '/api/Account/GetToken/Login',
+    payload: { ...requestBody, password: maskValue(requestBody.password) }
+  });
+
+  try {
+    const response = await client.post('/api/Account/GetToken/Login', requestBody);
+
+    logSevenPayTest('LOGIN_RESPONSE_SUCCESS', {
+      status: response.status,
+      data: response.data
+    });
+
+    return {
+      requestBody,
+      responseData: response.data,
+      token: extractToken(response.data),
+    };
+  } catch (error) {
+    logSevenPayTest('LOGIN_RESPONSE_ERROR', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data
+    });
+    throw error;
+  }
 }
 
 router.get('/login', async (_req, res) => {
