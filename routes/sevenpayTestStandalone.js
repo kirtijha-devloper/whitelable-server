@@ -22,6 +22,8 @@ function getHttpClient() {
     timeout: SEVENPAY_CONFIG.timeoutMs,
     headers: {
       'Content-Type': 'application/json',
+      'User-Agent': 'Axios/1.8.4',
+      'Accept-Encoding': 'identity', // Prevents automatic compression which can sometimes cause stream aborts
     },
   });
 }
@@ -138,6 +140,8 @@ async function loginToSevenPay() {
   } catch (error) {
     logSevenPayTest('LOGIN_RESPONSE_ERROR', {
       message: error.message,
+      code: error.code, // Useful to see if it's ECONNRESET, ETIMEDOUT, etc.
+      stack: error.stack,
       status: error.response?.status,
       data: error.response?.data
     });
