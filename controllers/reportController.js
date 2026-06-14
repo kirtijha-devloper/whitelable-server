@@ -610,13 +610,43 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
-    const data = entries.map(e => ({
+    const RazorpayNotification = require("../models/RazorpayNotification");
+    const franchiseEarningTxnIds = entries
+      .filter(e => e.transaction_type === 'pos_franchise_earning' && e.transaction_id && e.description && !e.description.includes('| RRN:'))
+      .map(e => e.transaction_id);
+
+    let notificationMap = {};
+    if (franchiseEarningTxnIds.length > 0) {
+      const notifications = await RazorpayNotification.findAll({
+        where: { txn_id: { [Op.in]: franchiseEarningTxnIds } }
+      });
+      for (const notif of notifications) {
+        let rrNumber = notif.rr_number;
+        if (!rrNumber && notif.event_json) {
+          try {
+            const eventData = typeof notif.event_json === 'string' ? JSON.parse(notif.event_json) : notif.event_json;
+            rrNumber = eventData.rrNumber || null;
+          } catch(e) {}
+        }
+        if (rrNumber || notif.txn_id) {
+          notificationMap[notif.txn_id] = rrNumber || 'N/A';
+        }
+      }
+    }
+
+    const data = entries.map(e => {
+      let description = e.description;
+      if (e.transaction_type === 'pos_franchise_earning' && description && !description.includes('| RRN:') && notificationMap[e.transaction_id]) {
+        description = `${description} | Txn: ${e.transaction_id} | RRN: ${notificationMap[e.transaction_id]}`;
+      }
+
+      return {
       id:              e.id,
       date:            e.createdAt,
       user_id:         e.user_id,
       user:            e.user || null,
       transaction_type:e.transaction_type,
-      description:     e.description,
+      description:     description,
       debit:           parseFloat(e.debit)  || 0,
       credit:          parseFloat(e.credit) || 0,
       amount:          parseFloat(e.debit) > 0 ? parseFloat(e.debit) : parseFloat(e.credit),
@@ -627,7 +657,8 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       reference_table: e.reference_table,
       status:          e.status,
       metadata:        e.metadata ? (() => { try { return JSON.parse(e.metadata); } catch (_) { return e.metadata; } })() : null
-    }));
+    };
+    });
 
     res.status(200).json({
       success: true,

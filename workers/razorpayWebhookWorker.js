@@ -466,7 +466,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         userId: posOperator.franchaise_id,
         razorpayTransactionId: txnId,
         amount: franchiseEarning,
-        description: `Merchant ${posOperator.name || posOperator.id} did a ₹${transactionAmount} POS txn (${paymentMethod || 'CARD'}) | Merchant charged ₹${chargeAmount} (${chargeRate}%) | Admin share ₹${franchiseChargeAmount} deducted | Net earning ₹${franchiseEarning}`,
+        description: `Merchant ${posOperator.name || posOperator.id} did a ₹${transactionAmount} POS txn (${paymentMethod || 'CARD'}) | Merchant charged ₹${chargeAmount} (${chargeRate}%) | Admin share ₹${franchiseChargeAmount} deducted | Net earning ₹${franchiseEarning} | Txn: ${txnId} | RRN: ${rrNumber || 'N/A'}`,
         metadata: {
           merchant_id: posOperator.id,
           transaction_amount: transactionAmount,

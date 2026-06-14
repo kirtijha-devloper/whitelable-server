@@ -29,7 +29,7 @@ async function sendEmailOtp(mobile, email, purpose, providedOtp) {
 
     // send copy over email
     try {
-        await sendOTP(email, otp);
+        await sendOTP(email, otp, purpose);
     } catch (err) {
         console.error("Failed to deliver email OTP", err);
         // don't propagate: SMS path might still work later

@@ -7,9 +7,9 @@ const path = require('path');
 const router = express.Router();
 
 const SEVENPAY_CONFIG = {
-  baseUrl: 'https://cmp.sbi.bank.in:8443',
-  username: '302223_7XFINTECH',
-  password: 'f1f90ffebb8096e13eb5e4bd97c6446e3281f8c777798e52750e4aba7137e92a526010f577400f891799bb3493dc127b75aeb0ae55e2c7aec51b4f4ff3581c73',
+  baseUrl: 'https://txnapi.sevenpay.in',
+  username: 'RT10547',
+  password: 'Tushar@10',
   orgId: 547,
   userId: 763,
   publicKeyPath: path.resolve(__dirname, '../keys/PublicKey_SBI_P_2025.cer'),

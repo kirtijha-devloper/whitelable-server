@@ -81,17 +81,32 @@ async function sendMail(options) {
 }
 
 // convenience OTP sender
-async function sendOTP(email, otp) {
+async function sendOTP(email, otp, purpose = "login") {
   const fallbackFrom = "noreply@abheepay.com";
   const fromAddr = process.env.MAIL_FROM || process.env.GMAIL_USER || fallbackFrom;
+  
+  let subject = "Your OTP for Abheepay POS";
+  let heading = "Abheepay POS Login";
+  
+  if (purpose === "forgot_password") {
+    subject = "Reset Password OTP for Abheepay POS";
+    heading = "Abheepay POS Password Recovery";
+  } else if (purpose === "tpin") {
+    subject = "T-PIN Generation OTP for Abheepay POS";
+    heading = "Abheepay POS T-PIN Verification";
+  } else if (purpose === "registration") {
+    subject = "Registration OTP for Abheepay POS";
+    heading = "Abheepay POS Account Verification";
+  }
+
   const mailOptions = {
     from: `"Abheepay POS" <${fromAddr}>`,
     to: email,
-    subject: "Your OTP for Abheepay POS",
+    subject: subject,
     html: `
-      <h2>Abheepay POS Login</h2>
+      <h2>${heading}</h2>
       <p>Your OTP is:</p>
-      <h1>${otp}</h1>
+      <h1 style="color: #00CEC8; font-size: 32px; letter-spacing: 2px; font-weight: bold;">${otp}</h1>
       <p>This OTP is valid for 5 minutes.</p>
     `,
   };

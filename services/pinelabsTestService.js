@@ -1,4 +1,5 @@
 const axios = require('axios');
+const net = require('net');
 const { appendPineLabsTestLog } = require('../utils/pinelabsTestLogger');
 
 const ACTION_CONFIG = {
@@ -37,7 +38,15 @@ function maskSecrets(value) {
 }
 
 function maskHeaders(headers) {
-  const sensitiveKeys = ['authorization', 'x-api-key', 'api-key', 'apikey', 'client-secret', 'password'];
+  const sensitiveKeys = [
+    'authorization',
+    'x-api-key',
+    'api-key',
+    'apikey',
+    'client-secret',
+    'password',
+    'securitytoken',
+  ];
   const masked = {};
 
   for (const [key, value] of Object.entries(headers || {})) {
@@ -83,7 +92,7 @@ function getConfig(action) {
   }
 
   const routePath = process.env[actionConfig.envPathKey] || actionConfig.fallbackPath;
-  const timeoutMs = Number(process.env.PINELABS_UAT_TIMEOUT_MS) || 30000;
+  const configuredTimeoutMs = Number(process.env.PINELABS_UAT_TIMEOUT_MS) || 30000;
   const defaultHeaders = {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -122,9 +131,19 @@ function getConfig(action) {
     action,
     baseUrl,
     path: `/${trimLeadingSlash(routePath)}`,
-    timeoutMs,
+    timeoutMs: configuredTimeoutMs,
     headers: defaultHeaders,
   };
+}
+
+function getActionTimeoutMs(configuredTimeoutMs) {
+  const maxTimeoutMs = Number(process.env.PINELABS_UAT_MAX_TIMEOUT_MS) || 10000;
+  return Math.min(configuredTimeoutMs || maxTimeoutMs, maxTimeoutMs);
+}
+
+function getHealthTimeoutMs(configuredTimeoutMs) {
+  const maxHealthTimeoutMs = Number(process.env.PINELABS_UAT_HEALTH_TIMEOUT_MS) || 5000;
+  return Math.min(configuredTimeoutMs || maxHealthTimeoutMs, maxHealthTimeoutMs);
 }
 
 function withDefaultCredentials(body) {
@@ -151,30 +170,73 @@ function buildRequestBody(action, requestBody) {
   return bodyWithCredentials;
 }
 
-function buildLogEntry({ action, requestConfig, responseStatus, responseData, errorMessage }) {
+function buildLogEntry({ action, requestConfig, responseStatus, responseData, errorMessage, elapsedMs }) {
   return {
     timestamp: new Date().toISOString(),
     action,
     request: requestConfig,
     response: responseData,
     statusCode: responseStatus,
+    elapsedMs: elapsedMs ?? null,
     errorMessage: errorMessage || null,
+  };
+}
+
+async function writePineLabsLog(entry) {
+  await appendPineLabsTestLog(entry);
+  const summary = `[pinelabs-test] action=${entry.action} status=${entry.statusCode} elapsedMs=${entry.elapsedMs ?? 'n/a'} error=${entry.errorMessage || 'none'}`;
+  if (entry.statusCode >= 400 || entry.errorMessage) {
+    console.error(summary);
+  } else {
+    console.log(summary);
+  }
+}
+
+function extractNestedErrors(error) {
+  if (!Array.isArray(error?.errors)) {
+    return [];
+  }
+
+  return error.errors.map((nestedError) => ({
+    message: nestedError?.message || null,
+    code: nestedError?.code || null,
+    errno: nestedError?.errno || null,
+    syscall: nestedError?.syscall || null,
+    address: nestedError?.address || null,
+    port: nestedError?.port || null,
+  }));
+}
+
+function serializeAxiosError(error) {
+  return {
+    message: error?.message || 'Unknown Pine Labs request failure',
+    name: error?.name || null,
+    code: error?.code || null,
+    errno: error?.errno || null,
+    syscall: error?.syscall || null,
+    address: error?.address || null,
+    port: error?.port || null,
+    timeoutMs: error?.config?.timeout || null,
+    nestedErrors: extractNestedErrors(error),
   };
 }
 
 async function callPineLabs(action, requestBody) {
   const config = getConfig(action);
+  const effectiveTimeoutMs = getActionTimeoutMs(config.timeoutMs);
   const client = axios.create({
     baseURL: config.baseUrl,
-    timeout: config.timeoutMs,
+    timeout: effectiveTimeoutMs,
   });
   const finalRequestBody = buildRequestBody(action, requestBody);
+  const startedAt = Date.now();
 
   const requestConfig = {
     method: 'POST',
     url: `${config.baseUrl}${config.path}`,
     headers: maskHeaders(config.headers),
     body: finalRequestBody,
+    timeoutMs: effectiveTimeoutMs,
   };
 
   try {
@@ -186,16 +248,18 @@ async function callPineLabs(action, requestBody) {
       success: true,
       action,
       timestamp: new Date().toISOString(),
+      elapsedMs: Date.now() - startedAt,
       request: requestConfig,
       response: response.data,
       statusCode: response.status,
     };
 
-    await appendPineLabsTestLog(buildLogEntry({
+    await writePineLabsLog(buildLogEntry({
       action,
       requestConfig,
       responseStatus: response.status,
       responseData: response.data,
+      elapsedMs: payload.elapsedMs,
     }));
 
     return {
@@ -204,28 +268,32 @@ async function callPineLabs(action, requestBody) {
     };
   } catch (error) {
     const statusCode = error.response?.status || error.statusCode || 500;
+    const errorDetails = serializeAxiosError(error);
     const responseData = error.response?.data || {
-      message: error.message,
+      message: errorDetails.message,
+      error: errorDetails,
     };
 
     const payload = {
       success: false,
       action,
       timestamp: new Date().toISOString(),
+      elapsedMs: Date.now() - startedAt,
       request: requestConfig,
       response: responseData,
       statusCode,
       error: {
-        message: error.message,
+        ...errorDetails,
       },
     };
 
-    await appendPineLabsTestLog(buildLogEntry({
+    await writePineLabsLog(buildLogEntry({
       action,
       requestConfig,
       responseStatus: statusCode,
       responseData,
-      errorMessage: error.message,
+      elapsedMs: payload.elapsedMs,
+      errorMessage: errorDetails.message,
     }));
 
     return {
@@ -235,6 +303,93 @@ async function callPineLabs(action, requestBody) {
   }
 }
 
+async function checkPineLabsHealth() {
+  const config = getConfig('upload');
+  const targetUrl = new URL(config.baseUrl);
+  const host = targetUrl.hostname;
+  const port = Number(targetUrl.port) || (targetUrl.protocol === 'https:' ? 443 : 80);
+  const probeTimeoutMs = getHealthTimeoutMs(config.timeoutMs);
+  const startedAt = Date.now();
+
+  const connectivity = await new Promise((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
+
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+
+    socket.setTimeout(probeTimeoutMs);
+    socket.once('connect', () => {
+      finish({
+        ok: true,
+        message: `Connected to ${host}:${port}`,
+      });
+    });
+    socket.once('timeout', () => {
+      finish({
+        ok: false,
+        message: `Connection timed out after ${probeTimeoutMs}ms`,
+        code: 'ETIMEDOUT',
+      });
+    });
+    socket.once('error', (error) => {
+      finish({
+        ok: false,
+        message: error.message || 'Socket connection failed',
+        code: error.code || null,
+        errno: error.errno || null,
+        syscall: error.syscall || null,
+        address: error.address || null,
+        port: error.port || null,
+      });
+    });
+
+    socket.connect(port, host);
+  });
+
+  const payload = {
+    success: connectivity.ok,
+    timestamp: new Date().toISOString(),
+    elapsedMs: Date.now() - startedAt,
+    config: {
+      baseUrl: config.baseUrl,
+      uploadPath: process.env.PINELABS_UAT_UPLOAD_PATH || ACTION_CONFIG.upload.fallbackPath,
+      statusPath: process.env.PINELABS_UAT_STATUS_PATH || ACTION_CONFIG.status.fallbackPath,
+      cancelPath: process.env.PINELABS_UAT_CANCEL_PATH || ACTION_CONFIG.cancel.fallbackPath,
+      timeoutMs: probeTimeoutMs,
+      host,
+      port,
+    },
+    connectivity,
+  };
+
+  await writePineLabsLog({
+    timestamp: payload.timestamp,
+    action: 'health',
+    request: {
+      host,
+      port,
+      timeoutMs: probeTimeoutMs,
+    },
+    response: payload,
+    statusCode: connectivity.ok ? 200 : 503,
+    elapsedMs: payload.elapsedMs,
+    errorMessage: connectivity.ok ? null : connectivity.message,
+  });
+
+  return {
+    httpStatus: connectivity.ok ? 200 : 503,
+    payload,
+  };
+}
+
 module.exports = {
   callPineLabs,
+  checkPineLabsHealth,
 };

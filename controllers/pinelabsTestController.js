@@ -15,8 +15,14 @@ async function cancelTransaction(req, res) {
   return res.status(result.httpStatus).json(result.payload);
 }
 
+async function getHealth(req, res) {
+  const result = await pinelabsTestService.checkPineLabsHealth();
+  return res.status(result.httpStatus).json(result.payload);
+}
+
 module.exports = {
   uploadTransaction,
   getTransactionStatus,
   cancelTransaction,
+  getHealth,
 };
