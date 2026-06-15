@@ -74,6 +74,82 @@ const getDateRange = (startDate, endDate) => {
   return { start, end };
 };
 
+const safeParseJsonObject = (raw) => {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw !== 'string') return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeProviderFieldValue = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    return String(value);
+  }
+  return null;
+};
+
+const findFirstNestedValue = (source, candidateKeys) => {
+  if (!source || typeof source !== 'object') return null;
+
+  const queue = [source];
+  const seen = new Set();
+  const normalizedCandidates = new Set(candidateKeys.map((key) => key.toLowerCase()));
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object' || seen.has(current)) continue;
+    seen.add(current);
+
+    for (const [key, value] of Object.entries(current)) {
+      if (normalizedCandidates.has(String(key).toLowerCase())) {
+        const normalized = normalizeProviderFieldValue(value);
+        if (normalized) return normalized;
+      }
+
+      if (value && typeof value === 'object') {
+        queue.push(value);
+      }
+    }
+  }
+
+  return null;
+};
+
+const extractPayoutReferenceFields = (payout) => {
+  const sources = [
+    safeParseJsonObject(payout?.callback_data),
+    safeParseJsonObject(payout?.data),
+  ].filter(Boolean);
+
+  const rrnKeys = ['rrn'];
+  const utrKeys = ['utr', 'bankRefNo', 'bankReferenceNo', 'utrNo', 'utr_no'];
+
+  for (const source of sources) {
+    const rrn = findFirstNestedValue(source, rrnKeys);
+    const utr = findFirstNestedValue(source, utrKeys);
+
+    if (rrn || utr) {
+      return {
+        rrn: rrn || null,
+        utr: utr || null,
+      };
+    }
+  }
+
+  return { rrn: null, utr: null };
+};
+
 /**
  * Build a WHERE-scope object for the given user-id field based on the
  * caller's role.  Throws with .statusCode = 403 on franchise access denial.
@@ -755,6 +831,7 @@ const getPayoutReport = asyncHandler(async (req, res) => {
     const beneficiaryMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
 
     const data = payouts.map(p => {
+      const referenceFields = extractPayoutReferenceFields(p);
       const ledgerEntries = (payoutLedgerMap[p.id] || []).slice().sort((a, b) => {
         const timeDiff = new Date(a.createdAt) - new Date(b.createdAt);
         if (timeDiff !== 0) return timeDiff;
@@ -776,6 +853,8 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         total_deducted: parseFloat(p.amount) + (parseFloat(p.service_charge) || 0),
         purpose:        p.purpose,
         status:         p.status,
+        rrn:            referenceFields.rrn,
+        utr:            referenceFields.utr,
         balance_before: initialLedger ? parseFloat(initialLedger.balance_before) : null,
         balance_after:  finalLedger ? parseFloat(finalLedger.balance)        : null
       };
