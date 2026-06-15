@@ -655,6 +655,8 @@ describe('GET /api/report/payout', () => {
     expect(res.body.data[0].total_deducted).to.equal(5025);
     expect(res.body.data[0].balance_before).to.equal(10000);
     expect(res.body.data[0].balance_after).to.equal(4975);
+    expect(res.body.data[0].rrn).to.be.null;
+    expect(res.body.data[0].utr).to.be.null;
     expect(res.body.data[0].merchant).to.deep.equal({ id: 2, name: 'Merchant Name', email: 'merchant@example.com', mobile_number: '9999999999' });
     expect(res.body.data[0].beneficiary).to.deep.equal({ id: 9, beneficiary_name: 'Vendor A', account_number: '1234567890', ifsc_code: 'HDFC0000123', bank_name: 'HDFC', mobile_number: '9876543210', email: 'vendor@example.com', status: 'active' });
   });
@@ -669,6 +671,55 @@ describe('GET /api/report/payout', () => {
 
     expect(res.body.data[0].balance_before).to.be.null;
     expect(res.body.data[0].balance_after).to.be.null;
+  });
+
+  it('includes rrn and utr from nested provider response data when available', async () => {
+    PayoutTransaction.findAndCountAll = async () => ({
+      count: 1,
+      rows: [{
+        ...payoutRow(),
+        data: JSON.stringify({
+          providerResponse: {
+            rrn: '123456789012',
+            bankReferenceNo: 'UTR9876543210',
+          }
+        })
+      }]
+    });
+    Ledger.findAll = async () => [];
+
+    const res = await request(app)
+      .get('/api/report/payout')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.data[0].rrn).to.equal('123456789012');
+    expect(res.body.data[0].utr).to.equal('UTR9876543210');
+  });
+
+  it('prefers callback payload values when present', async () => {
+    PayoutTransaction.findAndCountAll = async () => ({
+      count: 1,
+      rows: [{
+        ...payoutRow(),
+        data: JSON.stringify({ rrn: 'OLD-RRN', utr: 'OLD-UTR' }),
+        callback_data: JSON.stringify({
+          callback: {
+            rrn: 'NEW-RRN',
+            utr: 'NEW-UTR',
+          }
+        })
+      }]
+    });
+    Ledger.findAll = async () => [];
+
+    const res = await request(app)
+      .get('/api/report/payout')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.data[0].rrn).to.equal('NEW-RRN');
+    expect(res.body.data[0].utr).to.equal('NEW-UTR');
   });
 
   it('status filter is passed to WHERE', async () => {
