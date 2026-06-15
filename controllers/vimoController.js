@@ -351,6 +351,7 @@ async function createPayout(req, res) {
   });
 
   const transaction = await db.transaction();
+  let payoutTransaction;
   try {
     // ── Row-level lock on user ─────────────────────────────────────────────
     // Serialises concurrent payout attempts for the same user so we can
@@ -388,7 +389,7 @@ async function createPayout(req, res) {
     }
 
     // ── Create payout record and debit ledger ──────────────────────────────
-    const payoutTransaction = await PayoutTransaction.create({
+    payoutTransaction = await PayoutTransaction.create({
       merchant_id: user_id,
       beneficiary_id: beneficiary_id || null,
       reference_id: merchantRefId || null,
