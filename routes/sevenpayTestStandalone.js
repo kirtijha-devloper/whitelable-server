@@ -1,6 +1,6 @@
 const express = require('express');
 const axios = require('axios');
-const { encryptRequestBody } = require('../utils/sevenpayEncryption');
+const { encryptJsonPayload } = require('../utils/sevenpayEncryption');
 const { appendSevenpayTestLog } = require('../utils/sevenpayTestLogger');
 
 const router = express.Router();
@@ -119,7 +119,7 @@ async function loginToSevenPay() {
     channelType: 'API',
   };
 
-  const encrypted = encryptRequestBody(requestBody);
+  const encrypted = encryptJsonPayload(requestBody);
 
   const response = await client.post('/api/Account/GetToken/Login', JSON.stringify(encrypted.encryptedPayload), {
     headers: {
@@ -220,7 +220,7 @@ router.post('/initiate', async (req, res) => {
       });
     }
 
-    const encrypted = encryptRequestBody(plainPayload);
+    const encrypted = encryptJsonPayload(plainPayload);
     const client = getHttpClient();
 
     const requestInfo = {
@@ -307,7 +307,7 @@ router.get('/status', async (req, res) => {
       });
     }
 
-    const encrypted = encryptRequestBody(plainPayload);
+    const encrypted = encryptJsonPayload(plainPayload);
     const client = getHttpClient();
 
     const requestInfo = {
