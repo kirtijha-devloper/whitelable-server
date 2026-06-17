@@ -504,6 +504,23 @@ async function createPayout(req, res) {
       // non-fatal audit failure
     }
 
+    try {
+      let existingData = {};
+      if (payoutTransaction.data) {
+        try {
+          existingData = JSON.parse(payoutTransaction.data);
+        } catch (_) {
+          existingData = { original: payoutTransaction.data };
+        }
+      }
+      const updatedData = { ...existingData, ...result.data };
+      await payoutTransaction.update({
+        data: JSON.stringify(updatedData)
+      });
+    } catch (updateErr) {
+      console.error('Failed to update PayoutTransaction data after success response', updateErr);
+    }
+
     return res.status(200).json({
       success: true,
       message: result.message,
@@ -531,6 +548,29 @@ async function createPayout(req, res) {
       });
     } catch (_) {
       // non-fatal: keep original error handling path
+    }
+
+    try {
+      let existingData = {};
+      if (payoutTransaction.data) {
+        try {
+          existingData = JSON.parse(payoutTransaction.data);
+        } catch (_) {
+          existingData = { original: payoutTransaction.data };
+        }
+      }
+      const errorData = {
+        message: error.message,
+        code: error.code || null,
+        statusCode: error.statusCode || null,
+        details: error.details || null,
+      };
+      const updatedData = { ...existingData, error: errorData };
+      await payoutTransaction.update({
+        data: JSON.stringify(updatedData)
+      });
+    } catch (updateErr) {
+      console.error('Failed to update PayoutTransaction data after failure response', updateErr);
     }
 
     // NOTE: we choose not to rollback ledger here; a separate job/webhook should settle
