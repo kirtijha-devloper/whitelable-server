@@ -119,7 +119,16 @@ async function loginToSevenPay() {
     channelType: 'API',
   };
 
-  const response = await client.post('/api/Account/GetToken/Login', requestBody);
+  const encrypted = encryptRequestBody(requestBody);
+
+  const response = await client.post('/api/Account/GetToken/Login', JSON.stringify(encrypted.encryptedPayload), {
+    headers: {
+      key: encrypted.encryptedKey,
+      iv: encrypted.encryptedIv,
+      'Content-Type': 'application/json',
+    },
+  });
+
   return {
     requestBody,
     responseData: response.data,
@@ -130,14 +139,16 @@ async function loginToSevenPay() {
 router.get('/login', async (_req, res) => {
   const config = getSevenpayConfig();
   const startedAt = Date.now();
+  const requestBody = {
+    userName: config.username || null,
+    password: maskValue(config.password),
+    channelType: 'API',
+  };
+
   const requestInfo = {
     method: 'POST',
     url: `${config.baseUrl}/api/Account/GetToken/Login`,
-    body: {
-      userName: config.username || null,
-      password: maskValue(config.password),
-      channelType: 'API',
-    },
+    body: requestBody,
   };
 
   try {
