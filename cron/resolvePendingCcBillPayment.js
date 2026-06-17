@@ -4,6 +4,7 @@ const cron = require('node-cron');
 const axios = require('axios');
 const { Op } = require('sequelize');
 const CcBillPayment = require('../models/CcBillPayment');
+const User = require('../models/User');
 const Ledger = require('../models/Ledger');
 const ledgerService = require('../services/ledgerService');
 
@@ -53,8 +54,20 @@ function normalizeInstantPayResponse(resp) {
   return { statuscode: statuscode ? statuscode.toString().toUpperCase() : null, status: status ? status.toString().toUpperCase() : null, raw: resp };
 }
 
-function buildInstantPayHeaders() {
-  const resolvedOutlet = parseInt(process.env.IPAY_OUTLET_ID, 10);
+function summarizeInstantPayResult(result) {
+  const statuscode = result?.statuscode || result?.status || null;
+  const status = result?.status || null;
+  const raw = result?.raw ?? result;
+  return {
+    statuscode: statuscode ? statuscode.toString().toUpperCase() : null,
+    status: status ? status.toString().toUpperCase() : null,
+    hasData: !!raw,
+    rawType: raw ? Object.prototype.toString.call(raw) : null,
+  };
+}
+
+function buildInstantPayHeaders(outletId) {
+  const resolvedOutlet = parseInt(outletId || process.env.IPAY_OUTLET_ID, 10);
   return {
     Accept: 'application/json',
     'Content-Type': 'application/json',
@@ -66,7 +79,7 @@ function buildInstantPayHeaders() {
   };
 }
 
-async function checkInstantPayTxnStatus({ externalRef, transactionDate }) {
+async function checkInstantPayTxnStatus({ externalRef, transactionDate, outletId }) {
   // InstantPay endpoint used in your Laravel snippet
   const url = 'https://api.instantpay.in/reports/txnStatus';
 
@@ -78,7 +91,7 @@ async function checkInstantPayTxnStatus({ externalRef, transactionDate }) {
   };
 
   const response = await axios.post(url, payload, {
-    headers: buildInstantPayHeaders(),
+    headers: buildInstantPayHeaders(outletId),
     timeout: 30000,
   });
 
@@ -137,17 +150,36 @@ async function resolvePendingCcBillPayment() {
           continue;
         }
 
-        auditLog(`${LOG_PREFIX}: checking InstantPay txnStatus for id=${row.id} external_ref=${externalRef}`);
-
         const transactionDate = new Date(row.createdAt).toISOString().slice(0, 10);
-        const result = await checkInstantPayTxnStatus({ externalRef, transactionDate });
 
-        const nextStatuscode = result.statuscode;
-        const nextStatus = result.status;
+        let userOutletId = null;
+        if (row.user_id) {
+          const user = await User.findByPk(row.user_id, { attributes: ['ipay_outlet_id'] });
+          userOutletId = user?.ipay_outlet_id ?? null;
+        }
+
+        const requestDetails = {
+          externalRef,
+          transactionDate,
+          outletId: userOutletId,
+          rowId: row.id,
+          userId: row.user_id,
+          currentStatuscode: row.statuscode,
+          currentStatus: row.status,
+        };
+
+        auditLog(`${LOG_PREFIX}: checking InstantPay txnStatus for id=${row.id} external_ref=${externalRef} outletId=${userOutletId || 'default'} currentStatuscode=${row.statuscode || 'unknown'} currentStatus=${row.status || 'unknown'}`);
+
+        const result = await checkInstantPayTxnStatus({ externalRef, transactionDate, outletId: userOutletId });
+        const summary = summarizeInstantPayResult(result);
+
+        const nextStatuscode = summary.statuscode;
+        const nextStatus = summary.status;
         const failedStatuses = new Set(['TRP', 'FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED']);
         const successStatuses = new Set(['TXN', 'TUP']);
         const isUnknown = !nextStatuscode && !nextStatus;
         const isSuccess = nextStatuscode ? successStatuses.has(nextStatuscode) : false;
+        const isInvalidOutlet = nextStatuscode === 'OUI' || nextStatus?.includes('OUTLET');
         const needsRefund = nextStatuscode ? failedStatuses.has(nextStatuscode) : nextStatus === 'FAILED';
 
         const updatedData = {
@@ -156,7 +188,7 @@ async function resolvePendingCcBillPayment() {
           response: result.raw,
         };
 
-        if (needsRefund && row.user_id) {
+        if (needsRefund && !isInvalidOutlet && row.user_id) {
           const refundAmount = parseFloat(row.transaction_amount) || 0;
           if (refundAmount > 0) {
             const existingRefund = await Ledger.findOne({
@@ -181,19 +213,31 @@ async function resolvePendingCcBillPayment() {
                   original_statuscode: row.statuscode,
                   provider_statuscode: nextStatuscode,
                   provider_status: nextStatus,
-                  external_ref: externalRef
+                  external_ref: externalRef,
+                  request: requestDetails,
+                  responseSummary: summary,
                 }
               });
             }
           }
         }
 
+        // Keep invalid-outlet/authorization failures in pending so the merchant can fix
+        // their outlet config without an automatic refund or permanent failure transition.
+        if (isInvalidOutlet) {
+          updatedData.status = row.status || 'pending';
+          updatedData.statuscode = row.statuscode ?? 'TUP';
+          auditLog(`${LOG_PREFIX}: invalid outlet detected for id=${row.id}; preserving pending status and saving response. request=${JSON.stringify(requestDetails)} responseSummary=${JSON.stringify(summary)}`);
+        }
+
         await row.update(updatedData);
 
         if (isUnknown) {
-          auditLog(`${LOG_PREFIX}: no actionable status for id=${row.id}; response saved`);
+          auditLog(`${LOG_PREFIX}: no actionable status for id=${row.id}; response saved. request=${JSON.stringify(requestDetails)} responseSummary=${JSON.stringify(summary)}`);
+        } else if (isInvalidOutlet) {
+          auditLog(`${LOG_PREFIX}: updated id=${row.id} -> invalid outlet response saved statuscode=${nextStatuscode} status=${nextStatus}`);
         } else {
-          auditLog(`${LOG_PREFIX}: updated id=${row.id} -> statuscode=${nextStatuscode} status=${nextStatus}`);
+          auditLog(`${LOG_PREFIX}: updated id=${row.id} -> statuscode=${nextStatuscode} status=${nextStatus} request=${JSON.stringify(requestDetails)} responseSummary=${JSON.stringify(summary)}`);
         }
       } catch (err) {
         auditError(`${LOG_PREFIX}: error for CcBillPayment id=${row.id}:`, err);
