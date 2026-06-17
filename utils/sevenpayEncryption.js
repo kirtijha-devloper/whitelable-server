@@ -26,7 +26,10 @@ function loadPublicKey() {
     return cachedPublicKey;
   }
 
-  const keyString = fs.readFileSync(publicKeyPath, 'utf8');
+  let keyString = fs.readFileSync(publicKeyPath, 'utf8');
+
+  // Clean up any stray whitespace/leading spaces from copy-pasting
+  keyString = keyString.split(/\r?\n/).map(line => line.trim()).filter(Boolean).join('\n');
 
   cachedPublicKey = crypto.createPublicKey(keyString);
   cachedPublicKeyPath = publicKeyPath;
