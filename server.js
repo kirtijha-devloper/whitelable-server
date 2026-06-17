@@ -14,6 +14,10 @@ require("./workers/walletWorker"); // Existing wallet worker
 require("./workers/razorpayWebhookWorker"); // Razorpay webhook worker
 // start BranchX pending resolver cron (scheduled status-check polling)
 require('./cron/resolvePendingBranchx');
+
+// start CcBillPayment pending resolver cron (scheduled status-check polling)
+require('./cron/resolvePendingCcBillPayment');
+
 // start settlement hold releaser cron (next-day settlement)
 require('./cron/releaseSettlementHolds');
 // start POS machine rental charge cron (daily billing after 30-day cycles)
