@@ -344,10 +344,9 @@ router.post('/initiate', async (req, res) => {
 router.get('/status', async (req, res) => {
   const config = getSevenpayConfig();
   const startedAt = Date.now();
-  const plainPayload = {
-    CRN: req.query.crn || req.query.CRN || '',
-    paymentId: req.query.paymentId || '',
-  };
+  const plainPayload = {};
+  if (req.query.crn || req.query.CRN) plainPayload.crn = req.query.crn || req.query.CRN;
+  if (req.query.paymentId) plainPayload.paymentId = Number(req.query.paymentId);
 
   try {
     const loginResult = await loginToSevenPay();
