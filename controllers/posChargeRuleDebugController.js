@@ -274,9 +274,16 @@ async function resolveBestChargeRuleWithoutAmount({
   for (const brandCandidate of candidateBrands) {
     const where = {
       is_active: true,
-      scope: 'admin_default',
-      user_id: null,
-      franchaise_id: null,
+      [Op.or]: [
+        { user_id: userId || null },
+        {
+          user_id: null,
+          [Op.or]: [
+            { franchaise_id: franchiseId || null },
+            { franchaise_id: null }
+          ]
+        }
+      ],
       [Op.and]: [
         buildNullableMatch('payment_mode', normalizedPaymentMode),
         buildNullableMatch('card_type', normalizedCardType),
@@ -345,9 +352,16 @@ async function findRankedChargeRuleCandidates({
   for (const brandCandidate of candidateBrands) {
     const where = {
       is_active: true,
-      scope: 'admin_default',
-      user_id: null,
-      franchaise_id: null,
+      [Op.or]: [
+        { user_id: userId || null },
+        {
+          user_id: null,
+          [Op.or]: [
+            { franchaise_id: franchiseId || null },
+            { franchaise_id: null }
+          ]
+        }
+      ],
       [Op.and]: [
         buildNullableMatch('payment_mode', normalizedPaymentMode),
         buildNullableMatch('card_type', normalizedCardType),

@@ -360,6 +360,9 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   // merchant always sees their own records even if the scope logic would
   // otherwise omit them.
   if (req.user.role === 'merchant') {
+    const merchantRecord = await User.findByPk(req.user.id, { attributes: ['franchaise_id'] });
+    req.user.franchaise_id = merchantRecord ? merchantRecord.franchaise_id : null;
+
     // merchants may not filter by another user or franchise; if either key is
     // present we check that it matches the caller and then throw away the
     // value.  a blank string in the query will be coerced to `null` above,
@@ -496,13 +499,21 @@ const listMerchantChargeRules = asyncHandler(async (req, res) => {
   }
   const franchiseId = merchantRecord.franchaise_id || null;
 
-  // fetch all four groups in parallel
-  const [adminDefault, adminMerchant, franchiseDefault, franchiseMerchant] = await Promise.all([
+  // fetch all five groups in parallel
+  const [adminDefault, adminFranchise, adminMerchant, franchiseDefault, franchiseMerchant] = await Promise.all([
     // 1. admin global defaults (no user, no franchise)
     PosChargeRule.findAll({
       where: { ...baseFilter, scope: 'admin_default' },
       order: [['createdAt', 'DESC']]
     }),
+
+    // 1b. admin franchise-specific rules (visible to merchant if they belong to this franchise)
+    franchiseId
+      ? PosChargeRule.findAll({
+          where: { ...baseFilter, scope: 'admin_franchise', franchaise_id: franchiseId },
+          order: [['createdAt', 'DESC']]
+        })
+      : Promise.resolve([]),
 
     // 2. admin rules created specifically for this merchant
     PosChargeRule.findAll({
@@ -531,6 +542,7 @@ const listMerchantChargeRules = asyncHandler(async (req, res) => {
     success: true,
     data: {
       admin_default:     adminDefault,
+      admin_franchise:   adminFranchise,
       admin_merchant:    adminMerchant,
       franchise_default: franchiseDefault,
       franchise_merchant: franchiseMerchant
