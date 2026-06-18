@@ -264,23 +264,47 @@ router.post('/initiate', async (req, res) => {
       encryptedBodyPreview: `${encrypted.encryptedPayload.slice(0, 48)}...`,
     };
 
-    const response = await client.request({
-      method: 'post',
-      url: '/api/Payout/initiatePayout',
-      headers: {
-        Authorization: `Bearer ${loginResult.token}`,
-        key: encrypted.encryptedKey,
-        iv: encrypted.encryptedIv,
-        'Content-Type': 'application/json',
-      },
-      data: JSON.stringify(encrypted.encryptedPayload),
-    });
+    let rawResponse;
+    try {
+      const response = await client.request({
+        method: 'post',
+        url: '/api/Payout/initiatePayout',
+        headers: {
+          Authorization: `Bearer ${loginResult.token}`,
+          key: encrypted.encryptedKey,
+          iv: encrypted.encryptedIv,
+          'Content-Type': 'application/json',
+        },
+        data: encrypted.encryptedPayload,
+        transformRequest: [(data) => data],
+        responseType: 'text',
+        transformResponse: [(data) => data]
+      });
+      const decryptedText = decryptAesFromBase64(response.data, encrypted.aesKey, encrypted.iv);
+      try {
+        rawResponse = JSON.parse(decryptedText);
+      } catch {
+        rawResponse = decryptedText;
+      }
+    } catch (apiError) {
+      if (apiError.response?.data) {
+        try {
+          const decryptedErrorText = decryptAesFromBase64(apiError.response.data, encrypted.aesKey, encrypted.iv);
+          try {
+            apiError.response.data = JSON.parse(decryptedErrorText);
+          } catch {
+            apiError.response.data = decryptedErrorText;
+          }
+        } catch (decryptErr) {}
+      }
+      throw apiError;
+    }
 
     const payload = {
       success: true,
       route: '/api/test/sevenpay/initiate',
       request: requestInfo,
-      response: response.data,
+      response: rawResponse,
       derived: {
         crn: plainPayload.crn,
       },
@@ -351,23 +375,47 @@ router.get('/status', async (req, res) => {
       encryptedBodyPreview: `${encrypted.encryptedPayload.slice(0, 48)}...`,
     };
 
-    const response = await client.request({
-      method: 'get',
-      url: '/api/PayOut/getPayoutStatus',
-      headers: {
-        Authorization: `Bearer ${loginResult.token}`,
-        key: encrypted.encryptedKey,
-        iv: encrypted.encryptedIv,
-        'Content-Type': 'application/json',
-      },
-      data: JSON.stringify(encrypted.encryptedPayload),
-    });
+    let rawResponse;
+    try {
+      const response = await client.request({
+        method: 'get',
+        url: '/api/PayOut/getPayoutStatus',
+        headers: {
+          Authorization: `Bearer ${loginResult.token}`,
+          key: encrypted.encryptedKey,
+          iv: encrypted.encryptedIv,
+          'Content-Type': 'application/json',
+        },
+        data: encrypted.encryptedPayload,
+        transformRequest: [(data) => data],
+        responseType: 'text',
+        transformResponse: [(data) => data]
+      });
+      const decryptedText = decryptAesFromBase64(response.data, encrypted.aesKey, encrypted.iv);
+      try {
+        rawResponse = JSON.parse(decryptedText);
+      } catch {
+        rawResponse = decryptedText;
+      }
+    } catch (apiError) {
+      if (apiError.response?.data) {
+        try {
+          const decryptedErrorText = decryptAesFromBase64(apiError.response.data, encrypted.aesKey, encrypted.iv);
+          try {
+            apiError.response.data = JSON.parse(decryptedErrorText);
+          } catch {
+            apiError.response.data = decryptedErrorText;
+          }
+        } catch (decryptErr) {}
+      }
+      throw apiError;
+    }
 
     const payload = {
       success: true,
       route: '/api/test/sevenpay/status',
       request: requestInfo,
-      response: response.data,
+      response: rawResponse,
     };
 
     await writeSevenpayLog({
