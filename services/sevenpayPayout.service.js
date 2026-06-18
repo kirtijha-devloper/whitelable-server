@@ -280,10 +280,12 @@ async function sendEncryptedRequest({ path, payload }) {
   const client = getAxiosClient();
   const encryptedRequest = buildEncryptedRequest(payload);
 
+  const isGet = path === DEFAULT_STATUS_PATH;
+
   let rawResponse;
   try {
-    const response = await client.request({
-      method: path === DEFAULT_STATUS_PATH ? 'get' : 'post',
+    const axiosConfig = {
+      method: isGet ? 'get' : 'post',
       url: resolveUrlPath(path),
       headers: {
         Authorization: `Bearer ${auth.token}`,
@@ -291,11 +293,18 @@ async function sendEncryptedRequest({ path, payload }) {
         iv: encryptedRequest.headers.iv,
         'Content-Type': 'application/json',
       },
-      data: encryptedRequest.body,
       transformRequest: [(data) => data],
       responseType: 'text',
       transformResponse: [(data) => data]
-    });
+    };
+
+    if (isGet) {
+      axiosConfig.params = payload;
+    } else {
+      axiosConfig.data = encryptedRequest.body;
+    }
+
+    const response = await client.request(axiosConfig);
 
     const decryptedText = decryptAesFromBase64(response.data, encryptedRequest.aesKey, encryptedRequest.iv);
     try {
@@ -354,9 +363,14 @@ async function initiatePayout(payload) {
 }
 
 async function getPayoutStatus(payload) {
+  const queryParams = {};
+  if (payload.crn || payload.CRN) queryParams.crnId = payload.crn || payload.CRN;
+  if (payload.paymentId) queryParams.paymentId = payload.paymentId;
+  if (payload.userId) queryParams.userid = payload.userId;
+
   const result = await sendEncryptedRequest({
     path: DEFAULT_STATUS_PATH,
-    payload,
+    payload: queryParams,
   });
 
   return {

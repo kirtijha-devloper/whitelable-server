@@ -345,7 +345,7 @@ router.get('/status', async (req, res) => {
   const config = getSevenpayConfig();
   const startedAt = Date.now();
   const plainPayload = {};
-  if (req.query.crn || req.query.CRN) plainPayload.crn = req.query.crn || req.query.CRN;
+  if (req.query.crn || req.query.CRN) plainPayload.crnId = req.query.crn || req.query.CRN;
   if (req.query.paymentId) plainPayload.paymentId = Number(req.query.paymentId);
 
   try {
@@ -385,7 +385,7 @@ router.get('/status', async (req, res) => {
           iv: encrypted.encryptedIv,
           'Content-Type': 'application/json',
         },
-        data: encrypted.encryptedPayload,
+        params: plainPayload,
         transformRequest: [(data) => data],
         responseType: 'text',
         transformResponse: [(data) => data]
