@@ -20,20 +20,22 @@ function resolvePublicKeyPath() {
 
 
 function loadPublicKey() {
-  const publicKeyPath = resolvePublicKeyPath();
-
-  if (cachedPublicKey && cachedPublicKeyPath === publicKeyPath) {
+  if (cachedPublicKey) {
     return cachedPublicKey;
   }
 
-  let keyString = fs.readFileSync(publicKeyPath, 'utf8');
+  // The NEW working public key provided by the SevenPay team for UAT
+  const publicKeyPem = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo84Y6B/A7NrhugpsxmY6
+FlrtHxLWYlfgJ70+WkkkEoerV+xbGLpVIfosaiX+SP0bgjDewI0cOHmhwxqF4DYc
+fBRZSrRDeKKtHuK1FkI54ASKyBp0q8KHIf1Csyrru8d9Je5Sg8Z3N/h/klR+Js88
+cVtCQbal453sYXccN0ixcMn6E+C1l+NpweAQGO5l2O7Svhs+4iK8VsDzZcGzoe5N
+MVD6fqvEdZ46M+AKRiClHbsvkMlZs6y8Q3/u5RGCIzO5MgSK6/W8eF5nSpcmOJ8P
+kIs9kXM88EY1lAlb726HjPXG5jLuHlW8xA/9AWnagfhNv51INqcr7Yzxbq5N0qkl
+jwIDAQAB
+-----END PUBLIC KEY-----`;
 
-  // Clean up any stray whitespace/leading spaces from copy-pasting
-  keyString = keyString.split(/\r?\n/).map(line => line.trim()).filter(Boolean).join('\n');
-
-  cachedPublicKey = crypto.createPublicKey(keyString);
-  cachedPublicKeyPath = publicKeyPath;
-
+  cachedPublicKey = crypto.createPublicKey(publicKeyPem);
   return cachedPublicKey;
 }
 
@@ -97,10 +99,39 @@ function encryptJsonPayload(payload) {
     encryptedPayload,
     encryptedKey,
     encryptedIv,
+    aesKey,
+    iv,
   };
+}
+
+function decryptAesFromBase64(encryptedBase64, key, iv) {
+  if (encryptedBase64 == null) {
+    throw new Error("Encrypted response payload is null or undefined");
+  }
+
+  let normalized = encryptedBase64;
+  if (typeof normalized !== 'string') {
+    normalized = JSON.stringify(normalized);
+  }
+  normalized = normalized.trim();
+  if (normalized.startsWith('"') && normalized.endsWith('"')) {
+    normalized = JSON.parse(normalized);
+  }
+
+  const encryptedBytes = Buffer.from(normalized, 'base64');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  decipher.setAutoPadding(false);
+
+  let decryptedBytes = Buffer.concat([
+    decipher.update(encryptedBytes),
+    decipher.final()
+  ]);
+
+  return decryptedBytes.toString('utf8').replace(/[\x00-\x1F\x7F-\x9F]/g, '');
 }
 
 module.exports = {
   encryptJsonPayload,
+  decryptAesFromBase64,
   resolvePublicKeyPath,
 };

@@ -1,6 +1,6 @@
 const express = require('express');
 const axios = require('axios');
-const { encryptJsonPayload } = require('../utils/sevenpayEncryption');
+const { encryptJsonPayload, decryptAesFromBase64 } = require('../utils/sevenpayEncryption');
 const { appendSevenpayTestLog } = require('../utils/sevenpayTestLogger');
 
 const router = express.Router();
@@ -113,26 +113,55 @@ async function writeSevenpayLog({ action, statusCode, elapsedMs, message, reques
 async function loginToSevenPay() {
   const config = assertSevenpayConfig();
   const client = getHttpClient();
-  const requestBody = {
+  const plainRequestBody = {
     userName: config.username,
     password: config.password,
     channelType: 'API',
   };
 
-  const encrypted = encryptJsonPayload(requestBody);
+  const encrypted = encryptJsonPayload(plainRequestBody);
 
-  const response = await client.post('/api/Account/GetToken/Login', JSON.stringify(encrypted.encryptedPayload), {
-    headers: {
-      key: encrypted.encryptedKey,
-      iv: encrypted.encryptedIv,
-      'Content-Type': 'application/json',
-    },
-  });
+  let response;
+  try {
+    response = await client.post('/api/Account/GetToken/Login', encrypted.encryptedPayload, {
+      headers: {
+        key: encrypted.encryptedKey,
+        iv: encrypted.encryptedIv,
+        'Content-Type': 'application/json',
+        'x-request-channel': 'Web'
+      },
+      transformRequest: [(data) => data],
+      responseType: 'text',
+      transformResponse: [(data) => data]
+    });
+  } catch (error) {
+    if (error.response?.data) {
+      try {
+        const decryptedErrorText = decryptAesFromBase64(error.response.data, encrypted.aesKey, encrypted.iv);
+        try {
+          error.response.data = JSON.parse(decryptedErrorText);
+        } catch {
+          error.response.data = decryptedErrorText;
+        }
+      } catch (decryptErr) {
+        console.error("Failed to decrypt error response in loginToSevenPay:", decryptErr.message);
+      }
+    }
+    throw error;
+  }
+
+  const decryptedText = decryptAesFromBase64(response.data, encrypted.aesKey, encrypted.iv);
+  let responseData;
+  try {
+    responseData = JSON.parse(decryptedText);
+  } catch (err) {
+    responseData = decryptedText;
+  }
 
   return {
-    requestBody,
-    responseData: response.data,
-    token: extractToken(response.data),
+    requestBody: plainRequestBody,
+    responseData,
+    token: extractToken(responseData),
   };
 }
 

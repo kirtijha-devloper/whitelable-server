@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { encryptJsonPayload } = require('../utils/sevenpayEncryption');
+const { encryptJsonPayload, decryptAesFromBase64 } = require('../utils/sevenpayEncryption');
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.SEVENPAY_TIMEOUT_MS || 30000);
 const DEFAULT_LOGIN_PATH = process.env.SEVENPAY_LOGIN_PATH || '/api/Account/GetToken/Login';
@@ -210,14 +210,38 @@ async function login(options = {}) {
   const client = getAxiosClient();
   const payload = buildLoginPayload();
   const encryptedRequest = buildEncryptedRequest(payload);
-  const response = await client.post(resolveUrlPath(DEFAULT_LOGIN_PATH), encryptedRequest.body, {
-    headers: {
-      key: encryptedRequest.headers.key,
-      iv: encryptedRequest.headers.iv,
-      'Content-Type': 'application/json',
-    },
-  });
-  const rawResponse = response.data;
+  let rawResponse;
+  try {
+    const response = await client.post(resolveUrlPath(DEFAULT_LOGIN_PATH), encryptedRequest.body, {
+      headers: {
+        key: encryptedRequest.headers.key,
+        iv: encryptedRequest.headers.iv,
+        'Content-Type': 'application/json',
+      },
+      transformRequest: [(data) => data],
+      responseType: 'text',
+      transformResponse: [(data) => data]
+    });
+    
+    const decryptedText = decryptAesFromBase64(response.data, encryptedRequest.aesKey, encryptedRequest.iv);
+    try {
+      rawResponse = JSON.parse(decryptedText);
+    } catch {
+      rawResponse = decryptedText;
+    }
+  } catch (error) {
+    if (error.response?.data) {
+      try {
+        const decryptedErrorText = decryptAesFromBase64(error.response.data, encryptedRequest.aesKey, encryptedRequest.iv);
+        try {
+          error.response.data = JSON.parse(decryptedErrorText);
+        } catch {
+          error.response.data = decryptedErrorText;
+        }
+      } catch (err) {}
+    }
+    throw error;
+  }
   const tokenInfo = deriveTokenInfo(rawResponse);
 
   tokenCache.token = tokenInfo.token;
@@ -245,7 +269,9 @@ function buildEncryptedRequest(payload) {
       key: encrypted.encryptedKey,
       iv: encrypted.encryptedIv,
     },
-    body: JSON.stringify(encrypted.encryptedPayload),
+    aesKey: encrypted.aesKey,
+    iv: encrypted.iv,
+    body: encrypted.encryptedPayload,
   };
 }
 
@@ -254,22 +280,47 @@ async function sendEncryptedRequest({ path, payload }) {
   const client = getAxiosClient();
   const encryptedRequest = buildEncryptedRequest(payload);
 
-  const response = await client.request({
-    method: path === DEFAULT_STATUS_PATH ? 'get' : 'post',
-    url: resolveUrlPath(path),
-    headers: {
-      Authorization: `Bearer ${auth.token}`,
-      key: encryptedRequest.headers.key,
-      iv: encryptedRequest.headers.iv,
-      'Content-Type': 'application/json',
-    },
-    data: encryptedRequest.body,
-  });
+  let rawResponse;
+  try {
+    const response = await client.request({
+      method: path === DEFAULT_STATUS_PATH ? 'get' : 'post',
+      url: resolveUrlPath(path),
+      headers: {
+        Authorization: `Bearer ${auth.token}`,
+        key: encryptedRequest.headers.key,
+        iv: encryptedRequest.headers.iv,
+        'Content-Type': 'application/json',
+      },
+      data: encryptedRequest.body,
+      transformRequest: [(data) => data],
+      responseType: 'text',
+      transformResponse: [(data) => data]
+    });
+
+    const decryptedText = decryptAesFromBase64(response.data, encryptedRequest.aesKey, encryptedRequest.iv);
+    try {
+      rawResponse = JSON.parse(decryptedText);
+    } catch {
+      rawResponse = decryptedText;
+    }
+  } catch (error) {
+    if (error.response?.data) {
+      try {
+        const decryptedErrorText = decryptAesFromBase64(error.response.data, encryptedRequest.aesKey, encryptedRequest.iv);
+        try {
+          error.response.data = JSON.parse(decryptedErrorText);
+        } catch {
+          error.response.data = decryptedErrorText;
+        }
+      } catch (err) {}
+    }
+    throw error;
+  }
 
   return {
     auth,
     encryptedRequest,
-    response: response.data,
+    response: rawResponse,
   };
 }
 
