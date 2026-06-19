@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
+const ledgerService = require('../ledgerService');
 
 const IPAY_AUTH_CODE = process.env.IPAY_AUTH_CODE;
 const IPAY_CLIENT_ID = process.env.IPAY_CLIENT_ID;
@@ -7,6 +8,7 @@ const IPAY_CLIENT_SECRET = process.env.IPAY_CLIENT_SECRET;
 const IPAY_ENDPOINT_IP = process.env.IPAY_ENDPOINT_IP;
 
 async function verifyBankAccount({
+  merchantId,
   name,
   accountNumber,
   bankIfsc,
@@ -15,6 +17,17 @@ async function verifyBankAccount({
   externalRef
 }) {
   try {
+    if (!merchantId) {
+      throw new Error('merchantId is required for account verification to deduct charges.');
+    }
+
+    const availableBalance = await ledgerService.getAvailableBalance(merchantId);
+    if (availableBalance < 1) {
+      return {
+        status: 'FAILED',
+        message: 'Insufficient wallet balance for account verification. Minimum ₹1 required.'
+      };
+    }
     const url = 'https://api.instantpay.in/identity/verifyBankAccount';
     
     // Provide a random externalRef if not provided
@@ -44,10 +57,26 @@ async function verifyBankAccount({
 
     const response = await axios.post(url, payload, { headers });
     
-    // The response structure needs to be checked, usually data.data or similar
-    // Assuming instantpay returns standard structure: response.data.statuscode
-    // Let's format the return to be similar to branchx so we don't break existing code if possible.
-    
+    // Deduct Rs 1 charge
+    try {
+      await ledgerService.createLedgerEntry({
+        userId: merchantId,
+        transactionType: 'verification_charge',
+        transactionId: ref,
+        referenceId: null,
+        referenceTable: null,
+        description: `Account Verification Charge for A/C ${accountNumber}`,
+        debit: 1.00,
+        metadata: {
+          accountNumber,
+          bankIfsc,
+          service: 'InstantPay'
+        }
+      });
+    } catch (err) {
+      console.error('Failed to deduct Rs 1 verification charge (success flow):', err);
+    }
+
     const result = response.data;
     
     // Convert to standard format
@@ -73,6 +102,26 @@ async function verifyBankAccount({
     }
   } catch (error) {
     console.error('InstantPay verifyBankAccount error:', error?.response?.data || error.message);
+    
+    // If the API call failed (e.g. 400 Bad Request) but we reached InstantPay, we still charge.
+    // However, if the error happens before axios.post or during ledger check, we don't.
+    if (error?.response) {
+      try {
+        await ledgerService.createLedgerEntry({
+          userId: merchantId,
+          transactionType: 'verification_charge',
+          transactionId: externalRef || `APABAV${Date.now()}`,
+          referenceId: null,
+          referenceTable: null,
+          description: `Account Verification Charge for A/C ${accountNumber} (Failed)`,
+          debit: 1.00,
+          metadata: { accountNumber, bankIfsc, service: 'InstantPay' }
+        });
+      } catch (ledgerErr) {
+        console.error('Failed to deduct Rs 1 for failed verification:', ledgerErr);
+      }
+    }
+
     throw {
       status: 'FAILED',
       message: error?.response?.data?.message || error?.response?.data?.status || error.message || 'InstantPay Verification failed',

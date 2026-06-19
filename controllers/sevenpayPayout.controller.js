@@ -360,6 +360,7 @@ const createBeneficiary = asyncHandler(async (req, res) => {
 
   try {
     const bankValidationResult = await instantpayService.verifyBankAccount({
+      merchantId: merchantId,
       name: input.name,
       accountNumber: input.accountNumber,
       bankIfsc: input.ifscCode

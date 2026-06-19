@@ -514,6 +514,7 @@ router.post('/bank/validation', asyncHandler(async (req, res) => {
     }
 
     const payload = {
+      merchantId: req.body.merchantId || req.user?.id || 10,
       accountNumber,
       bankIfsc: ifscCode,
       name: bankName || 'Bank Verification',
@@ -638,6 +639,7 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
     let bankValidationResult;
     try {
       const bankValidationPayload = {
+        merchantId: merchantId,
         accountNumber,
         bankIfsc: ifscCode,
         name: beneficiaryName,

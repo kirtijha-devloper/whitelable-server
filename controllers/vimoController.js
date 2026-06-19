@@ -1116,6 +1116,7 @@ async function createBeneficiary(req, res) {
 
   try {
     const bankValidationResult = await instantpayService.verifyBankAccount({
+      merchantId: userId,
       name: name,
       accountNumber: account_number,
       bankIfsc: ifsc_code

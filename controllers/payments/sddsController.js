@@ -226,6 +226,7 @@ router.post('/add-beneficiary', async (req, res) => {
     let verifiedName = bankAccountHolderName;
     try {
       const bankValidationResult = await instantpayService.verifyBankAccount({
+        merchantId: req.user?.id || 10,
         name: bankAccountHolderName,
         accountNumber: accountNumber,
         bankIfsc: ifscCode
