@@ -107,6 +107,7 @@ app.use("/api/franchaise", require("./routes/franchaiseRoutes"));
 app.use("/api/merchant", require("./routes/merchantRoutes"));
 app.use('/api/payment/v1', require('./routes/payments/sddsRoutes'));
 app.use('/api/payment/v2', require('./routes/payments/branchxRoutes'));
+app.use('/api/pinelabs', require('./routes/pinelabsCallbackRoutes'));
 app.use('/api/credit-bill', require('./routes/cc/billAvenue/creditBillRoutes'));
 app.use('/api/bill-avenue', require('./routes/cc/billAvenue/billAvenueRoutes'));
 app.use('/api/bbps-cc', require('./routes/cc/bbps/bbpsCCBillRoutes'));
