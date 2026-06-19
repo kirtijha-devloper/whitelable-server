@@ -249,19 +249,41 @@ router.post('/add-beneficiary', async (req, res) => {
     }
 
     const data = await sddsService.addBeneficiary({payload, token});
-      await Beneficiary.create({
-        user_id: req.user?.id || 10,
-        remitter_id: remitterId,
-        mobile: mobileNumber,
-        bank_name: bankName,
-        bank_account_number: accountNumber,
-        bank_account_holder_name: verifiedName,
-        bank_ifsc: ifscCode,
-        beneficiary_mobile: beneficiaryMobile,
-        bank_branch_name:  branchName,
-        status: 1,
-        external_reference_id: data?.data?.id || null
+      let beneficiary = await Beneficiary.findOne({
+        where: {
+          user_id: req.user?.id || 10,
+          bank_account_number: accountNumber,
+          bank_ifsc: ifscCode
+        }
       });
+
+      if (beneficiary) {
+        const updates = {};
+        updates.bank_account_holder_name = verifiedName;
+        if (remitterId) updates.remitter_id = remitterId;
+        if (mobileNumber) updates.mobile = mobileNumber;
+        if (bankName) updates.bank_name = bankName;
+        if (beneficiaryMobile) updates.beneficiary_mobile = beneficiaryMobile;
+        if (branchName) updates.bank_branch_name = branchName;
+        updates.status = 1;
+        if (data?.data?.id) updates.external_reference_id = data.data.id;
+
+        await beneficiary.update(updates);
+      } else {
+        beneficiary = await Beneficiary.create({
+          user_id: req.user?.id || 10,
+          remitter_id: remitterId,
+          mobile: mobileNumber,
+          bank_name: bankName,
+          bank_account_number: accountNumber,
+          bank_account_holder_name: verifiedName,
+          bank_ifsc: ifscCode,
+          beneficiary_mobile: beneficiaryMobile,
+          bank_branch_name:  branchName,
+          status: 1,
+          external_reference_id: data?.data?.id || null
+        });
+      }
 
     res.json({ message: 'Beneficiary added', data });
   } catch (error) {

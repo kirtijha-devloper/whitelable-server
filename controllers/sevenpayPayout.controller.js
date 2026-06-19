@@ -334,19 +334,41 @@ const createBeneficiary = asyncHandler(async (req, res) => {
 
     const verifiedName = bankValidationResult.name || input.name;
 
-    const beneficiary = await Beneficiary.create({
-      merchant_id: merchantId,
-      beneficiary_name: verifiedName,
-    account_number: input.accountNumber,
-    ifsc_code: input.ifscCode,
-    bank_name: input.bankName,
-    branch_name: input.branchName || null,
-    bank_code: input.bankCode || null,
-    state: input.state || null,
-    mobile_number: input.mobileNumber || '',
-    email: input.email || '',
-    status: 'active',
-  });
+    let beneficiary = await Beneficiary.findOne({
+      where: {
+        merchant_id: merchantId,
+        account_number: input.accountNumber,
+        ifsc_code: input.ifscCode
+      }
+    });
+
+    if (beneficiary) {
+      const updates = {};
+      updates.beneficiary_name = verifiedName;
+      if (input.bankName) updates.bank_name = input.bankName;
+      if (input.bankCode) updates.bank_code = input.bankCode;
+      if (input.branchName) updates.branch_name = input.branchName;
+      if (input.state) updates.state = input.state;
+      if (input.mobileNumber) updates.mobile_number = input.mobileNumber;
+      if (input.email) updates.email = input.email;
+      updates.status = 'active';
+
+      await beneficiary.update(updates);
+    } else {
+      beneficiary = await Beneficiary.create({
+        merchant_id: merchantId,
+        beneficiary_name: verifiedName,
+        account_number: input.accountNumber,
+        ifsc_code: input.ifscCode,
+        bank_name: input.bankName,
+        branch_name: input.branchName || null,
+        bank_code: input.bankCode || null,
+        state: input.state || null,
+        mobile_number: input.mobileNumber || '',
+        email: input.email || '',
+        status: 'active',
+      });
+    }
 
   res.status(201).json({
     success: true,

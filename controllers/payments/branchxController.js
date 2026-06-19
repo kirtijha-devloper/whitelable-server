@@ -667,19 +667,34 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
       });
     }
 
-    // Prepare data payload
-    const data = {
-      merchant_id: merchantId,
-      mobile_number: mobileNumber,
-      bank_name: bankName,
-      account_number: accountNumber,
-      ifsc_code: ifscCode,
-      beneficiary_name: bankValidationResult.name,
-      email: emailId,
-      status: 'verified' // Set as verified since we validated the bank
-    };
+    let beneficiary = await Beneficiary.findOne({
+      where: {
+        merchant_id: merchantId,
+        account_number: accountNumber,
+        ifsc_code: ifscCode
+      }
+    });
 
-    const beneficiary = await Beneficiary.create(data);
+    if (beneficiary) {
+      const updates = {};
+      updates.beneficiary_name = bankValidationResult.name;
+      if (bankName) updates.bank_name = bankName;
+      if (mobileNumber) updates.mobile_number = mobileNumber;
+      if (emailId) updates.email = emailId;
+      updates.status = 'verified';
+      await beneficiary.update(updates);
+    } else {
+      beneficiary = await Beneficiary.create({
+        merchant_id: merchantId,
+        mobile_number: mobileNumber,
+        bank_name: bankName,
+        account_number: accountNumber,
+        ifsc_code: ifscCode,
+        beneficiary_name: bankValidationResult.name,
+        email: emailId,
+        status: 'verified' // Set as verified since we validated the bank
+      });
+    }
 
     res.json({ 
       success: true, 

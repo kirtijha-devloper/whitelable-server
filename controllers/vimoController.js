@@ -1131,19 +1131,41 @@ async function createBeneficiary(req, res) {
 
     const verifiedName = bankValidationResult.name || name;
 
-    const beneficiary = await Beneficiary.create({
-      merchant_id:      userId,
-      beneficiary_name: verifiedName,
-    account_number,
-    ifsc_code,
-    bank_name,
-    bank_code:      bank_code || null,
-    branch_name:   branch_name || null,
-    state,
-    mobile_number: mobile || '',
-    email:         email || '',
-    status:        'active',
-  });
+    let beneficiary = await Beneficiary.findOne({
+      where: {
+        merchant_id: userId,
+        account_number,
+        ifsc_code
+      }
+    });
+
+    if (beneficiary) {
+      const updates = {};
+      updates.beneficiary_name = verifiedName;
+      if (bank_name) updates.bank_name = bank_name;
+      if (bank_code) updates.bank_code = bank_code;
+      if (branch_name) updates.branch_name = branch_name;
+      if (state) updates.state = state;
+      if (mobile) updates.mobile_number = mobile;
+      if (email) updates.email = email;
+      updates.status = 'active';
+
+      await beneficiary.update(updates);
+    } else {
+      beneficiary = await Beneficiary.create({
+        merchant_id:      userId,
+        beneficiary_name: verifiedName,
+        account_number,
+        ifsc_code,
+        bank_name,
+        bank_code:      bank_code || null,
+        branch_name:   branch_name || null,
+        state,
+        mobile_number: mobile || '',
+        email:         email || '',
+        status:        'active',
+      });
+    }
 
   return res.status(201).json({ success: true, data: beneficiary });
   } catch (error) {
