@@ -230,9 +230,11 @@
           <textarea id="uploadPayload">{
   "TransactionNumber": "TEST123456",
   "SequenceNumber": 1,
-  "AllowedPaymentMode": "1",
+  "AllowedPaymentMode": "10",
   "Amount": 10000,
   "UserID": "ADMIN",
+  "ClientId": "1014417",
+  "StoreId": "1221258",
   "AutoCancelDurationInMinutes": 5
 }</textarea>
         </div>
@@ -240,6 +242,8 @@
         <div class="field">
           <label for="statusPayload">Get Status JSON</label>
           <textarea id="statusPayload">{
+  "ClientId": "1014417",
+  "StoreId": "1221258",
   "PlutusTransactionReferenceID": 123456789
 }</textarea>
         </div>
@@ -247,7 +251,10 @@
         <div class="field">
           <label for="cancelPayload">Cancel Transaction JSON</label>
           <textarea id="cancelPayload">{
-  "PlutusTransactionReferenceID": 123456789
+  "ClientId": "1014417",
+  "StoreId": "1221258",
+  "PlutusTransactionReferenceID": 123456789,
+  "Amount": 10000
 }</textarea>
         </div>
 

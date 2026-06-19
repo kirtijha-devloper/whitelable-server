@@ -99,34 +99,6 @@ function getConfig(action) {
     ...parseJsonEnv('PINELABS_UAT_HEADERS'),
   };
 
-  if (process.env.PINELABS_UAT_MERCHANT_ID) {
-    defaultHeaders.MerchantId = process.env.PINELABS_UAT_MERCHANT_ID;
-  }
-
-  if (process.env.PINELABS_UAT_SECURITY_TOKEN) {
-    defaultHeaders.SecurityToken = process.env.PINELABS_UAT_SECURITY_TOKEN;
-  }
-
-  if (process.env.PINELABS_UAT_CLIENT_ID) {
-    defaultHeaders.ClientID = process.env.PINELABS_UAT_CLIENT_ID;
-  }
-
-  if (process.env.PINELABS_UAT_STORE_ID) {
-    defaultHeaders.StoreID = process.env.PINELABS_UAT_STORE_ID;
-  }
-
-  if (process.env.PINELABS_UAT_DEVICE_NUMBER) {
-    defaultHeaders.DeviceNumber = process.env.PINELABS_UAT_DEVICE_NUMBER;
-  }
-
-  if (process.env.PINELABS_UAT_AUTH_TOKEN) {
-    defaultHeaders.Authorization = process.env.PINELABS_UAT_AUTH_TOKEN;
-  }
-
-  if (process.env.PINELABS_UAT_API_KEY) {
-    defaultHeaders['X-API-KEY'] = process.env.PINELABS_UAT_API_KEY;
-  }
-
   return {
     action,
     baseUrl,
@@ -159,11 +131,24 @@ function withDefaultCredentials(body) {
 function buildRequestBody(action, requestBody) {
   const bodyWithCredentials = withDefaultCredentials(requestBody || {});
 
-  if (action === 'status' || action === 'cancel') {
+  if (action === 'status') {
     return {
       PlutusTransactionReferenceID: bodyWithCredentials.PlutusTransactionReferenceID,
       MerchantID: bodyWithCredentials.MerchantID,
       SecurityToken: bodyWithCredentials.SecurityToken,
+      ClientId: bodyWithCredentials.ClientId,
+      StoreId: bodyWithCredentials.StoreId,
+    };
+  }
+
+  if (action === 'cancel') {
+    return {
+      PlutusTransactionReferenceID: bodyWithCredentials.PlutusTransactionReferenceID,
+      MerchantID: bodyWithCredentials.MerchantID,
+      SecurityToken: bodyWithCredentials.SecurityToken,
+      ClientId: bodyWithCredentials.ClientId,
+      StoreId: bodyWithCredentials.StoreId,
+      Amount: bodyWithCredentials.Amount,
     };
   }
 
