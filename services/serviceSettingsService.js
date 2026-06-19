@@ -7,6 +7,7 @@ const { normalizeRole } = require('../utils/permissions');
 const SERVICE_SETTING_KEYS = Object.freeze({
   VIMO_PAYOUT: 'vimo_payout',
   BRANCHX_PAYOUT: 'branchx_payout',
+  SEVENPAY_PAYOUT: 'sevenpay_payout',
   CC_BILL_PAY: 'cc_bill_pay',
   BA_CC_BILL_PAY: 'ba_cc_bill_pay',
 });
@@ -34,6 +35,7 @@ function buildDefaultUserServiceSettings(user) {
   return {
     [SERVICE_SETTING_KEYS.VIMO_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]: payoutEnabledForUser,
+    [SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]: true,
   };
@@ -282,6 +284,10 @@ function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings)
       resolvedSettings[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT].is_enabled
       && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]
       && payoutEnabledForUser,
+    [SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]:
+      resolvedSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT].is_enabled
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]
+      && payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]:
       resolvedSettings[SERVICE_SETTING_KEYS.CC_BILL_PAY].is_enabled
       && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.CC_BILL_PAY],
@@ -312,12 +318,14 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
   const shouldSyncLegacyPayoutGate = entries.some(([serviceKey]) =>
     serviceKey === SERVICE_SETTING_KEYS.VIMO_PAYOUT
     || serviceKey === SERVICE_SETTING_KEYS.BRANCHX_PAYOUT
+    || serviceKey === SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT
   );
 
   if (shouldSyncLegacyPayoutGate) {
     user.is_payout_enabled = Boolean(
       nextUserServiceSettings[SERVICE_SETTING_KEYS.VIMO_PAYOUT]
       || nextUserServiceSettings[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]
+      || nextUserServiceSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]
     );
 
     await user.save(options.transaction ? { transaction: options.transaction } : {});

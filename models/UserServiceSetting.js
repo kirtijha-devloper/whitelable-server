@@ -4,6 +4,7 @@ const db = require('../config/database');
 const USER_SERVICE_ALLOWED_KEYS = [
   'vimo_payout',
   'branchx_payout',
+  'sevenpay_payout',
   'cc_bill_pay',
   'ba_cc_bill_pay',
 ];

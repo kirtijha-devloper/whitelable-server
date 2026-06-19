@@ -5,6 +5,10 @@ const User = require('../models/User');
 const { Op } = require('sequelize');
 const payoutReferenceService = require('../services/payoutReferenceService');
 const sevenpayService = require('../services/sevenpayPayout.service');
+const {
+  SERVICE_SETTING_KEYS,
+  assertServiceEnabledOrRespond,
+} = require('../services/serviceSettingsService');
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../utils/permissions');
 
 function isPrivilegedUser(user) {
@@ -323,7 +327,10 @@ const initiatePayout = asyncHandler(async (req, res) => {
     });
   }
 
-  const { merchantId } = await resolveMerchantContext(req, req.body.merchant_id);
+  const { merchantId, merchant } = await resolveMerchantContext(req, req.body.merchant_id);
+  if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT, merchant))) {
+    return;
+  }
   const beneficiary = await resolveBeneficiaryContext(merchantId, req.body.beneficiary_id);
   const crn = req.body.crn || req.body.reference_id || req.body.merchantRefId || await payoutReferenceService.getNextPayoutReference({ provider: 'sevenpay', userId: merchantId || req.user?.id });
   const providerPayload = buildInitiateProviderPayload({
