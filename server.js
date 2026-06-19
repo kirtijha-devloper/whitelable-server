@@ -120,6 +120,7 @@ app.use('/api/rental', require('./routes/rentalRoutes'));
 app.use('/api/service-fee', require('./routes/serviceFeeRoutes'));
 app.use('/api/payout-charge', require('./routes/payoutChargeRoutes'));
 app.use('/api/payout', require('./routes/payoutRoutes'));
+app.use('/api/sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/payout-sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
 // new charge rule engine (see posChargeRuleRoutes)

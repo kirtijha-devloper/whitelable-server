@@ -1,8 +1,14 @@
 const asyncHandler = require('express-async-handler');
 const Beneficiary = require('../models/Beneficiary');
+const Ledger = require('../models/Ledger');
+const PayoutCharge = require('../models/PayoutCharge');
 const PayoutTransaction = require('../models/PayoutTransaction');
+const Tpin = require('../models/Tpin');
 const User = require('../models/User');
+const bcrypt = require('bcrypt');
 const { Op } = require('sequelize');
+const db = require('../config/database');
+const ledgerService = require('../services/ledgerService');
 const payoutReferenceService = require('../services/payoutReferenceService');
 const sevenpayService = require('../services/sevenpayPayout.service');
 const {
@@ -11,6 +17,8 @@ const {
 } = require('../services/serviceSettingsService');
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../utils/permissions');
 const instantpayService = require('../services/payments/instantpayService');
+
+const SEVENPAY_TEST_MAX_AMOUNT = 101;
 
 function isPrivilegedUser(user) {
   return normalizeRole(user?.role) === 'admin'
@@ -158,6 +166,27 @@ function buildInitiateProviderPayload({ req, merchantId, beneficiary, crn, amoun
   return payload;
 }
 
+async function resolvePayoutServiceCharge(amount) {
+  const rule = await PayoutCharge.findOne({
+    where: {
+      is_active: true,
+      from_amount: { [Op.lte]: amount },
+      to_amount: { [Op.gte]: amount },
+    },
+    order: [['from_amount', 'DESC']],
+  });
+
+  if (!rule) {
+    return 0;
+  }
+
+  if (rule.rate_type === 'flat') {
+    return +parseFloat(rule.rate || 0).toFixed(2);
+  }
+
+  return +parseFloat((amount * parseFloat(rule.rate || 0)) / 100).toFixed(2);
+}
+
 async function findBeneficiaryForUser(req, beneficiaryId) {
   const beneficiary = await Beneficiary.findByPk(beneficiaryId);
   if (!beneficiary) {
@@ -175,16 +204,60 @@ async function findBeneficiaryForUser(req, beneficiaryId) {
   return beneficiary;
 }
 
+async function issueSevenpayRefundIfNeeded(payoutTransaction, reason) {
+  if (!payoutTransaction || !payoutTransaction.id || Number(payoutTransaction.merchant_id) <= 0) {
+    return { refundCreated: false, existingRefund: null };
+  }
+
+  const existingRefund = await Ledger.findOne({
+    where: {
+      transaction_type: 'payout_refund',
+      reference_id: payoutTransaction.id,
+      reference_table: 'PayoutTransactions',
+    },
+  });
+
+  if (existingRefund) {
+    return { refundCreated: false, existingRefund };
+  }
+
+  const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
+  if (!(refundAmount > 0)) {
+    return { refundCreated: false, existingRefund: null };
+  }
+
+  await ledgerService.createLedgerEntry({
+    userId: payoutTransaction.merchant_id,
+    transactionType: 'payout_refund',
+    referenceId: payoutTransaction.id,
+    referenceTable: 'PayoutTransactions',
+    description: `Sevenpay payout refund ${payoutTransaction.reference_id || payoutTransaction.id}`,
+    credit: refundAmount,
+    metadata: {
+      payout_provider: 'Sevenpay',
+      refund_reason: reason || 'sevenpay_failed',
+      reference_id: payoutTransaction.reference_id || null,
+    },
+  });
+
+  return { refundCreated: true, existingRefund: null };
+}
+
 async function upsertPayoutTransaction({
   existingTransaction,
   merchantId,
   beneficiaryId,
   normalizedResponse,
   purpose,
+  serviceChargeOverride,
 }) {
   if (!merchantId) {
     return null;
   }
+
+  const resolvedServiceCharge = serviceChargeOverride !== undefined
+    ? serviceChargeOverride
+    : (existingTransaction?.service_charge ?? normalizedResponse.serviceCharge);
 
   const payload = {
     merchant_id: merchantId,
@@ -194,7 +267,7 @@ async function upsertPayoutTransaction({
     status: normalizedResponse.status,
     purpose: purpose || null,
     data: JSON.stringify(buildProviderSnapshot(existingTransaction, normalizedResponse)),
-    service_charge: normalizedResponse.serviceCharge,
+    service_charge: resolvedServiceCharge,
     payout_provider: 'Sevenpay',
   };
 
@@ -353,10 +426,49 @@ const initiatePayout = asyncHandler(async (req, res) => {
     });
   }
 
+  if (amount > SEVENPAY_TEST_MAX_AMOUNT) {
+    return res.status(400).json({
+      success: false,
+      message: `SevenPay testing is restricted to payout amounts up to ₹${SEVENPAY_TEST_MAX_AMOUNT}.`,
+    });
+  }
+
   const { merchantId, merchant } = await resolveMerchantContext(req, req.body.merchant_id);
   if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT, merchant))) {
     return;
   }
+
+  const tpin = req.body.tpin;
+  if (!tpin) {
+    return res.status(400).json({
+      success: false,
+      message: 'T-PIN is required.',
+    });
+  }
+
+  const savedTpin = await Tpin.findOne({ where: { user_id: merchantId } });
+  if (!savedTpin) {
+    return res.status(404).json({
+      success: false,
+      message: 'T-PIN not found. Please generate one.',
+    });
+  }
+
+  if (new Date(savedTpin.expires_at) < new Date()) {
+    return res.status(400).json({
+      success: false,
+      message: 'T-PIN has expired. Please generate a new one.',
+    });
+  }
+
+  const isMatch = await bcrypt.compare(String(tpin), savedTpin.tpin);
+  if (!isMatch) {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid T-PIN.',
+    });
+  }
+
   const beneficiary = await resolveBeneficiaryContext(merchantId, req.body.beneficiary_id);
   const crn = req.body.crn || req.body.reference_id || req.body.merchantRefId || await payoutReferenceService.getNextPayoutReference({ provider: 'sevenpay', userId: merchantId || req.user?.id });
   const providerPayload = buildInitiateProviderPayload({
@@ -367,14 +479,114 @@ const initiatePayout = asyncHandler(async (req, res) => {
     amount,
   });
 
+  const serviceCharge = await resolvePayoutServiceCharge(amount);
+  const totalAmount = +(amount + serviceCharge).toFixed(2);
+
+  let payoutTransaction;
+  const transaction = await db.transaction();
+  try {
+    const lockedUser = await User.findByPk(merchantId, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!lockedUser) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Merchant not found.',
+      });
+    }
+
+    const availableBalance = await ledgerService.getAvailableBalance(merchantId);
+    if (availableBalance < totalAmount) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Available: ₹${availableBalance.toFixed(2)}, Required: ₹${totalAmount.toFixed(2)}`,
+      });
+    }
+
+    const existingRef = await PayoutTransaction.findOne({
+      where: { reference_id: crn },
+      transaction,
+    });
+    if (existingRef) {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate payout reference.',
+      });
+    }
+
+    const recentDuplicate = await PayoutTransaction.findOne({
+      where: {
+        merchant_id: merchantId,
+        beneficiary_id: beneficiary?.id || req.body.beneficiary_id || null,
+        amount,
+        status: { [Op.notIn]: ['FAILED', 'CANCELLED', 'REVERSED'] },
+        createdAt: { [Op.gte]: new Date(Date.now() - 3 * 60 * 1000) },
+      },
+      order: [['createdAt', 'DESC']],
+      transaction,
+    });
+    if (recentDuplicate) {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate payout detected. Please wait a few minutes before retrying.',
+      });
+    }
+
+    payoutTransaction = await PayoutTransaction.create({
+      merchant_id: merchantId,
+      beneficiary_id: beneficiary?.id || req.body.beneficiary_id || null,
+      reference_id: crn,
+      amount: amount.toFixed(2),
+      status: 'PENDING',
+      purpose: providerPayload.purpose,
+      data: JSON.stringify({
+        provider: 'Sevenpay',
+        requestPayload: providerPayload,
+      }),
+      service_charge: serviceCharge,
+      payout_provider: 'Sevenpay',
+    }, { transaction });
+
+    await ledgerService.createPayoutEntry({
+      userId: merchantId,
+      payoutTransactionId: payoutTransaction.id,
+      amount: totalAmount,
+      description: `Sevenpay payout ${crn}`,
+      metadata: {
+        payout_provider: 'Sevenpay',
+        crn,
+        beneficiary_id: beneficiary?.id || req.body.beneficiary_id || null,
+        beneficiary_name: providerPayload.receiverName,
+        account_number: providerPayload.accountNo,
+        ifsc_code: providerPayload.ifsc,
+        bank_name: providerPayload.bankName,
+        paymentMode: providerPayload.paymentMode,
+        service_charge: serviceCharge,
+        payout_amount: amount,
+      },
+    }, { transaction });
+
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+
   const serviceResponse = await sevenpayService.initiatePayout(providerPayload);
-  const payoutTransaction = await upsertPayoutTransaction({
-    existingTransaction: null,
+  const updatedTransaction = await upsertPayoutTransaction({
+    existingTransaction: payoutTransaction,
     merchantId,
     beneficiaryId: beneficiary?.id || req.body.beneficiary_id || null,
     normalizedResponse: serviceResponse,
     purpose: providerPayload.purpose,
+    serviceChargeOverride: serviceCharge,
   });
+
+  if (updatedTransaction && serviceResponse.status === 'FAILED') {
+    await issueSevenpayRefundIfNeeded(updatedTransaction, 'sevenpay_initiate_failed');
+  }
 
   res.json({
     success: true,
@@ -384,10 +596,10 @@ const initiatePayout = asyncHandler(async (req, res) => {
       paymentId: serviceResponse.paymentId,
       status: serviceResponse.status,
       amount: serviceResponse.amount || amount.toFixed(2),
-      serviceCharge: serviceResponse.serviceCharge,
+      serviceCharge,
       bankReferenceNo: serviceResponse.bankReferenceNo,
       rawResponse: serviceResponse.rawResponse,
-      payoutTransactionId: payoutTransaction?.id || null,
+      payoutTransactionId: updatedTransaction?.id || payoutTransaction?.id || null,
     },
   });
 });
@@ -443,8 +655,13 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
       beneficiaryId: payoutTransaction.beneficiary_id,
       normalizedResponse: serviceResponse,
       purpose: payoutTransaction.purpose,
+      serviceChargeOverride: payoutTransaction.service_charge,
     })
     : null;
+
+  if (updatedTransaction && serviceResponse.status === 'FAILED') {
+    await issueSevenpayRefundIfNeeded(updatedTransaction, 'sevenpay_status_failed');
+  }
 
   res.json({
     success: true,
@@ -454,7 +671,7 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
       paymentId: serviceResponse.paymentId || queryPayload.paymentId || null,
       status: serviceResponse.status,
       amount: serviceResponse.amount,
-      serviceCharge: serviceResponse.serviceCharge,
+      serviceCharge: updatedTransaction?.service_charge ?? payoutTransaction?.service_charge ?? serviceResponse.serviceCharge,
       bankReferenceNo: serviceResponse.bankReferenceNo,
       rawResponse: serviceResponse.rawResponse,
       payoutTransactionId: updatedTransaction?.id || payoutTransaction?.id || null,
