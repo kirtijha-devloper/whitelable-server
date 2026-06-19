@@ -1163,7 +1163,12 @@ async function listBeneficiaries(req, res) {
     return res.status(401).json({ success: false, message: 'User not authenticated' });
   }
 
-  const list = await Beneficiary.findAll({ where: { merchant_id: userIdFromToken } });
+  const list = await Beneficiary.findAll({ 
+    where: { 
+      merchant_id: userIdFromToken,
+      status: { [Op.in]: ['active', 'verified'] }
+    } 
+  });
   return res.status(200).json({ success: true, data: list });
 }
 

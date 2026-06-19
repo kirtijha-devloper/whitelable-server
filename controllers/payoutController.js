@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const Beneficiary = require('../models/Beneficiary');
+const { Op } = require('sequelize');
 
 const listPayoutBeneficiaries = asyncHandler(async (req, res) => {
   const user = req.user;
@@ -11,13 +12,19 @@ const listPayoutBeneficiaries = asyncHandler(async (req, res) => {
   const normalizedRole = (user.role || '').toLowerCase();
 
   if (normalizedRole === 'admin') {
-    const beneficiaries = await Beneficiary.findAll({ order: [['createdAt', 'DESC']] });
+    const beneficiaries = await Beneficiary.findAll({
+      where: { status: { [Op.in]: ['active', 'verified', '1', 1] } },
+      order: [['createdAt', 'DESC']]
+    });
     return res.status(200).json({ success: true, data: beneficiaries });
   }
 
   if (['merchant', 'franchaise', 'franchise'].includes(normalizedRole)) {
     const beneficiaries = await Beneficiary.findAll({
-      where: { merchant_id: user.id },
+      where: { 
+        merchant_id: user.id,
+        status: { [Op.in]: ['active', 'verified', '1', 1] } 
+      },
       order: [['createdAt', 'DESC']],
     });
 
