@@ -6,6 +6,7 @@ const { appendSevenpayTestLog } = require('../utils/sevenpayTestLogger');
 const router = express.Router();
 
 const DEFAULT_TIMEOUT_MS = 30000;
+const SEVENPAY_TEST_MAX_AMOUNT = 101;
 
 function getSevenpayConfig() {
   return {
@@ -223,12 +224,22 @@ router.post('/initiate', async (req, res) => {
   const config = getSevenpayConfig();
   const startedAt = Date.now();
   const fallbackCrn = `TEST${Date.now()}`;
+  const requestedAmount = Number(req.body.amount || '10.00');
+
+  if (!Number.isFinite(requestedAmount) || requestedAmount <= 0 || requestedAmount > SEVENPAY_TEST_MAX_AMOUNT) {
+    return res.status(400).json({
+      success: false,
+      route: '/api/test/sevenpay/initiate',
+      message: `SevenPay testing is restricted to payout amounts between 0 and ₹${SEVENPAY_TEST_MAX_AMOUNT}.`,
+    });
+  }
+
   const plainPayload = {
     orgId: config.orgId,
     userId: config.userId,
     paymentMode: req.body.paymentMode || 'IMPS',
     crn: req.body.crn || fallbackCrn,
-    amount: req.body.amount || '10.00',
+    amount: String(requestedAmount.toFixed(2)),
     receiverName: req.body.receiverName || 'TEST USER',
     ifsc: req.body.ifsc || 'SBIN0000001',
     accountNo: req.body.accountNo || '12345678901',

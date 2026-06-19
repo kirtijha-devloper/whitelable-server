@@ -17,6 +17,8 @@ const {
 } = require('../services/serviceSettingsService');
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../utils/permissions');
 
+const SEVENPAY_TEST_MAX_AMOUNT = 101;
+
 function isPrivilegedUser(user) {
   return normalizeRole(user?.role) === 'admin'
     || hasPermission(user, EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE);
@@ -395,6 +397,13 @@ const initiatePayout = asyncHandler(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: 'Invalid payout amount.',
+    });
+  }
+
+  if (amount > SEVENPAY_TEST_MAX_AMOUNT) {
+    return res.status(400).json({
+      success: false,
+      message: `SevenPay testing is restricted to payout amounts up to ₹${SEVENPAY_TEST_MAX_AMOUNT}.`,
     });
   }
 
