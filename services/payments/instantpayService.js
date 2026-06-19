@@ -22,10 +22,10 @@ async function verifyBankAccount({
     }
 
     const availableBalance = await ledgerService.getAvailableBalance(merchantId);
-    if (availableBalance < 1) {
+    if (availableBalance < 3) {
       return {
         status: 'FAILED',
-        message: 'Insufficient wallet balance for account verification. Minimum ₹1 required.'
+        message: 'Insufficient wallet balance for account verification. Minimum ₹3 required.'
       };
     }
     const url = 'https://api.instantpay.in/identity/verifyBankAccount';
@@ -66,7 +66,7 @@ async function verifyBankAccount({
         referenceId: null,
         referenceTable: null,
         description: `Account Verification Charge for A/C ${accountNumber}`,
-        debit: 1.00,
+        debit: 3.00,
         metadata: {
           accountNumber,
           bankIfsc,
@@ -74,7 +74,7 @@ async function verifyBankAccount({
         }
       });
     } catch (err) {
-      console.error('Failed to deduct Rs 1 verification charge (success flow):', err);
+      console.error('Failed to deduct Rs 3 verification charge (success flow):', err);
     }
 
     const result = response.data;
@@ -114,11 +114,11 @@ async function verifyBankAccount({
           referenceId: null,
           referenceTable: null,
           description: `Account Verification Charge for A/C ${accountNumber} (Failed)`,
-          debit: 1.00,
+          debit: 3.00,
           metadata: { accountNumber, bankIfsc, service: 'InstantPay' }
         });
       } catch (ledgerErr) {
-        console.error('Failed to deduct Rs 1 for failed verification:', ledgerErr);
+        console.error('Failed to deduct Rs 3 for failed verification:', ledgerErr);
       }
     }
 
