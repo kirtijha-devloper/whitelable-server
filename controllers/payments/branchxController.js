@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const branchxService = require('../../services/payments/branchxService');
+const instantpayService = require('../../services/payments/instantpayService');
 const asyncHandler = require("express-async-handler");
 const db = require('../../config/database');
 const Beneficiary = require('../../models/Beneficiary');
@@ -514,15 +515,14 @@ router.post('/bank/validation', asyncHandler(async (req, res) => {
 
     const payload = {
       accountNumber,
-      ifscCode,
-      ...(mobileNumber && { mobileNumber }),
-      ...(requestId && { requestId }),
-      ...(bankName && { bankName })
+      bankIfsc: ifscCode,
+      name: bankName || 'Bank Verification',
+      externalRef: requestId
     };
 
-    const data = await branchxService.bankValidation(payload);
+    const data = await instantpayService.verifyBankAccount(payload);
 
-    // Check BranchX response status
+    // Check InstantPay response status
     if (data.status === 'FAILED') {
       return res.status(data.statuscode ? parseInt(data.statuscode) : 400).json({
         success: false,
@@ -639,13 +639,12 @@ router.post('/add-beneficiary', asyncHandler(async (req, res) => {
     try {
       const bankValidationPayload = {
         accountNumber,
-        ifscCode,
-        mobileNumber,
-        bankName,
-        requestId: accountNumber,
+        bankIfsc: ifscCode,
+        name: beneficiaryName,
+        externalRef: accountNumber
       };
 
-      bankValidationResult = await branchxService.bankValidation(bankValidationPayload);
+      bankValidationResult = await instantpayService.verifyBankAccount(bankValidationPayload);
 
       // Check if bank validation failed
       if (bankValidationResult.status === 'FAILED' || !bankValidationResult.status || 

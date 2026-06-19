@@ -12,6 +12,7 @@ const Tpin = require('../../models/Tpin');
 const { Op } = require("sequelize");
 const db = require("../../config/database");
 const bcrypt = require("bcrypt");
+const instantpayService = require('../../services/payments/instantpayService');
 
 // Login Controller
 router.post('/login', async (req, res) => {
@@ -222,6 +223,31 @@ router.post('/add-beneficiary', async (req, res) => {
       status: 1
     };
 
+    let verifiedName = bankAccountHolderName;
+    try {
+      const bankValidationResult = await instantpayService.verifyBankAccount({
+        name: bankAccountHolderName,
+        accountNumber: accountNumber,
+        bankIfsc: ifscCode
+      });
+
+      if (bankValidationResult.status === 'FAILED') {
+        return res.status(400).json({
+          success: false,
+          message: bankValidationResult.message || 'Bank account validation failed. Please check account number and IFSC code.',
+          data: bankValidationResult
+        });
+      }
+      verifiedName = bankValidationResult.name || bankAccountHolderName;
+    } catch (error) {
+      console.error('SDDS add beneficiary validation error:', error);
+      return res.status(500).json({ 
+        success: false, 
+        message: error.message || 'Bank account validation failed. Please check your bank details.',
+        error
+      });
+    }
+
     const data = await sddsService.addBeneficiary({payload, token});
       await Beneficiary.create({
         user_id: req.user?.id || 10,
@@ -229,7 +255,7 @@ router.post('/add-beneficiary', async (req, res) => {
         mobile: mobileNumber,
         bank_name: bankName,
         bank_account_number: accountNumber,
-        bank_account_holder_name: bankAccountHolderName,
+        bank_account_holder_name: verifiedName,
         bank_ifsc: ifscCode,
         beneficiary_mobile: beneficiaryMobile,
         bank_branch_name:  branchName,

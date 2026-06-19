@@ -10,6 +10,7 @@ const {
   assertServiceEnabledOrRespond,
 } = require('../services/serviceSettingsService');
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../utils/permissions');
+const instantpayService = require('../services/payments/instantpayService');
 
 function isPrivilegedUser(user) {
   return normalizeRole(user?.role) === 'admin'
@@ -243,9 +244,26 @@ const createBeneficiary = asyncHandler(async (req, res) => {
     });
   }
 
-  const beneficiary = await Beneficiary.create({
-    merchant_id: merchantId,
-    beneficiary_name: input.name,
+  try {
+    const bankValidationResult = await instantpayService.verifyBankAccount({
+      name: input.name,
+      accountNumber: input.accountNumber,
+      bankIfsc: input.ifscCode
+    });
+
+    if (bankValidationResult.status === 'FAILED') {
+      return res.status(400).json({
+        success: false,
+        message: bankValidationResult.message || 'Bank account validation failed. Please check account number and IFSC code.',
+        data: bankValidationResult
+      });
+    }
+
+    const verifiedName = bankValidationResult.name || input.name;
+
+    const beneficiary = await Beneficiary.create({
+      merchant_id: merchantId,
+      beneficiary_name: verifiedName,
     account_number: input.accountNumber,
     ifsc_code: input.ifscCode,
     bank_name: input.bankName,
@@ -261,6 +279,14 @@ const createBeneficiary = asyncHandler(async (req, res) => {
     success: true,
     data: beneficiary,
   });
+  } catch (error) {
+    console.error('Sevenpay add beneficiary validation error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Bank account validation failed. Please check your bank details.',
+      error
+    });
+  }
 });
 
 const listBeneficiaries = asyncHandler(async (req, res) => {

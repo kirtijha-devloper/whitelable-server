@@ -1103,6 +1103,8 @@ async function handleCallback(req, res) {
   });
 }
 
+const instantpayService = require('../services/payments/instantpayService');
+
 // Vimo beneficiary management
 async function createBeneficiary(req, res) {
   const { name, account_number, ifsc_code, bank_name, bank_code, branch_name, state, mobile, email } = req.body;
@@ -1112,9 +1114,26 @@ async function createBeneficiary(req, res) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
 
-  const beneficiary = await Beneficiary.create({
-    merchant_id:      userId,
-    beneficiary_name: name,
+  try {
+    const bankValidationResult = await instantpayService.verifyBankAccount({
+      name: name,
+      accountNumber: account_number,
+      bankIfsc: ifsc_code
+    });
+
+    if (bankValidationResult.status === 'FAILED') {
+      return res.status(400).json({
+        success: false,
+        message: bankValidationResult.message || 'Bank account validation failed. Please check account number and IFSC code.',
+        data: bankValidationResult
+      });
+    }
+
+    const verifiedName = bankValidationResult.name || name;
+
+    const beneficiary = await Beneficiary.create({
+      merchant_id:      userId,
+      beneficiary_name: verifiedName,
     account_number,
     ifsc_code,
     bank_name,
@@ -1127,6 +1146,14 @@ async function createBeneficiary(req, res) {
   });
 
   return res.status(201).json({ success: true, data: beneficiary });
+  } catch (error) {
+    console.error('Vimo add beneficiary validation error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Bank account validation failed. Please check your bank details.',
+      error
+    });
+  }
 }
 
 async function listBeneficiaries(req, res) {
