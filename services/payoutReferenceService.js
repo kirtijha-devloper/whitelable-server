@@ -8,6 +8,7 @@ const PROVIDER_PREFIX = {
   branchx: 'APB',
   vimo: 'APV',
   credxpay: 'APC',
+  sevenpay: 'APS',
 };
 const DEFAULT_PREFIX = 'APT';
 

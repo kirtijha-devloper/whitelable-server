@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const Beneficiary = require('../models/Beneficiary');
 const PayoutTransaction = require('../models/PayoutTransaction');
 const User = require('../models/User');
+const { Op } = require('sequelize');
 const payoutReferenceService = require('../services/payoutReferenceService');
 const sevenpayService = require('../services/sevenpayPayout.service');
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../utils/permissions');
@@ -25,6 +26,20 @@ function parseJsonMaybe(value) {
   } catch (_error) {
     return null;
   }
+}
+
+function normalizeBeneficiaryInput(reqBody = {}) {
+  return {
+    name: reqBody.name || reqBody.receiverName || reqBody.beneficiary_name || null,
+    accountNumber: reqBody.account_number || reqBody.accountNo || null,
+    ifscCode: reqBody.ifsc_code || reqBody.ifsc || null,
+    bankName: reqBody.bank_name || reqBody.bankName || null,
+    branchName: reqBody.branch_name || reqBody.branchName || null,
+    bankCode: reqBody.bank_code || reqBody.bankCode || null,
+    mobileNumber: reqBody.mobile_number || reqBody.mobileNumber || null,
+    email: reqBody.email || null,
+    state: reqBody.state || null,
+  };
 }
 
 function buildProviderSnapshot(existingTransaction, normalizedResponse) {
@@ -96,25 +111,37 @@ function buildInitiateProviderPayload({ req, merchantId, beneficiary, crn, amoun
     amount: amount.toFixed(2),
     purpose: req.body.purpose || 'Sevenpay UAT payout',
     clientIP: req.body.clientIP || req.ip || '127.0.0.1',
+    paymentMode: req.body.paymentMode || 'IMPS',
+    refParam1: req.body.refParam1 || '',
+    refParam2: req.body.refParam2 || '',
+    refParam3: req.body.refParam3 || '',
   };
 
   if (merchantId) {
     payload.merchantId = merchantId;
   }
 
+  if (req.body.orgId) {
+    payload.orgId = req.body.orgId;
+  }
+
+  if (req.body.userId) {
+    payload.userId = req.body.userId;
+  }
+
   if (beneficiary) {
     payload.beneficiaryId = beneficiary.id;
-    payload.receiverName = req.body.receiverName || beneficiary.beneficiary_name;
-    payload.ifsc = req.body.ifsc || beneficiary.ifsc_code;
-    payload.accountNo = req.body.accountNo || beneficiary.account_number;
-    payload.mobileNumber = req.body.mobileNumber || beneficiary.mobile_number;
-    payload.bankName = req.body.bankName || beneficiary.bank_name;
+    payload.receiverName = req.body.receiverName || req.body.beneficiary_name || beneficiary.beneficiary_name;
+    payload.ifsc = req.body.ifsc || req.body.ifsc_code || beneficiary.ifsc_code;
+    payload.accountNo = req.body.accountNo || req.body.account_number || beneficiary.account_number;
+    payload.mobileNumber = req.body.mobileNumber || req.body.mobile_number || beneficiary.mobile_number;
+    payload.bankName = req.body.bankName || req.body.bank_name || beneficiary.bank_name;
   } else {
-    payload.receiverName = req.body.receiverName;
-    payload.ifsc = req.body.ifsc;
-    payload.accountNo = req.body.accountNo;
-    payload.mobileNumber = req.body.mobileNumber;
-    payload.bankName = req.body.bankName;
+    payload.receiverName = req.body.receiverName || req.body.beneficiary_name;
+    payload.ifsc = req.body.ifsc || req.body.ifsc_code;
+    payload.accountNo = req.body.accountNo || req.body.account_number;
+    payload.mobileNumber = req.body.mobileNumber || req.body.mobile_number;
+    payload.bankName = req.body.bankName || req.body.bank_name;
   }
 
   if (!payload.receiverName || !payload.ifsc || !payload.accountNo) {
@@ -124,6 +151,23 @@ function buildInitiateProviderPayload({ req, merchantId, beneficiary, crn, amoun
   }
 
   return payload;
+}
+
+async function findBeneficiaryForUser(req, beneficiaryId) {
+  const beneficiary = await Beneficiary.findByPk(beneficiaryId);
+  if (!beneficiary) {
+    const error = new Error('Beneficiary not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (!canActForMerchant(req, beneficiary.merchant_id)) {
+    const error = new Error('You are not allowed to access this beneficiary.');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return beneficiary;
 }
 
 async function upsertPayoutTransaction({
@@ -173,6 +217,103 @@ const login = asyncHandler(async (req, res) => {
   });
 });
 
+const getPayoutReference = asyncHandler(async (req, res) => {
+  const { merchantId } = await resolveMerchantContext(req, req.query.merchant_id || req.body?.merchant_id);
+  const reference = await payoutReferenceService.getNextPayoutReference({ provider: 'sevenpay', userId: merchantId || req.user?.id });
+
+  res.status(200).json({
+    success: true,
+    crn: reference,
+    merchantRefId: reference,
+  });
+});
+
+const createBeneficiary = asyncHandler(async (req, res) => {
+  const { merchantId } = await resolveMerchantContext(req, req.body.merchant_id);
+  const input = normalizeBeneficiaryInput(req.body);
+
+  if (!merchantId || !input.name || !input.accountNumber || !input.ifscCode || !input.bankName) {
+    return res.status(400).json({
+      success: false,
+      message: 'merchant_id, beneficiary name, account number, IFSC code, and bank name are required.',
+    });
+  }
+
+  const beneficiary = await Beneficiary.create({
+    merchant_id: merchantId,
+    beneficiary_name: input.name,
+    account_number: input.accountNumber,
+    ifsc_code: input.ifscCode,
+    bank_name: input.bankName,
+    branch_name: input.branchName || null,
+    bank_code: input.bankCode || null,
+    state: input.state || null,
+    mobile_number: input.mobileNumber || '',
+    email: input.email || '',
+    status: 'active',
+  });
+
+  res.status(201).json({
+    success: true,
+    data: beneficiary,
+  });
+});
+
+const listBeneficiaries = asyncHandler(async (req, res) => {
+  const requestedMerchantId = req.query.merchant_id || req.params.merchant_id || req.user?.id || null;
+  const { merchantId } = await resolveMerchantContext(req, requestedMerchantId);
+
+  const beneficiaries = await Beneficiary.findAll({
+    where: { merchant_id: merchantId, status: { [Op.in]: ['active', 'verified'] } },
+    order: [['createdAt', 'DESC']],
+  });
+
+  res.status(200).json({
+    success: true,
+    count: beneficiaries.length,
+    data: beneficiaries,
+  });
+});
+
+const updateBeneficiary = asyncHandler(async (req, res) => {
+  const beneficiary = await findBeneficiaryForUser(req, req.params.id);
+  const input = normalizeBeneficiaryInput(req.body);
+
+  const updates = {
+    beneficiary_name: input.name ?? beneficiary.beneficiary_name,
+    account_number: input.accountNumber ?? beneficiary.account_number,
+    ifsc_code: input.ifscCode ?? beneficiary.ifsc_code,
+    bank_name: input.bankName ?? beneficiary.bank_name,
+    branch_name: input.branchName ?? beneficiary.branch_name,
+    bank_code: input.bankCode ?? beneficiary.bank_code,
+    state: Object.prototype.hasOwnProperty.call(req.body, 'state') ? input.state : beneficiary.state,
+    mobile_number: input.mobileNumber ?? beneficiary.mobile_number,
+    email: input.email ?? beneficiary.email,
+  };
+
+  if (Object.prototype.hasOwnProperty.call(req.body, 'status')) {
+    updates.status = req.body.status;
+  }
+
+  await beneficiary.update(updates);
+
+  res.status(200).json({
+    success: true,
+    data: beneficiary,
+  });
+});
+
+const deleteBeneficiary = asyncHandler(async (req, res) => {
+  const beneficiary = await findBeneficiaryForUser(req, req.params.id);
+
+  await beneficiary.update({ status: 'inactive' });
+
+  res.status(200).json({
+    success: true,
+    message: 'Beneficiary deleted successfully',
+  });
+});
+
 const initiatePayout = asyncHandler(async (req, res) => {
   const amount = Number(req.body.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -184,7 +325,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
 
   const { merchantId } = await resolveMerchantContext(req, req.body.merchant_id);
   const beneficiary = await resolveBeneficiaryContext(merchantId, req.body.beneficiary_id);
-  const crn = req.body.crn || await payoutReferenceService.getNextPayoutReference({ provider: 'sevenpay' });
+  const crn = req.body.crn || req.body.reference_id || req.body.merchantRefId || await payoutReferenceService.getNextPayoutReference({ provider: 'sevenpay', userId: merchantId || req.user?.id });
   const providerPayload = buildInitiateProviderPayload({
     req,
     merchantId,
@@ -241,7 +382,7 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
 
   const fallbackSnapshot = parseJsonMaybe(payoutTransaction?.data);
   const queryPayload = {
-    crn: req.query.crn || req.body?.crn || payoutTransaction?.reference_id || fallbackSnapshot?.normalized?.crn || null,
+    crn: req.query.crn || req.body?.crn || req.query.reference_id || req.body?.reference_id || req.query.merchantRefId || req.body?.merchantRefId || payoutTransaction?.reference_id || fallbackSnapshot?.normalized?.crn || null,
     paymentId: req.query.paymentId || req.body?.paymentId || fallbackSnapshot?.normalized?.paymentId || null,
   };
 
@@ -290,6 +431,11 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
 
 module.exports = {
   login,
+  getPayoutReference,
+  createBeneficiary,
+  listBeneficiaries,
+  updateBeneficiary,
+  deleteBeneficiary,
   initiatePayout,
   getPayoutStatus,
 };
