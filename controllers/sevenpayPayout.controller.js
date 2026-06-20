@@ -256,13 +256,19 @@ async function upsertPayoutTransaction({
 
   const resolvedServiceCharge = serviceChargeOverride !== undefined
     ? serviceChargeOverride
-    : (existingTransaction?.service_charge ?? normalizedResponse.serviceCharge);
+    : (normalizedResponse.serviceCharge && parseFloat(normalizedResponse.serviceCharge) > 0
+        ? normalizedResponse.serviceCharge
+        : (existingTransaction?.service_charge ?? '0.00'));
+
+  const resolvedAmount = normalizedResponse.amount && parseFloat(normalizedResponse.amount) > 0
+    ? normalizedResponse.amount
+    : (existingTransaction?.amount || '0.00');
 
   const payload = {
     merchant_id: merchantId,
     beneficiary_id: beneficiaryId || null,
-    reference_id: normalizedResponse.crn,
-    amount: normalizedResponse.amount || '0.00',
+    reference_id: normalizedResponse.crn || existingTransaction?.reference_id || '',
+    amount: resolvedAmount,
     status: normalizedResponse.status,
     purpose: purpose || null,
     data: JSON.stringify(buildProviderSnapshot(existingTransaction, normalizedResponse)),
@@ -937,7 +943,50 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
     });
   }
 
-  const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
+  let amount = parseFloat(payoutTransaction.amount || 0);
+  let serviceCharge = parseFloat(payoutTransaction.service_charge || 0);
+
+  if (amount <= 0) {
+    const originalLedger = await Ledger.findOne({
+      where: {
+        transaction_type: 'payout',
+        reference_id: payoutTransaction.id,
+        reference_table: 'PayoutTransactions',
+      },
+    });
+
+    if (originalLedger) {
+      let metadata = {};
+      if (originalLedger.metadata) {
+        try {
+          metadata = typeof originalLedger.metadata === 'string'
+            ? JSON.parse(originalLedger.metadata)
+            : originalLedger.metadata;
+        } catch (e) {
+          console.error('Failed to parse ledger metadata:', e);
+        }
+      }
+
+      if (metadata.payout_amount && parseFloat(metadata.payout_amount) > 0) {
+        amount = parseFloat(metadata.payout_amount);
+      }
+      if (metadata.service_charge !== undefined) {
+        serviceCharge = parseFloat(metadata.service_charge);
+      } else if (originalLedger.debit && amount > 0) {
+        serviceCharge = Math.max(0, parseFloat(originalLedger.debit) - amount);
+      }
+    }
+  }
+
+  if (amount > 0 && (parseFloat(payoutTransaction.amount || 0) <= 0 || parseFloat(payoutTransaction.service_charge || 0) <= 0)) {
+    await payoutTransaction.update({
+      amount: String(amount),
+      service_charge: String(serviceCharge),
+    });
+  }
+
+  const refundAmount = amount + serviceCharge;
+
   const refundEntry = await ledgerService.createLedgerEntry({
     userId: payoutTransaction.merchant_id,
     transactionType: 'payout_refund',
@@ -948,15 +997,25 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
     metadata: {
       payout_provider: 'Sevenpay',
       payout_reference: payoutTransaction.reference_id,
-      original_payout_amount: payoutTransaction.amount,
-      original_service_charge: payoutTransaction.service_charge,
+      original_payout_amount: String(amount),
+      original_service_charge: String(serviceCharge),
       refund_source: 'admin_manual',
       performed_by: req.user?.id,
       performed_role: req.user?.role,
     },
   });
 
-  const snapshot = parseJsonMaybe(payoutTransaction.data) || {};
+  let snapshot = {};
+  if (payoutTransaction.data) {
+    try {
+      snapshot = typeof payoutTransaction.data === 'string'
+        ? JSON.parse(payoutTransaction.data)
+        : payoutTransaction.data;
+    } catch (e) {
+      snapshot = {};
+    }
+  }
+
   snapshot.manualRefund = {
     refundedAt: new Date().toISOString(),
     refundedBy: req.user?.id || null,
