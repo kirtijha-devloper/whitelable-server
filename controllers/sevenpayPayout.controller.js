@@ -271,11 +271,46 @@ async function upsertPayoutTransaction({
   };
 
   if (existingTransaction) {
+    if (existingTransaction.status === 'SUCCESS' && payload.status !== 'SUCCESS') {
+      payload.status = 'SUCCESS';
+    }
+    
     await existingTransaction.update(payload);
+
+    try {
+      await PayoutAuditLog.create({
+        payout_id: existingTransaction.id,
+        action: 'SEVENPAY_STATUS_UPDATE',
+        details: {
+          reference_id: payload.reference_id,
+          status: payload.status,
+          rawResponse: normalizedResponse.rawResponse || null
+        }
+      });
+    } catch (e) {
+      console.error('Failed to create PayoutAuditLog:', e);
+    }
+
     return existingTransaction;
   }
 
-  return PayoutTransaction.create(payload);
+  const newTxn = await PayoutTransaction.create(payload);
+
+  try {
+    await PayoutAuditLog.create({
+      payout_id: newTxn.id,
+      action: 'SEVENPAY_PAYOUT_INITIATE',
+      details: {
+        reference_id: payload.reference_id,
+        status: payload.status,
+        rawResponse: normalizedResponse.rawResponse || null
+      }
+    });
+  } catch (e) {
+    console.error('Failed to create PayoutAuditLog:', e);
+  }
+
+  return newTxn;
 }
 
 const login = asyncHandler(async (req, res) => {
@@ -953,6 +988,41 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
   });
 });
 
+const getPayoutAuditLogsByPayout = asyncHandler(async (req, res) => {
+  const { payout_id, requestId, reference_id } = req.query;
+
+  const where = {};
+  if (payout_id) {
+    where.payout_id = payout_id;
+  } else if (requestId || reference_id) {
+    const txn = await PayoutTransaction.findOne({
+      where: { reference_id: requestId || reference_id, payout_provider: 'Sevenpay' }
+    });
+    if (txn) {
+      where.payout_id = txn.id;
+    } else {
+      return res.status(404).json({ success: false, message: 'No audit logs found for this payout.' });
+    }
+  } else {
+    return res.status(400).json({ success: false, message: 'payout_id or reference_id is required' });
+  }
+
+  const logs = await PayoutAuditLog.findAll({
+    where,
+    order: [['created_at', 'DESC']],
+  });
+
+  if (!logs || logs.length === 0) {
+    return res.status(404).json({ success: false, message: 'No audit logs found for this payout.' });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: logs,
+    totalLogs: logs.length,
+  });
+});
+
 module.exports = {
   login,
   getPayoutReference,
@@ -964,4 +1034,5 @@ module.exports = {
   getPayoutStatus,
   processPendingPayouts,
   manualRefundPayout,
+  getPayoutAuditLogsByPayout,
 };
