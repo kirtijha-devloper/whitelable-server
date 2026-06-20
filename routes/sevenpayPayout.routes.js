@@ -26,5 +26,6 @@ router.post('/payout/initiate', sevenpayController.initiatePayout);
 router.post('/payout/status', sevenpayController.getPayoutStatus);
 router.get('/payout/status', sevenpayController.getPayoutStatus);
 router.post('/payout/process-pending', sevenpayController.processPendingPayouts);
+router.post('/payout/manual-refund', sevenpayController.manualRefundPayout);
 
 module.exports = router;

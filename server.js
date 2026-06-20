@@ -15,6 +15,9 @@ require("./workers/razorpayWebhookWorker"); // Razorpay webhook worker
 // start BranchX pending resolver cron (scheduled status-check polling)
 require('./cron/resolvePendingBranchx');
 
+// start SevenPay pending resolver cron (scheduled status-check polling)
+require('./cron/resolvePendingSevenpay');
+
 // start CcBillPayment pending resolver cron (scheduled status-check polling)
 require('./cron/resolvePendingCcBillPayment');
 

@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const Beneficiary = require('../models/Beneficiary');
 const Ledger = require('../models/Ledger');
 const PayoutCharge = require('../models/PayoutCharge');
+const PayoutAuditLog = require('../models/PayoutAuditLog');
 const PayoutTransaction = require('../models/PayoutTransaction');
 const Tpin = require('../models/Tpin');
 const User = require('../models/User');
@@ -210,45 +211,6 @@ async function findBeneficiaryForUser(req, beneficiaryId) {
   return beneficiary;
 }
 
-async function issueSevenpayRefundIfNeeded(payoutTransaction, reason) {
-  if (!payoutTransaction || !payoutTransaction.id || Number(payoutTransaction.merchant_id) <= 0) {
-    return { refundCreated: false, existingRefund: null };
-  }
-
-  const existingRefund = await Ledger.findOne({
-    where: {
-      transaction_type: 'payout_refund',
-      reference_id: payoutTransaction.id,
-      reference_table: 'PayoutTransactions',
-    },
-  });
-
-  if (existingRefund) {
-    return { refundCreated: false, existingRefund };
-  }
-
-  const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
-  if (!(refundAmount > 0)) {
-    return { refundCreated: false, existingRefund: null };
-  }
-
-  await ledgerService.createLedgerEntry({
-    userId: payoutTransaction.merchant_id,
-    transactionType: 'payout_refund',
-    referenceId: payoutTransaction.id,
-    referenceTable: 'PayoutTransactions',
-    description: `Sevenpay payout refund ${payoutTransaction.reference_id || payoutTransaction.id}`,
-    credit: refundAmount,
-    metadata: {
-      payout_provider: 'Sevenpay',
-      refund_reason: reason || 'sevenpay_failed',
-      reference_id: payoutTransaction.reference_id || null,
-    },
-  });
-
-  return { refundCreated: true, existingRefund: null };
-}
-
 async function refreshSevenpayTransactionStatus({
   payoutTransaction,
   merchantId,
@@ -273,10 +235,6 @@ async function refreshSevenpayTransactionStatus({
       serviceChargeOverride: serviceCharge,
     })
     : null;
-
-  if (updatedTransaction && serviceResponse.status === 'FAILED') {
-    await issueSevenpayRefundIfNeeded(updatedTransaction, 'sevenpay_status_failed');
-  }
 
   return {
     serviceResponse,
@@ -650,10 +608,6 @@ const initiatePayout = asyncHandler(async (req, res) => {
 
   let finalResponse = serviceResponse;
 
-  if (updatedTransaction && serviceResponse.status === 'FAILED') {
-    await issueSevenpayRefundIfNeeded(updatedTransaction, 'sevenpay_initiate_failed');
-  }
-
   if (serviceResponse.status === 'PENDING' && (serviceResponse.crn || serviceResponse.paymentId)) {
     for (let attempt = 0; attempt < SEVENPAY_IMMEDIATE_STATUS_RETRIES; attempt += 1) {
       await sleep(SEVENPAY_IMMEDIATE_STATUS_DELAY_MS);
@@ -747,10 +701,6 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
       serviceChargeOverride: payoutTransaction.service_charge,
     })
     : null;
-
-  if (updatedTransaction && initialServiceResponse.status === 'FAILED') {
-    await issueSevenpayRefundIfNeeded(updatedTransaction, 'sevenpay_status_failed');
-  }
 
   const serviceResponse = initialServiceResponse;
 
@@ -878,6 +828,131 @@ const processPendingPayouts = asyncHandler(async (req, res) => {
   });
 });
 
+const manualRefundPayout = asyncHandler(async (req, res) => {
+  if (!(normalizeRole(req.user?.role) === 'admin' || hasPermission(req.user, EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE))) {
+    return res.status(403).json({
+      success: false,
+      message: 'Admin or authorized employee access required',
+    });
+  }
+
+  const referenceId = req.body.reference_id || req.body.crn || req.body.merchantRefId || null;
+  const payoutTransactionId = Number(req.body.payout_transaction_id || 0);
+
+  let payoutTransaction = null;
+  if (payoutTransactionId > 0) {
+    payoutTransaction = await PayoutTransaction.findByPk(payoutTransactionId);
+  } else if (referenceId) {
+    payoutTransaction = await PayoutTransaction.findOne({
+      where: { reference_id: referenceId, payout_provider: 'Sevenpay' },
+      order: [['createdAt', 'DESC']],
+    });
+  }
+
+  if (!payoutTransaction) {
+    return res.status(404).json({
+      success: false,
+      message: 'SevenPay payout transaction not found.',
+    });
+  }
+
+  if (payoutTransaction.payout_provider !== 'Sevenpay') {
+    return res.status(400).json({
+      success: false,
+      message: 'Manual refund is only supported for SevenPay payouts on this endpoint.',
+    });
+  }
+
+  if (String(payoutTransaction.status || '').toUpperCase() !== 'FAILED') {
+    return res.status(400).json({
+      success: false,
+      message: 'Manual refund is allowed only when the payout status is FAILED.',
+      status: payoutTransaction.status,
+    });
+  }
+
+  const existingRefund = await Ledger.findOne({
+    where: {
+      transaction_type: 'payout_refund',
+      reference_id: payoutTransaction.id,
+      reference_table: 'PayoutTransactions',
+    },
+  });
+
+  if (existingRefund) {
+    await PayoutAuditLog.create({
+      payout_id: payoutTransaction.id,
+      action: 'SEVENPAY_MANUAL_REFUND_SKIPPED',
+      details: {
+        reference_id: payoutTransaction.reference_id,
+        requestedBy: req.user?.id,
+        requestedRole: req.user?.role,
+        reason: 'refund_already_exists',
+        existingRefundLedgerId: existingRefund.id,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Refund already exists; no action taken.',
+      refundCreated: false,
+      existingRefundLedgerId: existingRefund.id,
+      payoutTransactionId: payoutTransaction.id,
+    });
+  }
+
+  const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
+  const refundEntry = await ledgerService.createLedgerEntry({
+    userId: payoutTransaction.merchant_id,
+    transactionType: 'payout_refund',
+    referenceId: payoutTransaction.id,
+    referenceTable: 'PayoutTransactions',
+    description: `Manual refund for failed SevenPay payout ${payoutTransaction.reference_id}`,
+    credit: refundAmount,
+    metadata: {
+      payout_provider: 'Sevenpay',
+      payout_reference: payoutTransaction.reference_id,
+      original_payout_amount: payoutTransaction.amount,
+      original_service_charge: payoutTransaction.service_charge,
+      refund_source: 'admin_manual',
+      performed_by: req.user?.id,
+      performed_role: req.user?.role,
+    },
+  });
+
+  const snapshot = parseJsonMaybe(payoutTransaction.data) || {};
+  snapshot.manualRefund = {
+    refundedAt: new Date().toISOString(),
+    refundedBy: req.user?.id || null,
+    refundedRole: req.user?.role || null,
+    refundLedgerId: refundEntry?.id || null,
+    refundAmount,
+  };
+  await payoutTransaction.update({ data: JSON.stringify(snapshot) });
+
+  await PayoutAuditLog.create({
+    payout_id: payoutTransaction.id,
+    action: 'SEVENPAY_MANUAL_REFUND',
+    details: {
+      reference_id: payoutTransaction.reference_id,
+      requestedBy: req.user?.id,
+      requestedRole: req.user?.role,
+      refundLedgerId: refundEntry?.id || null,
+      refundAmount,
+      payoutStatus: payoutTransaction.status,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: 'SevenPay manual refund created successfully.',
+    refundCreated: true,
+    refundLedgerId: refundEntry?.id || null,
+    refundAmount,
+    payoutTransactionId: payoutTransaction.id,
+  });
+});
+
 module.exports = {
   login,
   getPayoutReference,
@@ -888,4 +963,5 @@ module.exports = {
   initiatePayout,
   getPayoutStatus,
   processPendingPayouts,
+  manualRefundPayout,
 };
