@@ -10,6 +10,7 @@ const bcrypt = require('bcrypt');
 const { Op } = require('sequelize');
 const db = require('../config/database');
 const ledgerService = require('../services/ledgerService');
+const PayoutReferenceLog = require('../models/PayoutReferenceLog');
 const payoutReferenceService = require('../services/payoutReferenceService');
 const sevenpayService = require('../services/sevenpayPayout.service');
 const {
@@ -733,16 +734,87 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
     });
   }
 
-  const updatedTransaction = payoutTransaction
-    ? await upsertPayoutTransaction({
+  let updatedTransaction = null;
+  if (payoutTransaction) {
+    updatedTransaction = await upsertPayoutTransaction({
       existingTransaction: payoutTransaction,
       merchantId: payoutTransaction.merchant_id,
       beneficiaryId: payoutTransaction.beneficiary_id,
       normalizedResponse: initialServiceResponse,
       purpose: payoutTransaction.purpose,
       serviceChargeOverride: payoutTransaction.service_charge,
-    })
-    : null;
+    });
+  } else if (queryPayload.crn) {
+    const refLog = await PayoutReferenceLog.findOne({
+      where: { reference: queryPayload.crn }
+    });
+    if (refLog && refLog.user_id) {
+      const amountVal = Number(req.query.amount || req.body?.amount || initialServiceResponse.amount || 0);
+      if (amountVal > 0) {
+        const serviceChargeVal = await resolvePayoutServiceCharge(amountVal);
+        const beneficiaryIdVal = req.query.beneficiary_id || req.body?.beneficiary_id || null;
+        const purposeVal = req.query.purpose || req.body?.purpose || 'Sevenpay recovered payout';
+        
+        const dbTx = await db.transaction();
+        try {
+          const lockedUser = await User.findByPk(refLog.user_id, { transaction: dbTx, lock: dbTx.LOCK.UPDATE });
+          if (lockedUser) {
+            const payoutTxn = await PayoutTransaction.create({
+              merchant_id: refLog.user_id,
+              beneficiary_id: beneficiaryIdVal ? Number(beneficiaryIdVal) : null,
+              reference_id: queryPayload.crn,
+              amount: amountVal.toFixed(2),
+              status: initialServiceResponse.status,
+              purpose: purposeVal,
+              payout_provider: 'Sevenpay',
+              service_charge: serviceChargeVal,
+              data: JSON.stringify({
+                provider: 'Sevenpay',
+                recovered: true,
+                latest: initialServiceResponse.rawResponse
+              })
+            }, { transaction: dbTx });
+            
+            const totalAmount = +(amountVal + serviceChargeVal).toFixed(2);
+            await ledgerService.createPayoutEntry({
+              userId: refLog.user_id,
+              payoutTransactionId: payoutTxn.id,
+              amount: totalAmount,
+              description: `Sevenpay payout (recovered) ${queryPayload.crn}`,
+              metadata: {
+                payout_provider: 'Sevenpay',
+                crn: queryPayload.crn,
+                recovered: true,
+                payout_amount: amountVal,
+                service_charge: serviceChargeVal
+              }
+            }, { transaction: dbTx });
+            
+            await dbTx.commit();
+            payoutTransaction = payoutTxn;
+            updatedTransaction = payoutTxn;
+            
+            try {
+              await PayoutAuditLog.create({
+                payout_id: payoutTxn.id,
+                action: 'SEVENPAY_PAYOUT_INITIATE_RECOVERED',
+                details: {
+                  reference_id: queryPayload.crn,
+                  status: initialServiceResponse.status,
+                  rawResponse: initialServiceResponse.rawResponse || null
+                }
+              });
+            } catch (e) {}
+          } else {
+            await dbTx.rollback();
+          }
+        } catch (err) {
+          await dbTx.rollback();
+          console.error('Failed to recover missing payout transaction:', err);
+        }
+      }
+    }
+  }
 
   const serviceResponse = initialServiceResponse;
 

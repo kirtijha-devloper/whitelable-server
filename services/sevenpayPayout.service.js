@@ -231,7 +231,7 @@ async function login(options = {}) {
   const client = getAxiosClient();
   const payload = buildLoginPayload();
   const encryptedRequest = buildEncryptedRequest(payload);
-  let rawResponse;
+  sevenpayLog('INFO', 'Sending authentication request to SevenPay');
   try {
     const response = await client.post(resolveUrlPath(DEFAULT_LOGIN_PATH), encryptedRequest.body, {
       headers: {
@@ -250,6 +250,11 @@ async function login(options = {}) {
     } catch {
       rawResponse = decryptedText;
     }
+    sevenpayLog('SUCCESS', 'Authentication successful', {
+      userId: rawResponse?.data?.userId,
+      orgId: rawResponse?.data?.orgId,
+      responseCode: rawResponse?.responseCode,
+    });
   } catch (error) {
     if (error.response?.data) {
       try {
@@ -261,6 +266,11 @@ async function login(options = {}) {
         }
       } catch (err) {}
     }
+    sevenpayLog('ERROR', 'Authentication failed', {
+      message: error.message,
+      statusCode: error.response?.status,
+      responseData: error.response?.data,
+    });
     throw error;
   }
   const tokenInfo = deriveTokenInfo(rawResponse);
@@ -355,6 +365,11 @@ async function sendEncryptedRequest({ path, payload }) {
         }
       } catch (err) {}
     }
+    sevenpayLog('ERROR', `Request to ${path} failed`, {
+      message: error.message,
+      statusCode: error.response?.status,
+      responseData: error.response?.data,
+    });
     throw error;
   }
 
