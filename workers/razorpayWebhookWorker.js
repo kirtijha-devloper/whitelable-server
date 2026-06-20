@@ -363,7 +363,10 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     // settlement_type is stored on the user record rather than in the notification
     const franchiseId = posOperator.franchaise_id || (posOperator.role === 'franchaise' ? posOperator.id : null);
 
-    const rule = await ChargeService.getTransactionChargeRule({
+    const isNormalEmi = (String(externalRefNumber6 || '').trim().toUpperCase() === 'NORMAL_EMI' || 
+                         String(externalRefNumber7 || '').trim().toUpperCase() === 'NORMAL_EMI');
+
+    let rule = await ChargeService.getTransactionChargeRule({
       userId: posOperator.id,
       franchiseId: franchiseId,
       paymentMode: paymentMethod,
@@ -373,6 +376,12 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       settlement: posOperator.settlement_type || null,
       amount: parseFloat(transactionAmount)
     });
+
+    if (rule && isNormalEmi) {
+      rule = { ...rule };
+      rule.charge_percent = parseFloat(rule.charge_percent || 0) + 1;
+      logger.log(`[Razorpay Webhook Worker] NORMAL_EMI detected. Added 1% extra to merchant charge rate. New rate: ${rule.charge_percent}%`);
+    }
 
     logger.log(`[Razorpay Webhook Worker] Charge lookup parameters: userId=${posOperator.id}, franchiseId=${franchiseId || 'none'}`);
 
@@ -407,7 +416,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     let franchiseChargeAmount = 0;
     let franchiseEarning = 0;
     if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
-      const franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
+      let franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
         franchiseId: posOperator.franchaise_id,
         paymentMode: paymentMethod,
         cardType: paymentCardType || null,
@@ -416,11 +425,22 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         settlement: posOperator.settlement_type || null,
         amount: parseFloat(transactionAmount)
       });
+
+      if (franchiseRule && isNormalEmi) {
+        franchiseRule = { ...franchiseRule };
+        franchiseRule.charge_percent = parseFloat(franchiseRule.charge_percent || 0) + 1;
+        logger.log(`[Razorpay Webhook Worker] NORMAL_EMI detected. Added 1% extra to admin-franchise charge rate. New rate: ${franchiseRule.charge_percent}%`);
+      }
+
       if (franchiseRule) {
         franchiseChargeAmount = ChargeService.calculateCharge(parseFloat(transactionAmount), franchiseRule).charge;
       } else {
         // use default MDR if no specific franchise/admin rule
-        const DEFAULT_MDR = 2.5;
+        let DEFAULT_MDR = 2.5;
+        if (isNormalEmi) {
+          DEFAULT_MDR += 1;
+          logger.log(`[Razorpay Webhook Worker] NORMAL_EMI detected. Added 1% extra to franchise default MDR. New MDR: ${DEFAULT_MDR}%`);
+        }
         franchiseChargeAmount = parseFloat((parseFloat(transactionAmount) * (DEFAULT_MDR/100)).toFixed(2));
       }
       franchiseEarning = chargeAmount - franchiseChargeAmount;
