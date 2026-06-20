@@ -370,10 +370,10 @@ const createBeneficiary = asyncHandler(async (req, res) => {
       });
     }
 
-  res.status(201).json({
-    success: true,
-    data: beneficiary,
-  });
+    res.status(201).json({
+      success: true,
+      data: beneficiary,
+    });
   } catch (error) {
     console.error('Sevenpay add beneficiary validation error:', error);
     return res.status(500).json({
