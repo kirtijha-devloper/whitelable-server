@@ -136,7 +136,7 @@ function deriveTokenInfo(rawResponse) {
 function normalizeStatus(statusRaw) {
   if (!statusRaw) return 'PENDING';
   const value = String(statusRaw).trim().toUpperCase();
-  if (['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'PROCESSED', 'APPROVED'].includes(value)) return 'SUCCESS';
+  if (['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'PROCESSED', 'APPROVED', 'CREDITED'].includes(value)) return 'SUCCESS';
   if (['FAILED', 'FAILURE', 'REJECTED', 'DECLINED', 'CANCELLED', 'ERROR'].includes(value)) return 'FAILED';
   if (['PENDING', 'PROCESSING', 'INPROCESS', 'IN_PROGRESS', 'INITIATED', 'SUBMITTED'].includes(value)) return 'PENDING';
   return 'PENDING';
