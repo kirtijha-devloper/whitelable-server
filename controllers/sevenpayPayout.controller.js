@@ -335,6 +335,7 @@ const getPayoutReference = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
+    reference,
     crn: reference,
     merchantRefId: reference,
   });
