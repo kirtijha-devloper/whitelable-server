@@ -2,6 +2,8 @@ const express = require('express');
 const axios = require('axios');
 const { encryptJsonPayload, decryptAesFromBase64 } = require('../utils/sevenpayEncryption');
 const { appendSevenpayTestLog } = require('../utils/sevenpayTestLogger');
+const PayoutTransaction = require('../models/PayoutTransaction');
+const { Op } = require('sequelize');
 
 const router = express.Router();
 
@@ -456,6 +458,64 @@ router.get('/status', async (req, res) => {
       error: payload.error,
     });
     return res.status(500).json(payload);
+  }
+});
+
+router.get('/debug/db', async (req, res) => {
+  try {
+    const { date } = req.query; // Format: YYYY-MM-DD
+    
+    let whereClause = {
+      payout_provider: 'Sevenpay'
+    };
+    
+    if (date) {
+      // Assuming server timezone is Asia/Kolkata but DB stores in UTC,
+      // it's safest to just do a broad substring match on the date string if timezone is an issue, 
+      // but let's do a standard date range.
+      const startDate = new Date(`${date}T00:00:00.000Z`);
+      const endDate = new Date(`${date}T23:59:59.999Z`);
+      whereClause.createdAt = {
+        [Op.between]: [startDate, endDate]
+      };
+    }
+    
+    const transactions = await PayoutTransaction.findAll({
+      where: whereClause,
+      order: [['createdAt', 'DESC']],
+      limit: 100 // Prevent crashing if there's thousands
+    });
+    
+    const parsedTransactions = transactions.map(tx => {
+      let parsedData = tx.data;
+      try {
+        if (typeof tx.data === 'string') {
+          parsedData = JSON.parse(tx.data);
+        }
+      } catch(e) {}
+      
+      return {
+        id: tx.id,
+        merchant_id: tx.merchant_id,
+        reference_id: tx.reference_id,
+        amount: tx.amount,
+        status: tx.status,
+        createdAt: tx.createdAt,
+        updatedAt: tx.updatedAt,
+        data: parsedData
+      };
+    });
+    
+    return res.status(200).json({
+      success: true,
+      count: parsedTransactions.length,
+      data: parsedTransactions
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 });
 
