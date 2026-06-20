@@ -1007,12 +1007,60 @@ const getPayoutAuditLogsByPayout = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'payout_id or reference_id is required' });
   }
 
-  const logs = await PayoutAuditLog.findAll({
+  let logs = await PayoutAuditLog.findAll({
     where,
     order: [['created_at', 'DESC']],
   });
 
   if (!logs || logs.length === 0) {
+    let txn = null;
+    if (payout_id) {
+      txn = await PayoutTransaction.findOne({ where: { id: payout_id, payout_provider: 'Sevenpay' } });
+    } else if (requestId || reference_id) {
+      txn = await PayoutTransaction.findOne({ where: { reference_id: requestId || reference_id, payout_provider: 'Sevenpay' } });
+    }
+
+    if (txn) {
+      const parsedData = parseJsonMaybe(txn.data) || {};
+      const virtualLogs = [];
+
+      virtualLogs.push({
+        id: `virtual-init-${txn.id}`,
+        payout_id: txn.id,
+        action: 'SEVENPAY_PAYOUT_INITIATE_FALLBACK',
+        details: {
+          reference_id: txn.reference_id,
+          amount: txn.amount,
+          status: 'PENDING',
+          requestPayload: parsedData.requestPayload || null,
+        },
+        created_at: txn.createdAt || txn.created_at || new Date().toISOString(),
+      });
+
+      if (txn.status !== 'PENDING') {
+        virtualLogs.push({
+          id: `virtual-update-${txn.id}`,
+          payout_id: txn.id,
+          action: 'SEVENPAY_STATUS_UPDATE_FALLBACK',
+          details: {
+            reference_id: txn.reference_id,
+            status: txn.status,
+            rawResponse: parsedData.latest || parsedData.normalized || null,
+            manualRefund: parsedData.manualRefund || null
+          },
+          created_at: txn.updatedAt || txn.updated_at || new Date().toISOString(),
+        });
+      }
+
+      virtualLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      return res.status(200).json({
+        success: true,
+        data: virtualLogs,
+        totalLogs: virtualLogs.length,
+      });
+    }
+
     return res.status(404).json({ success: false, message: 'No audit logs found for this payout.' });
   }
 
