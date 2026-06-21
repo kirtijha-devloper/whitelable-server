@@ -159,12 +159,6 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
     data: { [Op.iLike]: `%beneficiaryAccountNumber%${normalizedAccount}%` }
   };
 
-  if (normalizedIfsc) {
-    where[Op.and] = [
-      { data: { [Op.iLike]: `%beneficiaryIFSC%${normalizedIfsc}%` } }
-    ];
-  }
-
   const total = await PayoutTransaction.sum('amount', { where });
   return parseFloat(total || 0);
 }
