@@ -166,7 +166,7 @@ describe('Vimo Integration & Payout Limit Routes', () => {
     const originalSum = PayoutTransaction.sum;
     PayoutTransaction.sum = async (field, options) => {
       expect(options.where.payout_provider).to.equal('Vimo');
-      expect(options.where.data[Op.like]).to.contain('10078018221');
+      expect(options.where.data[Op.iLike]).to.contain('10078018221');
       return 150000;
     };
 

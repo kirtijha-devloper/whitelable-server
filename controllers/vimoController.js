@@ -120,8 +120,8 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-  let accountNo = beneficiaryAccountNumber;
-  let ifsc = beneficiaryIFSC;
+  let accountNo = beneficiaryAccountNumber ? String(beneficiaryAccountNumber).trim() : '';
+  let ifsc = beneficiaryIFSC ? String(beneficiaryIFSC).trim() : '';
 
   // Resolve beneficiary bank details from database if beneficiaryId is provided.
   // This ensures we always count all transactions sent to this account number,
@@ -138,6 +138,13 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
     }
   }
 
+  if (accountNo) {
+    accountNo = accountNo.trim();
+  }
+  if (ifsc) {
+    ifsc = ifsc.trim();
+  }
+
   if (!accountNo) {
     return 0;
   }
@@ -149,12 +156,12 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
     payout_provider: 'Vimo',
     createdAt: { [Op.gte]: monthStart, [Op.lt]: nextMonthStart },
     status: { [Op.notIn]: ['FAILED', 'REVERSED', 'CANCELLED'] },
-    data: { [Op.like]: `%"beneficiaryAccountNumber":"${normalizedAccount}"%` }
+    data: { [Op.iLike]: `%beneficiaryAccountNumber%${normalizedAccount}%` }
   };
 
   if (normalizedIfsc) {
     where[Op.and] = [
-      { data: { [Op.like]: `%"beneficiaryIFSC":"${normalizedIfsc}"%` } }
+      { data: { [Op.iLike]: `%beneficiaryIFSC%${normalizedIfsc}%` } }
     ];
   }
 
@@ -581,13 +588,48 @@ async function createPayout(req, res) {
       };
       const updatedData = { ...existingData, error: errorData };
       await payoutTransaction.update({
+        status: 'FAILED',
         data: JSON.stringify(updatedData)
       });
+
+      // Synchronous failure means no callback will come, so refund ledger immediately
+      const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
+      if (refundAmount > 0) {
+        const existingRefund = await Ledger.findOne({
+          where: {
+            transaction_type: 'payout_refund',
+            reference_id: payoutTransaction.id,
+            reference_table: 'PayoutTransactions'
+          }
+        });
+        if (!existingRefund) {
+          await ledgerService.createLedgerEntry({
+            userId: payoutTransaction.merchant_id,
+            transactionType: 'payout_refund',
+            referenceId: payoutTransaction.id,
+            referenceTable: 'PayoutTransactions',
+            description: `Refund for failed Vimo payout ${merchantRefId || payoutTransaction.id}`,
+            credit: refundAmount,
+          });
+
+          await PayoutAuditLog.create({
+            payout_id: payoutTransaction.id,
+            action: 'VIMO_REFUND_ISSUED',
+            details: {
+              merchantRefId,
+              merchant_id: payoutTransaction.merchant_id,
+              refundAmount,
+              amount: payoutTransaction.amount,
+              service_charge: payoutTransaction.service_charge,
+              source: 'sync_failure'
+            }
+          });
+        }
+      }
     } catch (updateErr) {
-      console.error('Failed to update PayoutTransaction data after failure response', updateErr);
+      console.error('Failed to update PayoutTransaction and refund ledger after synchronous failure', updateErr);
     }
 
-    // NOTE: we choose not to rollback ledger here; a separate job/webhook should settle
     console.error('Vimo payout failed', error);
     const normalized = normalizeError(error);
     return res.status(normalized.statusCode || 500).json({
