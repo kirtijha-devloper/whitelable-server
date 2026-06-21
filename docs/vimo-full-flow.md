@@ -1,13 +1,14 @@
 # Vimo Payout Integration & Flow Documentation
 
-This document describes the complete flow, API details, and logic implemented in the backend for the **Vimo Payout** service.
+This document describes the complete flow, API details, cryptography system, and database logic implemented in the backend for the **Vimo Payout** service.
 
 ---
 
 ## 1. Directory Structure & Key Files
-- **Service Layer**: [vimo.service.js](file:///d:/AbheePay/POS-SERVER/services/vimo.service.js) — Encryption, decryption, token authorization cache, and outgoing API requests to the Vimo bank provider.
-- **Controller Layer**: [vimoController.js](file:///d:/AbheePay/POS-SERVER/controllers/vimoController.js) — Request validation, ledger debiting, concurrency locks, duplicate checks, callback processing, and manual admin recovery.
+- **Service Layer**: [vimo.service.js](file:///d:/AbheePay/POS-SERVER/services/vimo.service.js) — Handles encryption/decryption, token authorization caching, and outgoing API requests to the Vimo bank provider.
+- **Controller Layer**: [vimoController.js](file:///d:/AbheePay/POS-SERVER/controllers/vimoController.js) — Manages request validation, ledger debiting/refunding, concurrency locks, duplicate checks, callback processing, and manual admin recovery.
 - **Routing Layer**: [vimoRoutes.js](file:///d:/AbheePay/POS-SERVER/routes/vimoRoutes.js) — Exposes API endpoints for the client and webhook callbacks.
+- **Penny Drop Validator**: [instantpayService.js](file:///d:/AbheePay/POS-SERVER/services/payments/instantpayService.js) — Validates bank accounts prior to beneficiary registration.
 
 ---
 
@@ -25,44 +26,122 @@ Vimo requires a bearer token generated via dynamic signature authorization.
   encryptdecryptKey: <VIMO_ENCRYPTDECRYPT_KEY>
   userId: <VIMO_USER_ID>
   ```
-* **Internal Behavior**: The backend caches this token (`tokenCache`) for up to 10 minutes (configurable via `VIMO_TOKEN_TTL_MS`). If the cache is expired or the provider returns a `401 Unauthorized` response, a fresh token is fetched automatically.
+* **Internal Behavior**: The backend caches this token (`tokenCache`) for up to 10 minutes (configurable via `VIMO_TOKEN_TTL_MS` in the `.env` file). If the cache is expired or the provider returns a `401 Unauthorized` response, a fresh token is fetched automatically.
 
 ---
 
-## 3. Beneficiary Management
+## 3. Cryptography & Payload Formats
+Vimo payloads are encrypted to ensure security during transit. The cryptography module in `vimo.service.js` handles both encryption of outgoing requests and decryption of incoming responses.
+
+### Key Derivation & Candidates
+The cryptocontext is derived dynamically based on key source variables:
+- **Keys used**: `secretKey`, `saltKey`, and `encryptdecryptKey` configured in env.
+- **Key Encoding**: Decided via `VIMO_CRYPTO_KEY_ENCODING` (`utf8`, `hex`, or `auto`).
+- **IV Encoding**: Decided via `VIMO_CRYPTO_IV_ENCODING` (`utf8`, `hex`, or `auto`).
+- **Cipher Modes**: The service attempts encryption using **AES-GCM** (fallback to **AES-CBC**).
+- **Candidate Contexts**: During decryption, if the default context fails, the service sequentially iterates through multiple candidate contexts (trying different encoding modes and IV lengths) to ensure robust payload decryption.
+
+### Encryption (`encryptPlainText`)
+- Outgoing JSON requests are stringified and encrypted.
+- **Auth Tag**: For AES-GCM, the generated 16-byte authentication tag is appended to the ciphertext.
+- **Payload Wrapper**: The encrypted payload is base64-encoded and sent wrapped inside a single `requestBody` property:
+  ```json
+  {
+    "requestBody": "ENCRYPTED_BASE64_STRING..."
+  }
+  ```
+
+### Decryption (`decryptCipherText`)
+- Decrypts the raw string or the `data`/`responseData` property of response bodies.
+- Decrypts using **AES-GCM**. If tag authentication fails, falls back to **AES-CBC**.
+- **Decompression**: If the decrypted buffer contains zipped data, it is decompressed using **GZIP** (fallback to standard inflate/unzip).
+- **Format Fallbacks**: If the response is already in plain readable UTF-8 or a simple base64-encoded string, it bypasses AES decryption.
+
+---
+
+## 4. Master Data & Helper APIs
+To ensure request compatibility, the service interacts with several Vimo master endpoints.
+
+### Fetch Bank List
+* **Endpoint**: `GET /api/vimo/banks`
+* **Provider URL**: `/masterapi/api/master/banklist`
+* **Caching**: The complete bank list is cached locally in memory for **24 hours** to prevent hitting rate limits.
+* **Bank Code Resolution**: When initiating a payout, the client may send a bank name or bank code. The backend uses `resolveBankCode` to match the bank against the cached list (using normalized exact matching, followed by partial string matching) to identify the correct Vimo bank code (e.g. `SBIN` -> code).
+
+### Fetch Purpose & State Lists
+* **Endpoints**: `GET /api/vimo/purposes`, `GET /api/vimo/states`
+* **Provider URLs**: `/masterapi/api/master/purposelist`, `/masterapi/api/master/statelist`
+* **Role**: Exposes valid alphanumeric codes for payment purposes (e.g., `MERCHANT_PAYOUT`) and state locations (e.g., `DL`).
+
+### Wallet Balance Lookup
+* **Endpoint**: `GET /api/vimo/balance`
+* **Vimo URL Candidates**: The backend checks multiple candidate URLs sequentially due to variations in Vimo environments:
+  1. `/gateway/api/payment/getwalletDetail`
+  2. `/gateway/api/payment/getWalletDetail`
+  3. `/payoutapi/api/payment/getwalletDetail`
+  4. `/payoutapi/api/payment/getWalletDetail`
+* **Params**: Requires an active `merchantRefId` to query the provider.
+
+---
+
+## 5. Beneficiary Management & Safeguards
 Before initiating a payout, a merchant must register and verify a beneficiary.
 
 ### Add Beneficiary
 * **Endpoint**: `POST /api/vimo/beneficiaries`
-* **Request Payload**:
+* **Payload**:
   ```json
   {
     "name": "John Doe",
     "account_number": "1234567890",
     "ifsc_code": "SBIN0000001",
     "bank_name": "State Bank of India",
-    "bank_code": "9999",
+    "bank_code": "SBIN",
     "branch_name": "Main Branch",
     "state": "DL",
     "mobile": "9876543210",
     "email": "johndoe@example.com"
   }
   ```
-* **Under-the-Hood Flow**:
-  1. **Bank Account Validation**: Calls the `instantpayService.verifyBankAccount` (Penny Drop) API to verify details first.
-  2. **Penny Drop Fee**: Automatically charges ₹1 to the user's wallet as a penny drop ledger verification fee.
-  3. **Verification Check**: If the validation status is `FAILED`, the request is rejected with a `400 Bad Request`. If successful, the verified name from the bank is saved.
-  4. **Database Persist**: Checks if a beneficiary with the same account number/IFSC already exists for the merchant. If so, updates it and sets the status to `active`; otherwise, creates a new record.
+* **Execution Flow**:
+  1. **InstantPay BAV Validation**: The backend calls `instantpayService.verifyBankAccount` (Penny Drop) to verify the account details.
+  2. **Penny Drop Verification Charge**: 
+     > [!NOTE]
+     > The InstantPay Penny Drop validation previously charged a ₹3 fee to the merchant's wallet. In the current codebase, the charge logic inside `instantpayService.js` is inactive/commented out.
+  3. **Verification Check**: If the validation status is `FAILED`, registration is rejected with `400 Bad Request`.
+  4. **Database Persist (Smart Update / De-duplication)**:
+     - Checks if a beneficiary with the same account number and IFSC code already exists for the merchant.
+     - **If exists**: Updates mutable fields (ensuring existing non-null fields like `state` are not overwritten with nulls if omitted in the new request) and changes status to `active`.
+     - **If new**: Creates a new record in the `Beneficiaries` table.
 
-### Other Beneficiary Endpoints
-* **List Active Beneficiaries**: `GET /api/vimo/beneficiaries`
-* **Update Beneficiary**: `PUT /api/vimo/beneficiaries/:id`
-* **Delete Beneficiary (Soft Delete)**: `DELETE /api/vimo/beneficiaries/:id` (Sets status to `inactive`).
+### Beneficiary Limit Check Safeguard
+A dedicated endpoint is exposed to retrieve the remaining monthly limit of a beneficiary based on their account number. This works as a local safeguard to avoid making redundant calls to the provider.
+* **Endpoint**: `POST /api/vimo/payout/limit-check`
+* **Payload**:
+  ```json
+  {
+    "accountNumber": "1234567890",
+    "bankIfsc": "SBIN0000001",
+    "provider": "Vimo"
+  }
+  ```
+* **Response**:
+  ```json
+  {
+    "success": true,
+    "provider": "Vimo",
+    "accountNumber": "1234567890",
+    "bankIfsc": "SBIN0000001",
+    "monthlyTotal": 150000.00,
+    "limit": 500000.00,
+    "remainingLimit": 350000.00
+  }
+  ```
 
 ---
 
-## 4. Payout Initiation Flow
-Initiates a fund transfer from the merchant's POS-SERVER wallet to the beneficiary bank account.
+## 6. Payout Initiation Flow
+Initiates a fund transfer from the merchant's wallet to the beneficiary bank account.
 
 ### Create Payout Request
 * **Endpoint**: `POST /api/vimo/payout`
@@ -79,9 +158,8 @@ Initiates a fund transfer from the merchant's POS-SERVER wallet to the beneficia
     "merchantRefId": "MV-123456" 
   }
   ```
-  *(Note: If `beneficiary_id` is supplied, the account, IFSC, and state location are auto-resolved from the DB. Alternatively, they can be sent raw).*
 
-### Step-by-Step Backend Execution
+### Execution Diagram & Steps
 ```mermaid
 sequenceDiagram
     participant Frontend
@@ -93,7 +171,7 @@ sequenceDiagram
     
     rect rgb(240, 248, 255)
         note right of Controller: Validation Checks
-        Controller->>Controller: 3-Min Duplicate Submission Check
+        Controller->>Controller: 3-Min Duplicate Submission Guard
         Controller->>Controller: Monthly Limit Check (Max ₹500,000 / Beneficiary)
         Controller->>Controller: Resolve Service Charge (Slab Rates)
     end
@@ -117,7 +195,8 @@ sequenceDiagram
 ```
 
 1. **3-Minute Duplicate Guard**: Prevents accidental double clicks. Checks for any active non-failed payouts with the same user, amount, and beneficiary within the last 3 minutes.
-2. **Monthly Cap Check**: Checks total non-failed payouts for this beneficiary in the current month. Maximum limit is **₹500,000**.
+2. **Monthly Cap Check**: Checks total non-failed payouts for this beneficiary in the current calendar month. The maximum allowed is **₹500,000**.
+   - **Note**: The system queries globally across all transactions matching the beneficiary's bank account number in the `data` payload, ensuring accurate calculation across duplicate beneficiary records and raw payouts.
 3. **Service Charge Resolution**: Queries `PayoutCharge` table for active slab rules based on the payout amount. If none exist, falls back to `VIMO_DEFAULT_SERVICE_CHARGE` env variable.
 4. **Concurrency Safety & Balance Deduct (SQL Transaction)**:
    - Locks the user row (`transaction.LOCK.UPDATE`) to serialise balance checks and avoid race conditions.
@@ -128,18 +207,21 @@ sequenceDiagram
 
 ---
 
-## 5. Payout Status Check
+## 7. Payout Status Check
 A merchant or cron job can fetch the latest transaction status from Vimo.
 * **Endpoint**: `GET` / `POST` `/api/vimo/payout/status`
 * **Query/Body Params**: `merchantRefId` or `txnId`
 * **Internal Behavior**:
   1. Calls Vimo `/payoutapi/api/payment/payoutstatuscheck`.
-  2. The input `merchantRefId` or `txnId` is encrypted as plain text and sent.
-  3. Decrypts response payload and writes debugging logs to `logs/vimoStatusCheck.log`.
+  2. **Plain Text Encryption**:
+     > [!IMPORTANT]
+     > Unlike normal payloads, the status check API expects a **raw string** value of the ID (`merchantRefId` or `txnId`) rather than a JSON object. This raw string is encrypted directly and wrapped in the `requestBody` envelope.
+  3. Decrypts the response payload.
+  4. Writes a beautifully formatted log entry detailing the transaction states, encryption, and decrypted responses to `logs/vimoStatusCheck.log`.
 
 ---
 
-## 6. Webhook / Callback Handler
+## 8. Webhook / Callback Handler
 Vimo calls this endpoint to notify the server of status updates asynchronously.
 * **Endpoint**: `POST /api/vimo/callback` (Public)
 
@@ -156,7 +238,7 @@ Vimo calls this endpoint to notify the server of status updates asynchronously.
 
 ---
 
-## 7. Manual Recovery (Admin override)
+## 9. Manual Recovery (Admin override)
 If a payout gets stuck in `Processing` due to network loss or missing callbacks, admins can manually mark it failed.
 * **Endpoint**: `POST /api/vimo/payout/admin/fail` (Requires `PAYOUT_MANAGE` permission)
 * **Rule**: Payout must have been stuck in `Processing` for **at least 10 minutes**.
