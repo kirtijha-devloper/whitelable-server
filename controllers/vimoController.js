@@ -849,8 +849,8 @@ async function fetchTokenStatus(req, res) {
 }
 
 async function getWalletBalance(req, res) {
-  if (!req.user || (!isAdmin(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.PAYOUT_READ))) {
-    return res.status(403).json({ success: false, message: 'Admin or authorized employee access required' });
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
   }
 
   try {

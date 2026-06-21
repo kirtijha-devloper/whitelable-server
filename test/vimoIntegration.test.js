@@ -19,6 +19,7 @@ describe('Vimo Integration & Payout Limit Routes', () => {
   let originalEmployeeAccessRoleFindByPk;
   let originalCreatePayout;
   let originalCheckPayoutStatus;
+  let originalGetWalletBalance;
   const token = jwt.sign({ user: { id: 123 } }, process.env.ACCESS_TOKEN_SECRET);
 
   beforeEach(() => {
@@ -26,6 +27,7 @@ describe('Vimo Integration & Payout Limit Routes', () => {
     originalEmployeeAccessRoleFindByPk = EmployeeAccessRole.findByPk;
     originalCreatePayout = vimoController.createPayout;
     originalCheckPayoutStatus = vimoController.checkPayoutStatus;
+    originalGetWalletBalance = vimoController.getWalletBalance;
 
     // Clear require cache for router so it picks up the overridden controller methods
     delete require.cache[require.resolve('../routes/vimoRoutes')];
@@ -44,6 +46,7 @@ describe('Vimo Integration & Payout Limit Routes', () => {
     EmployeeAccessRole.findByPk = originalEmployeeAccessRoleFindByPk;
     vimoController.createPayout = originalCreatePayout;
     vimoController.checkPayoutStatus = originalCheckPayoutStatus;
+    vimoController.getWalletBalance = originalGetWalletBalance;
   });
 
   it('rejects request if authorization token is missing', async () => {
@@ -185,5 +188,44 @@ describe('Vimo Integration & Payout Limit Routes', () => {
     expect(res.body.monthlyTotal).to.equal(150000);
     expect(res.body.limit).to.equal(500000);
     expect(res.body.remainingLimit).to.equal(350000);
+  });
+
+  it('allows fetching wallet balance when any authenticated user token is provided', async () => {
+    User.findByPk = async (id) => {
+      return {
+        id: 123,
+        role: 'merchant',
+        status: 'active',
+        permissions: [],
+        employee_access_role_id: null,
+        toJSON() { return this; }
+      };
+    };
+
+    vimoController.getWalletBalance = (req, res) => {
+      res.json({
+        success: true,
+        message: 'Wallet detail fetched successfully',
+        merchantRefId: 'APV0000030664',
+        data: {
+          availableBalance: 60397.35
+        }
+      });
+    };
+
+    // Re-require to bind the overridden getWalletBalance handler
+    delete require.cache[require.resolve('../routes/vimoRoutes')];
+    const freshVimoRoutes = require('../routes/vimoRoutes');
+    const freshApp = express();
+    freshApp.use(express.json());
+    freshApp.use('/api/vimo', freshVimoRoutes);
+
+    const res = await request(freshApp)
+      .get('/api/vimo/balance')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.data.availableBalance).to.equal(60397.35);
   });
 });

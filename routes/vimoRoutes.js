@@ -15,7 +15,7 @@ router.get('/auth/token', vimoController.fetchTokenStatus); // support GET for f
 router.get('/banks', vimoController.fetchBankList);
 router.get('/purposes', vimoController.fetchPurposeList);
 router.get('/states', vimoController.fetchStateList);
-router.get('/balance', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.PAYOUT_READ), vimoController.getWalletBalance);
+router.get('/balance', vimoController.getWalletBalance);
 
 // Vimo payout and beneficiary management
 router.get('/payout/reference', vimoController.getPayoutReference);
