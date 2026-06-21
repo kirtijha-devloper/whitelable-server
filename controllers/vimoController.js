@@ -588,46 +588,10 @@ async function createPayout(req, res) {
       };
       const updatedData = { ...existingData, error: errorData };
       await payoutTransaction.update({
-        status: 'FAILED',
         data: JSON.stringify(updatedData)
       });
-
-      // Synchronous failure means no callback will come, so refund ledger immediately
-      const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
-      if (refundAmount > 0) {
-        const existingRefund = await Ledger.findOne({
-          where: {
-            transaction_type: 'payout_refund',
-            reference_id: payoutTransaction.id,
-            reference_table: 'PayoutTransactions'
-          }
-        });
-        if (!existingRefund) {
-          await ledgerService.createLedgerEntry({
-            userId: payoutTransaction.merchant_id,
-            transactionType: 'payout_refund',
-            referenceId: payoutTransaction.id,
-            referenceTable: 'PayoutTransactions',
-            description: `Refund for failed Vimo payout ${merchantRefId || payoutTransaction.id}`,
-            credit: refundAmount,
-          });
-
-          await PayoutAuditLog.create({
-            payout_id: payoutTransaction.id,
-            action: 'VIMO_REFUND_ISSUED',
-            details: {
-              merchantRefId,
-              merchant_id: payoutTransaction.merchant_id,
-              refundAmount,
-              amount: payoutTransaction.amount,
-              service_charge: payoutTransaction.service_charge,
-              source: 'sync_failure'
-            }
-          });
-        }
-      }
     } catch (updateErr) {
-      console.error('Failed to update PayoutTransaction and refund ledger after synchronous failure', updateErr);
+      console.error('Failed to update PayoutTransaction data after failure response', updateErr);
     }
 
     console.error('Vimo payout failed', error);
