@@ -1342,6 +1342,68 @@ async function checkPayoutStatus(req, res) {
     }
 
     const result = await vimoService.checkPayoutStatus({ merchantRefId, txnId });
+
+    try {
+      let payoutTransaction = null;
+      if (merchantRefId) {
+        payoutTransaction = await PayoutTransaction.findOne({
+          where: { reference_id: merchantRefId }
+        });
+      }
+      if (!payoutTransaction && txnId) {
+        payoutTransaction = await PayoutTransaction.findOne({
+          where: {
+            data: {
+              [Op.like]: `%${txnId}%`
+            }
+          }
+        });
+      }
+
+      if (payoutTransaction) {
+        const currentStatus = String(payoutTransaction.status || '').toUpperCase();
+        const responseObj = (Array.isArray(result.data) && result.data.length > 0)
+          ? result.data[0]
+          : (result.data && typeof result.data === 'object') ? result.data : null;
+
+        if (responseObj) {
+          const responseStatus = String(responseObj.txnStatus || '').toUpperCase();
+
+          // Strictly follow PENDING/PROCESSING -> SUCCESS only
+          if (currentStatus !== 'SUCCESS' && responseStatus === 'SUCCESS') {
+            let existingData = {};
+            if (payoutTransaction.data) {
+              try {
+                existingData = JSON.parse(payoutTransaction.data);
+              } catch (_) {
+                existingData = { original: payoutTransaction.data };
+              }
+            }
+            const updatedData = { ...existingData, ...responseObj };
+
+            await payoutTransaction.update({
+              status: 'SUCCESS',
+              data: JSON.stringify(updatedData)
+            });
+
+            try {
+              await PayoutAuditLog.create({
+                payout_id: payoutTransaction.id,
+                action: 'VIMO_STATUS_CHECK_AUTO_SUCCESS',
+                details: {
+                  previousStatus: payoutTransaction.status,
+                  newStatus: 'SUCCESS',
+                  responseObj
+                }
+              });
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.error('Failed to auto-update Vimo payout status on checkStatus', dbErr);
+    }
+
     return res.status(200).json({
       success: true,
       message: result.message,
