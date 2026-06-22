@@ -1007,6 +1007,10 @@ async function fetchWalletBalance(merchantRefId) {
   }
 
   const pathCandidates = [
+    '/api/Payment/getwalletDetail',
+    '/api/payment/getwalletDetail',
+    '/api/Payment/getWalletDetail',
+    '/api/payment/getWalletDetail',
     '/gateway/api/payment/getwalletDetail',
     '/gateway/api/payment/getWalletDetail',
     '/payoutapi/api/payment/getwalletDetail',
