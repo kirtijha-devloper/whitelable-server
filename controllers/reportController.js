@@ -839,6 +839,7 @@ const getPayoutReport = asyncHandler(async (req, res) => {
       });
       const initialLedger = ledgerEntries.find((entry) => entry.transaction_type === 'payout') || ledgerEntries[0] || null;
       const finalLedger = ledgerEntries[ledgerEntries.length - 1] || initialLedger;
+      const isRefunded = ledgerEntries.some(e => e.transaction_type === 'payout_refund');
       return {
         id:             p.id,
         date:           p.createdAt,
@@ -856,7 +857,8 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         rrn:            referenceFields.rrn,
         utr:            referenceFields.utr,
         balance_before: initialLedger ? parseFloat(initialLedger.balance_before) : null,
-        balance_after:  finalLedger ? parseFloat(finalLedger.balance)        : null
+        balance_after:  finalLedger ? parseFloat(finalLedger.balance)        : null,
+        is_refunded:    isRefunded
       };
     });
 

@@ -1,5 +1,26 @@
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { encryptJsonPayload, decryptAesFromBase64 } = require('../utils/sevenpayEncryption');
+
+const SEVENPAY_LOG_FILE = path.join(__dirname, '../logs/sevenpay.log');
+
+function sevenpayLog(level, message, data) {
+  try {
+    const ts = new Date().toISOString();
+    let extra = '';
+    if (data !== undefined) {
+      if (typeof data === 'object') {
+        extra = ' | ' + JSON.stringify(data);
+      } else {
+        extra = ' | ' + String(data);
+      }
+    }
+    const line = `[${ts}] [${level}] ${message}${extra}\n`;
+    fs.appendFileSync(SEVENPAY_LOG_FILE, line);
+    // console.log(`[SevenPay] [${level}] ${message}${extra}`); // Optional console log
+  } catch (_) { /* never crash due to log failure */ }
+}
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.SEVENPAY_TIMEOUT_MS || 30000);
 const DEFAULT_LOGIN_PATH = process.env.SEVENPAY_LOGIN_PATH || '/api/Account/GetToken/Login';
@@ -115,7 +136,7 @@ function deriveTokenInfo(rawResponse) {
 function normalizeStatus(statusRaw) {
   if (!statusRaw) return 'PENDING';
   const value = String(statusRaw).trim().toUpperCase();
-  if (['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'PROCESSED', 'APPROVED'].includes(value)) return 'SUCCESS';
+  if (['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'PROCESSED', 'APPROVED', 'CREDITED'].includes(value)) return 'SUCCESS';
   if (['FAILED', 'FAILURE', 'REJECTED', 'DECLINED', 'CANCELLED', 'ERROR'].includes(value)) return 'FAILED';
   if (['PENDING', 'PROCESSING', 'INPROCESS', 'IN_PROGRESS', 'INITIATED', 'SUBMITTED'].includes(value)) return 'PENDING';
   return 'PENDING';
@@ -210,7 +231,7 @@ async function login(options = {}) {
   const client = getAxiosClient();
   const payload = buildLoginPayload();
   const encryptedRequest = buildEncryptedRequest(payload);
-  let rawResponse;
+  sevenpayLog('INFO', 'Sending authentication request to SevenPay');
   try {
     const response = await client.post(resolveUrlPath(DEFAULT_LOGIN_PATH), encryptedRequest.body, {
       headers: {
@@ -229,6 +250,11 @@ async function login(options = {}) {
     } catch {
       rawResponse = decryptedText;
     }
+    sevenpayLog('SUCCESS', 'Authentication successful', {
+      userId: rawResponse?.data?.userId,
+      orgId: rawResponse?.data?.orgId,
+      responseCode: rawResponse?.responseCode,
+    });
   } catch (error) {
     if (error.response?.data) {
       try {
@@ -240,6 +266,11 @@ async function login(options = {}) {
         }
       } catch (err) {}
     }
+    sevenpayLog('ERROR', 'Authentication failed', {
+      message: error.message,
+      statusCode: error.response?.status,
+      responseData: error.response?.data,
+    });
     throw error;
   }
   const tokenInfo = deriveTokenInfo(rawResponse);
@@ -276,11 +307,19 @@ function buildEncryptedRequest(payload) {
 }
 
 async function sendEncryptedRequest({ path, payload }) {
-  const auth = await login();
+  let auth = await login();
+  sevenpayLog('INFO', 'Authenticating with SevenPay');
+
   const client = getAxiosClient();
   const encryptedRequest = buildEncryptedRequest(payload);
 
   const isGet = path === DEFAULT_STATUS_PATH;
+
+  sevenpayLog('INFO', `Sending request to ${path}`, {
+    method: isGet ? 'GET' : 'POST',
+    isGet,
+    plainPayload: payload
+  });
 
   let rawResponse;
   try {
@@ -312,6 +351,9 @@ async function sendEncryptedRequest({ path, payload }) {
     } catch {
       rawResponse = decryptedText;
     }
+
+    sevenpayLog('SUCCESS', `Response from ${path}`, rawResponse);
+
   } catch (error) {
     if (error.response?.data) {
       try {
@@ -323,6 +365,11 @@ async function sendEncryptedRequest({ path, payload }) {
         }
       } catch (err) {}
     }
+    sevenpayLog('ERROR', `Request to ${path} failed`, {
+      message: error.message,
+      statusCode: error.response?.status,
+      responseData: error.response?.data,
+    });
     throw error;
   }
 

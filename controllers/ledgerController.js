@@ -1,9 +1,83 @@
 const asyncHandler = require("express-async-handler");
 const WalletTransaction = require("../models/WalletTransaction");
 const User = require("../models/User");
+const Ledger = require("../models/Ledger");
+const PayoutTransaction = require("../models/PayoutTransaction");
+const PayoutAuditLog = require("../models/PayoutAuditLog");
 const ledgerService = require("../services/ledgerService");
 const PosMachine = require("../models/posMachine");
 const { Op } = require("sequelize");
+const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require("../utils/permissions");
+
+function canManageLedgerRefunds(user) {
+  return normalizeRole(user?.role) === 'admin'
+    || hasPermission(user, EMPLOYEE_PERMISSIONS.LEDGER_MANAGE)
+    || hasPermission(user, EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE);
+}
+
+async function buildManualActions(entry, metadata, currentUser) {
+  const actions = {
+    can_refund_sevenpay: false,
+    refund_endpoint: null,
+    reason: null,
+  };
+
+  if (!canManageLedgerRefunds(currentUser)) {
+    actions.reason = 'admin_or_authorized_employee_required';
+    return actions;
+  }
+
+  if (!entry || entry.transaction_type !== 'payout' || entry.reference_table !== 'PayoutTransactions' || !entry.reference_id) {
+    actions.reason = 'not_a_payout_ledger_entry';
+    return actions;
+  }
+
+  const payoutTransaction = await PayoutTransaction.findByPk(entry.reference_id, {
+    attributes: ['id', 'status', 'payout_provider', 'reference_id'],
+  });
+
+  if (!payoutTransaction) {
+    actions.reason = 'linked_payout_not_found';
+    return actions;
+  }
+
+  if (payoutTransaction.payout_provider !== 'Sevenpay') {
+    actions.reason = 'manual_refund_supported_only_for_sevenpay';
+    return actions;
+  }
+
+  if (String(payoutTransaction.status || '').toUpperCase() !== 'FAILED') {
+    actions.reason = 'payout_status_must_be_failed';
+    return actions;
+  }
+
+  const existingRefund = await Ledger.findOne({
+    where: {
+      transaction_type: 'payout_refund',
+      reference_id: payoutTransaction.id,
+      reference_table: 'PayoutTransactions',
+    },
+    attributes: ['id'],
+  });
+
+  if (existingRefund) {
+    actions.reason = 'refund_already_exists';
+    return {
+      ...actions,
+      existing_refund_ledger_id: existingRefund.id,
+    };
+  }
+
+  return {
+    can_refund_sevenpay: true,
+    refund_endpoint: `/api/ledger/entries/${entry.id}/manual-refund`,
+    reason: null,
+    payout_reference: payoutTransaction.reference_id,
+    payout_transaction_id: payoutTransaction.id,
+    payout_provider: payoutTransaction.payout_provider,
+    total_refund_amount: (parseFloat(metadata?.payout_amount || 0) + parseFloat(metadata?.service_charge || 0)) || null,
+  };
+}
 
 const listStatement = asyncHandler(async (req, res) => {
   try {
@@ -175,7 +249,7 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
     }
 
     // Format entries with metadata parsing
-    const formattedEntries = entries.map(entry => {
+    const formattedEntries = await Promise.all(entries.map(async (entry) => {
       let metadata = null;
       if (entry.metadata) {
         try {
@@ -195,6 +269,8 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
         description = `${description} | Txn: ${entry.transaction_id} | RRN: ${notificationMap[entry.transaction_id]}`;
       }
 
+      const manual_actions = await buildManualActions(entry, metadata, req.user);
+
       return {
         id: entry.id,
         transaction_type: entry.transaction_type,
@@ -211,10 +287,11 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
         balance: balanceAfter,                    // Alias kept for backward compatibility
         status: entry.status,
         metadata: metadata,
+        manual_actions,
         created_at: entry.createdAt,
         updated_at: entry.updatedAt
       };
-    });
+    }));
 
     // Get user details
     const user = await User.findByPk(parseInt(targetUserId), {
@@ -296,6 +373,7 @@ const getLedgerEntryDetails = asyncHandler(async (req, res) => {
     const credit = parseFloat(entry.credit) || 0;
     const balanceBefore = parseFloat(entry.balance_before) || 0;
     const balanceAfter = parseFloat(entry.balance) || 0;
+    const detailManualActions = await buildManualActions(entry, metadata, req.user);
 
     res.status(200).json({
       success: true,
@@ -317,6 +395,7 @@ const getLedgerEntryDetails = asyncHandler(async (req, res) => {
         balance: balanceAfter,
         status: entry.status,
         metadata: metadata,
+        manual_actions: detailManualActions,
         created_at: entry.createdAt,
         updated_at: entry.updatedAt,
         // Full source record for drill-down
@@ -332,4 +411,149 @@ const getLedgerEntryDetails = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { listStatement, getLedgerEntries, getLedgerEntryDetails };
+const manualRefundLedgerEntry = asyncHandler(async (req, res) => {
+  if (!canManageLedgerRefunds(req.user)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Admin or authorized employee access required.',
+    });
+  }
+
+  const ledgerId = parseInt(req.params.id, 10);
+  if (!ledgerId || isNaN(ledgerId)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Valid ledger entry id is required.',
+    });
+  }
+
+  const entry = await Ledger.findByPk(ledgerId);
+  if (!entry) {
+    return res.status(404).json({
+      success: false,
+      message: 'Ledger entry not found.',
+    });
+  }
+
+  if (entry.transaction_type !== 'payout' || entry.reference_table !== 'PayoutTransactions' || !entry.reference_id) {
+    return res.status(400).json({
+      success: false,
+      message: 'This ledger entry is not eligible for manual payout refund.',
+    });
+  }
+
+  const payoutTransaction = await PayoutTransaction.findByPk(entry.reference_id);
+  if (!payoutTransaction) {
+    return res.status(404).json({
+      success: false,
+      message: 'Linked payout transaction not found.',
+    });
+  }
+
+  if (payoutTransaction.payout_provider !== 'Sevenpay') {
+    return res.status(400).json({
+      success: false,
+      message: 'Manual refund from ledger is currently supported only for SevenPay payouts.',
+    });
+  }
+
+  if (String(payoutTransaction.status || '').toUpperCase() !== 'FAILED') {
+    return res.status(400).json({
+      success: false,
+      message: 'Manual refund is allowed only when the SevenPay payout status is FAILED.',
+      status: payoutTransaction.status,
+    });
+  }
+
+  const existingRefund = await Ledger.findOne({
+    where: {
+      transaction_type: 'payout_refund',
+      reference_id: payoutTransaction.id,
+      reference_table: 'PayoutTransactions',
+    },
+  });
+
+  if (existingRefund) {
+    return res.status(200).json({
+      success: true,
+      message: 'Refund already exists; no action taken.',
+      refundCreated: false,
+      existingRefundLedgerId: existingRefund.id,
+      payoutTransactionId: payoutTransaction.id,
+    });
+  }
+
+  let payoutMetadata = null;
+  if (entry.metadata) {
+    try {
+      payoutMetadata = typeof entry.metadata === 'string' ? JSON.parse(entry.metadata) : entry.metadata;
+    } catch (_error) {
+      payoutMetadata = entry.metadata;
+    }
+  }
+
+  const refundAmount = parseFloat(payoutTransaction.amount || 0) + parseFloat(payoutTransaction.service_charge || 0);
+  const refundEntry = await ledgerService.createLedgerEntry({
+    userId: payoutTransaction.merchant_id,
+    transactionType: 'payout_refund',
+    referenceId: payoutTransaction.id,
+    referenceTable: 'PayoutTransactions',
+    description: `Manual refund for failed SevenPay payout ${payoutTransaction.reference_id}`,
+    credit: refundAmount,
+    metadata: {
+      payout_provider: 'Sevenpay',
+      payout_reference: payoutTransaction.reference_id,
+      original_ledger_id: entry.id,
+      original_payout_amount: payoutTransaction.amount,
+      original_service_charge: payoutTransaction.service_charge,
+      original_payout_metadata: payoutMetadata,
+      refund_source: 'ledger_manual',
+      performed_by: req.user?.id,
+      performed_role: req.user?.role,
+    }
+  });
+
+  let snapshot = null;
+  if (payoutTransaction.data) {
+    try {
+      snapshot = typeof payoutTransaction.data === 'string' ? JSON.parse(payoutTransaction.data) : payoutTransaction.data;
+    } catch (_error) {
+      snapshot = {};
+    }
+  }
+  snapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
+  snapshot.manualRefund = {
+    refundedAt: new Date().toISOString(),
+    refundedBy: req.user?.id || null,
+    refundedRole: req.user?.role || null,
+    refundLedgerId: refundEntry?.id || null,
+    refundAmount,
+    source: 'ledger_manual',
+  };
+  await payoutTransaction.update({ data: JSON.stringify(snapshot) });
+
+  await PayoutAuditLog.create({
+    payout_id: payoutTransaction.id,
+    action: 'SEVENPAY_MANUAL_REFUND',
+    details: {
+      reference_id: payoutTransaction.reference_id,
+      requestedBy: req.user?.id,
+      requestedRole: req.user?.role,
+      sourceLedgerId: entry.id,
+      refundLedgerId: refundEntry?.id || null,
+      refundAmount,
+      payoutStatus: payoutTransaction.status,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: 'SevenPay manual refund created successfully.',
+    refundCreated: true,
+    refundLedgerId: refundEntry?.id || null,
+    refundAmount,
+    payoutTransactionId: payoutTransaction.id,
+  });
+});
+
+module.exports = { listStatement, getLedgerEntries, getLedgerEntryDetails, manualRefundLedgerEntry };

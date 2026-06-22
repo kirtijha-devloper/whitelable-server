@@ -173,29 +173,44 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
+  let accountNo = beneficiaryAccountNumber ? String(beneficiaryAccountNumber).trim() : '';
+  let ifsc = beneficiaryIFSC ? String(beneficiaryIFSC).trim() : '';
+
+  // Resolve beneficiary bank details from database if beneficiaryId is provided.
+  // This ensures we always count all transactions sent to this account number,
+  // regardless of what local beneficiary ID or merchant initiated them.
+  if (beneficiaryId) {
+    try {
+      const beneficiary = await Beneficiary.findByPk(beneficiaryId);
+      if (beneficiary) {
+        accountNo = accountNo || beneficiary.account_number;
+        ifsc = ifsc || beneficiary.ifsc_code;
+      }
+    } catch (err) {
+      vimoLog && vimoLog('WARN', 'Error resolving beneficiary in getVimoBeneficiaryMonthlyTotal', { error: err.message, beneficiaryId });
+    }
+  }
+
+  if (accountNo) {
+    accountNo = accountNo.trim();
+  }
+  if (ifsc) {
+    ifsc = ifsc.trim();
+  }
+
+  if (!accountNo) {
+    return 0;
+  }
+
+  const normalizedAccount = escapeSqlLike(accountNo);
+  const normalizedIfsc = ifsc ? escapeSqlLike(ifsc) : null;
+
   const where = {
     payout_provider: 'Vimo',
     createdAt: { [Op.gte]: monthStart, [Op.lt]: nextMonthStart },
     status: { [Op.notIn]: ['FAILED', 'REVERSED', 'CANCELLED'] },
+    data: { [Op.iLike]: `%beneficiaryAccountNumber%${normalizedAccount}%` }
   };
-
-  if (beneficiaryId) {
-    where.beneficiary_id = beneficiaryId;
-  } else {
-    const normalizedAccount = beneficiaryAccountNumber ? escapeSqlLike(beneficiaryAccountNumber) : null;
-    const normalizedIfsc = beneficiaryIFSC ? escapeSqlLike(beneficiaryIFSC) : null;
-
-    if (!normalizedAccount) {
-      return 0;
-    }
-
-    where.data = { [Op.like]: `%"beneficiaryAccountNumber":"${normalizedAccount}"%` };
-    if (normalizedIfsc) {
-      where[Op.and] = [
-        { data: { [Op.like]: `%"beneficiaryIFSC":"${normalizedIfsc}"%` } }
-      ];
-    }
-  }
 
   const total = await PayoutTransaction.sum('amount', { where });
   return parseFloat(total || 0);
@@ -626,7 +641,6 @@ async function createPayout(req, res) {
       console.error('Failed to update PayoutTransaction data after failure response', updateErr);
     }
 
-    // NOTE: we choose not to rollback ledger here; a separate job/webhook should settle
     console.error('Vimo payout failed', error);
     const normalized = normalizeError(error);
     return res.status(normalized.statusCode || 500).json({
@@ -888,8 +902,8 @@ async function fetchTokenStatus(req, res) {
 }
 
 async function getWalletBalance(req, res) {
-  if (!req.user || (!isAdmin(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.PAYOUT_READ))) {
-    return res.status(403).json({ success: false, message: 'Admin or authorized employee access required' });
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
   }
 
   try {
@@ -1273,6 +1287,51 @@ async function deleteBeneficiary(req, res) {
   return res.status(200).json({ success: true, message: 'Beneficiary deleted successfully' });
 }
 
+async function checkBeneficiaryLimit(req, res) {
+  try {
+    const { accountNumber, bankIfsc, provider } = req.body;
+
+    if (!accountNumber) {
+      return res.status(400).json({ success: false, message: 'accountNumber is required' });
+    }
+
+    const targetProvider = (provider || 'Vimo').trim().toLowerCase();
+    
+    if (targetProvider !== 'vimo') {
+      return res.status(400).json({ success: false, message: `Provider '${provider}' is not supported. Only 'Vimo' is supported.` });
+    }
+
+    const monthlyTotal = await getVimoBeneficiaryMonthlyTotal({
+      beneficiaryAccountNumber: accountNumber,
+      beneficiaryIFSC: bankIfsc
+    });
+
+    const limit = 500000;
+    const remainingLimit = Math.max(0, limit - monthlyTotal);
+
+    return res.status(200).json({
+      success: true,
+      provider: 'Vimo',
+      accountNumber,
+      bankIfsc: bankIfsc || null,
+      monthlyTotal,
+      limit,
+      remainingLimit
+    });
+  } catch (error) {
+    const normalized = normalizeError(error, {
+      statusCode: 500,
+      message: 'Failed to check beneficiary limit',
+      code: 'LIMIT_CHECK_ERROR'
+    });
+    return res.status(normalized.statusCode || 500).json({
+      success: false,
+      message: normalized.message,
+      error: normalized
+    });
+  }
+}
+
 async function checkPayoutStatus(req, res) {
   try {
     const merchantRefId = req.params.merchantRefId || req.query.merchantRefId || req.body.merchantRefId;
@@ -1308,6 +1367,7 @@ async function checkPayoutStatus(req, res) {
 module.exports = {
   createPayout,
   checkPayoutStatus,
+  checkBeneficiaryLimit,
   fetchTokenStatus,
   fetchBankList,
   fetchPurposeList,
