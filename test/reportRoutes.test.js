@@ -10,6 +10,7 @@ const { expect } = require('chai');
 const request    = require('supertest');
 const express    = require('express');
 const jwt        = require('jsonwebtoken');
+const { Op } = require('sequelize');
 
 process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secret';
 
@@ -234,7 +235,7 @@ describe('GET /api/report/razorpay', () => {
     amount: '1000.00', currency_code: 'INR', payment_mode: 'CARD',
     payment_card_type: 'DEBIT', payment_card_brand: 'VISA',
     rr_number: 'RR123', device_serial: 'SN123', posting_date: new Date(),
-    status: 'CAPTURED', user_id: 2, pos_machine_id: 7,
+    status: 'CAPTURED', source: 'agro_hdfc', user_id: 2, pos_machine_id: 7,
     user: { id: 2, name: 'Merch', email: 'm@m.com', mobile_number: '9999', abheepay_id: 'AP1', organization_name: 'Org' },
     posMachine: { id: 7, mid_number: 'MID001', tid_number: 'TID001', device_serial_number: 'SN123' },
     createdAt: new Date()
@@ -256,6 +257,7 @@ describe('GET /api/report/razorpay', () => {
     expect(res.body.pagination).to.have.keys('total', 'page', 'limit', 'totalPages');
     expect(res.body.data[0].balance_before).to.equal(500);
     expect(res.body.data[0].balance_after).to.equal(1000);
+    expect(res.body.data[0].source).to.equal('agro_hdfc');
   });
 
   it('merchant is scoped to their own user_id', async () => {
@@ -353,6 +355,36 @@ describe('GET /api/report/razorpay', () => {
 
     expect(capturedOpts.limit).to.equal(10);
     expect(capturedOpts.offset).to.equal(10);
+  });
+
+  it('applies the source filter when provided', async () => {
+    let capturedWhere;
+    RazorpayNotification.findAndCountAll = async ({ where }) => {
+      capturedWhere = where;
+      return { count: 0, rows: [] };
+    };
+    Ledger.findAll = emptyFindAll;
+
+    await request(app)
+      .get('/api/report/razorpay?source=agro_hdfc')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(capturedWhere.source).to.equal('agro_hdfc');
+  });
+
+  it('maps agro_axis report filter to include legacy agro rows', async () => {
+    let capturedWhere;
+    RazorpayNotification.findAndCountAll = async ({ where }) => {
+      capturedWhere = where;
+      return { count: 0, rows: [] };
+    };
+    Ledger.findAll = emptyFindAll;
+
+    await request(app)
+      .get('/api/report/razorpay?source=agro_axis')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(capturedWhere.source[Op.in]).to.deep.equal(['agro_axis', 'agro']);
   });
 
   it('rows with no ledger entry get null balance fields', async () => {

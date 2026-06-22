@@ -12,6 +12,7 @@ const User = require("../../../models/User");
 const MerchantTransactionCharge = require("../../../models/MerchantTransactionCharge");
 const { Op } = require("sequelize");
 const { EMPLOYEE_PERMISSIONS, hasPermission } = require("../../../utils/permissions");
+const { WEBHOOK_SOURCES, LEGACY_AGRO_SOURCE, extractCardClassification } = require("../../../utils/razorpay/sources");
 
 // ── Minimal file logger for incoming webhook notifications ────────────────────
 const LOG_FILE = path.join(__dirname, "../../../logs/webhookNotifications.log");
@@ -29,12 +30,22 @@ function logNotification(source, body) {
         fs.appendFileSync(LOG_FILE, line);
     } catch (_) { /* never crash the request due to a log write failure */ }
 }
+
+function buildSourceFilter(source) {
+    if (!source) return null;
+
+    if (source === WEBHOOK_SOURCES.AGRO_AXIS || source === LEGACY_AGRO_SOURCE) {
+        return { [Op.in]: [WEBHOOK_SOURCES.AGRO_AXIS, LEGACY_AGRO_SOURCE] };
+    }
+
+    return source;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function handleRzpNotification(req, res) {
     try {
         const body = req.body;
-        const source = req.webhookSource || 'agro'; // default if somehow not set
+        const source = req.webhookSource || WEBHOOK_SOURCES.AGRO_AXIS;
 
         // write a short one-line entry immediately (before anything else can fail)
         logNotification(source, body);
@@ -51,7 +62,7 @@ async function handleRzpNotification(req, res) {
             try {
                 // Fire-and-forget forward of the received notification to the reseller endpoint.
                 // Choose path based on source
-                const forwardUrl = source === 'everlife'
+                const forwardUrl = source === WEBHOOK_SOURCES.EVERLIFE
                     ? "https://api.abheepay.com/api/razorpay-notifications/webhook/everlife"
                     : "https://api.abheepay.com/api/razorpay-notifications/webhook";
 
@@ -153,7 +164,7 @@ const listNotifications = asyncHandler(async (req, res) => {
 
         // source filter (razorpay vs everlife)
         if (req.query.source) {
-            where.source = req.query.source;
+            where.source = buildSourceFilter(req.query.source);
         }
 
         let formattedNotifications = [];
@@ -176,6 +187,7 @@ const listNotifications = asyncHandler(async (req, res) => {
             return {
                 id: notification.id,
                 txn_id: notification.txn_id,
+                source: notification.source || WEBHOOK_SOURCES.AGRO_AXIS,
                 status: notification.status,
                 processing_status: notification.processing_status || null,
                 processing_error: notification.processing_error || null,
@@ -191,6 +203,7 @@ const listNotifications = asyncHandler(async (req, res) => {
                 paymentMode: notification.payment_mode || eventData.paymentMode || null,
                 paymentCardType: notification.payment_card_type || eventData.paymentCardType || null,
                 paymentCardBrand: notification.payment_card_brand || eventData.paymentCardBrand || null,
+                cardClassification: extractCardClassification(eventData),
                 customerName: eventData.customerName || null,
                 payerName: eventData.payerName || null,
                 settlementStatus: eventData.settlementStatus || null,
@@ -263,7 +276,18 @@ const getNotificationById = asyncHandler(async (req, res) => {
             processing_status: notification.processing_status || null,
             processing_error: notification.processing_error || null,
             processed: notification.processed || false,
-            source: notification.source || 'razorpay',
+            source: notification.source || WEBHOOK_SOURCES.AGRO_AXIS,
+            amount: notification.amount || eventData.amount || null,
+            currencyCode: notification.currency_code || eventData.currencyCode || null,
+            mid: notification.mid || eventData.mid || null,
+            tid: notification.tid || eventData.tid || null,
+            deviceSerial: notification.device_serial || eventData.deviceSerial || null,
+            paymentMode: notification.payment_mode || eventData.paymentMode || null,
+            paymentCardType: notification.payment_card_type || eventData.paymentCardType || null,
+            paymentCardBrand: notification.payment_card_brand || eventData.paymentCardBrand || null,
+            cardClassification: extractCardClassification(eventData),
+            postingDate: notification.posting_date || eventData.postingDate || null,
+            rrNumber: notification.rr_number || eventData.rrNumber || null,
             createdAt: notification.createdAt,
             updatedAt: notification.updatedAt,
             event_json: eventData
@@ -370,7 +394,7 @@ async function _resolvePosContext(notification) {
         paymentMode: (notification.payment_mode || eventData.paymentMode || '').toUpperCase(),
         paymentCardType: notification.payment_card_type || eventData.paymentCardType || null,
         paymentCardBrand: notification.payment_card_brand || eventData.paymentCardBrand || null,
-        classificationFromJson: eventData.card_classification || eventData.cardClassification || eventData.cardClassificationType || null,
+        classificationFromJson: extractCardClassification(eventData),
         rrNumber: notification.rr_number || eventData.rrNumber || null,
         customerName: eventData.customerName || null
     };

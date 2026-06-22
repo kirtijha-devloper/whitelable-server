@@ -2,10 +2,11 @@
  * Mimic a Razorpay POS webhook notification for local testing.
  *
  * Usage:
- *   node scripts/testWebhook.js                      # sends UPI payload (default)
- *   node scripts/testWebhook.js card                 # sends CARD payload
- *   node scripts/testWebhook.js upi  <txnId>         # custom txnId, UPI
- *   node scripts/testWebhook.js card <txnId>         # custom txnId, CARD
+ *   node scripts/testWebhook.js                            # sends Axis UPI payload (default)
+ *   node scripts/testWebhook.js axis card                 # sends Axis CARD payload
+ *   node scripts/testWebhook.js hdfc card                 # sends HDFC CARD payload
+ *   node scripts/testWebhook.js everlife upi              # sends Everlife UPI payload
+ *   node scripts/testWebhook.js hdfc card <txnId>         # custom txnId
  *
  * Credentials are read from the same .env as the server.
  * Override them: WEBHOOK_USERNAME=x WEBHOOK_PASSWORD=y node scripts/testWebhook.js
@@ -17,14 +18,20 @@ const axios = require('axios');
 // ── Config ────────────────────────────────────────────────────────────────────
 const BASE_URL   = `http://localhost:${process.env.PORT || 5000}`;
 const ENDPOINT   = `${BASE_URL}/api/razorpay/webhook`;
-// determine which credential set to use (first CLI arg can be 'everlife')
-const useEverlife = process.argv[2] && process.argv[2].toLowerCase() === 'everlife';
+const firstArg = (process.argv[2] || '').toLowerCase();
+const sourceArg = ['axis', 'hdfc', 'everlife'].includes(firstArg) ? firstArg : 'axis';
+const useEverlife = sourceArg === 'everlife';
+const useHdfc = sourceArg === 'hdfc';
 const USERNAME   = useEverlife
                     ? (process.env.WEBHOOK_USERNAME_EVERLIFE || process.env.WEBHOOK_USERNAME || 'razorpay')
-                    : (process.env.WEBHOOK_USERNAME || 'razorpay');
+                    : useHdfc
+                      ? (process.env.WEBHOOK_USERNAME_HDFC || 'razorpay')
+                      : (process.env.WEBHOOK_USERNAME_AXIS || process.env.WEBHOOK_USERNAME || 'razorpay');
 const PASSWORD   = useEverlife
                     ? (process.env.WEBHOOK_PASSWORD_EVERLIFE || process.env.WEBHOOK_PASSWORD || 'secret')
-                    : (process.env.WEBHOOK_PASSWORD || 'secret');
+                    : useHdfc
+                      ? (process.env.WEBHOOK_PASSWORD_HDFC || 'secret')
+                      : (process.env.WEBHOOK_PASSWORD_AXIS || process.env.WEBHOOK_PASSWORD || 'secret');
 const AUTH       = Buffer.from(`${USERNAME}:${PASSWORD}`).toString('base64');
 
 // ── Sample payloads ───────────────────────────────────────────────────────────
@@ -118,20 +125,26 @@ function generateTxnId() {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  const [, , maybeSource, typeArg = 'upi', txnIdArg] = process.argv;
-  const sourceArg = maybeSource ? maybeSource.toLowerCase() : '';
-  // if first argument was "everlife" then the next should be type
-  const type  = sourceArg === 'everlife' ? (typeArg || 'upi').toLowerCase() : typeArg.toLowerCase();
+  const [, , maybeSource, maybeType = 'upi', maybeTxnId] = process.argv;
+  const normalizedSource = (maybeSource || '').toLowerCase();
+  const hasExplicitSource = ['axis', 'hdfc', 'everlife'].includes(normalizedSource);
+  const type  = hasExplicitSource ? (maybeType || 'upi').toLowerCase() : normalizedSource || 'upi';
+  const txnIdArg = hasExplicitSource ? maybeTxnId : maybeType;
   const txnId = txnIdArg || generateTxnId();
 
   const payload = type === 'card' ? cardPayload(txnId) : upiPayload(txnId);
   if (useEverlife) {
     // tag payload so we can easily identify it in DB/logic
     payload.source = 'everlife';
+  } else if (useHdfc) {
+    payload.source = 'agro_hdfc';
+  } else {
+    payload.source = 'agro_axis';
   }
 
   console.log('─'.repeat(60));
   console.log(`Endpoint : POST ${ENDPOINT}`);
+  console.log(`Source   : ${sourceArg.toUpperCase()}`);
   console.log(`Auth     : Basic ${USERNAME}:${'*'.repeat(PASSWORD.length)}`);
   console.log(`Type     : ${type.toUpperCase()}`);
   console.log(`txnId    : ${txnId}`);
