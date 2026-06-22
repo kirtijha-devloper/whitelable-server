@@ -854,6 +854,7 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         total_deducted: parseFloat(p.amount) + (parseFloat(p.service_charge) || 0),
         purpose:        p.purpose,
         status:         p.status,
+        data:           p.data,
         rrn:            referenceFields.rrn,
         utr:            referenceFields.utr,
         balance_before: initialLedger ? parseFloat(initialLedger.balance_before) : null,
