@@ -442,6 +442,7 @@ async function resolveTransactionChargeSnapshot({
   const exactRule = amountProvided && !Number.isNaN(numericAmount) && numericAmount > 0
     ? await ChargeService.getTransactionChargeRule({
         userId: user.id,
+        userRole: user.role,
         franchiseId: user.franchaise_id || (user.role === 'franchaise' ? user.id : null),
         paymentMode,
         cardType,

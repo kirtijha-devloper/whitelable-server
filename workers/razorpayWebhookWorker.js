@@ -369,6 +369,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     let rule = await ChargeService.getTransactionChargeRule({
       userId: posOperator.id,
+      userRole: posOperator.role,
       franchiseId: franchiseId,
       paymentMode: paymentMethod,
       cardType: paymentCardType || null,
