@@ -8,12 +8,12 @@ const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
 } = require('../services/serviceSettingsService');
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimo.log');
 const VIMO_CALLBACK_LOG_FILE = path.join(__dirname, '../logs/vimoCallback.log');
-const VIMO_PARTNER_CALLBACK_URL = 'https://partner.abheepay.com/api/payout/vimo/callback';
+const VIMO_PARTNER_CALLBACK_URL = 'https://partner.abheepay.com/backend/api/payout/vimo/callback';
 const VIMO_PARTNER_CALLBACK_MAX_ATTEMPTS = 3;
 const VIMO_PARTNER_CALLBACK_RETRY_DELAY_MS = 2000;
 
@@ -107,14 +107,14 @@ const normalizeError = (err, fallback) => {
 
   return { statusCode: 500, message: String(err), code: 'ERROR', details: err };
 };
-const PayoutTransaction  = require('../models/PayoutTransaction');
-const Ledger             = require('../models/Ledger');
-const PayoutAuditLog     = require('../models/PayoutAuditLog');
-const PayoutWebhookLog   = require('../models/PayoutWebhookLog');
-const PayoutCharge       = require('../models/PayoutCharge');
-const ledgerService      = require('../services/ledgerService');
+const PayoutTransaction = require('../models/PayoutTransaction');
+const Ledger = require('../models/Ledger');
+const PayoutAuditLog = require('../models/PayoutAuditLog');
+const PayoutWebhookLog = require('../models/PayoutWebhookLog');
+const PayoutCharge = require('../models/PayoutCharge');
+const ledgerService = require('../services/ledgerService');
 const payoutReferenceService = require('../services/payoutReferenceService');
-const db                 = require('../config/database');
+const db = require('../config/database');
 
 /**
  * Resolves the service charge for a payout using the admin-configured
@@ -130,7 +130,7 @@ async function resolvePayoutServiceCharge(userId, payoutAmount) {
     where: {
       is_active: true,
       from_amount: { [Op.lte]: payoutAmount },
-      to_amount:   { [Op.gte]: payoutAmount },
+      to_amount: { [Op.gte]: payoutAmount },
     },
     order: [['from_amount', 'DESC']],
   });
@@ -231,313 +231,165 @@ function formatVimoCoordinate(value) {
 
 async function createPayout(req, res) {
   try {
-  const {
-    user_id,
-    amount: rawAmount,
-    beneficiary_id,
-    beneficiaryBank,
-    beneficiaryAccountNumber,
-    beneficiaryIFSC,
-    beneficiaryMobileNumber,
-    beneficiaryName,
-    paymentPurpose,
-    paymentMode,
-    merchantRefId: incomingMerchantRefId,
-    tpin,
-    purpose,
-    lat,
-    long: lng,
-    udf1,
-    udf2,
-    udf3
-  } = req.body;
-  const normalizedLat = formatVimoCoordinate(lat);
-  const normalizedLong = formatVimoCoordinate(lng);
-  let merchantRefId = incomingMerchantRefId;
-  let selectedBeneficiary = null;
+    const {
+      user_id,
+      amount: rawAmount,
+      beneficiary_id,
+      beneficiaryBank,
+      beneficiaryAccountNumber,
+      beneficiaryIFSC,
+      beneficiaryMobileNumber,
+      beneficiaryName,
+      paymentPurpose,
+      paymentMode,
+      merchantRefId: incomingMerchantRefId,
+      tpin,
+      purpose,
+      lat,
+      long: lng,
+      udf1,
+      udf2,
+      udf3
+    } = req.body;
+    const normalizedLat = formatVimoCoordinate(lat);
+    const normalizedLong = formatVimoCoordinate(lng);
+    let merchantRefId = incomingMerchantRefId;
+    let selectedBeneficiary = null;
 
-  if (!user_id) {
-    return res.status(400).json({ success: false, message: 'user_id is required' });
-  }
-
-  if (beneficiary_id) {
-    selectedBeneficiary = await Beneficiary.findOne({ where: { id: beneficiary_id, merchant_id: user_id } });
-    if (!selectedBeneficiary) {
-      return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+    if (!user_id) {
+      return res.status(400).json({ success: false, message: 'user_id is required' });
     }
-  }
 
-  const user = await User.findByPk(user_id);
-  if (!user) {
-    return res.status(404).json({ success: false, message: 'User not found' });
-  }
-
-  if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.VIMO_PAYOUT, user))) {
-    return;
-  }
-
-  const resolvedBeneficiaryBank = beneficiaryBank || selectedBeneficiary?.bank_code || selectedBeneficiary?.bank_name || null;
-  const resolvedBeneficiaryBankCode = await vimoService.resolveBankCode(resolvedBeneficiaryBank);
-  if (selectedBeneficiary && !selectedBeneficiary.bank_code && resolvedBeneficiaryBankCode) {
-    try {
-      await selectedBeneficiary.update({ bank_code: resolvedBeneficiaryBankCode });
-    } catch (_) {
-      // best-effort backfill only; payout should still proceed if code is resolved
+    if (beneficiary_id) {
+      selectedBeneficiary = await Beneficiary.findOne({ where: { id: beneficiary_id, merchant_id: user_id } });
+      if (!selectedBeneficiary) {
+        return res.status(404).json({ success: false, message: 'Beneficiary not found' });
+      }
     }
-  }
 
-  const resolvedBeneficiaryAccountNumber = beneficiaryAccountNumber || selectedBeneficiary?.account_number || null;
-  const resolvedBeneficiaryIFSC = beneficiaryIFSC || selectedBeneficiary?.ifsc_code || null;
-  const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile_number || null;
-  const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.beneficiary_name || null;
-  // beneficiaryLocation = state code from DB (e.g. 'JH'); never use branch_name which may hold coordinates.
-  const resolvedBeneficiaryLocation = selectedBeneficiary?.state || null;
-
-  const missingBeneficiaryFields = [];
-  if (!resolvedBeneficiaryBank) missingBeneficiaryFields.push('beneficiaryBank');
-  if (!resolvedBeneficiaryAccountNumber) missingBeneficiaryFields.push('beneficiaryAccountNumber');
-  if (!resolvedBeneficiaryIFSC) missingBeneficiaryFields.push('beneficiaryIFSC');
-  if (!resolvedBeneficiaryName) missingBeneficiaryFields.push('beneficiaryName');
-  if (missingBeneficiaryFields.length > 0) {
-    return res.status(400).json({ success: false, message: 'Beneficiary information missing', missing: missingBeneficiaryFields });
-  }
-
-  if (!resolvedBeneficiaryBankCode) {
-    return res.status(400).json({
-      success: false,
-      message: 'Unable to resolve Vimo bank code for beneficiaryBank. Provide a valid bank code or bank name from /api/vimo/banks.',
-      beneficiaryBank: resolvedBeneficiaryBank,
-    });
-  }
-
-  if (!resolvedBeneficiaryLocation) {
-    return res.status(400).json({ success: false, message: 'Beneficiary location is required from saved beneficiary state' });
-  }
-
-  // NOTE: tpin is optional for Vimo payload; can be enforced by frontend or internal auth if needed.
-  // if (!tpin) {
-  //   return res.status(400).json({ success: false, message: 'tpin is required' });
-  // }
-
-  const amount = parseFloat(rawAmount);
-  if (!amount || isNaN(amount) || amount <= 0) {
-    return res.status(400).json({ success: false, message: 'Invalid payout amount' });
-  }
-
-  const normalizedPaymentPurpose = normalizeVimoPaymentPurpose(paymentPurpose || purpose || '');
-  if (!normalizedPaymentPurpose) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid paymentPurpose. It must be alphanumeric and 2-10 characters long. Use GET /api/vimo/purposes to fetch valid values.',
-    });
-  }
-
-  if (normalizedLat == null || normalizedLong == null) {
-    return res.status(400).json({
-      success: false,
-      message: 'lat and long are required for Vimo payout and must be valid coordinates.',
-    });
-  }
-
-  // ── 3-minute duplicate payout guard ────────────────────────────────────────
-  // Prevent accidental double-submission: same user / same amount / same
-  // beneficiary within the last 3 minutes that is still non-terminal.
-  if (beneficiary_id || resolvedBeneficiaryAccountNumber) {
-    const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
-    const dupWhere = {
-      merchant_id: user_id,
-      amount,
-      status: { [Op.notIn]: ['FAILED', 'REVERSED', 'CANCELLED'] },
-      createdAt: { [Op.gte]: threeMinutesAgo },
-    };
-    if (beneficiary_id) dupWhere.beneficiary_id = beneficiary_id;
-    const recentDup = await PayoutTransaction.findOne({ where: dupWhere });
-    if (recentDup) {
-      return res.status(429).json({
-        success: false,
-        message: 'A payout of the same amount to this beneficiary was already submitted within the last 3 minutes. Please wait before retrying.',
-        retryAfter: 180,
-      });
-    }
-  }
-
-  // ── Vimo beneficiary monthly cap ──────────────────────────────────────────
-  const beneficiaryMonthlyTotal = await getVimoBeneficiaryMonthlyTotal({
-    beneficiaryId: beneficiary_id,
-    beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
-    beneficiaryIFSC: resolvedBeneficiaryIFSC,
-  });
-
-  const beneficiaryLimit = 500000;
-  if (beneficiaryMonthlyTotal + amount > beneficiaryLimit) {
-    return res.status(400).json({
-      success: false,
-      message: `Vimo payout limit exceeded for this beneficiary in the current calendar month. Maximum allowed is ₹${beneficiaryLimit.toLocaleString('en-IN')}.`,
-      monthlyTotal: beneficiaryMonthlyTotal,
-      attemptedAmount: amount,
-      beneficiaryLimit,
-    });
-  }
-
-  // Generate merchantRefId if not supplied (idempotency key).
-  if (!merchantRefId) {
-    merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId: user_id });
-  }
-
-  // ── Resolve service charge from DB rules (admin-configured PayoutCharge) ──
-  const chargeResolution = await resolvePayoutServiceCharge(user_id, amount);
-  const serviceCharge = chargeResolution.charge;
-  const total_amount = amount + serviceCharge;
-
-  const vimoRequestPayload = {
-    amount,
-    merchantRefId,
-    beneficiaryBank: resolvedBeneficiaryBankCode,
-    paymentPurpose: normalizedPaymentPurpose,
-    paymentMode,
-    beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
-    beneficiaryIFSC: resolvedBeneficiaryIFSC,
-    beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
-    beneficiaryName: resolvedBeneficiaryName,
-    beneficiaryLocation: resolvedBeneficiaryLocation,
-    lat: normalizedLat,
-    long: normalizedLong,
-    udf1: udf1 || '',
-    udf2: udf2 || '',
-    udf3: udf3 || ''
-  };
-
-  vimoLog && vimoLog('INFO', 'Service charge resolved', {
-    user_id,
-    payoutAmount: amount,
-    serviceCharge,
-    chargeSource: chargeResolution.source,
-    slabId: chargeResolution.slabId,
-    rate: chargeResolution.rate,
-    rate_type: chargeResolution.rate_type,
-    total_amount,
-  });
-
-  const transaction = await db.transaction();
-  let payoutTransaction;
-  try {
-    // ── Row-level lock on user ─────────────────────────────────────────────
-    // Serialises concurrent payout attempts for the same user so we can
-    // do a safe balance check and prevent double-deduction.
-    const lockedUser = await User.findByPk(user_id, { transaction, lock: transaction.LOCK.UPDATE });
-    if (!lockedUser) {
-      await transaction.rollback();
+    const user = await User.findByPk(user_id);
+    if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // ── Balance check ──────────────────────────────────────────────────────
-    const currentBalance = await ledgerService.getAvailableBalance(user_id);
-    if (currentBalance < total_amount) {
-      await transaction.rollback();
+    if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.VIMO_PAYOUT, user))) {
+      return;
+    }
+
+    const resolvedBeneficiaryBank = beneficiaryBank || selectedBeneficiary?.bank_code || selectedBeneficiary?.bank_name || null;
+    const resolvedBeneficiaryBankCode = await vimoService.resolveBankCode(resolvedBeneficiaryBank);
+    if (selectedBeneficiary && !selectedBeneficiary.bank_code && resolvedBeneficiaryBankCode) {
+      try {
+        await selectedBeneficiary.update({ bank_code: resolvedBeneficiaryBankCode });
+      } catch (_) {
+        // best-effort backfill only; payout should still proceed if code is resolved
+      }
+    }
+
+    const resolvedBeneficiaryAccountNumber = beneficiaryAccountNumber || selectedBeneficiary?.account_number || null;
+    const resolvedBeneficiaryIFSC = beneficiaryIFSC || selectedBeneficiary?.ifsc_code || null;
+    const resolvedBeneficiaryMobileNumber = beneficiaryMobileNumber || selectedBeneficiary?.mobile_number || null;
+    const resolvedBeneficiaryName = beneficiaryName || selectedBeneficiary?.beneficiary_name || null;
+    // beneficiaryLocation = state code from DB (e.g. 'JH'); never use branch_name which may hold coordinates.
+    const resolvedBeneficiaryLocation = selectedBeneficiary?.state || null;
+
+    const missingBeneficiaryFields = [];
+    if (!resolvedBeneficiaryBank) missingBeneficiaryFields.push('beneficiaryBank');
+    if (!resolvedBeneficiaryAccountNumber) missingBeneficiaryFields.push('beneficiaryAccountNumber');
+    if (!resolvedBeneficiaryIFSC) missingBeneficiaryFields.push('beneficiaryIFSC');
+    if (!resolvedBeneficiaryName) missingBeneficiaryFields.push('beneficiaryName');
+    if (missingBeneficiaryFields.length > 0) {
+      return res.status(400).json({ success: false, message: 'Beneficiary information missing', missing: missingBeneficiaryFields });
+    }
+
+    if (!resolvedBeneficiaryBankCode) {
       return res.status(400).json({
         success: false,
-        message: `Insufficient balance. Available: ₹${currentBalance.toFixed(2)}, Required: ₹${total_amount.toFixed(2)}`,
+        message: 'Unable to resolve Vimo bank code for beneficiaryBank. Provide a valid bank code or bank name from /api/vimo/banks.',
+        beneficiaryBank: resolvedBeneficiaryBank,
       });
     }
 
-    // ── merchantRefId uniqueness check (inside lock) ───────────────────────
-    // Done here (not before) so two concurrent submissions with the same ref
-    // are serialised by the user row lock above.
-    const existingRef = await PayoutTransaction.findOne({
-      where: { reference_id: merchantRefId },
-      transaction,
-    });
-    if (existingRef) {
-      await transaction.rollback();
-      return res.status(409).json({
+    if (!resolvedBeneficiaryLocation) {
+      return res.status(400).json({ success: false, message: 'Beneficiary location is required from saved beneficiary state' });
+    }
+
+    // NOTE: tpin is optional for Vimo payload; can be enforced by frontend or internal auth if needed.
+    // if (!tpin) {
+    //   return res.status(400).json({ success: false, message: 'tpin is required' });
+    // }
+
+    const amount = parseFloat(rawAmount);
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid payout amount' });
+    }
+
+    const normalizedPaymentPurpose = normalizeVimoPaymentPurpose(paymentPurpose || purpose || '');
+    if (!normalizedPaymentPurpose) {
+      return res.status(400).json({
         success: false,
-        message: 'Duplicate merchantRefId',
-        error: { code: 'DUPLICATE_REFERENCE', details: 'merchantRefId already used' },
+        message: 'Invalid paymentPurpose. It must be alphanumeric and 2-10 characters long. Use GET /api/vimo/purposes to fetch valid values.',
       });
     }
 
-    // ── Create payout record and debit ledger ──────────────────────────────
-    payoutTransaction = await PayoutTransaction.create({
-      merchant_id: user_id,
-      beneficiary_id: beneficiary_id || null,
-      reference_id: merchantRefId || null,
-      payout_provider: 'Vimo',
-      amount: amount,
-      status: 'Processing',
-      purpose: purpose || paymentPurpose || null,
-      data: JSON.stringify({
-        beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
-        beneficiaryIFSC: resolvedBeneficiaryIFSC,
-        beneficiaryName: resolvedBeneficiaryName,
-        beneficiaryBank: resolvedBeneficiaryBankCode,
-      }),
-      service_charge: serviceCharge,
-    }, { transaction });
+    if (normalizedLat == null || normalizedLong == null) {
+      return res.status(400).json({
+        success: false,
+        message: 'lat and long are required for Vimo payout and must be valid coordinates.',
+      });
+    }
 
-    // ── DB audit: record payout initiation with balance snapshot ────────────
-    await PayoutAuditLog.create({
-      payout_id: payoutTransaction.id,
-      action: 'VIMO_PAYOUT_INIT',
-      details: {
-        user_id,
+    // ── 3-minute duplicate payout guard ────────────────────────────────────────
+    // Prevent accidental double-submission: same user / same amount / same
+    // beneficiary within the last 3 minutes that is still non-terminal.
+    if (beneficiary_id || resolvedBeneficiaryAccountNumber) {
+      const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
+      const dupWhere = {
+        merchant_id: user_id,
         amount,
-        service_charge: serviceCharge,
-        charge_slab_id: chargeResolution.slabId,
-        charge_source: chargeResolution.source,
-        charge_rate: chargeResolution.rate,
-        charge_rate_type: chargeResolution.rate_type,
-        total_amount,
-        beneficiary_id: beneficiary_id || null,
-        beneficiary_account: resolvedBeneficiaryAccountNumber,
-        beneficiary_ifsc: resolvedBeneficiaryIFSC,
-        beneficiary_name: resolvedBeneficiaryName,
-        merchant_ref_id: merchantRefId,
-        opening_balance: currentBalance,
-        closing_balance: +(currentBalance - total_amount).toFixed(2),
+        status: { [Op.notIn]: ['FAILED', 'REVERSED', 'CANCELLED'] },
+        createdAt: { [Op.gte]: threeMinutesAgo },
+      };
+      if (beneficiary_id) dupWhere.beneficiary_id = beneficiary_id;
+      const recentDup = await PayoutTransaction.findOne({ where: dupWhere });
+      if (recentDup) {
+        return res.status(429).json({
+          success: false,
+          message: 'A payout of the same amount to this beneficiary was already submitted within the last 3 minutes. Please wait before retrying.',
+          retryAfter: 180,
+        });
       }
-    }, { transaction });
+    }
 
-    await PayoutAuditLog.create({
-      payout_id: payoutTransaction.id,
-      action: 'VIMO_PAYOUT_REQUEST',
-      details: {
-        merchantRefId,
-        requestPayload: vimoRequestPayload,
-      }
-    }, { transaction });
+    // ── Vimo beneficiary monthly cap ──────────────────────────────────────────
+    const beneficiaryMonthlyTotal = await getVimoBeneficiaryMonthlyTotal({
+      beneficiaryId: beneficiary_id,
+      beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+      beneficiaryIFSC: resolvedBeneficiaryIFSC,
+    });
 
-    await ledgerService.createPayoutEntry({
-      userId: user_id,
-      payoutTransactionId: payoutTransaction.id,
-      amount: total_amount,
-      description: `Vimo payout ${merchantRefId || payoutTransaction.id}`,
-      metadata: {
-        service: 'vimo',
-        beneficiaryBank: resolvedBeneficiaryBankCode,
-        beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
-        beneficiaryIFSC: resolvedBeneficiaryIFSC,
-        beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
-        beneficiaryName: resolvedBeneficiaryName,
-        beneficiaryLocation: resolvedBeneficiaryLocation,
-        beneficiary_id: beneficiary_id || null,
-        paymentPurpose,
-        paymentMode,
-        merchantRefId,
-        lat: normalizedLat,
-        long: normalizedLong
-      }
-    }, { transaction });
+    const beneficiaryLimit = 500000;
+    if (beneficiaryMonthlyTotal + amount > beneficiaryLimit) {
+      return res.status(400).json({
+        success: false,
+        message: `Vimo payout limit exceeded for this beneficiary in the current calendar month. Maximum allowed is ₹${beneficiaryLimit.toLocaleString('en-IN')}.`,
+        monthlyTotal: beneficiaryMonthlyTotal,
+        attemptedAmount: amount,
+        beneficiaryLimit,
+      });
+    }
 
-    await transaction.commit();
-  } catch (err) {
-    await transaction.rollback();
-    const normalized = normalizeError(err);
-    return res.status(normalized.statusCode || 500).json({ success: false, message: normalized.message, error: normalized });
-  }
+    // Generate merchantRefId if not supplied (idempotency key).
+    if (!merchantRefId) {
+      merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId: user_id });
+    }
 
-  // call external provider, then update payout status
-  try {
-    const result = await vimoService.createPayout({
+    // ── Resolve service charge from DB rules (admin-configured PayoutCharge) ──
+    const chargeResolution = await resolvePayoutServiceCharge(user_id, amount);
+    const serviceCharge = chargeResolution.charge;
+    const total_amount = amount + serviceCharge;
+
+    const vimoRequestPayload = {
       amount,
       merchantRefId,
       beneficiaryBank: resolvedBeneficiaryBankCode,
@@ -553,102 +405,250 @@ async function createPayout(req, res) {
       udf1: udf1 || '',
       udf2: udf2 || '',
       udf3: udf3 || ''
+    };
+
+    vimoLog && vimoLog('INFO', 'Service charge resolved', {
+      user_id,
+      payoutAmount: amount,
+      serviceCharge,
+      chargeSource: chargeResolution.source,
+      slabId: chargeResolution.slabId,
+      rate: chargeResolution.rate,
+      rate_type: chargeResolution.rate_type,
+      total_amount,
     });
 
+    const transaction = await db.transaction();
+    let payoutTransaction;
     try {
-      await PayoutAuditLog.create({
-        payout_id: payoutTransaction.id,
-        action: 'VIMO_PAYOUT_RESPONSE',
-        details: {
-          merchantRefId,
-          responseCode: result.responseCode,
-          message: result.message,
-          rawResponse: result.rawResponse,
-          decryptedResponse: result.decryptedResponse,
-          sanitizedResponse: result.data
-        }
-      });
-    } catch (_) {
-      // non-fatal audit failure
-    }
-
-    try {
-      let existingData = {};
-      if (payoutTransaction.data) {
-        try {
-          existingData = JSON.parse(payoutTransaction.data);
-        } catch (_) {
-          existingData = { original: payoutTransaction.data };
-        }
+      // ── Row-level lock on user ─────────────────────────────────────────────
+      // Serialises concurrent payout attempts for the same user so we can
+      // do a safe balance check and prevent double-deduction.
+      const lockedUser = await User.findByPk(user_id, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!lockedUser) {
+        await transaction.rollback();
+        return res.status(404).json({ success: false, message: 'User not found' });
       }
-      const updatedData = { ...existingData, ...result.data };
-      await payoutTransaction.update({
-        data: JSON.stringify(updatedData)
-      });
-    } catch (updateErr) {
-      console.error('Failed to update PayoutTransaction data after success response', updateErr);
-    }
 
-    return res.status(200).json({
-      success: true,
-      message: result.message,
-      responseCode: result.responseCode,
-      merchantRefId,
-      reference_id: merchantRefId,
-      payout_provider: 'Vimo',
-      service_charge: serviceCharge,
-      data: result.data
-    });
-  } catch (error) {
-    try {
+      // ── Balance check ──────────────────────────────────────────────────────
+      const currentBalance = await ledgerService.getAvailableBalance(user_id);
+      if (currentBalance < total_amount) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient balance. Available: ₹${currentBalance.toFixed(2)}, Required: ₹${total_amount.toFixed(2)}`,
+        });
+      }
+
+      // ── merchantRefId uniqueness check (inside lock) ───────────────────────
+      // Done here (not before) so two concurrent submissions with the same ref
+      // are serialised by the user row lock above.
+      const existingRef = await PayoutTransaction.findOne({
+        where: { reference_id: merchantRefId },
+        transaction,
+      });
+      if (existingRef) {
+        await transaction.rollback();
+        return res.status(409).json({
+          success: false,
+          message: 'Duplicate merchantRefId',
+          error: { code: 'DUPLICATE_REFERENCE', details: 'merchantRefId already used' },
+        });
+      }
+
+      // ── Create payout record and debit ledger ──────────────────────────────
+      payoutTransaction = await PayoutTransaction.create({
+        merchant_id: user_id,
+        beneficiary_id: beneficiary_id || null,
+        reference_id: merchantRefId || null,
+        payout_provider: 'Vimo',
+        amount: amount,
+        status: 'Processing',
+        purpose: purpose || paymentPurpose || null,
+        data: JSON.stringify({
+          beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+          beneficiaryIFSC: resolvedBeneficiaryIFSC,
+          beneficiaryName: resolvedBeneficiaryName,
+          beneficiaryBank: resolvedBeneficiaryBankCode,
+        }),
+        service_charge: serviceCharge,
+      }, { transaction });
+
+      // ── DB audit: record payout initiation with balance snapshot ────────────
       await PayoutAuditLog.create({
         payout_id: payoutTransaction.id,
-        action: 'VIMO_PAYOUT_FAILURE',
+        action: 'VIMO_PAYOUT_INIT',
+        details: {
+          user_id,
+          amount,
+          service_charge: serviceCharge,
+          charge_slab_id: chargeResolution.slabId,
+          charge_source: chargeResolution.source,
+          charge_rate: chargeResolution.rate,
+          charge_rate_type: chargeResolution.rate_type,
+          total_amount,
+          beneficiary_id: beneficiary_id || null,
+          beneficiary_account: resolvedBeneficiaryAccountNumber,
+          beneficiary_ifsc: resolvedBeneficiaryIFSC,
+          beneficiary_name: resolvedBeneficiaryName,
+          merchant_ref_id: merchantRefId,
+          opening_balance: currentBalance,
+          closing_balance: +(currentBalance - total_amount).toFixed(2),
+        }
+      }, { transaction });
+
+      await PayoutAuditLog.create({
+        payout_id: payoutTransaction.id,
+        action: 'VIMO_PAYOUT_REQUEST',
         details: {
           merchantRefId,
-          error: {
-            message: error.message,
-            code: error.code || null,
-            statusCode: error.statusCode || null,
-            details: error.details || null,
+          requestPayload: vimoRequestPayload,
+        }
+      }, { transaction });
+
+      await ledgerService.createPayoutEntry({
+        userId: user_id,
+        payoutTransactionId: payoutTransaction.id,
+        amount: total_amount,
+        description: `Vimo payout ${merchantRefId || payoutTransaction.id}`,
+        metadata: {
+          service: 'vimo',
+          beneficiaryBank: resolvedBeneficiaryBankCode,
+          beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+          beneficiaryIFSC: resolvedBeneficiaryIFSC,
+          beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
+          beneficiaryName: resolvedBeneficiaryName,
+          beneficiaryLocation: resolvedBeneficiaryLocation,
+          beneficiary_id: beneficiary_id || null,
+          paymentPurpose,
+          paymentMode,
+          merchantRefId,
+          lat: normalizedLat,
+          long: normalizedLong
+        }
+      }, { transaction });
+
+      await transaction.commit();
+    } catch (err) {
+      await transaction.rollback();
+      const normalized = normalizeError(err);
+      return res.status(normalized.statusCode || 500).json({ success: false, message: normalized.message, error: normalized });
+    }
+
+    // call external provider, then update payout status
+    try {
+      const result = await vimoService.createPayout({
+        amount,
+        merchantRefId,
+        beneficiaryBank: resolvedBeneficiaryBankCode,
+        paymentPurpose: normalizedPaymentPurpose,
+        paymentMode,
+        beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+        beneficiaryIFSC: resolvedBeneficiaryIFSC,
+        beneficiaryMobileNumber: resolvedBeneficiaryMobileNumber,
+        beneficiaryName: resolvedBeneficiaryName,
+        beneficiaryLocation: resolvedBeneficiaryLocation,
+        lat: normalizedLat,
+        long: normalizedLong,
+        udf1: udf1 || '',
+        udf2: udf2 || '',
+        udf3: udf3 || ''
+      });
+
+      try {
+        await PayoutAuditLog.create({
+          payout_id: payoutTransaction.id,
+          action: 'VIMO_PAYOUT_RESPONSE',
+          details: {
+            merchantRefId,
+            responseCode: result.responseCode,
+            message: result.message,
+            rawResponse: result.rawResponse,
+            decryptedResponse: result.decryptedResponse,
+            sanitizedResponse: result.data
+          }
+        });
+      } catch (_) {
+        // non-fatal audit failure
+      }
+
+      try {
+        let existingData = {};
+        if (payoutTransaction.data) {
+          try {
+            existingData = JSON.parse(payoutTransaction.data);
+          } catch (_) {
+            existingData = { original: payoutTransaction.data };
           }
         }
-      });
-    } catch (_) {
-      // non-fatal: keep original error handling path
-    }
-
-    try {
-      let existingData = {};
-      if (payoutTransaction.data) {
-        try {
-          existingData = JSON.parse(payoutTransaction.data);
-        } catch (_) {
-          existingData = { original: payoutTransaction.data };
-        }
+        const updatedData = { ...existingData, ...result.data };
+        await payoutTransaction.update({
+          data: JSON.stringify(updatedData)
+        });
+      } catch (updateErr) {
+        console.error('Failed to update PayoutTransaction data after success response', updateErr);
       }
-      const errorData = {
-        message: error.message,
-        code: error.code || null,
-        statusCode: error.statusCode || null,
-        details: error.details || null,
-      };
-      const updatedData = { ...existingData, error: errorData };
-      await payoutTransaction.update({
-        data: JSON.stringify(updatedData)
-      });
-    } catch (updateErr) {
-      console.error('Failed to update PayoutTransaction data after failure response', updateErr);
-    }
 
-    console.error('Vimo payout failed', error);
-    const normalized = normalizeError(error);
-    return res.status(normalized.statusCode || 500).json({
-      success: false,
-      message: normalized.message,
-      error: normalized,
-    });
-  }
+      return res.status(200).json({
+        success: true,
+        message: result.message,
+        responseCode: result.responseCode,
+        merchantRefId,
+        reference_id: merchantRefId,
+        payout_provider: 'Vimo',
+        service_charge: serviceCharge,
+        data: result.data
+      });
+    } catch (error) {
+      try {
+        await PayoutAuditLog.create({
+          payout_id: payoutTransaction.id,
+          action: 'VIMO_PAYOUT_FAILURE',
+          details: {
+            merchantRefId,
+            error: {
+              message: error.message,
+              code: error.code || null,
+              statusCode: error.statusCode || null,
+              details: error.details || null,
+            }
+          }
+        });
+      } catch (_) {
+        // non-fatal: keep original error handling path
+      }
+
+      try {
+        let existingData = {};
+        if (payoutTransaction.data) {
+          try {
+            existingData = JSON.parse(payoutTransaction.data);
+          } catch (_) {
+            existingData = { original: payoutTransaction.data };
+          }
+        }
+        const errorData = {
+          message: error.message,
+          code: error.code || null,
+          statusCode: error.statusCode || null,
+          details: error.details || null,
+        };
+        const updatedData = { ...existingData, error: errorData };
+        await payoutTransaction.update({
+          data: JSON.stringify(updatedData)
+        });
+      } catch (updateErr) {
+        console.error('Failed to update PayoutTransaction data after failure response', updateErr);
+      }
+
+      console.error('Vimo payout failed', error);
+      const normalized = normalizeError(error);
+      return res.status(normalized.statusCode || 500).json({
+        success: false,
+        message: normalized.message,
+        error: normalized,
+      });
+    }
   } catch (err) {
     console.error('Vimo createPayout unhandled error', err);
     const normalized = normalizeError(err);
@@ -1002,8 +1002,8 @@ async function handleCallback(req, res) {
     vimoCallbackLog('INFO', 'Vimo callback background processing started');
     try {
       const merchantRefId = payload.merchantRefId || payload.merchant_ref_id || payload.referenceId;
-      const vimoStatus   = (payload.status || payload.txnStatus || '').toUpperCase();
-      const utrValue     = payload.utr || payload.bankRefNo || null;
+      const vimoStatus = (payload.status || payload.txnStatus || '').toUpperCase();
+      const utrValue = payload.utr || payload.bankRefNo || null;
 
       vimoCallbackLog('INFO', 'Parsed callback fields', { merchantRefId, vimoStatus });
       vimoCallbackLog('DEBUG', 'Vimo callback payload mapping values', {
@@ -1222,25 +1222,25 @@ async function createBeneficiary(req, res) {
       await beneficiary.update(updates);
     } else {
       beneficiary = await Beneficiary.create({
-        merchant_id:      userId,
+        merchant_id: userId,
         beneficiary_name: verifiedName,
         account_number,
         ifsc_code,
         bank_name,
-        bank_code:      bank_code || null,
-        branch_name:   branch_name || null,
+        bank_code: bank_code || null,
+        branch_name: branch_name || null,
         state,
         mobile_number: mobile || '',
-        email:         email || '',
-        status:        'active',
+        email: email || '',
+        status: 'active',
       });
     }
 
-  return res.status(201).json({ success: true, data: beneficiary });
+    return res.status(201).json({ success: true, data: beneficiary });
   } catch (error) {
     console.error('Vimo add beneficiary validation error:', error);
-    return res.status(500).json({ 
-      success: false, 
+    return res.status(500).json({
+      success: false,
       message: error.message || 'Bank account validation failed. Please check your bank details.',
       error
     });
@@ -1254,11 +1254,11 @@ async function listBeneficiaries(req, res) {
     return res.status(401).json({ success: false, message: 'User not authenticated' });
   }
 
-  const list = await Beneficiary.findAll({ 
-    where: { 
+  const list = await Beneficiary.findAll({
+    where: {
       merchant_id: userIdFromToken,
       status: { [Op.in]: ['active', 'verified'] }
-    } 
+    }
   });
   return res.status(200).json({ success: true, data: list });
 }
@@ -1296,7 +1296,7 @@ async function checkBeneficiaryLimit(req, res) {
     }
 
     const targetProvider = (provider || 'Vimo').trim().toLowerCase();
-    
+
     if (targetProvider !== 'vimo') {
       return res.status(400).json({ success: false, message: `Provider '${provider}' is not supported. Only 'Vimo' is supported.` });
     }
@@ -1396,7 +1396,7 @@ async function checkPayoutStatus(req, res) {
                   responseObj
                 }
               });
-            } catch (_) {}
+            } catch (_) { }
           }
         }
       }
