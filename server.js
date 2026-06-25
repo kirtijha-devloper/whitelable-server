@@ -79,6 +79,10 @@ app.use((req, res, next) => {
   next();
 });
 
+// BranchX payout callbacks may arrive as raw encrypted text, so parse that
+// callback route as raw bytes before the global JSON parser runs.
+app.use('/api/payment/v2/payout/callback', express.raw({ type: '*/*', limit: '1mb' }));
+
 // strict: false lets body-parser accept any valid JSON top-level value (null,
 // number, string) instead of only arrays/objects, so a frontend that sends
 // the literal body `null` no longer causes a 400 parse error.
