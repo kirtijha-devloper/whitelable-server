@@ -208,7 +208,7 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
   const where = {
     payout_provider: 'Vimo',
     createdAt: { [Op.gte]: monthStart, [Op.lt]: nextMonthStart },
-    status: { [Op.notIn]: ['FAILED', 'REVERSED', 'CANCELLED'] },
+    status: { [Op.in]: ['SUCCESS', 'PENDING'] },
     data: { [Op.iLike]: `%beneficiaryAccountNumber%${normalizedAccount}%` }
   };
 
@@ -347,7 +347,7 @@ async function createPayout(req, res) {
       const dupWhere = {
         merchant_id: user_id,
         amount,
-        status: { [Op.notIn]: ['FAILED', 'REVERSED', 'CANCELLED'] },
+        status: { [Op.in]: ['SUCCESS', 'PENDING'] },
         createdAt: { [Op.gte]: threeMinutesAgo },
       };
       if (beneficiary_id) dupWhere.beneficiary_id = beneficiary_id;
