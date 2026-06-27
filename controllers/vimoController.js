@@ -1301,10 +1301,22 @@ async function checkBeneficiaryLimit(req, res) {
       return res.status(400).json({ success: false, message: `Provider '${provider}' is not supported. Only 'Vimo' is supported.` });
     }
 
-    const monthlyTotal = await getVimoBeneficiaryMonthlyTotal({
+    const monthlyTotalPromise = getVimoBeneficiaryMonthlyTotal({
       beneficiaryAccountNumber: accountNumber,
       beneficiaryIFSC: bankIfsc
     });
+
+    const merchantRefIdPromise = payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId: req.user?.id });
+    
+    // Resolve merchantRefId first, then fetch balance
+    const walletBalancePromise = merchantRefIdPromise.then(merchantRefId => {
+        return vimoService.fetchWalletBalance(merchantRefId);
+    }).catch(err => {
+        console.error("Vimo Wallet Balance fetch error in limit check:", err);
+        return { error: err.message, data: null };
+    });
+
+    const [monthlyTotal, walletBalanceResult] = await Promise.all([monthlyTotalPromise, walletBalancePromise]);
 
     const limit = 500000;
     const remainingLimit = Math.max(0, limit - monthlyTotal);
@@ -1316,7 +1328,9 @@ async function checkBeneficiaryLimit(req, res) {
       bankIfsc: bankIfsc || null,
       monthlyTotal,
       limit,
-      remainingLimit
+      remainingLimit,
+      walletBalance: walletBalanceResult.data || null,
+      walletBalanceMessage: walletBalanceResult.error || walletBalanceResult.message || null
     });
   } catch (error) {
     const normalized = normalizeError(error, {
