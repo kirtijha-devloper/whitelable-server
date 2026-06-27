@@ -8,6 +8,9 @@ const router = express.Router();
 // Webhook callback should be open to Vimo provider; no user JWT required.
 router.post('/callback', vimoController.handleCallback);
 
+// limit check is public for PARTNER-PG
+router.post('/payout/limit-check', vimoController.checkBeneficiaryLimit);
+
 router.use(validateToken);
 
 router.post('/auth/token', vimoController.fetchTokenStatus);
@@ -22,7 +25,6 @@ router.get('/payout/reference', vimoController.getPayoutReference);
 router.post('/payout', vimoController.createPayout);
 router.post('/payout/status', vimoController.checkPayoutStatus);
 router.get('/payout/status', vimoController.checkPayoutStatus);
-router.post('/payout/limit-check', vimoController.checkBeneficiaryLimit);
 router.get('/payout/audit-logs/by-reference', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.PAYOUT_READ), vimoController.getPayoutAuditLogsByReference);
 router.post('/payout/admin/fail', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE), vimoController.failProcessingPayout);
 
