@@ -7,6 +7,7 @@ const SERVICE_SETTING_ALLOWED_KEYS = [
   'sevenpay_payout',
   'cc_bill_pay',
   'ba_cc_bill_pay',
+  'cc_bill_3',
 ];
 
 const ServiceSetting = db.define('ServiceSetting', {
