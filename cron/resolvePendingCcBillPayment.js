@@ -175,7 +175,7 @@ async function resolvePendingCcBillPayment() {
 
         const nextStatuscode = summary.statuscode;
         const nextStatus = summary.status;
-        const failedStatuses = new Set(['TRP', 'FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED']);
+        const failedStatuses = new Set(['TRP', 'FAILED', 'SPE', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED']);
         const successStatuses = new Set(['TXN', 'TUP']);
         const isUnknown = !nextStatuscode && !nextStatus;
         const isSuccess = nextStatuscode ? successStatuses.has(nextStatuscode) : false;

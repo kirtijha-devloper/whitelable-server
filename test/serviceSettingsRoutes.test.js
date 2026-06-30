@@ -78,6 +78,7 @@ describe('GET /api/admin/service-settings', () => {
       makeSetting('branchx_payout', { updated_by: 9 }),
       makeSetting('cc_bill_pay'),
       makeSetting('ba_cc_bill_pay', { is_enabled: false }),
+      makeSetting('cc_bill_3'),
     ]);
 
     const res = await request(app)
@@ -92,6 +93,7 @@ describe('GET /api/admin/service-settings', () => {
     expect(res.body.data.branchx_payout.is_enabled).to.equal(true);
     expect(res.body.data.cc_bill_pay).to.have.property('is_enabled');
     expect(res.body.data.ba_cc_bill_pay.is_enabled).to.equal(false);
+    expect(res.body.data.cc_bill_3.is_enabled).to.equal(true);
   });
 });
 
@@ -177,17 +179,21 @@ describe('PUT /api/admin/user/:id/service-settings', () => {
       user_service_settings: {
         vimo_payout: false,
         branchx_payout: false,
+        sevenpay_payout: true,
         cc_bill_pay: true,
         ba_cc_bill_pay: true,
+        cc_bill_3: true,
       },
       service_flags: {
         vimo_payout: false,
         branchx_payout: false,
+        sevenpay_payout: true,
         cc_bill_pay: true,
         ba_cc_bill_pay: true,
+        cc_bill_3: true,
       },
     });
-    expect(targetUser.is_payout_enabled).to.equal(false);
+    expect(targetUser.is_payout_enabled).to.equal(true);
     expect(upsertCalls).to.have.length(2);
     expect(upsertCalls.every((call) => call.user_id === 22)).to.equal(true);
     expect(upsertCalls.map((call) => call.service_key)).to.deep.equal(['vimo_payout', 'branchx_payout']);
@@ -245,14 +251,18 @@ describe('PUT /api/admin/user/:id/service-settings', () => {
       user_service_settings: {
         vimo_payout: false,
         branchx_payout: true,
+        sevenpay_payout: true,
         cc_bill_pay: false,
         ba_cc_bill_pay: true,
+        cc_bill_3: true,
       },
       service_flags: {
         vimo_payout: false,
         branchx_payout: true,
+        sevenpay_payout: true,
         cc_bill_pay: false,
         ba_cc_bill_pay: true,
+        cc_bill_3: true,
       },
     });
     expect(upsertCalls.map((call) => call.service_key)).to.deep.equal(['vimo_payout', 'cc_bill_pay']);

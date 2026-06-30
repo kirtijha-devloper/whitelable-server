@@ -10,6 +10,7 @@ const {
 } = require('../services/serviceSettingsService');
 const fs = require('fs');
 const path = require('path');
+const BillAvenuePayment = require('../models/BillAvenuePayment');
 
 const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimo.log');
 const VIMO_CALLBACK_LOG_FILE = path.join(__dirname, '../logs/vimoCallback.log');
@@ -1156,6 +1157,36 @@ async function handleCallback(req, res) {
               action: 'VIMO_REFUND_ISSUED',
               details: { merchantRefId, merchant_id: txn.merchant_id, refundAmount, amount: txn.amount, service_charge: txn.service_charge }
             }, { transaction: tr });
+          }
+        }
+
+        const linkedData = existing && typeof existing === 'object' ? existing : {};
+        if (linkedData.source === 'ba_cc_bill_3' && linkedData.billAvenuePaymentId) {
+          const billPayment = await BillAvenuePayment.findByPk(linkedData.billAvenuePaymentId, {
+            transaction: tr,
+            lock: tr.LOCK.UPDATE,
+          });
+
+          if (billPayment) {
+            const existingBillResponse = billPayment.response && typeof billPayment.response === 'object'
+              ? billPayment.response
+              : {};
+
+            billPayment.status = newStatus === 'SUCCESS' ? 'success' : (newStatus === 'FAILED' ? 'failed' : 'processing');
+            billPayment.response_code = newStatus === 'SUCCESS' ? 'VIMO_SUCCESS' : (newStatus === 'FAILED' ? 'VIMO_FAILED' : 'VIMO_PROCESSING');
+            billPayment.response = {
+              ...existingBillResponse,
+              vimo: {
+                ...(existingBillResponse.vimo || {}),
+                status: newStatus,
+                merchantRefId,
+                utr: payload.utr || payload.bankRefNo || null,
+                txnId: payload.txnId || null,
+                callback: payload,
+              },
+            };
+
+            await billPayment.save({ transaction: tr });
           }
         }
 

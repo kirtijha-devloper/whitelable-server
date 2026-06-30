@@ -10,6 +10,7 @@ const SERVICE_SETTING_KEYS = Object.freeze({
   SEVENPAY_PAYOUT: 'sevenpay_payout',
   CC_BILL_PAY: 'cc_bill_pay',
   BA_CC_BILL_PAY: 'ba_cc_bill_pay',
+  CC_BILL_3: 'cc_bill_3',
 });
 
 const SERVICE_SETTING_KEY_LIST = Object.freeze(Object.values(SERVICE_SETTING_KEYS));
@@ -38,6 +39,7 @@ function buildDefaultUserServiceSettings(user) {
     [SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]: true,
+    [SERVICE_SETTING_KEYS.CC_BILL_3]: true,
   };
 }
 
@@ -294,6 +296,9 @@ function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings)
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]:
       resolvedSettings[SERVICE_SETTING_KEYS.BA_CC_BILL_PAY].is_enabled
       && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.BA_CC_BILL_PAY],
+    [SERVICE_SETTING_KEYS.CC_BILL_3]:
+      resolvedSettings[SERVICE_SETTING_KEYS.CC_BILL_3].is_enabled
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.CC_BILL_3],
   };
 }
 
