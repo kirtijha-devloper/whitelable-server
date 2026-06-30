@@ -159,7 +159,11 @@ const getSupportedBanks = asyncHandler(async (_req, res) => {
   });
 });
 
-const payCcBill3 = asyncHandler(async (req, res) => {
+async function executeCcBill3Payment(req, res, options = {}) {
+  const {
+    bypassVimoUserServiceCheck = false,
+  } = options;
+
   const userId = req.user?.id;
   if (!userId) {
     return res.status(401).json({ success: false, message: 'Authentication required' });
@@ -174,7 +178,7 @@ const payCcBill3 = asyncHandler(async (req, res) => {
     return;
   }
 
-  if (!(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.VIMO_PAYOUT, user))) {
+  if (!bypassVimoUserServiceCheck && !(await assertServiceEnabledOrRespond(res, SERVICE_SETTING_KEYS.VIMO_PAYOUT, user))) {
     return;
   }
 
@@ -499,6 +503,14 @@ const payCcBill3 = asyncHandler(async (req, res) => {
       },
     });
   }
+}
+
+const payCcBill3 = asyncHandler(async (req, res) => {
+  return executeCcBill3Payment(req, res, { bypassVimoUserServiceCheck: false });
+});
+
+const payCcBill3IgnoringVimoToggle = asyncHandler(async (req, res) => {
+  return executeCcBill3Payment(req, res, { bypassVimoUserServiceCheck: true });
 });
 
 const getCcBill3Status = asyncHandler(async (req, res) => {
@@ -541,5 +553,6 @@ const getCcBill3Status = asyncHandler(async (req, res) => {
 module.exports = {
   getSupportedBanks,
   payCcBill3,
+  payCcBill3IgnoringVimoToggle,
   getCcBill3Status,
 };

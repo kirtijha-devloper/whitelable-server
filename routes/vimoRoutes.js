@@ -6,6 +6,7 @@ const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
   getSupportedBanks: getCcBill3SupportedBanks,
   payCcBill3,
+  payCcBill3IgnoringVimoToggle,
   getCcBill3Status,
 } = require('../controllers/cc/billAvenue/ccBill3Controller');
 const router = express.Router();
@@ -32,6 +33,7 @@ router.post('/payout/status', vimoController.checkPayoutStatus);
 router.get('/payout/status', vimoController.checkPayoutStatus);
 router.get('/cc-bill-3/banks', getCcBill3SupportedBanks);
 router.post('/cc-bill-3/pay', payCcBill3);
+router.post('/cc-bill-3/pay-direct', payCcBill3IgnoringVimoToggle);
 router.get('/cc-bill-3/payments/:id', getCcBill3Status);
 router.get('/payout/audit-logs/by-reference', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.PAYOUT_READ), vimoController.getPayoutAuditLogsByReference);
 router.post('/payout/admin/fail', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE), vimoController.failProcessingPayout);
