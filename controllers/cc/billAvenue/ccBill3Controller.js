@@ -336,6 +336,23 @@ async function executeCcBill3Payment(req, res, options = {}) {
   const merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId });
   const resolvedPaymentPurpose = String(paymentPurpose || purpose || process.env.VIMO_CC_BILL_PAYMENT_PURPOSE || 'UTILITY').trim();
   const resolvedPaymentMode = String(paymentMode || process.env.VIMO_CC_BILL_PAYMENT_MODE || 'IMPS').trim();
+  const vimoRequestPayload = {
+    lat: String(lat),
+    long: String(long),
+    udf1: 'BA_CC_BILL_3',
+    udf2: String(fetchRecord?.id || ''),
+    udf3: '',
+    amount: finalAmount,
+    paymentMode: resolvedPaymentMode,
+    merchantRefId,
+    paymentPurpose: resolvedPaymentPurpose,
+    beneficiaryBank: resolvedBankCode,
+    beneficiaryIFSC: bank.ifsc,
+    beneficiaryName: resolvedBeneficiaryName,
+    beneficiaryLocation: resolvedBeneficiaryLocation,
+    beneficiaryMobileNumber: resolvedBeneficiaryMobile,
+    beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
+  };
 
   const transaction = await db.transaction();
   let payment;
@@ -392,6 +409,7 @@ async function executeCcBill3Payment(req, res, options = {}) {
       action: 'BA_CC_BILL_3_INIT',
       details: {
         merchantRefId,
+        requestPayload: vimoRequestPayload,
         billAvenuePaymentId: payment.id,
         billFetchId: fetchRecord?.id || null,
         billerId: finalBillerId,
@@ -402,6 +420,15 @@ async function executeCcBill3Payment(req, res, options = {}) {
         beneficiaryId: payoutBeneficiary.id,
         beneficiaryBank: bank.bankName,
         beneficiaryIFSC: bank.ifsc,
+      },
+    }, { transaction });
+
+    await PayoutAuditLog.create({
+      payout_id: payoutTransaction.id,
+      action: 'VIMO_PAYOUT_REQUEST',
+      details: {
+        merchantRefId,
+        requestPayload: vimoRequestPayload,
       },
     }, { transaction });
 
@@ -429,23 +456,7 @@ async function executeCcBill3Payment(req, res, options = {}) {
   }
 
   try {
-    const result = await vimoService.createPayout({
-      amount: finalAmount,
-      merchantRefId,
-      beneficiaryBank: resolvedBankCode,
-      paymentPurpose: resolvedPaymentPurpose,
-      paymentMode: resolvedPaymentMode,
-      beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
-      beneficiaryIFSC: bank.ifsc,
-      beneficiaryMobileNumber: resolvedBeneficiaryMobile,
-      beneficiaryName: resolvedBeneficiaryName,
-      beneficiaryLocation: resolvedBeneficiaryLocation,
-      lat: String(lat),
-      long: String(long),
-      udf1: 'BA_CC_BILL_3',
-      udf2: String(payment.id),
-      udf3: String(fetchRecord?.id || ''),
-    });
+    const result = await vimoService.createPayout(vimoRequestPayload);
 
     const existingData = safeParseJson(payoutTransaction.data, {});
     await payoutTransaction.update({
