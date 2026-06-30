@@ -3,6 +3,11 @@ const vimoController = require('../controllers/vimoController');
 const validateToken = require('../middleware/validateTokenHandler');
 const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
+const {
+  getSupportedBanks: getCcBill3SupportedBanks,
+  payCcBill3,
+  getCcBill3Status,
+} = require('../controllers/cc/billAvenue/ccBill3Controller');
 const router = express.Router();
 
 // Webhook callback should be open to Vimo provider; no user JWT required.
@@ -25,6 +30,9 @@ router.get('/payout/reference', vimoController.getPayoutReference);
 router.post('/payout', vimoController.createPayout);
 router.post('/payout/status', vimoController.checkPayoutStatus);
 router.get('/payout/status', vimoController.checkPayoutStatus);
+router.get('/cc-bill-3/banks', getCcBill3SupportedBanks);
+router.post('/cc-bill-3/pay', payCcBill3);
+router.get('/cc-bill-3/payments/:id', getCcBill3Status);
 router.get('/payout/audit-logs/by-reference', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.PAYOUT_READ), vimoController.getPayoutAuditLogsByReference);
 router.post('/payout/admin/fail', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE), vimoController.failProcessingPayout);
 
