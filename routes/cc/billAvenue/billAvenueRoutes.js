@@ -17,6 +17,11 @@ const {
   registerComplaint,
   getTransactionStatus,
 } = require('../../../controllers/cc/billAvenue/billAvenueBillController');
+const {
+  getSupportedBanks: getCcBill3SupportedBanks,
+  payCcBill3,
+  getCcBill3Status,
+} = require('../../../controllers/cc/billAvenue/ccBill3Controller');
 
 const validateToken = require('../../../middleware/validateTokenHandler');
 
@@ -40,6 +45,15 @@ router.post('/biller-info-json', getBillerInfoByIdJson);
 
 // POST /api/bill-avenue/fetch-bill           – Fetch/validate a bill
 router.post('/fetch-bill', fetchBill);
+
+// GET  /api/bill-avenue/cc-bill-3/banks      – Supported CC Bill 3 Vimo bank mapping
+router.get('/cc-bill-3/banks', getCcBill3SupportedBanks);
+
+// POST /api/bill-avenue/cc-bill-3/pay        – Execute CC Bill 3 via Vimo after BillAvenue fetch
+router.post('/cc-bill-3/pay', payCcBill3);
+
+// GET  /api/bill-avenue/cc-bill-3/payments/:id – Poll CC Bill 3 payment status
+router.get('/cc-bill-3/payments/:id', getCcBill3Status);
 
 // POST /api/bill-avenue/pay                  – Execute bill payment
 router.post('/pay', payBill);

@@ -3,6 +3,7 @@ const RazorpayNotification = require("../models/RazorpayNotification");
 const { Op } = require("sequelize");
 const fs = require("fs");
 const path = require("path");
+const { WEBHOOK_SOURCES, extractCardClassification } = require("../utils/razorpay/sources");
 
 // ── File-based logger for diagnostics ────────────────────────────────────────
 const LOG_DIR = path.join(__dirname, "../logs");
@@ -52,7 +53,7 @@ razorpayWebhookQueue.process(async (job) => {
   logger.log(`[Razorpay Webhook Worker] Processing business logic for txn: ${txnId}, status: ${status}`);
 
   // we'll resolve the actual source after we fetch the notification record below
-  let src = 'razorpay';  // default fallback
+  let src = WEBHOOK_SOURCES.AGRO_AXIS;
 
   try {
     // Verify the notification exists in DB (safety check)
@@ -65,13 +66,13 @@ razorpayWebhookQueue.process(async (job) => {
     }
 
     // once we have the record we can determine which source triggered this webhook
-    src = notification.source || (event && event.source) || 'razorpay';
+    src = notification.source || (event && event.source) || WEBHOOK_SOURCES.AGRO_AXIS;
 
     logger.log(`[Razorpay Webhook Worker] Notification found in database for txn: ${txnId} (source=${src})`);
 
     // If the webhook arrived with invalid/missing auth, we still keep the record for auditing
     // but we do not attempt normal transaction processing.
-    if (src === 'UNKNOWN') {
+    if (src === WEBHOOK_SOURCES.UNKNOWN) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ Unknown source for txn: ${txnId}. Marking for admin review.`);
       await notification.update({
         processed: false,
@@ -200,7 +201,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       userAgreement
     } = data;
     // card classification might be supplied as either snake_case or camelCase
-    const classificationFromJson = data.card_classification || data.cardClassification || cardClassificationType || null;
+    const classificationFromJson = extractCardClassification(data) || cardClassificationType || null;
 
     // derive merchant, terminal, and amount using the notification columns when available
     // fall back to JSON payload values if the column was not back‑filled yet
@@ -368,6 +369,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
 
     let rule = await ChargeService.getTransactionChargeRule({
       userId: posOperator.id,
+      userRole: posOperator.role,
       franchiseId: franchiseId,
       paymentMode: paymentMethod,
       cardType: paymentCardType || null,

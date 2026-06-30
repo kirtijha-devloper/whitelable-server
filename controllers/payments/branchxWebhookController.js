@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const axios = require('axios');
 const asyncHandler = require('express-async-handler');
 const { Op } = require('sequelize');
 const db = require('../../config/database');
@@ -8,7 +10,10 @@ const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const Ledger = require('../../models/Ledger');
 const ledgerService = require('../../services/ledgerService');
 
+const BRANCHX_CALLBACK_FORWARD_URL = process.env.BRANCHX_CALLBACK_FORWARD_URL || 'https://api.abheepay.com/api/branchx/callback';
+const BRANCHX_CALLBACK_FORWARD_TIMEOUT_MS = Number(process.env.BRANCHX_CALLBACK_FORWARD_TIMEOUT_MS || 10000);
 const callbackLogFile = path.resolve(__dirname, '../../logs/branchx-payout-callback.log');
+const branchxRedirectLogFile = path.resolve(__dirname, '../../logs/branchx_api_redirect.log');
 
 function ensureLogDir() {
   const logDir = path.dirname(callbackLogFile);
@@ -62,6 +67,196 @@ function logBranchxEvent(message) {
   }
 }
 
+function logBranchxRedirect(entry) {
+  try {
+    ensureLogDir();
+    const payload = {
+      receivedAt: new Date().toISOString(),
+      ...entry,
+    };
+    fs.appendFileSync(branchxRedirectLogFile, `${JSON.stringify(payload)}\n`, 'utf8');
+  } catch (error) {
+    console.error('Failed to write BranchX redirect log:', error);
+  }
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Buffer.isBuffer(value) && !Array.isArray(value);
+}
+
+function tryParseJson(text) {
+  if (typeof text !== 'string') {
+    return null;
+  }
+
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith('"'))) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch (error) {
+    return null;
+  }
+}
+
+function deriveKey(secret, size = 32) {
+  const secretText = String(secret || '');
+  if (!secretText) {
+    return null;
+  }
+
+  const secretBuffer = Buffer.from(secretText, 'utf8');
+  if (secretBuffer.length === size) {
+    return secretBuffer;
+  }
+
+  return crypto.createHash('sha256').update(secretBuffer).digest().subarray(0, size);
+}
+
+function deriveIv(ivValue) {
+  const ivText = String(ivValue || '');
+  if (!ivText) {
+    return null;
+  }
+
+  const ivBuffer = Buffer.from(ivText, 'utf8');
+  if (ivBuffer.length === 16) {
+    return ivBuffer;
+  }
+
+  return crypto.createHash('sha256').update(ivBuffer).digest().subarray(0, 16);
+}
+
+function decryptAes256Cbc(base64CipherText, secret, ivValue) {
+  const key = deriveKey(secret, 32);
+  const iv = deriveIv(ivValue);
+
+  if (!key || !iv) {
+    return null;
+  }
+
+  const normalized = String(base64CipherText || '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const encryptedBuffer = Buffer.from(normalized, 'base64');
+  if (!encryptedBuffer.length) {
+    return null;
+  }
+
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    const decryptedBuffer = Buffer.concat([decipher.update(encryptedBuffer), decipher.final()]);
+    return decryptedBuffer.toString('utf8');
+  } catch (error) {
+    return null;
+  }
+}
+
+function decodeBase64Text(text) {
+  const normalized = String(text || '').trim();
+  if (!normalized || normalized.length % 4 !== 0) {
+    return null;
+  }
+
+  if (!/^[A-Za-z0-9+/=\r\n]+$/.test(normalized)) {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(normalized, 'base64').toString('utf8').trim();
+    return decoded || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function resolveBranchxCallbackPayload(req) {
+  const rawBody = req.method === 'GET' ? req.query : req.body;
+
+  if (isPlainObject(rawBody)) {
+    return rawBody;
+  }
+
+  const rawText = Buffer.isBuffer(rawBody)
+    ? rawBody.toString('utf8').trim()
+    : String(rawBody || '').trim();
+
+  if (!rawText) {
+    return {};
+  }
+
+  const parsedJson = tryParseJson(rawText);
+  if (parsedJson !== null) {
+    return parsedJson;
+  }
+
+  const secret = process.env.BRANCHX_CALLBACK_ENCRYPTION_KEY || process.env.BRANCHX_CALLBACK_SECRET || '';
+  const ivValue = process.env.BRANCHX_CALLBACK_ENCRYPTION_IV || process.env.BRANCHX_CALLBACK_IV || '';
+
+  const aesDecrypted = decryptAes256Cbc(rawText, secret, ivValue);
+  if (aesDecrypted) {
+    const decryptedJson = tryParseJson(aesDecrypted);
+    return decryptedJson !== null ? decryptedJson : aesDecrypted;
+  }
+
+  const base64Decoded = decodeBase64Text(rawText);
+  if (base64Decoded) {
+    const decodedJson = tryParseJson(base64Decoded);
+    return decodedJson !== null ? decodedJson : base64Decoded;
+  }
+
+  return rawText;
+}
+
+function buildForwardHeaders(req) {
+  const headers = { ...(req.headers || {}) };
+  delete headers.host;
+  delete headers['content-length'];
+  delete headers.connection;
+  delete headers['transfer-encoding'];
+  return headers;
+}
+
+function forwardBranchxCallbackToApi(req, payload) {
+  const method = String(req.method || 'POST').toLowerCase();
+  const outboundHeaders = buildForwardHeaders(req);
+  const config = {
+    method,
+    url: BRANCHX_CALLBACK_FORWARD_URL,
+    headers: outboundHeaders,
+    timeout: BRANCHX_CALLBACK_FORWARD_TIMEOUT_MS,
+    validateStatus: () => true,
+  };
+
+  if (method === 'get') {
+    config.params = payload;
+  } else {
+    config.data = payload;
+  }
+
+  logBranchxRedirect({
+    event: 'FORWARD_ATTEMPT',
+    source: {
+      method: req.method,
+      path: req.originalUrl,
+      ip: req.ip || req.socket?.remoteAddress || null,
+    },
+    targetUrl: BRANCHX_CALLBACK_FORWARD_URL,
+    forwardedHeaders: outboundHeaders,
+    forwardedPayload: payload,
+  });
+
+  return axios.request(config);
+}
+
 function normalizeBranchxStatus(statusRaw) {
   if (!statusRaw) return 'PENDING';
   const s = statusRaw.toString().trim().toUpperCase();
@@ -84,8 +279,36 @@ function getCallbackResponseMessage(status) {
 }
 
 const handleBranchxPayoutCallback = asyncHandler(async (req, res) => {
-  const payload = (req.method === 'GET' ? req.query : req.body) || {};
+  const payload = resolveBranchxCallbackPayload(req);
   logBranchxCallback(payload, req);
+
+  void forwardBranchxCallbackToApi(req, payload).then((response) => {
+    logBranchxRedirect({
+      event: 'FORWARD_SUCCESS',
+      source: {
+        method: req.method,
+        path: req.originalUrl,
+        ip: req.ip || req.socket?.remoteAddress || null,
+      },
+      targetUrl: BRANCHX_CALLBACK_FORWARD_URL,
+      downstreamStatus: response?.status ?? null,
+      downstreamData: response?.data ?? null,
+    });
+    logBranchxEvent(`FORWARDED branchx callback to ${BRANCHX_CALLBACK_FORWARD_URL} status=${response?.status ?? 'unknown'}`);
+  }).catch((error) => {
+    logBranchxRedirect({
+      event: 'FORWARD_FAILED',
+      source: {
+        method: req.method,
+        path: req.originalUrl,
+        ip: req.ip || req.socket?.remoteAddress || null,
+      },
+      targetUrl: BRANCHX_CALLBACK_FORWARD_URL,
+      error: error.message || String(error),
+      errorResponse: error?.response?.data ?? null,
+    });
+    logBranchxEvent(`FORWARD_FAILED branchx callback to ${BRANCHX_CALLBACK_FORWARD_URL}: ${error.message || error}`);
+  });
 
   if (!payload || typeof payload !== 'object' || Object.keys(payload).length === 0) {
     return res.status(400).json({ success: false, message: 'Empty callback payload' });

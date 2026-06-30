@@ -64,6 +64,7 @@ const VALID_SCOPES = [
  *
  * @param {Object}      opts
  * @param {number|null} opts.userId           Merchant/franchise user id
+ * @param {string|null} opts.userRole         merchant | franchaise | franchise
  * @param {number|null} opts.franchiseId      The franchise id (user.franchaise_id)
  * @param {string|null} opts.paymentMode      CARD, UPI, …
  * @param {string|null} opts.cardType         CREDIT, DEBIT, …
@@ -75,6 +76,7 @@ const VALID_SCOPES = [
  */
 async function getTransactionChargeRule({
   userId,
+  userRole,
   franchiseId,
   paymentMode,
   cardType,
@@ -95,6 +97,7 @@ async function getTransactionChargeRule({
   const normalizedPaymentMode = normalizeLookupValue(paymentMode);
   const normalizedCardType = normalizeLookupValue(cardType);
   const normalizedClassification = normalizeLookupValue(classification);
+  const normalizedUserRole = normalizeLookupValue(userRole);
   const cardBrandCandidates = getCardBrandCandidates(cardBrand);
 
   const query = `
@@ -118,8 +121,10 @@ async function getTransactionChargeRule({
     WHERE is_active = true
       -- scope-aware row filtering: only pull in rows that CAN apply
       AND (
-            -- user-specific rules (admin_merchant or franchise_merchant)
-            (user_id = $1)
+            -- user-specific rules apply only for merchant targets. When a user
+            -- is promoted to franchise, old merchant-scoped overrides must stop
+            -- matching for that same user id.
+            ($9 = 'MERCHANT' AND user_id = $1)
             -- franchise-level or global (no user_id)
          OR (user_id IS NULL AND (franchaise_id = $2 OR franchaise_id IS NULL))
       )
@@ -143,7 +148,8 @@ async function getTransactionChargeRule({
     normalizedCardType,
     normalizedClassification,
     settlement || null,
-    amount
+    amount,
+    normalizedUserRole
   ];
 
   for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {

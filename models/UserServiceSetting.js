@@ -7,6 +7,7 @@ const USER_SERVICE_ALLOWED_KEYS = [
   'sevenpay_payout',
   'cc_bill_pay',
   'ba_cc_bill_pay',
+  'cc_bill_3',
 ];
 
 const UserServiceSetting = db.define('UserServiceSetting', {

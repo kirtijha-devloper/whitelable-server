@@ -782,6 +782,7 @@ const calculateCharge = asyncHandler(async (req, res) => {
 
   let rule = await ChargeService.getTransactionChargeRule({
     userId: user_id,
+    userRole: user.role,
     franchiseId,
     paymentMode: payment_mode,
     cardType: card_type,

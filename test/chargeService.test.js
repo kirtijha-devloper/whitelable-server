@@ -83,6 +83,7 @@ describe('ChargeService', () => {
         // verify that the 1st and 2nd bind values match what we passed
         expect(opts.bind[0]).to.equal(7);
         expect(opts.bind[1]).to.equal(5);
+        expect(opts.bind[8]).to.equal(null);
         return [[]];
       });
       await ChargeService.getTransactionChargeRule({
@@ -95,6 +96,49 @@ describe('ChargeService', () => {
         settlement: 'TODAY',
         amount: 100
       });
+      expect(stub.calledOnce).to.be.true;
+    });
+
+    it('passes merchant role into the bind list for user-specific rule matching', async () => {
+      const stub = sinon.stub(db, 'query').callsFake((_query, opts) => {
+        expect(opts.bind[8]).to.equal('MERCHANT');
+        return [[]];
+      });
+
+      await ChargeService.getTransactionChargeRule({
+        userId: 7,
+        userRole: 'merchant',
+        franchiseId: 5,
+        paymentMode: 'CARD',
+        cardType: 'CREDIT',
+        cardBrand: 'VISA',
+        classification: 'PLATINUM',
+        settlement: 'TODAY',
+        amount: 100
+      });
+
+      expect(stub.calledOnce).to.be.true;
+    });
+
+    it('does not allow promoted franchise users to match legacy merchant-scoped rules', async () => {
+      const stub = sinon.stub(db, 'query').callsFake((query, opts) => {
+        expect(query).to.include("($9 = 'MERCHANT' AND user_id = $1)");
+        expect(opts.bind[8]).to.equal('FRANCHAISE');
+        return [];
+      });
+
+      await ChargeService.getTransactionChargeRule({
+        userId: 42,
+        userRole: 'franchaise',
+        franchiseId: 42,
+        paymentMode: 'CARD',
+        cardType: 'CREDIT',
+        cardBrand: 'RUPAY',
+        classification: 'PLATINUM',
+        settlement: 'today_settlement',
+        amount: 500
+      });
+
       expect(stub.calledOnce).to.be.true;
     });
 

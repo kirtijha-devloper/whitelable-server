@@ -1,5 +1,6 @@
 const fs   = require("fs");
 const path = require("path");
+const { WEBHOOK_SOURCES } = require("./sources");
 
 // ── Minimal file logger ───────────────────────────────────────────────────────
 const LOG_FILE = path.join(__dirname, "../../logs/webhookAuth.log");
@@ -30,26 +31,35 @@ function verifyRzpAuth(req, res, next) {
 
         const [username, password] = decoded.split(":");
 
-        // check both the original Razorpay credentials and the new Everlife ones
+        // Support separate credential pairs so AGRO Axis and AGRO HDFC can be
+        // reported independently while reusing the same webhook endpoint.
         let valid = false;
-        // keep source explicitly set to UNKNOWN when credentials don't match
-        // (this ensures downstream logs/metrics see a consistent value)
-        let source = 'UNKNOWN';
+        let source = WEBHOOK_SOURCES.UNKNOWN;
 
-        if (
-            username === process.env.WEBHOOK_USERNAME &&
-            password === process.env.WEBHOOK_PASSWORD
-        ) {
-            valid = true;
-            source = 'agro';
-        }
+        const credentialSets = [
+            {
+                source: WEBHOOK_SOURCES.AGRO_AXIS,
+                username: process.env.WEBHOOK_USERNAME_AXIS || process.env.WEBHOOK_USERNAME,
+                password: process.env.WEBHOOK_PASSWORD_AXIS || process.env.WEBHOOK_PASSWORD,
+            },
+            {
+                source: WEBHOOK_SOURCES.AGRO_HDFC,
+                username: process.env.WEBHOOK_USERNAME_HDFC,
+                password: process.env.WEBHOOK_PASSWORD_HDFC,
+            },
+            {
+                source: WEBHOOK_SOURCES.EVERLIFE,
+                username: process.env.WEBHOOK_USERNAME_EVERLIFE,
+                password: process.env.WEBHOOK_PASSWORD_EVERLIFE,
+            },
+        ].filter((entry) => entry.username && entry.password);
 
-        if (
-            username === process.env.WEBHOOK_USERNAME_EVERLIFE &&
-            password === process.env.WEBHOOK_PASSWORD_EVERLIFE
-        ) {
-            valid = true;
-            source = 'everlife';
+        for (const entry of credentialSets) {
+            if (username === entry.username && password === entry.password) {
+                valid = true;
+                source = entry.source;
+                break;
+            }
         }
 
         if (!valid) {

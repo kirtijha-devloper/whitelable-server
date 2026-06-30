@@ -10,8 +10,19 @@ const Ledger = require('../models/Ledger');
 const PayoutTransaction = require('../models/PayoutTransaction');
 const Beneficiary = require('../models/Beneficiary');
 const CcBillPayment = require('../models/CcBillPayment');
+const { WEBHOOK_SOURCES, LEGACY_AGRO_SOURCE, extractCardClassification } = require('../utils/razorpay/sources');
+function buildSourceFilter(source) {
+  if (!source) return null;
+
+  if (source === WEBHOOK_SOURCES.AGRO_AXIS || source === LEGACY_AGRO_SOURCE) {
+    return { [Op.in]: [WEBHOOK_SOURCES.AGRO_AXIS, LEGACY_AGRO_SOURCE] };
+  }
+
+  return source;
+}
+
 // Admin-only full notifications list
-// Supports optional `source` query parameter to restrict to 'razorpay' or 'everlife' webhooks
+// Supports optional `source` query parameter to restrict to a specific webhook source
 const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
   const userRole = req.user?.role;
   if (userRole !== 'admin') {
@@ -25,7 +36,7 @@ const getAllRazorpayNotifications = asyncHandler(async (req, res) => {
 
   const where = {};
   if (source) {
-    where.source = source;
+    where.source = buildSourceFilter(source);
   }
 
   const { count, rows } = await RazorpayNotification.findAndCountAll({
@@ -425,6 +436,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
     // ── Optional filters ─────────────────────────────────────────────────────
     if (status)       where.status       = status.toUpperCase();
     if (payment_mode) where.payment_mode = payment_mode.toUpperCase();
+    if (source)       where.source       = buildSourceFilter(source);
 
     // ── Pagination ────────────────────────────────────────────────────────────
     const pageNum  = Math.max(1, parseInt(page)  || 1);
@@ -518,11 +530,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       })();
       const authCode = eventData?.authCode || eventData?.auth_code || null;
       const rrNumber = eventData?.rrNumber || eventData?.rr_number || n.rr_number || null;
-      const cardClassification =
-        eventData?.cardClassification
-        || eventData?.card_classification
-        || eventData?.cardClassificationType
-        || null;
+      const cardClassification = extractCardClassification(eventData);
       const paymentCardType = eventData?.paymentCardType || eventData?.payment_card_type || n.payment_card_type || null;
       const ledgerMeta = ledger?.metadata ? (() => { try { return JSON.parse(ledger.metadata); } catch (_) { return ledger.metadata; } })() : null;
       const mdr = ledger ? parseFloat(ledger.debit) : null;
@@ -549,6 +557,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         device_serial:     n.device_serial,
         posting_date:      n.posting_date,
         status:            n.status,
+        source:            n.source || null,
         user_id:           n.user_id,
         pos_machine_id:    n.pos_machine_id,
         user:              n.user        || null,
@@ -854,6 +863,7 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         total_deducted: parseFloat(p.amount) + (parseFloat(p.service_charge) || 0),
         purpose:        p.purpose,
         status:         p.status,
+        data:           p.data,
         rrn:            referenceFields.rrn,
         utr:            referenceFields.utr,
         balance_before: initialLedger ? parseFloat(initialLedger.balance_before) : null,

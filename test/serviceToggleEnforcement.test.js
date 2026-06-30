@@ -174,4 +174,26 @@ describe('Service toggle enforcement', () => {
     expect(res.body.code).to.equal('SERVICE_DISABLED');
     expect(res.body.service_key).to.equal('ba_cc_bill_pay');
   });
+
+  it('blocks CC Bill 3 payment when cc_bill_3 is disabled globally', async () => {
+    ServiceSetting.findAll = async () => makeDisabledSetting('cc_bill_3');
+    User.findByPk = async () => ({ id: 2, is_payout_enabled: true, state: 'DL', mobile_number: '9876543210' });
+
+    const res = await request(app)
+      .post('/api/bill-avenue/cc-bill-3/pay')
+      .set('Authorization', `Bearer ${merchantToken}`)
+      .send({
+        billerId: 'HDFC000CC00ANZ',
+        customerParams: { CRN: '4111111111111234' },
+        amount: 5000,
+        bankName: 'HDFC BANK',
+        beneficiaryLocation: 'DL',
+        lat: '28.6139',
+        long: '77.2090',
+      });
+
+    expect(res.status).to.equal(403);
+    expect(res.body.code).to.equal('SERVICE_DISABLED');
+    expect(res.body.service_key).to.equal('cc_bill_3');
+  });
 });

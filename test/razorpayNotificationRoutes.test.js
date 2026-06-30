@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const request = require('supertest');
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');
 
 process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secret';
 
@@ -57,8 +58,9 @@ describe('Employee access to Razorpay notification routes', () => {
       rows: [{
         id: 91,
         txn_id: 'TXN1',
+        source: 'agro_hdfc',
         status: 'CAPTURED',
-        event_json: {},
+        event_json: { cardClassification: 'PLATINUM' },
         createdAt: new Date(),
         updatedAt: new Date(),
       }]
@@ -70,6 +72,8 @@ describe('Employee access to Razorpay notification routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.data).to.have.length(1);
+    expect(res.body.data[0].source).to.equal('agro_hdfc');
+    expect(res.body.data[0].cardClassification).to.equal('PLATINUM');
   });
 
   it('rejects employee notification list access without permission', async () => {
@@ -81,13 +85,28 @@ describe('Employee access to Razorpay notification routes', () => {
     expect(res.body.message).to.match(/permission to view razorpay notifications/i);
   });
 
+  it('treats agro_axis source filter as compatible with legacy agro rows', async () => {
+    let capturedWhere;
+    RazorpayNotification.findAndCountAll = async ({ where }) => {
+      capturedWhere = where;
+      return { count: 0, rows: [] };
+    };
+
+    const res = await request(app)
+      .get('/api/razorpay/notification?source=agro_axis')
+      .set('Authorization', `Bearer ${employeeListToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(capturedWhere.source[Op.in]).to.deep.equal(['agro_axis', 'agro']);
+  });
+
   it('allows employee with read permission to fetch a notification detail', async () => {
     RazorpayNotification.findByPk = async () => ({
       id: 91,
       txn_id: 'TXN1',
       status: 'CAPTURED',
-      source: 'razorpay',
-      event_json: { amount: 1000 },
+      source: 'agro_axis',
+      event_json: { amount: 1000, cardClassification: 'CLASSIC' },
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -98,6 +117,8 @@ describe('Employee access to Razorpay notification routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.data.id).to.equal(91);
+    expect(res.body.data.source).to.equal('agro_axis');
+    expect(res.body.data.cardClassification).to.equal('CLASSIC');
   });
 
   it('rejects detail access when employee only has list permission', async () => {
