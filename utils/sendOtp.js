@@ -12,7 +12,7 @@ async function sendBulk9(templateId, variablesValues, numbers) {
     const payload = JSON.stringify({
         route: "dlt",
         sender_id: sender,
-        message_id: templateId,
+        message: templateId,
         variables_values: variablesValues,
         flash: 0,
         numbers: numbers,
