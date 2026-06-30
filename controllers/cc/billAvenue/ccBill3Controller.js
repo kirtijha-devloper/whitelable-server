@@ -5,6 +5,7 @@ const BillAvenuePayment = require('../../../models/BillAvenuePayment');
 const PayoutTransaction = require('../../../models/PayoutTransaction');
 const PayoutAuditLog = require('../../../models/PayoutAuditLog');
 const PayoutCharge = require('../../../models/PayoutCharge');
+const Beneficiary = require('../../../models/Beneficiary');
 const User = require('../../../models/User');
 const ledgerService = require('../../../services/ledgerService');
 const payoutReferenceService = require('../../../services/payoutReferenceService');
@@ -108,6 +109,50 @@ function extractBeneficiaryAccountNumber(customerParams, explicitValue) {
   }
 
   return '';
+}
+
+async function findOrCreateCcBill3Beneficiary({
+  userId,
+  accountNumber,
+  ifsc,
+  bankName,
+  beneficiaryName,
+  mobileNumber,
+  state,
+}) {
+  const existing = await Beneficiary.findOne({
+    where: {
+      merchant_id: userId,
+      account_number: accountNumber,
+      ifsc_code: ifsc,
+    },
+  });
+
+  if (existing) {
+    const updates = {};
+    if (!existing.bank_name && bankName) updates.bank_name = bankName;
+    if (!existing.beneficiary_name && beneficiaryName) updates.beneficiary_name = beneficiaryName;
+    if (!existing.mobile_number && mobileNumber) updates.mobile_number = mobileNumber;
+    if (!existing.state && state) updates.state = state;
+
+    if (Object.keys(updates).length > 0) {
+      await existing.update(updates);
+    }
+
+    return existing;
+  }
+
+  return Beneficiary.create({
+    merchant_id: userId,
+    mobile_number: mobileNumber || '9999999999',
+    bank_name: bankName,
+    account_number: accountNumber,
+    beneficiary_name: beneficiaryName,
+    ifsc_code: ifsc,
+    email: '',
+    state: state || null,
+    status: 'active',
+  });
 }
 
 async function resolvePayoutServiceCharge(payoutAmount) {
@@ -263,6 +308,16 @@ async function executeCcBill3Payment(req, res, options = {}) {
     });
   }
 
+  const payoutBeneficiary = await findOrCreateCcBill3Beneficiary({
+    userId,
+    accountNumber: resolvedBeneficiaryAccountNumber,
+    ifsc: bank.ifsc,
+    bankName: bank.bankName,
+    beneficiaryName: resolvedBeneficiaryName,
+    mobileNumber: resolvedBeneficiaryMobile,
+    state: resolvedBeneficiaryLocation,
+  });
+
   const chargeResolution = await resolvePayoutServiceCharge(finalAmount);
   const serviceCharge = chargeResolution.charge;
   const totalAmount = +(finalAmount + serviceCharge).toFixed(2);
@@ -312,7 +367,7 @@ async function executeCcBill3Payment(req, res, options = {}) {
 
     payoutTransaction = await PayoutTransaction.create({
       merchant_id: userId,
-      beneficiary_id: null,
+      beneficiary_id: payoutBeneficiary.id,
       reference_id: merchantRefId,
       payout_provider: 'Vimo',
       amount: finalAmount,
@@ -323,6 +378,7 @@ async function executeCcBill3Payment(req, res, options = {}) {
         billAvenuePaymentId: payment.id,
         billFetchId: fetchRecord?.id || null,
         billerId: finalBillerId,
+        beneficiaryId: payoutBeneficiary.id,
         beneficiaryAccountNumber: resolvedBeneficiaryAccountNumber,
         beneficiaryIFSC: bank.ifsc,
         beneficiaryBank: bank.bankName,
@@ -343,6 +399,7 @@ async function executeCcBill3Payment(req, res, options = {}) {
         serviceCharge,
         chargeSource: chargeResolution.source,
         chargeSlabId: chargeResolution.slabId,
+        beneficiaryId: payoutBeneficiary.id,
         beneficiaryBank: bank.bankName,
         beneficiaryIFSC: bank.ifsc,
       },
@@ -358,6 +415,7 @@ async function executeCcBill3Payment(req, res, options = {}) {
         billAvenuePaymentId: payment.id,
         billFetchId: fetchRecord?.id || null,
         billerId: finalBillerId,
+        beneficiaryId: payoutBeneficiary.id,
         beneficiaryBank: bank.bankName,
         beneficiaryIFSC: bank.ifsc,
         serviceCharge,
