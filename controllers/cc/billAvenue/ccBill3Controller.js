@@ -334,13 +334,18 @@ async function executeCcBill3Payment(req, res, options = {}) {
   }
 
   const merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId });
-  const resolvedPaymentPurpose = String(paymentPurpose || purpose || process.env.VIMO_CC_BILL_PAYMENT_PURPOSE || 'UTILITY').trim();
+  const resolvedPaymentPurpose = String(
+    paymentPurpose
+    || purpose
+    || process.env.VIMO_CC_BILL_PAYMENT_PURPOSE
+    || '004'
+  ).trim();
   const resolvedPaymentMode = String(paymentMode || process.env.VIMO_CC_BILL_PAYMENT_MODE || 'IMPS').trim();
   const vimoRequestPayload = {
     lat: String(lat),
     long: String(long),
-    udf1: 'BA_CC_BILL_3',
-    udf2: String(fetchRecord?.id || ''),
+    udf1: '',
+    udf2: '',
     udf3: '',
     amount: finalAmount,
     paymentMode: resolvedPaymentMode,
