@@ -267,7 +267,7 @@ router.post('/initiate', async (req, res) => {
 
     const requestInfo = {
       method: 'POST',
-      url: `${config.baseUrl}/api/Payout/initiatePayout`,
+      url: `${config.baseUrl}/api/PayOut/InitiatePayoutNew`,
       headers: {
         Authorization: `Bearer ${maskValue(loginResult.token)}`,
         key: `${encrypted.encryptedKey.slice(0, 16)}...`,
@@ -281,7 +281,7 @@ router.post('/initiate', async (req, res) => {
     try {
       const response = await client.request({
         method: 'post',
-        url: '/api/Payout/initiatePayout',
+        url: '/api/PayOut/InitiatePayoutNew',
         headers: {
           Authorization: `Bearer ${loginResult.token}`,
           key: encrypted.encryptedKey,
@@ -337,7 +337,7 @@ router.post('/initiate', async (req, res) => {
   } catch (error) {
     const requestInfo = {
       method: 'POST',
-      url: `${config.baseUrl}/api/Payout/initiatePayout`,
+      url: `${config.baseUrl}/api/PayOut/InitiatePayoutNew`,
       body: plainPayload,
     };
     const payload = buildErrorPayload(error, 'SevenPay initiate test', requestInfo);

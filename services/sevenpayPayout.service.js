@@ -24,7 +24,7 @@ function sevenpayLog(level, message, data) {
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.SEVENPAY_TIMEOUT_MS || 30000);
 const DEFAULT_LOGIN_PATH = process.env.SEVENPAY_LOGIN_PATH || '/api/Account/GetToken/Login';
-const DEFAULT_PAYOUT_PATH = process.env.SEVENPAY_PAYOUT_INITIATE_PATH || '/api/Payout/initiatePayout';
+const DEFAULT_PAYOUT_PATH = process.env.SEVENPAY_PAYOUT_INITIATE_PATH || '/api/PayOut/InitiatePayoutNew';
 const DEFAULT_STATUS_PATH = process.env.SEVENPAY_PAYOUT_STATUS_PATH || '/api/PayOut/getPayoutStatus';
 const DEFAULT_TOKEN_TTL_MS = Number(process.env.SEVENPAY_TOKEN_TTL_MS || 10 * 60 * 1000);
 const DEFAULT_CHANNEL_TYPE = process.env.SEVENPAY_CHANNEL_TYPE || 'API';
