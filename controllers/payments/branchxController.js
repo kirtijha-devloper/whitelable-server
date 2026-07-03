@@ -5,9 +5,7 @@ const instantpayService = require('../../services/payments/instantpayService');
 const asyncHandler = require("express-async-handler");
 const db = require('../../config/database');
 const Beneficiary = require('../../models/Beneficiary');
-const Tpin = require('../../models/Tpin');
 const User = require('../../models/User');
-const bcrypt = require('bcrypt');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const Ledger = require('../../models/Ledger');
 const payoutReferenceService = require('../../services/payoutReferenceService');
@@ -21,6 +19,7 @@ const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
 } = require('../../services/serviceSettingsService');
+const { verifyTpinForUser } = require('../../services/tpinService');
 const { hasPermission, EMPLOYEE_PERMISSIONS } = require('../../utils/permissions');
 
 const payoutLocks = new Map();
@@ -176,21 +175,19 @@ router.post('/payout', asyncHandler(async (req, res) => {
       return;
     }
 
-    const savedTpin = await Tpin.findOne({ where: { user_id: merchant_id } });
+    const verification = await verifyTpinForUser(merchant_id, tpin);
 
-    if (!savedTpin) {
+    if (verification.reason === 'not_found') {
       res.status(404);
       throw new Error("T-PIN not found. Please generate one.");
     }
 
-    if (new Date(savedTpin.expires_at) < new Date()) {
+    if (verification.reason === 'expired') {
       res.status(400);
       throw new Error("T-PIN has expired. Please generate a new one.");
     }
 
-    const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
-
-    if (!isMatch) {
+    if (!verification.ok) {
       res.status(401);
       throw new Error("Invalid T-PIN");
     }

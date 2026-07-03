@@ -3,7 +3,6 @@ const asyncHandler = require('express-async-handler');
 const db = require('../../config/database');
 const { Op } = require('sequelize');
 const User = require('../../models/User');
-const Tpin = require('../../models/Tpin');
 const RefSequence = require('../../models/RefSequence');
 const PayoutRequest = require('../../models/PayoutRequest');
 const PayoutBeneficiary = require('../../models/PayoutBeneficiary');
@@ -11,6 +10,7 @@ const ServiceChargeSlab = require('../../models/ServiceChargeSlab');
 const ledgerService = require('../../services/ledgerService');
 const credxpayService = require('../../services/credxpayService');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
+const { verifyTpinForUser } = require('../../services/tpinService');
 
 const router = express.Router();
 
@@ -34,16 +34,14 @@ router.post('/', asyncHandler(async (req, res) => {
   if (!tpin) {
     return res.status(400).json({ success: false, message: 'T-PIN is required' });
   }
-  const savedTpin = await Tpin.findOne({ where: { user_id } });
-  if (!savedTpin) {
+  const verification = await verifyTpinForUser(user_id, tpin);
+  if (verification.reason === 'not_found') {
     return res.status(404).json({ success: false, message: 'T-PIN not found. Please generate one.' });
   }
-  if (new Date(savedTpin.expires_at) < new Date()) {
+  if (verification.reason === 'expired') {
     return res.status(400).json({ success: false, message: 'T-PIN has expired. Please generate a new one.' });
   }
-  const bcrypt = require('bcrypt');
-  const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
-  if (!isMatch) {
+  if (!verification.ok) {
     return res.status(401).json({ success: false, message: 'Invalid T-PIN' });
   }
 

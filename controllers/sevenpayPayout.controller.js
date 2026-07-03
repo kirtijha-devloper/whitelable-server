@@ -4,9 +4,7 @@ const Ledger = require('../models/Ledger');
 const PayoutCharge = require('../models/PayoutCharge');
 const PayoutAuditLog = require('../models/PayoutAuditLog');
 const PayoutTransaction = require('../models/PayoutTransaction');
-const Tpin = require('../models/Tpin');
 const User = require('../models/User');
-const bcrypt = require('bcrypt');
 const { Op } = require('sequelize');
 const db = require('../config/database');
 const ledgerService = require('../services/ledgerService');
@@ -19,6 +17,7 @@ const {
 } = require('../services/serviceSettingsService');
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../utils/permissions');
 const instantpayService = require('../services/payments/instantpayService');
+const { verifyTpinForUser } = require('../services/tpinService');
 
 const SEVENPAY_TEST_MAX_AMOUNT = 100000;
 const SEVENPAY_IMMEDIATE_STATUS_RETRIES = Number(process.env.SEVENPAY_IMMEDIATE_STATUS_RETRIES || 2);
@@ -511,23 +510,22 @@ const initiatePayout = asyncHandler(async (req, res) => {
     });
   }
 
-  const savedTpin = await Tpin.findOne({ where: { user_id: merchantId } });
-  if (!savedTpin) {
+  const verification = await verifyTpinForUser(merchantId, tpin);
+  if (verification.reason === 'not_found') {
     return res.status(404).json({
       success: false,
       message: 'T-PIN not found. Please generate one.',
     });
   }
 
-  if (new Date(savedTpin.expires_at) < new Date()) {
+  if (verification.reason === 'expired') {
     return res.status(400).json({
       success: false,
       message: 'T-PIN has expired. Please generate a new one.',
     });
   }
 
-  const isMatch = await bcrypt.compare(String(tpin), savedTpin.tpin);
-  if (!isMatch) {
+  if (!verification.ok) {
     return res.status(401).json({
       success: false,
       message: 'Invalid T-PIN.',

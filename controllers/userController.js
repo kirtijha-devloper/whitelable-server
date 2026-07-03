@@ -36,7 +36,11 @@ const authLogger = {
   warn:  (...args) => { console.warn(...args);  _authFileLog("WARN",  args); },
   error: (...args) => { console.error(...args); _authFileLog("ERROR", args); },
 };
-const Tpin = require('../models/Tpin');
+const {
+  hasActiveTpin,
+  replaceTpin,
+  verifyTpinForUser,
+} = require('../services/tpinService');
 const { Op, fn, col } = require('sequelize');
 const PosMachine = require("../models/posMachine");
 const OTP = require("../models/Otp");
@@ -1285,9 +1289,7 @@ const approveUser = asyncHandler( async (req, res) => {
                     });
                 }
 
-                const tpinRecord = await Tpin.findOne({
-                  where: { user_id: user.id }
-                });
+                const tpinSet = await hasActiveTpin(user.id);
 
                 const availableBalance = await ledgerService.getAvailableBalance(user.id);
                 const settlementHold = parseFloat((parseFloat(user.wallet || 0) - availableBalance).toFixed(2));
@@ -1319,7 +1321,7 @@ const approveUser = asyncHandler( async (req, res) => {
                     wallet: user.wallet,
                     settlement_hold: settlementHold,
                     available_balance: availableBalance,
-                    tpin_set: !!tpinRecord,
+                    tpin_set: tpinSet,
                     ipay_outlet_id: user.ipay_outlet_id || null,
                     is_payout_enabled: user.is_payout_enabled,
                     service_flags: serviceFlags,
@@ -1729,14 +1731,7 @@ const generateTpin = asyncHandler(async (req, res) => {
 
   const tpin = userTpin || Math.floor(100000 + Math.random() * 900000);
   const expires_at = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000); // 15 days
-    await Tpin.destroy({ where: { user_id: userId } });
-    const hashTpin = await bcrypt.hash(tpin.toString(), 10);
-
-  await Tpin.upsert({
-    user_id: userId,
-    tpin: hashTpin,
-    expires_at
-  });
+  await replaceTpin(userId, tpin, expires_at);
 
   res.json({ message: "T-PIN created/updated successfully", tpin });
 });
@@ -1750,21 +1745,19 @@ const verifyTpin = asyncHandler(async (req, res) => {
     throw new Error("T-PIN is required");
   }
 
-  const savedTpin = await Tpin.findOne({ where: { user_id: userId } });
+  const verification = await verifyTpinForUser(userId, tpin);
 
-  if (!savedTpin) {
+  if (verification.reason === 'not_found') {
     res.status(404);
     throw new Error("T-PIN not found. Please generate one.");
   }
 
-  if (new Date(savedTpin.expires_at) < new Date()) {
+  if (verification.reason === 'expired') {
     res.status(400);
     throw new Error("T-PIN has expired. Please generate a new one.");
   }
 
-  const isMatch = await bcrypt.compare(tpin.toString(), savedTpin.tpin);
-
-  if (!isMatch) {
+  if (!verification.ok) {
     res.status(401);
     throw new Error("Invalid T-PIN");
   }
