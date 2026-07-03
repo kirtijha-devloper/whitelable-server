@@ -20,7 +20,7 @@ const {
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../utils/permissions');
 const instantpayService = require('../services/payments/instantpayService');
 
-const SEVENPAY_TEST_MAX_AMOUNT = 101;
+const SEVENPAY_TEST_MAX_AMOUNT = 100000;
 const SEVENPAY_IMMEDIATE_STATUS_RETRIES = Number(process.env.SEVENPAY_IMMEDIATE_STATUS_RETRIES || 2);
 const SEVENPAY_IMMEDIATE_STATUS_DELAY_MS = Number(process.env.SEVENPAY_IMMEDIATE_STATUS_DELAY_MS || 1500);
 
@@ -494,7 +494,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
   if (amount > SEVENPAY_TEST_MAX_AMOUNT) {
     return res.status(400).json({
       success: false,
-      message: `SevenPay testing is restricted to payout amounts up to ₹${SEVENPAY_TEST_MAX_AMOUNT}.`,
+      message: `SevenPay payout amount cannot exceed ₹${SEVENPAY_TEST_MAX_AMOUNT}.`,
     });
   }
 

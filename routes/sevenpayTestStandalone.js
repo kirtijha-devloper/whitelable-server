@@ -8,7 +8,7 @@ const { Op } = require('sequelize');
 const router = express.Router();
 
 const DEFAULT_TIMEOUT_MS = 30000;
-const SEVENPAY_TEST_MAX_AMOUNT = 101;
+const SEVENPAY_TEST_MAX_AMOUNT = 100000;
 
 function getSevenpayConfig() {
   return {
@@ -232,7 +232,7 @@ router.post('/initiate', async (req, res) => {
     return res.status(400).json({
       success: false,
       route: '/api/test/sevenpay/initiate',
-      message: `SevenPay testing is restricted to payout amounts between 0 and ₹${SEVENPAY_TEST_MAX_AMOUNT}.`,
+      message: `SevenPay payout amount must be between 0 and ₹${SEVENPAY_TEST_MAX_AMOUNT}.`,
     });
   }
 
