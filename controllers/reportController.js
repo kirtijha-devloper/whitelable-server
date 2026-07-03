@@ -7,10 +7,37 @@ const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 const RazorpayNotification = require("../models/RazorpayNotification");
 const Ledger = require('../models/Ledger');
+const MerchantTransactionCharge = require('../models/MerchantTransactionCharge');
 const PayoutTransaction = require('../models/PayoutTransaction');
 const Beneficiary = require('../models/Beneficiary');
 const CcBillPayment = require('../models/CcBillPayment');
 const { WEBHOOK_SOURCES, LEGACY_AGRO_SOURCE, extractCardClassification } = require('../utils/razorpay/sources');
+
+function pickFirstNonEmpty(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const normalized = String(value).trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function maskCardNumber(rawValue) {
+  const raw = pickFirstNonEmpty(rawValue);
+  if (!raw) return null;
+
+  const digitsOnly = raw.replace(/\D/g, '');
+  if (digitsOnly.length < 4) return null;
+
+  const last4 = digitsOnly.slice(-4);
+
+  // If upstream already sent a masked PAN, keep it masked while normalizing X/x to *.
+  if (/[*Xx]/.test(raw) && digitsOnly.length <= 4) {
+    return raw.replace(/[Xx]/g, '*');
+  }
+
+  return `${'*'.repeat(Math.max(0, digitsOnly.length - 4))}${last4}`;
+}
 function buildSourceFilter(source) {
   if (!source) return null;
 
@@ -516,9 +543,22 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       : [];
     const razorpayLedgerMap = {};
     razorpayLedgerRows.forEach(l => { razorpayLedgerMap[l.transaction_id] = l; });
+    const chargeRows = txnIds.length
+      ? await MerchantTransactionCharge.findAll({
+          where: {
+            razorpay_transaction_id: { [Op.in]: txnIds }
+          },
+          attributes: ['razorpay_transaction_id', 'customer_name']
+        })
+      : [];
+    const chargeMap = {};
+    chargeRows.forEach((charge) => {
+      chargeMap[charge.razorpay_transaction_id] = charge;
+    });
 
     const data = rows.map(n => {
       const ledger = razorpayLedgerMap[n.txn_id] || null;
+      const charge = chargeMap[n.txn_id] || null;
       const eventData = (() => {
         if (!n.event_json) return null;
         if (typeof n.event_json === 'object') return n.event_json;
@@ -539,6 +579,28 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       const balanceAfterMdr = ledger ? parseFloat(ledger.balance) : null;
       const franchiseId = n.user?.franchaise_id ? Number(n.user.franchaise_id) : null;
       const franchise = franchiseId ? franchiseMap.get(franchiseId) || null : null;
+      const cardHolderName = pickFirstNonEmpty(
+        eventData?.cardHolderName,
+        eventData?.card_holder_name,
+        eventData?.holder_name,
+        eventData?.customerName,
+        eventData?.customer_name,
+        eventData?.payerName,
+        charge?.customer_name
+      );
+      const maskedCardNumber = maskCardNumber(
+        pickFirstNonEmpty(
+          eventData?.formattedPan,
+          eventData?.maskedCardNumber,
+          eventData?.masked_card_number,
+          eventData?.paymentCardNumber,
+          eventData?.payment_card_number,
+          eventData?.cardNumber,
+          eventData?.card_number,
+          eventData?.pan
+        )
+      );
+
       return {
         id:                n.id,
         txn_id:            n.txn_id,
@@ -554,6 +616,15 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         authCode,
         rrNumber,
         cardClassification,
+        card_holder_name:  cardHolderName,
+        cardHolderName,
+        holder_name:       cardHolderName,
+        customer_name:     cardHolderName,
+        card_number:       maskedCardNumber,
+        masked_card_number: maskedCardNumber,
+        payment_card_number: maskedCardNumber,
+        card_no:           maskedCardNumber,
+        pan:               maskedCardNumber,
         device_serial:     n.device_serial,
         posting_date:      n.posting_date,
         status:            n.status,

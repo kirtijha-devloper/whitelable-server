@@ -23,6 +23,7 @@ const User                 = require('../models/User');
 const WalletTransaction    = require('../models/WalletTransaction');
 const RazorpayNotification = require('../models/RazorpayNotification');
 const Ledger               = require('../models/Ledger');
+const MerchantTransactionCharge = require('../models/MerchantTransactionCharge');
 const PayoutTransaction    = require('../models/PayoutTransaction');
 const Beneficiary          = require('../models/Beneficiary');
 const CcBillPayment        = require('../models/CcBillPayment');
@@ -217,17 +218,20 @@ describe('GET /api/report/wallet', () => {
 // 3. GET /report/razorpay
 // ============================================================================
 describe('GET /api/report/razorpay', () => {
-  let origFindAndCountAll, origLogFindAll, origUserFindAll;
+  let origFindAndCountAll, origLogFindAll, origUserFindAll, origChargeFindAll;
 
   beforeEach(() => {
     origFindAndCountAll = RazorpayNotification.findAndCountAll;
     origLogFindAll      = Ledger.findAll;
     origUserFindAll     = User.findAll;
+    origChargeFindAll   = MerchantTransactionCharge.findAll;
+    MerchantTransactionCharge.findAll = emptyFindAll;
   });
   afterEach(() => {
     RazorpayNotification.findAndCountAll = origFindAndCountAll;
     Ledger.findAll                       = origLogFindAll;
     User.findAll                         = origUserFindAll;
+    MerchantTransactionCharge.findAll    = origChargeFindAll;
   });
 
   const sampleRow = () => ({
@@ -397,6 +401,32 @@ describe('GET /api/report/razorpay', () => {
 
     expect(res.body.data[0].balance_before).to.be.null;
     expect(res.body.data[0].balance_after).to.be.null;
+  });
+
+  it('includes masked card fields and holder name aliases in each row', async () => {
+    const row = sampleRow();
+    row.event_json = {
+      formattedPan: '5181 5902 0139 2958',
+      cardHolderName: 'RAHUL KUMAR'
+    };
+
+    RazorpayNotification.findAndCountAll = async () => ({ count: 1, rows: [row] });
+    Ledger.findAll = emptyFindAll;
+    MerchantTransactionCharge.findAll = async () => [
+      { razorpay_transaction_id: 'TXN_abc123', customer_name: 'Fallback Name' }
+    ];
+
+    const res = await request(app)
+      .get('/api/report/razorpay')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body.data[0].card_holder_name).to.equal('RAHUL KUMAR');
+    expect(res.body.data[0].cardHolderName).to.equal('RAHUL KUMAR');
+    expect(res.body.data[0].customer_name).to.equal('RAHUL KUMAR');
+    expect(res.body.data[0].card_number).to.equal('************2958');
+    expect(res.body.data[0].masked_card_number).to.equal('************2958');
+    expect(res.body.data[0].pan).to.equal('************2958');
   });
 
   it('includes franchise name for merchant-linked Razorpay rows', async () => {
