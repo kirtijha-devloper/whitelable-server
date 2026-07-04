@@ -249,6 +249,7 @@ async function upsertPayoutTransaction({
   normalizedResponse,
   purpose,
   serviceChargeOverride,
+  action,
 }) {
   if (!merchantId) {
     return null;
@@ -286,7 +287,7 @@ async function upsertPayoutTransaction({
     try {
       await PayoutAuditLog.create({
         payout_id: existingTransaction.id,
-        action: 'SEVENPAY_STATUS_UPDATE',
+        action: action || 'SEVENPAY_STATUS_UPDATE',
         details: {
           reference_id: payload.reference_id,
           status: payload.status,
@@ -305,7 +306,7 @@ async function upsertPayoutTransaction({
   try {
     await PayoutAuditLog.create({
       payout_id: newTxn.id,
-      action: 'SEVENPAY_PAYOUT_INITIATE',
+      action: action || 'SEVENPAY_PAYOUT_INITIATE',
       details: {
         reference_id: payload.reference_id,
         status: payload.status,
@@ -645,6 +646,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
     normalizedResponse: serviceResponse,
     purpose: providerPayload.purpose,
     serviceChargeOverride: serviceCharge,
+    action: 'SEVENPAY_PAYOUT_INITIATE',
   });
 
   let finalResponse = serviceResponse;
@@ -741,6 +743,7 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
       normalizedResponse: initialServiceResponse,
       purpose: payoutTransaction.purpose,
       serviceChargeOverride: payoutTransaction.service_charge,
+      action: 'SEVENPAY_STATUS_CHECK',
     });
   } else if (queryPayload.crn) {
     const refLog = await PayoutReferenceLog.findOne({
