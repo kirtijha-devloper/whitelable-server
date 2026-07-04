@@ -315,10 +315,20 @@ async function sendEncryptedRequest({ path, payload }) {
   const encryptedRequest = buildEncryptedRequest(payload);
 
   const isGet = path === DEFAULT_STATUS_PATH;
+  const requestId = crypto.randomUUID();
+
+  const requestHeaders = {
+    Authorization: `Bearer ${auth.token}`,
+    key: encryptedRequest.headers.key,
+    iv: encryptedRequest.headers.iv,
+    'x-request-id': requestId,
+    'Content-Type': 'application/json',
+  };
 
   sevenpayLog('INFO', `Sending request to ${path}`, {
     method: isGet ? 'GET' : 'POST',
     isGet,
+    headers: requestHeaders,
     plainPayload: payload
   });
 
@@ -327,13 +337,7 @@ async function sendEncryptedRequest({ path, payload }) {
     const axiosConfig = {
       method: isGet ? 'get' : 'post',
       url: resolveUrlPath(path),
-      headers: {
-        Authorization: `Bearer ${auth.token}`,
-        key: encryptedRequest.headers.key,
-        iv: encryptedRequest.headers.iv,
-        'x-request-id': crypto.randomUUID(),
-        'Content-Type': 'application/json',
-      },
+      headers: requestHeaders,
       transformRequest: [(data) => data],
       responseType: 'text',
       transformResponse: [(data) => data]
