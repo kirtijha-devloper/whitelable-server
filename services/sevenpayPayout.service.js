@@ -2,6 +2,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { encryptJsonPayload, decryptAesFromBase64 } = require('../utils/sevenpayEncryption');
+const crypto = require('crypto');
 
 const SEVENPAY_LOG_FILE = path.join(__dirname, '../logs/sevenpay.log');
 
@@ -330,6 +331,7 @@ async function sendEncryptedRequest({ path, payload }) {
         Authorization: `Bearer ${auth.token}`,
         key: encryptedRequest.headers.key,
         iv: encryptedRequest.headers.iv,
+        'x-request-id': crypto.randomUUID(),
         'Content-Type': 'application/json',
       },
       transformRequest: [(data) => data],
@@ -462,6 +464,7 @@ function getRequestPreview(type, payload) {
       Authorization: 'Bearer <token>',
       key: encryptedRequest.headers.key,
       iv: encryptedRequest.headers.iv,
+      'x-request-id': crypto.randomUUID(),
       'Content-Type': 'application/json',
     },
     payload,

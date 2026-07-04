@@ -638,16 +638,37 @@ const initiatePayout = asyncHandler(async (req, res) => {
     throw error;
   }
 
-  const serviceResponse = await sevenpayService.initiatePayout(providerPayload);
-  let updatedTransaction = await upsertPayoutTransaction({
-    existingTransaction: payoutTransaction,
-    merchantId,
-    beneficiaryId: beneficiary?.id || req.body.beneficiary_id || null,
-    normalizedResponse: serviceResponse,
-    purpose: providerPayload.purpose,
-    serviceChargeOverride: serviceCharge,
-    action: 'SEVENPAY_PAYOUT_INITIATE',
-  });
+  let serviceResponse;
+  let updatedTransaction;
+  try {
+    serviceResponse = await sevenpayService.initiatePayout(providerPayload);
+    updatedTransaction = await upsertPayoutTransaction({
+      existingTransaction: payoutTransaction,
+      merchantId,
+      beneficiaryId: beneficiary?.id || req.body.beneficiary_id || null,
+      normalizedResponse: serviceResponse,
+      purpose: providerPayload.purpose,
+      serviceChargeOverride: serviceCharge,
+      action: 'SEVENPAY_PAYOUT_INITIATE',
+    });
+  } catch (error) {
+    try {
+      await PayoutAuditLog.create({
+        payout_id: payoutTransaction.id,
+        action: 'SEVENPAY_PAYOUT_INITIATE',
+        details: {
+          reference_id: payoutTransaction.reference_id,
+          status: 'FAILED',
+          error: error.message || 'Initiation failed',
+          statusCode: error.response?.status || null,
+          rawResponse: error.response?.data || null,
+        }
+      });
+    } catch (logError) {
+      console.error('Failed to log failed payout initiation:', logError);
+    }
+    throw error;
+  }
 
   let finalResponse = serviceResponse;
 
@@ -724,7 +745,29 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
     });
   }
 
-  const initialServiceResponse = await sevenpayService.getPayoutStatus(queryPayload);
+  let initialServiceResponse;
+  try {
+    initialServiceResponse = await sevenpayService.getPayoutStatus(queryPayload);
+  } catch (error) {
+    if (payoutTransaction) {
+      try {
+        await PayoutAuditLog.create({
+          payout_id: payoutTransaction.id,
+          action: 'SEVENPAY_STATUS_CHECK_FAILED',
+          details: {
+            reference_id: payoutTransaction.reference_id,
+            status: payoutTransaction.status,
+            error: error.message || 'Status check failed',
+            statusCode: error.response?.status || null,
+            rawResponse: error.response?.data || null,
+          }
+        });
+      } catch (logError) {
+        console.error('Failed to log failed status check:', logError);
+      }
+    }
+    throw error;
+  }
 
   if (!payoutTransaction && (initialServiceResponse.crn || initialServiceResponse.paymentId)) {
     payoutTransaction = await PayoutTransaction.findOne({
