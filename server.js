@@ -132,8 +132,13 @@ app.use('/api/payout-sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
 // new charge rule engine (see posChargeRuleRoutes)
 app.use('/api/pos-charge-rules', require('./routes/posChargeRuleRoutes'));
+
+// POS reconciliation
+app.use('/api/reconciliation', require('./routes/reconciliationRoutes'));
+
 app.use('/api/ledger', require('./routes/ledgerRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
+
 
 // CredXPay payout integration (separate from existing BranchX routes)
 app.use('/payout/credxpay', require('./routes/credxpay/payout'));
