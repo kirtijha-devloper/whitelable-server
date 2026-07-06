@@ -229,45 +229,28 @@ async function login(options = {}) {
     };
   }
 
-  const client = getAxiosClient();
-  const payload = buildLoginPayload();
-  const encryptedRequest = buildEncryptedRequest(payload);
-  sevenpayLog('INFO', 'Sending authentication request to SevenPay');
+  sevenpayLog('INFO', 'Fetching authentication token from Shared API');
+  let rawResponse;
   try {
-    const response = await client.post(resolveUrlPath(DEFAULT_LOGIN_PATH), encryptedRequest.body, {
+    const sharedLoginId = requireConfig('SEVEN_PAY_SHARED_LOGIN_ID');
+    const sharedApiKey = requireConfig('SEVEN_PAY_SHARED_API_KEY');
+    
+    const response = await axios.get('https://api.abheepay.com/api/shared/7pay-token', {
       headers: {
-        key: encryptedRequest.headers.key,
-        iv: encryptedRequest.headers.iv,
-        'Content-Type': 'application/json',
-      },
-      transformRequest: [(data) => data],
-      responseType: 'text',
-      transformResponse: [(data) => data]
+        'x-7pay-login-id': sharedLoginId,
+        'x-7pay-login-api-key': sharedApiKey,
+      }
     });
     
-    const decryptedText = decryptAesFromBase64(response.data, encryptedRequest.aesKey, encryptedRequest.iv);
-    try {
-      rawResponse = JSON.parse(decryptedText);
-    } catch {
-      rawResponse = decryptedText;
-    }
-    sevenpayLog('SUCCESS', 'Authentication successful', {
-      userId: rawResponse?.data?.userId,
-      orgId: rawResponse?.data?.orgId,
+    rawResponse = response.data;
+    
+    sevenpayLog('SUCCESS', 'Shared API Authentication successful', {
+      userId: rawResponse?.data?.userId || rawResponse?.userId,
+      orgId: rawResponse?.data?.orgId || rawResponse?.orgId,
       responseCode: rawResponse?.responseCode,
     });
   } catch (error) {
-    if (error.response?.data) {
-      try {
-        const decryptedErrorText = decryptAesFromBase64(error.response.data, encryptedRequest.aesKey, encryptedRequest.iv);
-        try {
-          error.response.data = JSON.parse(decryptedErrorText);
-        } catch {
-          error.response.data = decryptedErrorText;
-        }
-      } catch (err) {}
-    }
-    sevenpayLog('ERROR', 'Authentication failed', {
+    sevenpayLog('ERROR', 'Shared API Authentication failed', {
       message: error.message,
       statusCode: error.response?.status,
       responseData: error.response?.data,
