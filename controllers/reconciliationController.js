@@ -23,8 +23,8 @@ const reconcile = asyncHandler(async (req, res) => {
         [Op.between]: [start, end],
       },
     },
+    attributes: ['id', 'reference_id', 'amount', 'payout_provider', 'status'],
     order: [['createdAt', 'DESC']],
-    raw: true,
   });
 
   return res.status(200).json({
