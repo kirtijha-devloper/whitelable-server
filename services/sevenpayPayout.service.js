@@ -78,8 +78,10 @@ function buildLoginPayload() {
 
 function deriveTokenInfo(rawResponse) {
   const responseCode = String(rawResponse?.responseCode ?? '');
-  if (responseCode && responseCode !== '0') {
-    const message = rawResponse?.response || rawResponse?.responseDesc || rawResponse?.errors?.[0]?.error || 'Sevenpay login failed.';
+  const isSuccess = responseCode === '0' || responseCode === '1' || rawResponse?.status === 'SUCCESS';
+  
+  if (responseCode && !isSuccess) {
+    const message = rawResponse?.message || rawResponse?.response || rawResponse?.responseDesc || rawResponse?.errors?.[0]?.error || 'Sevenpay login failed.';
     throw new Error(`Sevenpay login failed: ${message}`);
   }
 
@@ -94,6 +96,9 @@ function deriveTokenInfo(rawResponse) {
     rawResponse?.data?.jwt,
     rawResponse?.Data?.token,
     rawResponse?.Data?.accessToken,
+    rawResponse?.responseData?.token,
+    rawResponse?.responseData?.access_token,
+    rawResponse?.responseData?.accessToken,
     rawResponse?.result?.token,
     rawResponse?.result?.accessToken,
   ];
@@ -108,6 +113,8 @@ function deriveTokenInfo(rawResponse) {
       || rawResponse?.expires_in
       || rawResponse?.data?.expiresIn
       || rawResponse?.data?.expires_in
+      || rawResponse?.responseData?.expiresIn
+      || rawResponse?.responseData?.expires_in
       || rawResponse?.ttl
       || rawResponse?.data?.ttl
       || 0
@@ -121,12 +128,14 @@ function deriveTokenInfo(rawResponse) {
     token,
     expiresAt: Date.now() + ttlMs,
     userId: pickFirstValue(
+      rawResponse?.responseData?.userId,
       rawResponse?.data?.userId,
       rawResponse?.data?.id,
       rawResponse?.userId,
       process.env.SEVENPAY_USER_ID
     ),
     orgId: pickFirstValue(
+      rawResponse?.responseData?.orgId,
       rawResponse?.data?.orgId,
       rawResponse?.orgId,
       process.env.SEVENPAY_ORG_ID
