@@ -553,6 +553,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         razorpayTransactionId: txnId,
         transactionAmount: transactionAmount,
         chargeAmount: chargeAmount,
+        gstAmount: gstAmount,
         netAmount: netAmount,
         merchantTransactionChargeId: merchantTransactionCharge.id,
         description: ledgerDescription,

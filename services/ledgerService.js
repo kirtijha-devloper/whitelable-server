@@ -189,6 +189,7 @@ async function createRazorpayChargeEntry({
   razorpayTransactionId,
   transactionAmount,
   chargeAmount,
+  gstAmount = 0,
   netAmount,
   merchantTransactionChargeId = null,
   description = null,
@@ -209,18 +210,21 @@ async function createRazorpayChargeEntry({
     }
   });
 
-  // Then, debit the charge amount (deduction)
+  // Then, debit the total deduction amount (charge + GST)
+  const totalDeduction = parseFloat(chargeAmount || 0) + parseFloat(gstAmount || 0);
   const chargeEntry = await createLedgerEntry({
     userId,
     transactionType: 'pos_charge',
     transactionId: razorpayTransactionId,
     referenceId: merchantTransactionChargeId,
     referenceTable: merchantTransactionChargeId ? 'MerchantTransactionCharges' : null,
-    description: description || `Transaction charge deducted: ${razorpayTransactionId} - Charge: ₹${chargeAmount}`,
-    debit: chargeAmount,
+    description: description || `Transaction charge deducted: ${razorpayTransactionId} - Charge: ₹${chargeAmount}, GST: ₹${gstAmount}`,
+    debit: totalDeduction,
     metadata: {
       transaction_amount: transactionAmount,
       charge_amount: chargeAmount,
+      gst_amount: gstAmount,
+      total_deduction: totalDeduction,
       net_amount: netAmount,
       ...metadata
     }
@@ -230,7 +234,7 @@ async function createRazorpayChargeEntry({
   try {
     const user = await User.findByPk(userId, { attributes: ['id', 'settlement_type'] });
     if (user && user.settlement_type === 'next_day_settlement') {
-      const holdAmount = transactionAmount - chargeAmount;
+      const holdAmount = transactionAmount - totalDeduction;
       if (holdAmount > 0 && creditEntry) {
         await createSettlementHold(userId, holdAmount, creditEntry.id);
       }

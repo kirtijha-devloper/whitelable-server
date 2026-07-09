@@ -539,6 +539,7 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             razorpayTransactionId: notification.txn_id,
             transactionAmount: transactionAmount,
             chargeAmount: chargeAmount,
+            gstAmount: gstAmount,
             netAmount: netAmount,
             merchantTransactionChargeId: merchantTransactionCharge.id,
             description: `Admin-adjusted Razorpay txn ${notification.txn_id}`,
