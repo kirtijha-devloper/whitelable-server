@@ -225,19 +225,6 @@ function normalizePayoutResponse(rawResponse, fallback = {}) {
 }
 
 async function login(options = {}) {
-  const forceRefresh = options.forceRefresh === true;
-
-  if (!forceRefresh && tokenCache.token && tokenCache.expiresAt > Date.now() + 10 * 1000) {
-    return {
-      token: tokenCache.token,
-      cached: true,
-      expiresAt: tokenCache.expiresAt,
-      rawResponse: tokenCache.rawResponse,
-      userId: tokenCache.userId,
-      orgId: tokenCache.orgId,
-    };
-  }
-
   sevenpayLog('INFO', 'Fetching authentication token from Shared API');
   let rawResponse;
   try {
@@ -299,8 +286,10 @@ function buildEncryptedRequest(payload) {
   };
 }
 
-async function sendEncryptedRequest({ path, payload }) {
-  let auth = await login();
+async function sendEncryptedRequest({ path, payload, auth }) {
+  if (!auth) {
+    auth = await login();
+  }
   sevenpayLog('INFO', 'Authenticating with SevenPay');
 
   const client = getAxiosClient();
@@ -393,6 +382,7 @@ async function initiatePayout(payload) {
   const result = await sendEncryptedRequest({
     path: DEFAULT_PAYOUT_PATH,
     payload: requestPayload,
+    auth,
   });
 
   return {
