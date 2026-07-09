@@ -78,8 +78,10 @@ function buildLoginPayload() {
 
 function deriveTokenInfo(rawResponse) {
   const responseCode = String(rawResponse?.responseCode ?? '');
-  if (responseCode && responseCode !== '0') {
-    const message = rawResponse?.response || rawResponse?.responseDesc || rawResponse?.errors?.[0]?.error || 'Sevenpay login failed.';
+  const isSuccess = responseCode === '0' || responseCode === '1' || rawResponse?.status === 'SUCCESS';
+  
+  if (responseCode && !isSuccess) {
+    const message = rawResponse?.message || rawResponse?.response || rawResponse?.responseDesc || rawResponse?.errors?.[0]?.error || 'Sevenpay login failed.';
     throw new Error(`Sevenpay login failed: ${message}`);
   }
 
@@ -94,6 +96,9 @@ function deriveTokenInfo(rawResponse) {
     rawResponse?.data?.jwt,
     rawResponse?.Data?.token,
     rawResponse?.Data?.accessToken,
+    rawResponse?.responseData?.token,
+    rawResponse?.responseData?.access_token,
+    rawResponse?.responseData?.accessToken,
     rawResponse?.result?.token,
     rawResponse?.result?.accessToken,
   ];
@@ -108,6 +113,8 @@ function deriveTokenInfo(rawResponse) {
       || rawResponse?.expires_in
       || rawResponse?.data?.expiresIn
       || rawResponse?.data?.expires_in
+      || rawResponse?.responseData?.expiresIn
+      || rawResponse?.responseData?.expires_in
       || rawResponse?.ttl
       || rawResponse?.data?.ttl
       || 0
@@ -121,12 +128,14 @@ function deriveTokenInfo(rawResponse) {
     token,
     expiresAt: Date.now() + ttlMs,
     userId: pickFirstValue(
+      rawResponse?.responseData?.userId,
       rawResponse?.data?.userId,
       rawResponse?.data?.id,
       rawResponse?.userId,
       process.env.SEVENPAY_USER_ID
     ),
     orgId: pickFirstValue(
+      rawResponse?.responseData?.orgId,
       rawResponse?.data?.orgId,
       rawResponse?.orgId,
       process.env.SEVENPAY_ORG_ID
@@ -216,58 +225,28 @@ function normalizePayoutResponse(rawResponse, fallback = {}) {
 }
 
 async function login(options = {}) {
-  const forceRefresh = options.forceRefresh === true;
-
-  if (!forceRefresh && tokenCache.token && tokenCache.expiresAt > Date.now() + 10 * 1000) {
-    return {
-      token: tokenCache.token,
-      cached: true,
-      expiresAt: tokenCache.expiresAt,
-      rawResponse: tokenCache.rawResponse,
-      userId: tokenCache.userId,
-      orgId: tokenCache.orgId,
-    };
-  }
-
-  const client = getAxiosClient();
-  const payload = buildLoginPayload();
-  const encryptedRequest = buildEncryptedRequest(payload);
-  sevenpayLog('INFO', 'Sending authentication request to SevenPay');
+  sevenpayLog('INFO', 'Fetching authentication token from Shared API');
+  let rawResponse;
   try {
-    const response = await client.post(resolveUrlPath(DEFAULT_LOGIN_PATH), encryptedRequest.body, {
+    const sharedLoginId = requireConfig('SEVEN_PAY_SHARED_LOGIN_ID');
+    const sharedApiKey = requireConfig('SEVEN_PAY_SHARED_API_KEY');
+    
+    const response = await axios.get('https://api.abheepay.com/api/shared/7pay-token', {
       headers: {
-        key: encryptedRequest.headers.key,
-        iv: encryptedRequest.headers.iv,
-        'Content-Type': 'application/json',
-      },
-      transformRequest: [(data) => data],
-      responseType: 'text',
-      transformResponse: [(data) => data]
+        'x-7pay-login-id': sharedLoginId,
+        'x-7pay-login-api-key': sharedApiKey,
+      }
     });
     
-    const decryptedText = decryptAesFromBase64(response.data, encryptedRequest.aesKey, encryptedRequest.iv);
-    try {
-      rawResponse = JSON.parse(decryptedText);
-    } catch {
-      rawResponse = decryptedText;
-    }
-    sevenpayLog('SUCCESS', 'Authentication successful', {
-      userId: rawResponse?.data?.userId,
-      orgId: rawResponse?.data?.orgId,
+    rawResponse = response.data;
+    
+    sevenpayLog('SUCCESS', 'Shared API Authentication successful', {
+      userId: rawResponse?.data?.userId || rawResponse?.userId,
+      orgId: rawResponse?.data?.orgId || rawResponse?.orgId,
       responseCode: rawResponse?.responseCode,
     });
   } catch (error) {
-    if (error.response?.data) {
-      try {
-        const decryptedErrorText = decryptAesFromBase64(error.response.data, encryptedRequest.aesKey, encryptedRequest.iv);
-        try {
-          error.response.data = JSON.parse(decryptedErrorText);
-        } catch {
-          error.response.data = decryptedErrorText;
-        }
-      } catch (err) {}
-    }
-    sevenpayLog('ERROR', 'Authentication failed', {
+    sevenpayLog('ERROR', 'Shared API Authentication failed', {
       message: error.message,
       statusCode: error.response?.status,
       responseData: error.response?.data,
@@ -307,8 +286,10 @@ function buildEncryptedRequest(payload) {
   };
 }
 
-async function sendEncryptedRequest({ path, payload }) {
-  let auth = await login();
+async function sendEncryptedRequest({ path, payload, auth }) {
+  if (!auth) {
+    auth = await login();
+  }
   sevenpayLog('INFO', 'Authenticating with SevenPay');
 
   const client = getAxiosClient();
@@ -401,6 +382,7 @@ async function initiatePayout(payload) {
   const result = await sendEncryptedRequest({
     path: DEFAULT_PAYOUT_PATH,
     payload: requestPayload,
+    auth,
   });
 
   return {
