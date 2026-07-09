@@ -203,6 +203,42 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
     return 0;
   }
 
+  // Fetch limit from Partner PG
+  let partnerMonthlyTotal = 0;
+  if (process.env.NODE_ENV !== 'test') {
+    try {
+      let partnerUrl = 'https://partner.abheepay.com/backend/api/vimo/payout/limit-check';
+      if (process.env.PARTNER_API_URL) {
+        const isLocal = process.env.PARTNER_API_URL.includes('127.0.0.1') || process.env.PARTNER_API_URL.includes('localhost');
+        partnerUrl = isLocal
+          ? `${process.env.PARTNER_API_URL}/api/vimo/payout/limit-check`
+          : `${process.env.PARTNER_API_URL}/backend/api/vimo/payout/limit-check`;
+      }
+
+      const response = await axios.post(partnerUrl, {
+        accountNumber: accountNo
+      }, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 5000
+      });
+
+      if (response && response.data && response.data.success) {
+        partnerMonthlyTotal = parseFloat(response.data.monthlyTotal || 0);
+        vimoLog && vimoLog('INFO', 'Fetched Vimo limit from partner PG successfully', {
+          accountNo,
+          partnerMonthlyTotal
+        });
+      }
+    } catch (err) {
+      // Failure to fetch from partner PG should not halt execution
+      console.error('Failed to check Vimo limit from partner PG:', err.message);
+      vimoLog && vimoLog('WARN', 'Failed to check Vimo limit from partner PG (skipped)', {
+        accountNo,
+        error: err.message
+      });
+    }
+  }
+
   const normalizedAccount = escapeSqlLike(accountNo);
   const normalizedIfsc = ifsc ? escapeSqlLike(ifsc) : null;
 
@@ -214,7 +250,7 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
   };
 
   const total = await PayoutTransaction.sum('amount', { where });
-  return parseFloat(total || 0);
+  return parseFloat(total || 0) + partnerMonthlyTotal;
 }
 
 function formatVimoCoordinate(value) {
