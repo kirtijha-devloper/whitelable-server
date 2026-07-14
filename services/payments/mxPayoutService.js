@@ -56,6 +56,7 @@ const request = async ({ method, endpoint, data = {} }) => {
       method,
       url,
       headers,
+      timeout: 30000, // 30 seconds timeout
       data: Object.keys(data).length > 0 ? data : undefined
     };
 
@@ -65,6 +66,15 @@ const request = async ({ method, endpoint, data = {} }) => {
   } catch (error) {
     const responseErrorData = error?.response?.data || error.message;
     mxLog('ERROR', `MX Service Error [${endpoint}]`, responseErrorData);
+    
+    if (!error.response) {
+      throw {
+        isNetworkError: true,
+        message: error.message || 'Gateway network error or timeout',
+        originalError: error
+      };
+    }
+    
     throw responseErrorData || { message: 'Something went wrong!' };
   }
 };

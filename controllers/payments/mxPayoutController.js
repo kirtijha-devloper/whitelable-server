@@ -326,62 +326,99 @@ const initiatePayout = asyncHandler(async (req, res) => {
   } catch (error) {
     console.error('MX Payout initiation failed:', error);
 
+    const isNetworkError = error && error.isNetworkError === true;
     const tr = await db.transaction();
     try {
       const lockedTx = await PayoutTransaction.findByPk(payoutTransaction.id, { transaction: tr, lock: tr.LOCK.UPDATE });
-      if (lockedTx && lockedTx.status !== 'FAILED') {
-        await lockedTx.update({
-          status: 'FAILED',
-          data: JSON.stringify({
-            provider: 'Payout-M-X',
-            localRequestId,
-            error: error.message || error
-          })
-        }, { transaction: tr });
+      if (lockedTx) {
+        if (isNetworkError) {
+          // Network error/timeout: Keep status as PENDING (already PENDING). Do not refund.
+          // Save the error info into the data field.
+          let parsedData = {};
+          try {
+            parsedData = JSON.parse(lockedTx.data || '{}');
+          } catch (_) {
+            parsedData = { original: lockedTx.data };
+          }
+          parsedData.initiationNetworkError = {
+            timestamp: new Date().toISOString(),
+            error: error.message || 'Gateway timeout or connection failure'
+          };
+          
+          await lockedTx.update({
+            data: JSON.stringify(parsedData)
+          }, { transaction: tr });
 
-        const refundAmount = amount + serviceCharge;
-        if (refundAmount > 0) {
-          const existingRefund = await Ledger.findOne({
-            where: {
-              transaction_type: 'payout_refund',
-              reference_id: lockedTx.id,
-              reference_table: 'PayoutTransactions'
-            },
-            transaction: tr
-          });
-
-          if (!existingRefund) {
-            await ledgerService.createLedgerEntry({
-              userId: merchantId,
-              transactionType: 'payout_refund',
-              referenceId: lockedTx.id,
-              referenceTable: 'PayoutTransactions',
-              description: `Payout MX payout failed: refund ₹${refundAmount} for payout ${lockedTx.reference_id}`,
-              credit: refundAmount,
-              metadata: {
-                payout_provider: 'Payout-M-X',
-                payout_reference: lockedTx.reference_id,
-                original_payout_amount: String(amount),
-                original_service_charge: String(serviceCharge),
-                refund_source: 'auto_initiate'
+          try {
+            await PayoutAuditLog.create({
+              payout_id: lockedTx.id,
+              action: 'MX_PAYOUT_INITIATE_TIMEOUT',
+              details: {
+                reference_id: localRequestId,
+                status: 'PENDING',
+                error: error.message || 'Gateway timeout or connection failure'
               }
             }, { transaction: tr });
+          } catch (logError) {
+            console.error('Failed to log MX initiation timeout audit:', logError);
           }
-        }
-
-        try {
-          await PayoutAuditLog.create({
-            payout_id: lockedTx.id,
-            action: 'MX_PAYOUT_INITIATE_FAILED',
-            details: {
-              reference_id: localRequestId,
+        } else {
+          // Explicit API failure / rejection: Mark FAILED and refund
+          if (lockedTx.status !== 'FAILED') {
+            await lockedTx.update({
               status: 'FAILED',
-              error: error.message || 'Initiation failed',
-              rawResponse: error
+              data: JSON.stringify({
+                provider: 'Payout-M-X',
+                localRequestId,
+                error: typeof error === 'object' ? (error.message || JSON.stringify(error)) : error
+              })
+            }, { transaction: tr });
+
+            const refundAmount = amount + serviceCharge;
+            if (refundAmount > 0) {
+              const existingRefund = await Ledger.findOne({
+                where: {
+                  transaction_type: 'payout_refund',
+                  reference_id: lockedTx.id,
+                  reference_table: 'PayoutTransactions'
+                },
+                transaction: tr
+              });
+
+              if (!existingRefund) {
+                await ledgerService.createLedgerEntry({
+                  userId: merchantId,
+                  transactionType: 'payout_refund',
+                  referenceId: lockedTx.id,
+                  referenceTable: 'PayoutTransactions',
+                  description: `Payout MX payout failed: refund ₹${refundAmount} for payout ${lockedTx.reference_id}`,
+                  credit: refundAmount,
+                  metadata: {
+                    payout_provider: 'Payout-M-X',
+                    payout_reference: lockedTx.reference_id,
+                    original_payout_amount: String(amount),
+                    original_service_charge: String(serviceCharge),
+                    refund_source: 'auto_initiate'
+                  }
+                }, { transaction: tr });
+              }
             }
-          }, { transaction: tr });
-        } catch (logError) {
-          console.error('Failed to log failed MX initiation audit:', logError);
+
+            try {
+              await PayoutAuditLog.create({
+                payout_id: lockedTx.id,
+                action: 'MX_PAYOUT_INITIATE_FAILED',
+                details: {
+                  reference_id: localRequestId,
+                  status: 'FAILED',
+                  error: typeof error === 'object' ? (error.message || JSON.stringify(error)) : error,
+                  rawResponse: error
+                }
+              }, { transaction: tr });
+            } catch (logError) {
+              console.error('Failed to log failed MX initiation audit:', logError);
+            }
+          }
         }
       }
       await tr.commit();
@@ -390,9 +427,17 @@ const initiatePayout = asyncHandler(async (req, res) => {
       console.error('Failed to process auto-refund on MX payout initiation failure:', refundErr);
     }
 
+    if (isNetworkError) {
+      return res.status(504).json({
+        success: false,
+        message: 'Payout gateway request timed out. The transaction status remains PENDING. Do not retry immediately.',
+        reference_id: localRequestId
+      });
+    }
+
     return res.status(502).json({
       success: false,
-      message: error.message || 'Payout submission to gateway failed. Transaction marked FAILED.',
+      message: typeof error === 'object' ? (error.message || 'Payout submission to gateway failed. Transaction marked FAILED.') : error,
       reference_id: localRequestId
     });
   }
