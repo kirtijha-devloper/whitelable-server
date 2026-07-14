@@ -1,1 +1,1 @@
-pass
+this simulates a bank passbook image

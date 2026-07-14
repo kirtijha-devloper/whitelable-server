@@ -18,6 +18,9 @@ require('./cron/resolvePendingBranchx');
 // start SevenPay pending resolver cron (scheduled status-check polling)
 require('./cron/resolvePendingSevenpay');
 
+// start MeroRecharge (Payout-M-X) pending resolver cron
+require('./cron/resolvePendingMx');
+
 // start CcBillPayment pending resolver cron (scheduled status-check polling)
 require('./cron/resolvePendingCcBillPayment');
 
@@ -129,6 +132,7 @@ app.use('/api/payout-charge', require('./routes/payoutChargeRoutes'));
 app.use('/api/payout', require('./routes/payoutRoutes'));
 app.use('/api/sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/payout-sevenpay', require('./routes/sevenpayPayout.routes'));
+app.use('/api/payout-m-x', require('./routes/payments/mxPayoutRoutes'));
 app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
 // new charge rule engine (see posChargeRuleRoutes)
 app.use('/api/pos-charge-rules', require('./routes/posChargeRuleRoutes'));

@@ -8,6 +8,7 @@ const SERVICE_SETTING_KEYS = Object.freeze({
   VIMO_PAYOUT: 'vimo_payout',
   BRANCHX_PAYOUT: 'branchx_payout',
   SEVENPAY_PAYOUT: 'sevenpay_payout',
+  MX_PAYOUT: 'mx_payout',
   CC_BILL_PAY: 'cc_bill_pay',
   BA_CC_BILL_PAY: 'ba_cc_bill_pay',
   CC_BILL_3: 'cc_bill_3',
@@ -22,7 +23,7 @@ const USER_SERVICE_TARGET_ROLE_SET = new Set(USER_SERVICE_TARGET_ROLES);
 function buildDefaultServiceSettingsMap() {
   return SERVICE_SETTING_KEY_LIST.reduce((acc, serviceKey) => {
     acc[serviceKey] = {
-      is_enabled: true,
+      is_enabled: serviceKey === SERVICE_SETTING_KEYS.MX_PAYOUT ? false : true,
       updated_by: null,
       updated_at: null,
     };
@@ -37,6 +38,7 @@ function buildDefaultUserServiceSettings(user) {
     [SERVICE_SETTING_KEYS.VIMO_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]: payoutEnabledForUser,
+    [SERVICE_SETTING_KEYS.MX_PAYOUT]: false,
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.CC_BILL_3]: true,
@@ -290,6 +292,10 @@ function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings)
       resolvedSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT].is_enabled
       && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]
       && payoutEnabledForUser,
+    [SERVICE_SETTING_KEYS.MX_PAYOUT]:
+      resolvedSettings[SERVICE_SETTING_KEYS.MX_PAYOUT].is_enabled
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.MX_PAYOUT]
+      && payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]:
       resolvedSettings[SERVICE_SETTING_KEYS.CC_BILL_PAY].is_enabled
       && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.CC_BILL_PAY],
@@ -324,6 +330,7 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
     serviceKey === SERVICE_SETTING_KEYS.VIMO_PAYOUT
     || serviceKey === SERVICE_SETTING_KEYS.BRANCHX_PAYOUT
     || serviceKey === SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT
+    || serviceKey === SERVICE_SETTING_KEYS.MX_PAYOUT
   );
 
   if (shouldSyncLegacyPayoutGate) {
@@ -331,6 +338,7 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
       nextUserServiceSettings[SERVICE_SETTING_KEYS.VIMO_PAYOUT]
       || nextUserServiceSettings[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]
       || nextUserServiceSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]
+      || nextUserServiceSettings[SERVICE_SETTING_KEYS.MX_PAYOUT]
     );
 
     await user.save(options.transaction ? { transaction: options.transaction } : {});
