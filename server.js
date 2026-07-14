@@ -180,11 +180,15 @@ const runStartupPayoutCheck = async () => {
   try {
     const fs = require('fs');
     const path = require('path');
+    const { Op } = require('sequelize');
     const PayoutTransaction = require('./models/PayoutTransaction');
     const User = require('./models/User');
+    const Ledger = require('./models/Ledger');
+    const ledgerService = require('./services/ledgerService');
 
     const logFile = path.join(__dirname, 'logs/mx-payout.log');
     const targetRef = 'BXP-1784013300481-B79B7855';
+    const targetId = 14391;
     
     // Ensure log directory exists
     const logDir = path.dirname(logFile);
@@ -194,38 +198,72 @@ const runStartupPayoutCheck = async () => {
 
     const logMessage = (msg) => {
       const ts = new Date().toISOString();
-      fs.appendFileSync(logFile, `[${ts}] [STARTUP_CHECK] ${msg}\n`);
-      console.log(`[STARTUP_CHECK] ${msg}`);
+      fs.appendFileSync(logFile, `[${ts}] [DIAGNOSE_LEDGER] ${msg}\n`);
+      console.log(`[DIAGNOSE_LEDGER] ${msg}`);
     };
 
-    logMessage(`Starting lookup for payout reference ${targetRef}...`);
+    logMessage(`--- STARTING LEDGER DIAGNOSTIC FOR PAYOUT TRANSACTION ID: ${targetId} / REF: ${targetRef} ---`);
 
-    let row = await PayoutTransaction.findOne({
-      where: { reference_id: targetRef }
-    });
-
+    // 1. Fetch transaction
+    const row = await PayoutTransaction.findByPk(targetId);
     if (!row) {
-      logMessage(`No transaction found with reference ID: ${targetRef}. Searching by amount 100000...`);
-      row = await PayoutTransaction.findOne({
-        where: { amount: 100000.00 }
-      });
-    }
-
-    if (!row) {
-      logMessage(`No transaction found for reference ID ${targetRef} or amount 100000.`);
+      logMessage(`ERROR: Transaction ID ${targetId} not found in database.`);
       return;
     }
+    logMessage(`Transaction ID: ${row.id} | Merchant ID: ${row.merchant_id} | Amount: ${row.amount} | Service Charge: ${row.service_charge} | Status: ${row.status}`);
 
-    logMessage(`Transaction Found | ID: ${row.id} | Amount: ${row.amount} | Ref ID: ${row.reference_id} | Provider: ${row.payout_provider} | Status: ${row.status} | Created At: ${row.createdAt}`);
-
+    // 2. Fetch merchant
     const user = await User.findByPk(row.merchant_id);
-    if (user) {
-      logMessage(`Merchant Details | ID: ${user.id} | Name: ${user.name} | Username: ${user.username} | Mobile: ${user.mobile_number || user.mobile} | Role: ${user.role}`);
-    } else {
-      logMessage(`No user found with ID: ${row.merchant_id}`);
+    if (!user) {
+      logMessage(`ERROR: Merchant ID ${row.merchant_id} not found.`);
+      return;
     }
+    
+    // 3. Get available balance
+    let balance = 'N/A';
+    try {
+      balance = await ledgerService.getAvailableBalance(row.merchant_id);
+      logMessage(`Merchant Name: ${user.name} | Available Balance (via ledgerService): ₹${balance}`);
+    } catch (balErr) {
+      logMessage(`Error getting available balance: ${balErr.message}`);
+    }
+
+    // 4. Find Ledger entries by reference_id / reference_table
+    const ledgerByRef = await Ledger.findAll({
+      where: {
+        reference_table: 'PayoutTransactions',
+        reference_id: row.id
+      }
+    });
+    logMessage(`Found ${ledgerByRef.length} ledger entries by reference_table/reference_id:`);
+    ledgerByRef.forEach(entry => {
+      logMessage(`[Ref ID Match] Ledger ID: ${entry.id} | Type: ${entry.transaction_type} | Debit: ₹${entry.debit} | Credit: ₹${entry.credit} | Description: "${entry.description}" | Balance After: ₹${entry.balance} | Created At: ${entry.createdAt}`);
+    });
+
+    // 5. Find Ledger entries by description containing the targetRef or localRequestId if it was different
+    let localRef = 'N/A';
+    try {
+      const txData = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      localRef = txData?.localRequestId || 'N/A';
+    } catch (_) {}
+
+    const ledgerByDesc = await Ledger.findAll({
+      where: {
+        user_id: row.merchant_id,
+        [Op.or]: [
+          { description: { [Op.like]: `%${targetRef}%` } },
+          { description: { [Op.like]: `%${localRef}%` } }
+        ]
+      }
+    });
+    logMessage(`Found ${ledgerByDesc.length} ledger entries by description wildcard:`);
+    ledgerByDesc.forEach(entry => {
+      logMessage(`[Desc Match] Ledger ID: ${entry.id} | Type: ${entry.transaction_type} | Debit: ₹${entry.debit} | Credit: ₹${entry.credit} | Description: "${entry.description}" | Balance After: ₹${entry.balance} | Created At: ${entry.createdAt}`);
+    });
+
+    logMessage(`--- DIAGNOSTIC COMPLETED ---`);
   } catch (err) {
-    console.error('Failed to run startup payout check:', err);
+    console.error('Failed to run startup ledger diagnostic:', err);
   }
 };
 
