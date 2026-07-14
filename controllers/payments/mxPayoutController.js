@@ -258,52 +258,136 @@ const initiatePayout = asyncHandler(async (req, res) => {
 
     // Save final status and update reference_id to the actual requestId returned by the API
     const finalRequestId = serviceResponse.requestId || localRequestId;
-    await payoutTransaction.update({
-      reference_id: finalRequestId,
-      status: serviceResponse.status,
-      data: JSON.stringify({
-        provider: 'Payout-M-X',
-        localRequestId,
-        apiRequestId: serviceResponse.requestId,
-        apiPayoutId: serviceResponse.payoutId,
-        latest: serviceResponse.rawResponse
-      })
-    });
 
-    await PayoutAuditLog.create({
-      payout_id: payoutTransaction.id,
-      action: 'MX_PAYOUT_INITIATE',
-      details: {
-        reference_id: finalRequestId,
-        status: serviceResponse.status,
-        rawResponse: serviceResponse.rawResponse
+    const tr = await db.transaction();
+    try {
+      const lockedTx = await PayoutTransaction.findByPk(payoutTransaction.id, { transaction: tr, lock: tr.LOCK.UPDATE });
+      if (lockedTx) {
+        await lockedTx.update({
+          reference_id: finalRequestId,
+          status: serviceResponse.status,
+          data: JSON.stringify({
+            provider: 'Payout-M-X',
+            localRequestId,
+            apiRequestId: serviceResponse.requestId,
+            apiPayoutId: serviceResponse.payoutId,
+            latest: serviceResponse.rawResponse
+          })
+        }, { transaction: tr });
+
+        if (serviceResponse.status === 'FAILED') {
+          const refundAmount = amount + serviceCharge;
+          if (refundAmount > 0) {
+            const existingRefund = await Ledger.findOne({
+              where: {
+                transaction_type: 'payout_refund',
+                reference_id: lockedTx.id,
+                reference_table: 'PayoutTransactions'
+              },
+              transaction: tr
+            });
+
+            if (!existingRefund) {
+              await ledgerService.createLedgerEntry({
+                userId: merchantId,
+                transactionType: 'payout_refund',
+                referenceId: lockedTx.id,
+                referenceTable: 'PayoutTransactions',
+                description: `Payout MX payout failed: refund ₹${refundAmount} for payout ${finalRequestId}`,
+                credit: refundAmount,
+                metadata: {
+                  payout_provider: 'Payout-M-X',
+                  payout_reference: finalRequestId,
+                  original_payout_amount: String(amount),
+                  original_service_charge: String(serviceCharge),
+                  refund_source: 'auto_initiate'
+                }
+              }, { transaction: tr });
+            }
+          }
+        }
+
+        await PayoutAuditLog.create({
+          payout_id: lockedTx.id,
+          action: 'MX_PAYOUT_INITIATE',
+          details: {
+            reference_id: finalRequestId,
+            status: serviceResponse.status,
+            rawResponse: serviceResponse.rawResponse
+          }
+        }, { transaction: tr });
       }
-    });
+      await tr.commit();
+    } catch (updateErr) {
+      await tr.rollback();
+      throw updateErr;
+    }
 
   } catch (error) {
-    // API Call Failed - transaction remains FAILED, and NO auto-refund is done!
-    await payoutTransaction.update({
-      status: 'FAILED',
-      data: JSON.stringify({
-        provider: 'Payout-M-X',
-        localRequestId,
-        error: error.message || error
-      })
-    });
+    console.error('MX Payout initiation failed:', error);
 
+    const tr = await db.transaction();
     try {
-      await PayoutAuditLog.create({
-        payout_id: payoutTransaction.id,
-        action: 'MX_PAYOUT_INITIATE_FAILED',
-        details: {
-          reference_id: localRequestId,
+      const lockedTx = await PayoutTransaction.findByPk(payoutTransaction.id, { transaction: tr, lock: tr.LOCK.UPDATE });
+      if (lockedTx && lockedTx.status !== 'FAILED') {
+        await lockedTx.update({
           status: 'FAILED',
-          error: error.message || 'Initiation failed',
-          rawResponse: error
+          data: JSON.stringify({
+            provider: 'Payout-M-X',
+            localRequestId,
+            error: error.message || error
+          })
+        }, { transaction: tr });
+
+        const refundAmount = amount + serviceCharge;
+        if (refundAmount > 0) {
+          const existingRefund = await Ledger.findOne({
+            where: {
+              transaction_type: 'payout_refund',
+              reference_id: lockedTx.id,
+              reference_table: 'PayoutTransactions'
+            },
+            transaction: tr
+          });
+
+          if (!existingRefund) {
+            await ledgerService.createLedgerEntry({
+              userId: merchantId,
+              transactionType: 'payout_refund',
+              referenceId: lockedTx.id,
+              referenceTable: 'PayoutTransactions',
+              description: `Payout MX payout failed: refund ₹${refundAmount} for payout ${lockedTx.reference_id}`,
+              credit: refundAmount,
+              metadata: {
+                payout_provider: 'Payout-M-X',
+                payout_reference: lockedTx.reference_id,
+                original_payout_amount: String(amount),
+                original_service_charge: String(serviceCharge),
+                refund_source: 'auto_initiate'
+              }
+            }, { transaction: tr });
+          }
         }
-      });
-    } catch (logError) {
-      console.error('Failed to log failed MX initiation audit:', logError);
+
+        try {
+          await PayoutAuditLog.create({
+            payout_id: lockedTx.id,
+            action: 'MX_PAYOUT_INITIATE_FAILED',
+            details: {
+              reference_id: localRequestId,
+              status: 'FAILED',
+              error: error.message || 'Initiation failed',
+              rawResponse: error
+            }
+          }, { transaction: tr });
+        } catch (logError) {
+          console.error('Failed to log failed MX initiation audit:', logError);
+        }
+      }
+      await tr.commit();
+    } catch (refundErr) {
+      await tr.rollback();
+      console.error('Failed to process auto-refund on MX payout initiation failure:', refundErr);
     }
 
     return res.status(502).json({

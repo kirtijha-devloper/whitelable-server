@@ -6,6 +6,8 @@ const PayoutTransaction = require('../models/PayoutTransaction');
 const PayoutAuditLog = require('../models/PayoutAuditLog');
 const db = require('../config/database');
 const mxPayoutService = require('../services/payments/mxPayoutService');
+const Ledger = require('../models/Ledger');
+const ledgerService = require('../services/ledgerService');
 
 const LOG_FILE = path.resolve(__dirname, '../logs/mx-payout-cron.log');
 
@@ -160,6 +162,38 @@ async function resolvePendingMx() {
 
           locked.status = serviceResponse.status;
           locked.data = JSON.stringify(currentData);
+
+          if (serviceResponse.status === 'FAILED') {
+            const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
+            if (refundAmount > 0) {
+              const existingRefund = await Ledger.findOne({
+                where: {
+                  transaction_type: 'payout_refund',
+                  reference_id: locked.id,
+                  reference_table: 'PayoutTransactions'
+                },
+                transaction: tr
+              });
+
+              if (!existingRefund) {
+                await ledgerService.createLedgerEntry({
+                  userId: locked.merchant_id,
+                  transactionType: 'payout_refund',
+                  referenceId: locked.id,
+                  referenceTable: 'PayoutTransactions',
+                  description: `Payout MX payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
+                  credit: refundAmount,
+                  metadata: {
+                    payout_provider: 'Payout-M-X',
+                    payout_reference: locked.reference_id,
+                    original_payout_amount: locked.amount,
+                    original_service_charge: locked.service_charge,
+                    refund_source: 'auto_cron'
+                  }
+                }, { transaction: tr });
+              }
+            }
+          }
 
           await locked.save({ transaction: tr });
 

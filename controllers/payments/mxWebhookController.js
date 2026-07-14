@@ -5,6 +5,8 @@ const db = require('../../config/database');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const mxPayoutService = require('../../services/payments/mxPayoutService');
+const Ledger = require('../../models/Ledger');
+const ledgerService = require('../../services/ledgerService');
 
 const CALLBACK_LOG_FILE = path.resolve(__dirname, '../../logs/mx-payout-callback.log');
 
@@ -97,7 +99,38 @@ const handleMxCallback = asyncHandler(async (req, res) => {
       data: JSON.stringify(parsedData)
     }, { transaction: trx });
 
-    // CRITICAL: Even if the callback status is FAILED, we DO NOT perform any automatic refund!
+    if (newStatus === 'FAILED') {
+      const refundAmount = parseFloat(lockedTx.amount || 0) + parseFloat(lockedTx.service_charge || 0);
+      if (refundAmount > 0) {
+        const existingRefund = await Ledger.findOne({
+          where: {
+            transaction_type: 'payout_refund',
+            reference_id: lockedTx.id,
+            reference_table: 'PayoutTransactions'
+          },
+          transaction: trx
+        });
+
+        if (!existingRefund) {
+          await ledgerService.createLedgerEntry({
+            userId: lockedTx.merchant_id,
+            transactionType: 'payout_refund',
+            referenceId: lockedTx.id,
+            referenceTable: 'PayoutTransactions',
+            description: `Payout MX payout failed: refund ₹${refundAmount} for payout ${lockedTx.reference_id}`,
+            credit: refundAmount,
+            metadata: {
+              payout_provider: 'Payout-M-X',
+              payout_reference: lockedTx.reference_id,
+              original_payout_amount: lockedTx.amount,
+              original_service_charge: lockedTx.service_charge,
+              refund_source: 'auto_callback'
+            }
+          }, { transaction: trx });
+        }
+      }
+    }
+
     if (previousStatus !== newStatus) {
       await PayoutAuditLog.create({
         payout_id: lockedTx.id,

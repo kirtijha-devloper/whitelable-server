@@ -257,6 +257,93 @@ const runStartupPayoutCheck = async () => {
     await runDiagnosticForRef('APM0000096912', false); // 43,089 INR failed txn
 
     logMessage(`--- ALL DIAGNOSTICS COMPLETED ---`);
+
+    // Reconcile/auto-refund loop for FAILED Payout MX transactions
+    logMessage(`\n--- STARTING STARTUP LEDGER RECONCILIATION FOR FAILED PAYOUT MX TRANSACTIONS ---`);
+    const PayoutAuditLog = require('./models/PayoutAuditLog');
+    const db = require('./config/database');
+
+    const failedMxTxns = await PayoutTransaction.findAll({
+      where: {
+        status: 'FAILED',
+        payout_provider: 'Payout-M-X'
+      }
+    });
+
+    logMessage(`Found ${failedMxTxns.length} FAILED Payout MX transaction(s). Checking for missing refunds...`);
+
+    for (const tx of failedMxTxns) {
+      // Check if it has a debit entry
+      const debitEntry = await Ledger.findOne({
+        where: {
+          transaction_type: 'payout',
+          reference_table: 'PayoutTransactions',
+          reference_id: tx.id
+        }
+      });
+
+      if (debitEntry) {
+        // Check if it has a refund entry
+        const refundEntry = await Ledger.findOne({
+          where: {
+            transaction_type: 'payout_refund',
+            reference_table: 'PayoutTransactions',
+            reference_id: tx.id
+          }
+        });
+
+        if (!refundEntry) {
+          logMessage(`[RECONCILE] Transaction ID ${tx.id} (${tx.reference_id}) is FAILED but missing refund. Processing automatic refund...`);
+          
+          const amount = parseFloat(tx.amount || 0);
+          const serviceCharge = parseFloat(tx.service_charge || 0);
+          const refundAmount = amount + serviceCharge;
+
+          if (refundAmount > 0) {
+            const tr = await db.transaction();
+            try {
+              const entry = await ledgerService.createLedgerEntry({
+                userId: tx.merchant_id,
+                transactionType: 'payout_refund',
+                referenceId: tx.id,
+                referenceTable: 'PayoutTransactions',
+                description: `Reconciled refund for failed Payout MX payout ${tx.reference_id}`,
+                credit: refundAmount,
+                metadata: {
+                  payout_provider: 'Payout-M-X',
+                  payout_reference: tx.reference_id,
+                  original_payout_amount: String(amount),
+                  original_service_charge: String(serviceCharge),
+                  refund_source: 'startup_reconcile'
+                }
+              }, { transaction: tr });
+
+              await PayoutAuditLog.create({
+                payout_id: tx.id,
+                action: 'MX_STARTUP_RECONCILE_REFUND',
+                details: {
+                  reference_id: tx.reference_id,
+                  refundAmount,
+                  ledgerId: entry?.id
+                }
+              }, { transaction: tr });
+
+              await tr.commit();
+              logMessage(`[RECONCILE] Successfully refunded ₹${refundAmount} to merchant ID ${tx.merchant_id} for payout ${tx.reference_id} (Ledger ID: ${entry?.id})`);
+            } catch (err) {
+              await tr.rollback();
+              logMessage(`[RECONCILE] ERROR processing refund for payout ${tx.reference_id}: ${err.message}`);
+            }
+          }
+        } else {
+          logMessage(`Transaction ID ${tx.id} (${tx.reference_id}) is FAILED and already refunded.`);
+        }
+      } else {
+        logMessage(`Transaction ID ${tx.id} (${tx.reference_id}) is FAILED but has no debit ledger entry.`);
+      }
+    }
+
+    logMessage(`--- RECONCILIATION COMPLETED ---`);
   } catch (err) {
     console.error('Failed to run startup ledger diagnostic:', err);
   }
