@@ -83,9 +83,9 @@ function normalizeStatus(statusRaw) {
 
 // Submit direct payout request
 const initiatePayout = async (payload) => {
-  const transactionPin = process.env.MX_TRANSACTION_PIN || '';
-  if (!transactionPin) {
-    mxLog('WARNING', 'MX_TRANSACTION_PIN is not configured in environment variables');
+  const transactionPin = process.env.MX_TRANSACTION_PIN || '0000';
+  if (!process.env.MX_TRANSACTION_PIN) {
+    mxLog('WARNING', 'MX_TRANSACTION_PIN is not configured in environment variables, using default fallback PIN');
   }
 
   const mxPayload = {
