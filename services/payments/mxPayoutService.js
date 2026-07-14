@@ -30,9 +30,9 @@ function mxLog(level, message, data) {
 }
 
 const getHeaders = () => {
-  const token = process.env.MX_PAYOUT_TOKEN || '';
-  if (!token) {
-    mxLog('WARNING', 'MX_PAYOUT_TOKEN is not configured in environment variables');
+  const token = process.env.MX_PAYOUT_TOKEN || '77b3ffad881f7ddbdbd6e055fdb071c4dec900c36a622a19';
+  if (!process.env.MX_PAYOUT_TOKEN) {
+    mxLog('WARNING', 'MX_PAYOUT_TOKEN is not configured in environment variables, using default fallback key');
   }
   return {
     'Content-Type': 'application/json',
