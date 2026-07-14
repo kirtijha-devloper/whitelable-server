@@ -98,7 +98,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
   if (amount > MX_TEST_MAX_AMOUNT) {
     return res.status(400).json({
       success: false,
-      message: `MeroRecharge payout amount cannot exceed ₹${MX_TEST_MAX_AMOUNT}.`,
+      message: `Payout MX payout amount cannot exceed ₹${MX_TEST_MAX_AMOUNT}.`,
     });
   }
 
@@ -218,7 +218,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
       userId: merchantId,
       payoutTransactionId: payoutTransaction.id,
       amount: totalAmount,
-      description: `MeroRecharge payout ${localRequestId}`,
+      description: `Payout MX payout ${localRequestId}`,
       metadata: {
         payout_provider: 'Payout-M-X',
         crn: localRequestId,
@@ -392,7 +392,7 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    message: 'MeroRecharge payout status fetched successfully',
+    message: 'Payout MX payout status fetched successfully',
     data: {
       requestId: payoutTransaction.reference_id,
       status: payoutTransaction.status,
@@ -434,7 +434,7 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
   if (payoutTransaction.payout_provider !== 'Payout-M-X') {
     return res.status(400).json({
       success: false,
-      message: 'Manual refund on this endpoint is only supported for MeroRecharge (Payout-M-X) payouts.',
+      message: 'Manual refund on this endpoint is only supported for Payout MX payouts.',
     });
   }
 
@@ -474,7 +474,7 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
     transactionType: 'payout_refund',
     referenceId: payoutTransaction.id,
     referenceTable: 'PayoutTransactions',
-    description: `Manual refund for failed MeroRecharge payout ${payoutTransaction.reference_id}`,
+    description: `Manual refund for failed Payout MX payout ${payoutTransaction.reference_id}`,
     credit: refundAmount,
     metadata: {
       payout_provider: 'Payout-M-X',
@@ -512,7 +512,7 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    message: 'MeroRecharge manual refund created successfully.',
+    message: 'Payout MX manual refund created successfully.',
     refundCreated: true,
     refundLedgerId: refundEntry?.id || null,
     refundAmount,
