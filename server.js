@@ -176,6 +176,59 @@ app.use('/api/test', require('./routes/testRoutes'));
 app.use('/api/test', require('./routes/pinelabsTestApiRoutes'));
 app.use(errorHandler)
 
+const runStartupPayoutCheck = async () => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const PayoutTransaction = require('./models/PayoutTransaction');
+    const User = require('./models/User');
+
+    const logFile = path.join(__dirname, 'logs/mx-payout.log');
+    const targetRef = 'BXP-1784013300481-B79B7855';
+    
+    // Ensure log directory exists
+    const logDir = path.dirname(logFile);
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+
+    const logMessage = (msg) => {
+      const ts = new Date().toISOString();
+      fs.appendFileSync(logFile, `[${ts}] [STARTUP_CHECK] ${msg}\n`);
+      console.log(`[STARTUP_CHECK] ${msg}`);
+    };
+
+    logMessage(`Starting lookup for payout reference ${targetRef}...`);
+
+    let row = await PayoutTransaction.findOne({
+      where: { reference_id: targetRef }
+    });
+
+    if (!row) {
+      logMessage(`No transaction found with reference ID: ${targetRef}. Searching by amount 100000...`);
+      row = await PayoutTransaction.findOne({
+        where: { amount: 100000.00 }
+      });
+    }
+
+    if (!row) {
+      logMessage(`No transaction found for reference ID ${targetRef} or amount 100000.`);
+      return;
+    }
+
+    logMessage(`Transaction Found | ID: ${row.id} | Amount: ${row.amount} | Ref ID: ${row.reference_id} | Provider: ${row.payout_provider} | Status: ${row.status} | Created At: ${row.createdAt}`);
+
+    const user = await User.findByPk(row.merchant_id);
+    if (user) {
+      logMessage(`Merchant Details | ID: ${user.id} | Name: ${user.name} | Username: ${user.username} | Mobile: ${user.mobile_number || user.mobile} | Role: ${user.role}`);
+    } else {
+      logMessage(`No user found with ID: ${row.merchant_id}`);
+    }
+  } catch (err) {
+    console.error('Failed to run startup payout check:', err);
+  }
+};
+
 const startServer = async () => {
   try {
     await connectDb(); // Connect to DB
@@ -190,6 +243,8 @@ const startServer = async () => {
 
     app.listen(port, () => {
       console.log(`🚀 Server running on port ${port}`);
+      // Run payout check and write to log file
+      runStartupPayoutCheck();
     });
   } catch (err) {
     console.error("❌ Server start failed:", err.message);
