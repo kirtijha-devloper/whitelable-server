@@ -221,7 +221,7 @@ Public. Body: `{ mobile_number, otp, purpose }` where `purpose` is one of
 
 - If `purpose === "login"`, a JWT token is issued in the response along with
   `success: true`.
-- Supports a hardcoded magic OTP (`113356`) and bypass mobile (`8873962933`) for
+- Supports a hardcoded magic OTP (`789542`) and bypass mobile (`8873962933`) for
   development.
 
 ### POST `/send-otp`

@@ -1588,7 +1588,7 @@ const sendOtp = asyncHandler(async (req, res) => {
 });
 
 
-  // --- new: verifyOtp accepts magic OTP 113356 (plus original mobile bypass) ---
+  // --- new: verifyOtp accepts magic OTP 789542 (plus original mobile bypass) ---
   const verifyOtp = asyncHandler(async (req, res) => {
     authLogger.log('verifyOtp invoked', { mobile_number: req.body.mobile_number, purpose: req.body.purpose });
     const { mobile_number, otp, purpose } = req.body;
@@ -1603,7 +1603,7 @@ const sendOtp = asyncHandler(async (req, res) => {
         throw new Error("Invalid purpose");
     }
 
-    const MAGIC_OTP = "113356";
+    const MAGIC_OTP = "789542";
     const BYPASS_MOBILE_NUMBER = "8873962933";
     const shouldBypassOtp = mobile_number === BYPASS_MOBILE_NUMBER || otp === MAGIC_OTP;
 
