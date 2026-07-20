@@ -15,6 +15,7 @@ const BillAvenuePayment = require('../models/BillAvenuePayment');
 const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimo.log');
 const VIMO_CALLBACK_LOG_FILE = path.join(__dirname, '../logs/vimoCallback.log');
 const VIMO_PARTNER_CALLBACK_URL = 'https://partner.abheepay.com/backend/api/payout/vimo/callback';
+const VIMO_API_CALLBACK_URL = 'https://api.abheepay.com/api/vimo/callback';
 const VIMO_PARTNER_CALLBACK_MAX_ATTEMPTS = 3;
 const VIMO_PARTNER_CALLBACK_RETRY_DELAY_MS = 2000;
 
@@ -54,41 +55,46 @@ function shouldRetryPartnerCallbackForward(err) {
   return err.response.status === 429 || err.response.status >= 500;
 }
 
-async function forwardVimoCallbackToPartner(payload) {
-  for (let attempt = 1; attempt <= VIMO_PARTNER_CALLBACK_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const response = await axios.post(VIMO_PARTNER_CALLBACK_URL, payload, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 10000,
-      });
+async function forwardVimoCallbacks(payload) {
+  const forwardToTarget = async (url, targetName) => {
+    for (let attempt = 1; attempt <= VIMO_PARTNER_CALLBACK_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await axios.post(url, payload, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000,
+        });
 
-      vimoCallbackLog('INFO', 'Forwarded Vimo callback to partner endpoint', {
-        url: VIMO_PARTNER_CALLBACK_URL,
-        status: response.status,
-        attempt,
-      });
-      return;
-    } catch (err) {
-      const retryable = shouldRetryPartnerCallbackForward(err);
-      const willRetry = retryable && attempt < VIMO_PARTNER_CALLBACK_MAX_ATTEMPTS;
-
-      vimoCallbackLog(willRetry ? 'WARN' : 'ERROR', 'Failed to forward Vimo callback to partner endpoint', {
-        url: VIMO_PARTNER_CALLBACK_URL,
-        message: err.message,
-        status: err.response?.status,
-        response: err.response?.data,
-        attempt,
-        retryable,
-        willRetry,
-      });
-
-      if (!willRetry) {
+        vimoCallbackLog('INFO', `Forwarded Vimo callback to ${targetName} endpoint`, {
+          url,
+          status: response.status,
+          attempt,
+        });
         return;
-      }
+      } catch (err) {
+        const retryable = shouldRetryPartnerCallbackForward(err);
+        const willRetry = retryable && attempt < VIMO_PARTNER_CALLBACK_MAX_ATTEMPTS;
 
-      await delay(VIMO_PARTNER_CALLBACK_RETRY_DELAY_MS * attempt);
+        vimoCallbackLog(willRetry ? 'WARN' : 'ERROR', `Failed to forward Vimo callback to ${targetName} endpoint`, {
+          url,
+          message: err.message,
+          status: err.response?.status,
+          response: err.response?.data,
+          attempt,
+          retryable,
+          willRetry,
+        });
+
+        if (!willRetry) {
+          return;
+        }
+
+        await delay(VIMO_PARTNER_CALLBACK_RETRY_DELAY_MS * attempt);
+      }
     }
-  }
+  };
+
+  void forwardToTarget(VIMO_PARTNER_CALLBACK_URL, 'partner');
+  void forwardToTarget(VIMO_API_CALLBACK_URL, 'api');
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1032,7 +1038,7 @@ async function handleCallback(req, res) {
   // Always respond 200 immediately so Vimo doesn't retry.
   res.status(200).json({ successStatus: true, message: 'Success', responseCode: '000' });
   vimoCallbackLog('INFO', 'Vimo callback response sent, background processing scheduled');
-  void forwardVimoCallbackToPartner(payload);
+  void forwardVimoCallbacks(payload);
 
   // Process in background after response is sent.
   setImmediate(async () => {
