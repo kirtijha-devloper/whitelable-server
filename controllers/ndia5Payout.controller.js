@@ -45,9 +45,17 @@ const login = asyncHandler(async (req, res) => {
 
 /**
  * POST /api/ndia5/payout/balance
- * Get NDIA5 provider wallet balance
+ * Get NDIA5 provider wallet balance (Admin Only Endpoint)
  */
 const getBalance = asyncHandler(async (req, res) => {
+  const userRole = String(req.user?.role || '').toLowerCase();
+  if (userRole !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied: Self balance check is restricted to Admin only',
+    });
+  }
+
   const result = await ndia5Service.getBalance(req.body || {});
   return res.status(200).json({
     success: true,
@@ -79,6 +87,34 @@ const initiatePayout = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Bank account, IFSC, and payeeName are required' });
   }
 
+  // Pre-check NDIA5 company self balance before processing payout initiation
+  let companyBalance = 0;
+  let balanceCheckFailed = false;
+  try {
+    const balanceResult = await ndia5Service.getBalance({ accountNumber: bankAccount, ifsc });
+    companyBalance = Number(balanceResult.balance ?? balanceResult.rawResponse ?? 0);
+    if (isNaN(companyBalance)) companyBalance = 0;
+  } catch (balanceErr) {
+    console.error('[NDIA5 Company Balance Check Error]:', balanceErr.message);
+    balanceCheckFailed = true;
+  }
+
+  // If company balance is insufficient or balance check failed
+  if (balanceCheckFailed || companyBalance < Number(amount)) {
+    // Log exact reason to india5.log
+    ndia5Service.india5Log('INITIATE_PAYOUT_REJECTED', {
+      error: 'insufficient company balance',
+      requestedAmount: Number(amount),
+      availableCompanyBalance: companyBalance,
+      balanceCheckFailed,
+    });
+
+    return res.status(400).json({
+      success: false,
+      message: 'Server downtime, please try after 10 min',
+    });
+  }
+
   // Generate unique merchant reference ID (numeric string format)
   const merchantReferenceId = Date.now().toString() + Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -96,8 +132,10 @@ const initiatePayout = asyncHandler(async (req, res) => {
       ifsc,
       channel,
       initiatedAt: new Date().toISOString(),
+      companyBalanceAtInitiation: companyBalance,
     }),
   });
+
 
   // Log initiation audit entry
   await PayoutAuditLog.create({
