@@ -22,7 +22,11 @@ require('./cron/resolvePendingSevenpay');
 require('./cron/resolvePendingMx');
 
 // start NDIA5 pending resolver cron
-require('./cron/resolvePendingNdia5');
+try {
+  require('./cron/resolvePendingNdia5');
+} catch (ndia5CronErr) {
+  console.error('[NDIA5 Cron Startup Warning] Could not start NDIA5 cron:', ndia5CronErr.message || ndia5CronErr);
+}
 
 // start CcBillPayment pending resolver cron (scheduled status-check polling)
 require('./cron/resolvePendingCcBillPayment');

@@ -3,7 +3,7 @@
  * NDIA5 PENDING PAYOUT RESOLVER CRON
  * =========================================================================
  * Periodically polls the NDIA5 Payout Status API for PENDING transactions.
- * Configured schedule: Every 3 minutes (`0 */3 * * * *`).
+ * Configured schedule: Every 3 minutes (0 every 3 mins).
  * 
  * NOTE: Does NOT issue automatic refunds when a payout moves to FAILED.
  * Refunds must be executed manually by authorized personnel.
@@ -19,9 +19,12 @@ const db = require('../config/database');
 const ndia5Service = require('../services/ndia5Payout.service');
 
 const CRON_LOG_FILE = path.resolve(__dirname, '../logs/india5-payout-cron.log');
-if (!fs.existsSync(path.dirname(CRON_LOG_FILE))) {
-  fs.mkdirSync(path.dirname(CRON_LOG_FILE), { recursive: true });
-}
+try {
+  const logDir = path.dirname(CRON_LOG_FILE);
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+} catch (_) { /* prevent permission failure crashes */ }
 
 const THREE_MINUTES_MS = 3 * 60 * 1000;
 const ENABLE_NDIA5_PENDING_CRON = process.env.ENABLE_NDIA5_PENDING_CRON !== 'false';
@@ -158,17 +161,22 @@ async function resolvePendingNdia5() {
 }
 
 // Schedule cron job if enabled
-if (ENABLE_NDIA5_PENDING_CRON) {
-  cron.schedule(NDIA5_PENDING_CRON_SCHEDULE, () => {
-    resolvePendingNdia5().catch((err) => {
-      const msg = `resolvePendingNdia5 uncaught error: ${err.message || err}`;
-      console.error(msg, err);
-      appendCronLog(msg);
+try {
+  if (ENABLE_NDIA5_PENDING_CRON) {
+    cron.schedule(NDIA5_PENDING_CRON_SCHEDULE, () => {
+      resolvePendingNdia5().catch((err) => {
+        const msg = `resolvePendingNdia5 uncaught error: ${err.message || err}`;
+        console.error(msg, err);
+        appendCronLog(msg);
+      });
     });
-  });
-  console.log(`[cron] NDIA5 pending resolver cron initialized with schedule: ${NDIA5_PENDING_CRON_SCHEDULE}`);
-} else {
-  console.log('[cron] NDIA5 pending resolver cron is disabled via ENABLE_NDIA5_PENDING_CRON=false');
+    console.log(`[cron] NDIA5 pending resolver cron initialized with schedule: ${NDIA5_PENDING_CRON_SCHEDULE}`);
+  } else {
+    console.log('[cron] NDIA5 pending resolver cron is disabled via ENABLE_NDIA5_PENDING_CRON=false');
+  }
+} catch (cronErr) {
+  console.error('[cron] NDIA5 cron schedule initialization failed:', cronErr.message || cronErr);
 }
+
 
 module.exports = { resolvePendingNdia5 };
