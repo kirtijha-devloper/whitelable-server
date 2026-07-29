@@ -118,45 +118,13 @@ const PayoutTransaction = require('../models/PayoutTransaction');
 const Ledger = require('../models/Ledger');
 const PayoutAuditLog = require('../models/PayoutAuditLog');
 const PayoutWebhookLog = require('../models/PayoutWebhookLog');
-const PayoutCharge = require('../models/PayoutCharge');
+const { resolvePayoutServiceCharge } = require('../services/payoutChargeResolverService');
 const ledgerService = require('../services/ledgerService');
 const payoutReferenceService = require('../services/payoutReferenceService');
 const db = require('../config/database');
 
-/**
- * Resolves the service charge for a payout using the admin-configured
- * PayoutCharge slab rules (mirrors calculateBbpsCcCharge logic):
- *   - Find an active rule where from_amount <= payoutAmount <= to_amount
- *   - Apply rate as flat fee or percentage based on rate_type
- *   - Falls back to VIMO_DEFAULT_SERVICE_CHARGE env var (or 0)
- *
- * @returns {{ charge: number, source: string, slabId: number|null, rate: number, rate_type: string|null }}
- */
-async function resolvePayoutServiceCharge(userId, payoutAmount) {
-  const rule = await PayoutCharge.findOne({
-    where: {
-      is_active: true,
-      from_amount: { [Op.lte]: payoutAmount },
-      to_amount: { [Op.gte]: payoutAmount },
-    },
-    order: [['from_amount', 'DESC']],
-  });
-
-  if (rule) {
-    let charge;
-    if (rule.rate_type === 'flat') {
-      charge = parseFloat(rule.rate);
-    } else {
-      charge = parseFloat((payoutAmount * parseFloat(rule.rate)) / 100.0);
-    }
-    charge = +charge.toFixed(2);
-    return { charge, source: 'db', slabId: rule.id, rate: parseFloat(rule.rate), rate_type: rule.rate_type };
-  }
-
-  // Env-var fallback
-  const charge = parseFloat(process.env.VIMO_DEFAULT_SERVICE_CHARGE || 0);
-  return { charge, source: 'env', slabId: null, rate: charge, rate_type: 'flat' };
-}
+// resolvePayoutServiceCharge is now imported from payoutChargeResolverService
+// (3-tier: Guard1=UserPayoutCharges override, Guard2=PayoutCharges global slab, Guard3=env fallback)
 
 function normalizeVimoPaymentPurpose(input) {
   if (!input || typeof input !== 'string') {
