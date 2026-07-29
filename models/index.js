@@ -27,8 +27,20 @@ fs
     );
   })
   .forEach(file => {
-    const model = require(path.join(__dirname, file))(sequelize, Sequelize.DataTypes);
-    db[model.name] = model;
+    const imported = require(path.join(__dirname, file));
+    // Support both Sequelize factory-function models (older style) and
+    // direct db.define exports (newer style used in this project).
+    let model;
+    if (typeof imported === 'function' && !(imported.prototype instanceof Sequelize.Model)) {
+      // factory function: call it to get the model
+      model = imported(sequelize, Sequelize.DataTypes);
+    } else {
+      // direct export: already a Sequelize model instance
+      model = imported;
+    }
+    if (model && model.name) {
+      db[model.name] = model;
+    }
   });
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
