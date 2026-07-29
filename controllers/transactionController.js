@@ -67,6 +67,181 @@ async function removeUploadedFile(filePath) {
   }
 }
 
+function buildPreviewDebugInfo({
+  midRaw,
+  tidRaw,
+  amountRaw,
+  txnIdRaw,
+  dateRaw,
+  paymentModeRaw,
+  cardTypeRaw,
+  cardBrandRaw,
+  cardSubTypeRaw,
+  mid,
+  tid,
+  amount,
+  txn_id,
+  date,
+  paymentMode,
+  cardType,
+  cardBrand,
+  cardSubType,
+  posMachine,
+  user,
+  rule,
+  charge,
+  leftAmount,
+  match_status,
+  note
+}) {
+  const cardBrandCandidates = cardBrandRaw ? ChargeService.getCardBrandCandidates(cardBrandRaw) : [];
+  const reasons = [];
+  const checks = [];
+
+  const hasRequiredFields = Boolean(mid && tid && amount !== null && txn_id && date);
+  checks.push({
+    step: 'Required fields',
+    ok: hasRequiredFields,
+    detail: hasRequiredFields
+      ? 'MID, TID, txn_id, amount and date were all present.'
+      : 'MID, TID, txn_id, amount or date is missing.'
+  });
+  if (!hasRequiredFields) {
+    reasons.push('Preview skipped rule lookup because one or more required fields are missing.');
+  }
+
+  const hasPosMachine = Boolean(posMachine);
+  checks.push({
+    step: 'POS machine match',
+    ok: hasPosMachine,
+    detail: hasPosMachine
+      ? `Matched active POS machine ${posMachine.id || ''}`.trim()
+      : 'No active POS machine matched the MID + TID combination.'
+  });
+  if (hasRequiredFields && !hasPosMachine) {
+    reasons.push('MID + TID did not match any active POS machine.');
+  }
+
+  const hasUser = Boolean(user);
+  checks.push({
+    step: 'User match',
+    ok: hasUser,
+    detail: hasUser
+      ? `Resolved user ${user.name || user.id || 'unknown'}`
+      : hasPosMachine
+        ? 'POS machine matched, but no assigned user was found.'
+        : 'Skipped because POS machine was not found.'
+  });
+  if (hasPosMachine && !hasUser) {
+    reasons.push('POS machine matched, but there is no assigned user to derive a charge rule from.');
+  }
+
+  const hasRule = Boolean(rule);
+  checks.push({
+    step: 'Charge rule',
+    ok: hasRule,
+    detail: hasRule
+      ? `Matched charge rule scope ${rule.scope || 'unknown'}`
+      : 'No active charge rule matched the resolved criteria.'
+  });
+
+  if (hasUser && !hasRule) {
+    const brandInfo = cardBrandCandidates.length
+      ? `Card brand lookup candidates were: ${cardBrandCandidates.join(', ')}.`
+      : 'No card brand value was available for lookup.';
+    reasons.push('No active POS charge rule matched the resolved payment mode, card type, card brand, card classification, settlement type, and amount slab.');
+    reasons.push(brandInfo);
+  }
+
+  if (hasRule) {
+    const rulePercent = Number(rule.charge_percent || 0);
+    const ruleFlat = Number(rule.charge_flat || 0);
+    checks.push({
+      step: 'Rule fee config',
+      ok: rulePercent > 0 || ruleFlat > 0,
+      detail: `charge_percent=${rulePercent}, charge_flat=${ruleFlat}`
+    });
+
+    if (rulePercent === 0 && ruleFlat === 0) {
+      reasons.push('A matching rule exists, but the configured fee itself is zero.');
+    }
+
+    if (Number(amount || 0) === 0) {
+      reasons.push('Transaction amount is 0, so percentage-based charge resolves to 0.');
+    }
+
+    if (charge === 0 && Number(amount || 0) > 0 && (rulePercent > 0 || ruleFlat > 0)) {
+      reasons.push('Computed charge rounds down to 0.00 for this amount and rule combination.');
+    }
+  }
+
+  if (!reasons.length) {
+    reasons.push(hasRule ? 'Charge calculated successfully.' : 'No matching rule was found.');
+  }
+
+  return {
+    summary: reasons[0],
+    reasons,
+    checks,
+    inputs: {
+      raw: {
+        mid: midRaw,
+        tid: tidRaw,
+        amount: amountRaw,
+        txn_id: txnIdRaw,
+        date: dateRaw,
+        payment_mode: paymentModeRaw,
+        card_type: cardTypeRaw,
+        card_brand: cardBrandRaw,
+        card_sub_type: cardSubTypeRaw
+      },
+      normalized: {
+        mid,
+        tid,
+        amount,
+        txn_id,
+        date,
+        payment_mode: paymentMode,
+        card_type: cardType,
+        card_brand: cardBrand,
+        card_sub_type: cardSubType,
+        card_brand_candidates: cardBrandCandidates
+      }
+    },
+    match: {
+      match_status,
+      note,
+      pos_machine_id: posMachine?.id || null,
+      user_id: user?.id || null,
+      user_name: user?.name || null
+    },
+    rule: hasRule
+      ? {
+          id: rule.id || null,
+          scope: rule.scope || null,
+          payment_mode: rule.payment_mode || null,
+          settlement_type: rule.settlement_type || null,
+          card_classification: rule.card_classification || null,
+          card_type: rule.card_type || null,
+          card_brand: rule.card_brand || null,
+          min_amount: rule.min_amount ?? null,
+          max_amount: rule.max_amount ?? null,
+          charge_percent: rule.charge_percent ?? null,
+          charge_flat: rule.charge_flat ?? null,
+          gst_required: rule.gst_required ?? null,
+          gst_percent: rule.gst_percent ?? null,
+          specificity: rule.specificity ?? null
+        }
+      : null,
+    charge: {
+      amount,
+      charge,
+      left_amount: leftAmount,
+      charge_percentage: hasRule ? Number(rule.charge_percent || 0) : null
+    }
+  };
+}
+
 async function resolvePreviewContext(row) {
   const midRaw = firstCsvValue(row, ['MID', 'Mid', 'mid', 'Merchant ID', 'merchant_id']);
   const tidRaw = firstCsvValue(row, ['TID', 'Tid', 'tid', 'Terminal ID', 'terminal_id']);
@@ -89,6 +264,34 @@ async function resolvePreviewContext(row) {
   const cardSubType = cardSubTypeRaw ? cleanCsvValue(cardSubTypeRaw) : null;
 
   if (!mid || !tid || amount === null || !txn_id || !date) {
+    const debug = buildPreviewDebugInfo({
+      midRaw,
+      tidRaw,
+      amountRaw,
+      txnIdRaw,
+      dateRaw,
+      paymentModeRaw,
+      cardTypeRaw,
+      cardBrandRaw,
+      cardSubTypeRaw,
+      mid,
+      tid,
+      amount,
+      txn_id,
+      date,
+      paymentMode,
+      cardType,
+      cardBrand,
+      cardSubType,
+      posMachine: null,
+      user: null,
+      rule: null,
+      charge: 0,
+      leftAmount: amount === null ? null : parseFloat(amount.toFixed(2)),
+      match_status: 'missing_required_fields',
+      note: 'MID, TID, txn_id, amount or date is missing'
+    });
+
     return {
       mid: midRaw ? cleanCsvValue(midRaw) : null,
       tid: tidRaw ? cleanCsvValue(tidRaw) : null,
@@ -105,7 +308,8 @@ async function resolvePreviewContext(row) {
       user_name: null,
       pos_machine_id: null,
       match_status: 'missing_required_fields',
-      note: 'MID, TID, txn_id, amount or date is missing'
+      note: 'MID, TID, txn_id, amount or date is missing',
+      debug
     };
   }
 
@@ -140,6 +344,34 @@ async function resolvePreviewContext(row) {
   }
 
   if (!posMachine) {
+    const debug = buildPreviewDebugInfo({
+      midRaw,
+      tidRaw,
+      amountRaw,
+      txnIdRaw,
+      dateRaw,
+      paymentModeRaw,
+      cardTypeRaw,
+      cardBrandRaw,
+      cardSubTypeRaw,
+      mid,
+      tid,
+      amount,
+      txn_id,
+      date,
+      paymentMode,
+      cardType,
+      cardBrand,
+      cardSubType,
+      posMachine: null,
+      user: null,
+      rule: null,
+      charge: 0,
+      leftAmount: parseFloat(amount.toFixed(2)),
+      match_status: 'pos_not_found',
+      note: 'No active POS machine matched MID + TID'
+    });
+
     return {
       mid,
       tid,
@@ -156,7 +388,8 @@ async function resolvePreviewContext(row) {
       user_name: null,
       pos_machine_id: null,
       match_status: 'pos_not_found',
-      note: 'No active POS machine matched MID + TID'
+      note: 'No active POS machine matched MID + TID',
+      debug
     };
   }
 
@@ -167,6 +400,34 @@ async function resolvePreviewContext(row) {
     : null;
 
   if (!user) {
+    const debug = buildPreviewDebugInfo({
+      midRaw,
+      tidRaw,
+      amountRaw,
+      txnIdRaw,
+      dateRaw,
+      paymentModeRaw,
+      cardTypeRaw,
+      cardBrandRaw,
+      cardSubTypeRaw,
+      mid,
+      tid,
+      amount,
+      txn_id,
+      date,
+      paymentMode,
+      cardType,
+      cardBrand,
+      cardSubType,
+      posMachine,
+      user: null,
+      rule: null,
+      charge: 0,
+      leftAmount: parseFloat(amount.toFixed(2)),
+      match_status: 'user_not_found',
+      note: 'POS machine matched but no assigned user was found'
+    });
+
     return {
       mid,
       tid,
@@ -183,7 +444,8 @@ async function resolvePreviewContext(row) {
       user_name: null,
       pos_machine_id: posMachine.id,
       match_status: 'user_not_found',
-      note: 'POS machine matched but no assigned user was found'
+      note: 'POS machine matched but no assigned user was found',
+      debug
     };
   }
 
@@ -203,6 +465,33 @@ async function resolvePreviewContext(row) {
   const chargeResult = ChargeService.calculateCharge(amount, rule);
   const charge = chargeResult.charge;
   const leftAmount = parseFloat((amount - charge).toFixed(2));
+  const debug = buildPreviewDebugInfo({
+    midRaw,
+    tidRaw,
+    amountRaw,
+    txnIdRaw,
+    dateRaw,
+    paymentModeRaw,
+    cardTypeRaw,
+    cardBrandRaw,
+    cardSubTypeRaw,
+    mid,
+    tid,
+    amount,
+    txn_id,
+    date,
+    paymentMode,
+    cardType,
+    cardBrand,
+    cardSubType,
+    posMachine,
+    user,
+    rule,
+    charge,
+    leftAmount,
+    match_status: rule ? 'matched' : 'rule_not_found',
+    note: rule ? null : 'POS machine and user matched, but no charge rule was found'
+  });
 
   return {
     mid,
@@ -220,7 +509,8 @@ async function resolvePreviewContext(row) {
     user_name: user.name || null,
     pos_machine_id: posMachine.id,
     match_status: rule ? 'matched' : 'rule_not_found',
-    note: rule ? null : 'POS machine and user matched, but no charge rule was found'
+    note: rule ? null : 'POS machine and user matched, but no charge rule was found',
+    debug
   };
 }
 
