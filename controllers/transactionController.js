@@ -5,6 +5,224 @@ const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction")
 const { Op } = require("sequelize");
 const PosMachine = require("../models/posMachine");
+const User = require("../models/User");
+const ChargeService = require("../services/chargeService");
+
+function cleanCsvValue(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).replace(/'/g, '').trim();
+  return text === '' ? null : text;
+}
+
+function firstCsvValue(row, keys) {
+  for (const key of keys) {
+    const value = row[key];
+    const cleaned = cleanCsvValue(value);
+    if (cleaned !== null) return cleaned;
+  }
+  return null;
+}
+
+function normalizeCsvId(id) {
+  const cleaned = cleanCsvValue(id);
+  if (!cleaned) return null;
+  const digits = cleaned.replace(/\D/g, '');
+  if (!digits) return cleaned;
+  const stripped = digits.replace(/^0+/, '');
+  return stripped || digits;
+}
+
+function parseAmount(value) {
+  const cleaned = cleanCsvValue(value);
+  if (!cleaned) return null;
+  const parsed = parseFloat(cleaned);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function parseCsvDate(value) {
+  const cleaned = cleanCsvValue(value);
+  if (!cleaned) return null;
+  return cleaned;
+}
+
+function readCsvRows(filePath) {
+  return new Promise((resolve, reject) => {
+    const rows = [];
+    fs.createReadStream(filePath)
+      .pipe(csvParser())
+      .on("data", (row) => rows.push(row))
+      .on("end", () => resolve(rows))
+      .on("error", reject);
+  });
+}
+
+async function removeUploadedFile(filePath) {
+  if (!filePath) return;
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.error("Failed to delete uploaded file:", error);
+    }
+  }
+}
+
+async function resolvePreviewContext(row) {
+  const midRaw = firstCsvValue(row, ['MID', 'Mid', 'mid', 'Merchant ID', 'merchant_id']);
+  const tidRaw = firstCsvValue(row, ['TID', 'Tid', 'tid', 'Terminal ID', 'terminal_id']);
+  const amountRaw = firstCsvValue(row, ['Amount', 'amount', 'Txn Amount', 'Transaction Amount']);
+  const txnIdRaw = firstCsvValue(row, ['Transaction ID', 'transaction_id', 'txn_id', 'Txn ID', 'ID']);
+  const dateRaw = firstCsvValue(row, ['Date', 'date', 'Txn Date', 'Transaction Date']);
+  const paymentModeRaw = firstCsvValue(row, ['Payment Mode', 'payment_mode', 'Mode', 'mode']);
+  const cardTypeRaw = firstCsvValue(row, ['Card Type', 'card_type', 'CardType']);
+  const cardBrandRaw = firstCsvValue(row, ['Card Network', 'card_network', 'Brand Type', 'Brand', 'Card Brand']);
+  const cardSubTypeRaw = firstCsvValue(row, ['Card Colour', 'Card colour', 'Card Classification', 'card_classification', 'Card Colour ']);
+
+  const mid = normalizeCsvId(midRaw);
+  const tid = normalizeCsvId(tidRaw);
+  const amount = parseAmount(amountRaw);
+  const txn_id = cleanCsvValue(txnIdRaw);
+  const date = parseCsvDate(dateRaw);
+  const paymentMode = ChargeService.normalizeLookupValue(paymentModeRaw);
+  const cardType = ChargeService.normalizeLookupValue(cardTypeRaw);
+  const cardBrand = cardBrandRaw ? ChargeService.normalizeCardBrand(cardBrandRaw) : null;
+  const cardSubType = cardSubTypeRaw ? cleanCsvValue(cardSubTypeRaw) : null;
+
+  if (!mid || !tid || amount === null || !txn_id || !date) {
+    return {
+      mid: midRaw ? cleanCsvValue(midRaw) : null,
+      tid: tidRaw ? cleanCsvValue(tidRaw) : null,
+      txn_id,
+      amount,
+      date,
+      charge: 0,
+      charge_percentage: null,
+      left_amount: amount === null ? null : parseFloat(amount.toFixed(2)),
+      card_type: cardType,
+      card_brand: cardBrand,
+      card_sub_type: cardSubType,
+      user_id: null,
+      user_name: null,
+      pos_machine_id: null,
+      match_status: 'missing_required_fields',
+      note: 'MID, TID, txn_id, amount or date is missing'
+    };
+  }
+
+  const posMachines = await PosMachine.findAll({
+    where: {
+      status: 'active',
+      tid_number: { [Op.in]: [tidRaw, tid].filter(Boolean) }
+    }
+  });
+
+  let posMachine = null;
+  for (const machine of posMachines) {
+    const storedMid = normalizeCsvId(machine.mid_number);
+    const storedTid = normalizeCsvId(machine.tid_number);
+    if (storedMid === mid && storedTid === tid) {
+      posMachine = machine;
+      break;
+    }
+  }
+
+  if (!posMachine) {
+    const fallback = await PosMachine.findOne({
+      where: {
+        status: 'active',
+        mid_number: { [Op.in]: [midRaw, mid].filter(Boolean) },
+        tid_number: { [Op.in]: [tidRaw, tid].filter(Boolean) }
+      }
+    });
+    if (fallback) {
+      posMachine = fallback;
+    }
+  }
+
+  if (!posMachine) {
+    return {
+      mid,
+      tid,
+      txn_id,
+      amount,
+      date,
+      charge: 0,
+      charge_percentage: null,
+      left_amount: parseFloat(amount.toFixed(2)),
+      card_type: cardType,
+      card_brand: cardBrand,
+      card_sub_type: cardSubType,
+      user_id: null,
+      user_name: null,
+      pos_machine_id: null,
+      match_status: 'pos_not_found',
+      note: 'No active POS machine matched MID + TID'
+    };
+  }
+
+  const user = posMachine.assigned_to
+    ? await User.findByPk(posMachine.assigned_to, {
+        attributes: ['id', 'name', 'role', 'franchaise_id', 'settlement_type']
+      })
+    : null;
+
+  if (!user) {
+    return {
+      mid,
+      tid,
+      txn_id,
+      amount,
+      date,
+      charge: 0,
+      charge_percentage: null,
+      left_amount: parseFloat(amount.toFixed(2)),
+      card_type: cardType,
+      card_brand: cardBrand,
+      card_sub_type: cardSubType,
+      user_id: null,
+      user_name: null,
+      pos_machine_id: posMachine.id,
+      match_status: 'user_not_found',
+      note: 'POS machine matched but no assigned user was found'
+    };
+  }
+
+  const franchiseId = user.franchaise_id || (user.role === 'franchaise' ? user.id : null);
+  const rule = await ChargeService.getTransactionChargeRule({
+    userId: user.id,
+    userRole: user.role,
+    franchiseId,
+    paymentMode,
+    cardType,
+    cardBrand,
+    classification: cardSubType,
+    settlement: user.settlement_type || null,
+    amount
+  });
+
+  const chargeResult = ChargeService.calculateCharge(amount, rule);
+  const charge = chargeResult.charge;
+  const leftAmount = parseFloat((amount - charge).toFixed(2));
+
+  return {
+    mid,
+    tid,
+    txn_id,
+    amount,
+    charge,
+    charge_percentage: rule ? parseFloat(rule.charge_percent) : null,
+    left_amount: leftAmount,
+    card_type: cardType,
+    card_brand: cardBrand,
+    card_sub_type: cardSubType,
+    date,
+    user_id: user.id,
+    user_name: user.name || null,
+    pos_machine_id: posMachine.id,
+    match_status: rule ? 'matched' : 'rule_not_found',
+    note: rule ? null : 'POS machine and user matched, but no charge rule was found'
+  };
+}
 
 
 const formatMidNumbers = (mids) => {
@@ -191,6 +409,48 @@ console.log("data5:")
     });
 };
 
+const previewCSV = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: "No file uploaded" });
+  }
+
+  try {
+    const rows = await readCsvRows(req.file.path);
+    const previewRows = [];
+    let totalAmount = 0;
+    let totalCharge = 0;
+    let totalLeftAmount = 0;
+
+    for (const row of rows) {
+      const preview = await resolvePreviewContext(row);
+      previewRows.push(preview);
+
+      totalAmount += typeof preview.amount === 'number' ? preview.amount : 0;
+      totalCharge += typeof preview.charge === 'number' ? preview.charge : 0;
+      totalLeftAmount += typeof preview.left_amount === 'number' ? preview.left_amount : 0;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "CSV preview generated successfully",
+      count: previewRows.length,
+      summary: {
+        total_amount: parseFloat(totalAmount.toFixed(2)),
+        total_charge: parseFloat(totalCharge.toFixed(2)),
+        total_left_amount: parseFloat(totalLeftAmount.toFixed(2)),
+      },
+      data: previewRows
+    });
+  } catch (error) {
+    console.error("Error generating CSV preview:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to preview CSV data",
+    });
+  } finally {
+    await removeUploadedFile(req.file.path);
+  }
+});
 
 // Helpers
 function parseDate(dateStr) {
@@ -322,4 +582,4 @@ console.log("Final WHERE clause:", whereCondition);
   
 // });
 
-module.exports = { uploadCSV, getAllTransaction, getTransactionByID, getAllFileUpload, getFilteredTransactions };
+module.exports = { uploadCSV, previewCSV, getAllTransaction, getTransactionByID, getAllFileUpload, getFilteredTransactions };

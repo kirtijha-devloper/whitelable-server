@@ -1,11 +1,12 @@
 const express = require("express");
 const upload = require("../utils/mutlerSetup")
 
-const { uploadCSV, getAllTransaction , getTransactionByID, getAllFileUpload, getFilteredTransactions} = require("../controllers/transactionController");
+const { uploadCSV, previewCSV, getAllTransaction , getTransactionByID, getAllFileUpload, getFilteredTransactions} = require("../controllers/transactionController");
 
 const router = express.Router();
 
 router.post("/upload-csv", upload.single("file"), uploadCSV);
+router.post("/upload-csv-preview", upload.single("file"), previewCSV);
 
 router.route("/").get( getAllTransaction );
 
