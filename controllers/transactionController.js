@@ -71,6 +71,52 @@ function extractCardBrandFromSubType(value) {
   return null;
 }
 
+function extractCardSubTypeFromRaw(value, derivedBrand = null) {
+  const cleaned = cleanCsvValue(value);
+  if (!cleaned) return null;
+
+  const brandTokens = new Set();
+  const brand = cleanCsvValue(derivedBrand);
+  if (brand) {
+    const normalizedBrand = String(brand).toUpperCase();
+    brandTokens.add(normalizedBrand);
+    const mappedBrand = ChargeService.normalizeCardBrand(normalizedBrand);
+    if (mappedBrand) {
+      brandTokens.add(mappedBrand);
+    }
+    if (normalizedBrand === 'MASTERCARD') {
+      brandTokens.add('MASTER CARD');
+      brandTokens.add('MASTER');
+    }
+    if (normalizedBrand === 'AMEX') {
+      brandTokens.add('AMERICAN EXPRESS');
+    }
+    if (normalizedBrand === 'DINERS') {
+      brandTokens.add('DINERS CLUB');
+    }
+    if (normalizedBrand === 'UNIONPAY') {
+      brandTokens.add('UNION PAY');
+    }
+  }
+
+  const tokens = cleaned
+    .replace(/[_/|,+-]+/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  const filteredTokens = tokens.filter((token) => {
+    const upper = token.toUpperCase();
+    return upper !== 'CARD' && !brandTokens.has(upper);
+  });
+
+  if (!filteredTokens.length) {
+    return cleaned;
+  }
+
+  return filteredTokens.join(' ');
+}
+
 function readCsvRows(filePath) {
   return new Promise((resolve, reject) => {
     const rows = [];
@@ -286,11 +332,11 @@ async function resolvePreviewContext(row) {
   const date = parseCsvDate(dateRaw);
   const paymentMode = ChargeService.normalizeLookupValue(paymentModeRaw);
   const cardType = ChargeService.normalizeLookupValue(cardTypeRaw);
-  const cardSubType = cardSubTypeRaw ? cleanCsvValue(cardSubTypeRaw) : null;
-  const cardBrandFromSubType = extractCardBrandFromSubType(cardSubType);
+  const cardBrandHint = cardBrandRaw ? ChargeService.normalizeCardBrand(cardBrandRaw) : extractCardBrandFromSubType(cardSubTypeRaw);
+  const cardSubType = cardSubTypeRaw ? extractCardSubTypeFromRaw(cardSubTypeRaw, cardBrandHint) : null;
   const cardBrand = cardBrandRaw
     ? ChargeService.normalizeCardBrand(cardBrandRaw)
-    : cardBrandFromSubType;
+    : cardBrandHint;
 
   if (!mid || !tid || amount === null || !txn_id || !date) {
     const debug = buildPreviewDebugInfo({
