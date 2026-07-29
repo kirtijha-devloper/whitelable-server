@@ -45,6 +45,32 @@ function parseCsvDate(value) {
   return cleaned;
 }
 
+function extractCardBrandFromSubType(value) {
+  const cleaned = cleanCsvValue(value);
+  if (!cleaned) return null;
+
+  const upper = cleaned.toUpperCase();
+  const patterns = [
+    { brand: 'VISA', regex: /\bVISA\b/ },
+    { brand: 'MASTERCARD', regex: /\bMASTER\s*CARD\b|\bMASTERCARD\b|\bMASTER\b/ },
+    { brand: 'RUPAY', regex: /\bRUPAY\b/ },
+    { brand: 'AMEX', regex: /\bAMERICAN\s*EXPRESS\b|\bAMEX\b/ },
+    { brand: 'DINERS', regex: /\bDINERS\s*CLUB\b|\bDINERS\b/ },
+    { brand: 'DISCOVER', regex: /\bDISCOVER\b/ },
+    { brand: 'JCB', regex: /\bJCB\b/ },
+    { brand: 'UNIONPAY', regex: /\bUNION\s*PAY\b|\bUNIONPAY\b/ },
+    { brand: 'MAESTRO', regex: /\bMAESTRO\b/ }
+  ];
+
+  for (const candidate of patterns) {
+    if (candidate.regex.test(upper)) {
+      return candidate.brand;
+    }
+  }
+
+  return null;
+}
+
 function readCsvRows(filePath) {
   return new Promise((resolve, reject) => {
     const rows = [];
@@ -94,7 +120,7 @@ function buildPreviewDebugInfo({
   match_status,
   note
 }) {
-  const cardBrandCandidates = cardBrandRaw ? ChargeService.getCardBrandCandidates(cardBrandRaw) : [];
+  const cardBrandCandidates = cardBrand ? ChargeService.getCardBrandCandidates(cardBrand) : [];
   const reasons = [];
   const checks = [];
 
@@ -260,8 +286,11 @@ async function resolvePreviewContext(row) {
   const date = parseCsvDate(dateRaw);
   const paymentMode = ChargeService.normalizeLookupValue(paymentModeRaw);
   const cardType = ChargeService.normalizeLookupValue(cardTypeRaw);
-  const cardBrand = cardBrandRaw ? ChargeService.normalizeCardBrand(cardBrandRaw) : null;
   const cardSubType = cardSubTypeRaw ? cleanCsvValue(cardSubTypeRaw) : null;
+  const cardBrandFromSubType = extractCardBrandFromSubType(cardSubType);
+  const cardBrand = cardBrandRaw
+    ? ChargeService.normalizeCardBrand(cardBrandRaw)
+    : cardBrandFromSubType;
 
   if (!mid || !tid || amount === null || !txn_id || !date) {
     const debug = buildPreviewDebugInfo({
