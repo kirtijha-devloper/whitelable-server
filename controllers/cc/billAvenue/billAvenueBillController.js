@@ -426,15 +426,43 @@ const getPayments = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 25;
   const offset = (page - 1) * limit;
 
-  const { billerId, transactionRefId, status } = req.query;
+  const { billerId, transactionRefId, status, startDate, endDate, from_date, to_date } = req.query;
 
   const where = {};
   if (req.user?.role !== 'admin') {
     where.user_id = req.user?.id;
   }
   if (billerId) where.biller_id = billerId;
-  if (transactionRefId) where.transaction_ref_id = { [Op.iLike]: `%${transactionRefId}%` };
-  if (status) where.status = status;
+  if (transactionRefId) where.transaction_ref_id = { [Op.like]: `%${transactionRefId}%` };
+
+  if (status) {
+    const sLower = String(status).toLowerCase().trim();
+    if (sLower === 'success') {
+      where.status = { [Op.or]: ['success', 'SUCCESS', 'VIMO_SUCCESS', 'completed', 'COMPLETED'] };
+    } else if (sLower === 'failed') {
+      where.status = { [Op.or]: ['failed', 'FAILED', 'VIMO_FAILURE', 'error', 'ERROR'] };
+    } else if (sLower === 'pending') {
+      where.status = { [Op.or]: ['pending', 'PENDING', 'processing', 'PROCESSING', 'VIMO_PENDING', 'queued'] };
+    } else {
+      where.status = status;
+    }
+  }
+
+  const sDate = startDate || from_date;
+  const eDate = endDate || to_date;
+  if (sDate && eDate) {
+    const start = new Date(sDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(eDate);
+    end.setHours(23, 59, 59, 999);
+    where.createdAt = { [Op.between]: [start, end] };
+  } else if (sDate) {
+    const start = new Date(sDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(sDate);
+    end.setHours(23, 59, 59, 999);
+    where.createdAt = { [Op.between]: [start, end] };
+  }
 
   const { count, rows } = await BillAvenuePayment.findAndCountAll({
     where,
