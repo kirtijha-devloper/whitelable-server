@@ -82,6 +82,13 @@ const RazorpayNotification = db.define('RazorpayNotification', {
     field: 'source',
     comment: "Origin of the webhook – 'razorpay' or 'everlife'"
   },
+  settlement_type: {
+    type: Sequelize.STRING(30),
+    allowNull: true,
+    defaultValue: null,
+    field: 'settlement_type',
+    comment: "Snapshot of merchant's settlement_type ('today_settlement' or 'next_day_settlement') at transaction processing time"
+  },
   // ── User / machine linkage ────────────────────────────────────────────────
   // Both are nullable: a notification may arrive for a POS machine that has not
   // yet been assigned to any merchant. user_id is populated once we successfully

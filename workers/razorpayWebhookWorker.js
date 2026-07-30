@@ -345,11 +345,15 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       return;
     }
 
-    // Stamp the POS operator link on the notification
-    await notification.update({ user_id: posOperator.id });
+    // Stamp the POS operator link and settlement_type snapshot on the notification
+    const settlementTypeSnapshot = posOperator.settlement_type || 'today_settlement';
+    await notification.update({
+      user_id: posOperator.id,
+      settlement_type: settlementTypeSnapshot
+    });
 
     logger.log(`[Razorpay Webhook Worker] Found POS operator: ${posOperator.id} (${posOperator.name || posOperator.email})`);
-    logger.log(`[Razorpay Webhook Worker] Settlement type: ${posOperator.settlement_type || 'N/A'}`);
+    logger.log(`[Razorpay Webhook Worker] Settlement type snapshot saved: ${settlementTypeSnapshot}`);
 
     // Step 3: Resolve POS charge using the new rule engine
     // The service takes all relevant parameters and returns the most specific rule.

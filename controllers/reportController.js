@@ -397,6 +397,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       to_date,
       status,
       payment_mode,
+      settlement_type,
       source,
       include_unlinked = 'false',
       page = 1,
@@ -461,9 +462,10 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
     }
 
     // ── Optional filters ─────────────────────────────────────────────────────
-    if (status)       where.status       = status.toUpperCase();
-    if (payment_mode) where.payment_mode = payment_mode.toUpperCase();
-    if (source)       where.source       = buildSourceFilter(source);
+    if (status)          where.status          = status.toUpperCase();
+    if (payment_mode)    where.payment_mode    = payment_mode.toUpperCase();
+    if (settlement_type) where.settlement_type = settlement_type;
+    if (source)          where.source          = buildSourceFilter(source);
 
     // ── Pagination ────────────────────────────────────────────────────────────
     const pageNum  = Math.max(1, parseInt(page)  || 1);
@@ -483,7 +485,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
           model: User,
           as: 'user',
           required: false,   // LEFT JOIN — keep unlinked rows
-          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name', 'franchaise_id']
+          attributes: ['id', 'name', 'email', 'mobile_number', 'abheepay_id', 'organization_name', 'franchaise_id', 'settlement_type']
         },
         {
           model: PosMachine,
@@ -629,6 +631,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         posting_date:      n.posting_date,
         status:            n.status,
         source:            n.source || null,
+        settlement_type:   n.settlement_type || n.user?.settlement_type || null,
         user_id:           n.user_id,
         pos_machine_id:    n.pos_machine_id,
         user:              n.user        || null,
