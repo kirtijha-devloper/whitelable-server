@@ -12,6 +12,7 @@ const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
 } = require('../../../services/serviceSettingsService');
+const { parseIstBusinessDateRange } = require('../../../utils/dateRange');
 
 // ─── Logging ──.──────────────────────────────────────────────────────────────
 const logFile = path.join(__dirname, '../../../logs/billAvenue.log');
@@ -450,18 +451,15 @@ const getPayments = asyncHandler(async (req, res) => {
 
   const sDate = startDate || from_date;
   const eDate = endDate || to_date;
-  if (sDate && eDate) {
-    const start = new Date(sDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(eDate);
-    end.setHours(23, 59, 59, 999);
-    where.createdAt = { [Op.between]: [start, end] };
-  } else if (sDate) {
-    const start = new Date(sDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(sDate);
-    end.setHours(23, 59, 59, 999);
-    where.createdAt = { [Op.between]: [start, end] };
+  if (sDate || eDate) {
+    const parsedRange = parseIstBusinessDateRange(sDate, eDate, { defaultToToday: false });
+    if (parsedRange.fromDate && parsedRange.toDate) {
+      where.createdAt = { [Op.between]: [parsedRange.fromDate, parsedRange.toDate] };
+    } else if (parsedRange.fromDate) {
+      where.createdAt = { [Op.gte]: parsedRange.fromDate };
+    } else if (parsedRange.toDate) {
+      where.createdAt = { [Op.lte]: parsedRange.toDate };
+    }
   }
 
   const { count, rows } = await BillAvenuePayment.findAndCountAll({
