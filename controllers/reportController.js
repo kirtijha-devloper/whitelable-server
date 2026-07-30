@@ -1135,7 +1135,11 @@ const getBbpsReport = asyncHandler(async (req, res) => {
         amount:          parseFloat(e.debit)          || 0,
         balance_before:  parseFloat(e.balance_before) || 0,
         balance_after:   parseFloat(e.balance)        || 0,
-        status:          payment?.status || meta.status || null
+        status:          payment?.status || meta.status || null,
+        reference_id:    e.reference_id || null,
+        reference_table: e.reference_table || null,
+        metadata:        meta,
+        raw_payment:     payment || null
       };
     });
 
