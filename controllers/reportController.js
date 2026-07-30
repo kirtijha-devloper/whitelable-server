@@ -631,7 +631,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         posting_date:      n.posting_date,
         status:            n.status,
         source:            n.source || null,
-        settlement_type:   n.settlement_type || n.user?.settlement_type || null,
+        settlement_type:   n.settlement_type || null,
         user_id:           n.user_id,
         pos_machine_id:    n.pos_machine_id,
         user:              n.user        || null,
