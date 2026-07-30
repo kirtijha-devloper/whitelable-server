@@ -393,6 +393,8 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
     const currentUserId = req.user?.id;
     const {
       user_id,
+      user_search,
+      user_query,
       from_date,
       to_date,
       status,
@@ -459,6 +461,45 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       // include_unlinked=true → no user_id constraint → returns unlinked rows too
     } else {
       where.user_id = currentUserId;
+    }
+
+    // ── User Search Filter (ID / Name / Mobile / Abheepay ID) ───────────────
+    const rawUserSearch = user_search || user_query;
+    if (rawUserSearch && String(rawUserSearch).trim() !== '') {
+      const queryStr = String(rawUserSearch).trim();
+      const userConditions = [
+        { name: { [Op.like]: `%${queryStr}%` } },
+        { mobile_number: { [Op.like]: `%${queryStr}%` } },
+        { abheepay_id: { [Op.like]: `%${queryStr}%` } },
+      ];
+      if (!isNaN(queryStr) && Number.isInteger(Number(queryStr))) {
+        userConditions.push({ id: parseInt(queryStr, 10) });
+      }
+
+      const matchedUsers = await User.findAll({
+        where: { [Op.or]: userConditions },
+        attributes: ['id']
+      });
+
+      const matchedIds = matchedUsers.map(u => u.id);
+      if (matchedIds.length > 0) {
+        if (where.user_id) {
+          if (typeof where.user_id === 'number') {
+            if (!matchedIds.includes(where.user_id)) {
+              where.user_id = -1;
+            }
+          } else if (where.user_id[Op.in]) {
+            const allowed = where.user_id[Op.in].filter(id => matchedIds.includes(id));
+            where.user_id = allowed.length > 0 ? { [Op.in]: allowed } : -1;
+          } else if (where.user_id[Op.ne]) {
+            where.user_id = { [Op.in]: matchedIds };
+          }
+        } else {
+          where.user_id = { [Op.in]: matchedIds };
+        }
+      } else {
+        where.user_id = -1;
+      }
     }
 
     // ── Optional filters ─────────────────────────────────────────────────────
