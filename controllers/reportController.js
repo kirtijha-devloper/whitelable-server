@@ -1002,7 +1002,7 @@ const getPayoutReport = asyncHandler(async (req, res) => {
  */
 const getBbpsReport = asyncHandler(async (req, res) => {
   try {
-    const { from_date, to_date, user_id, page = 1, limit = 50 } = req.query;
+    const { from_date, to_date, user_id, user_search, user_query, status, page = 1, limit = 50 } = req.query;
 
     const parsedDateRange = parseIstBusinessDateRange(from_date, to_date);
     if (parsedDateRange.error) {
@@ -1020,6 +1020,64 @@ const getBbpsReport = asyncHandler(async (req, res) => {
       Object.assign(where, scope);
     } catch (scopeErr) {
       return res.status(scopeErr.statusCode || 403).json({ success: false, message: scopeErr.message });
+    }
+
+    const userSearch = pickFirstNonEmpty(user_search, user_query);
+    if (userSearch) {
+      const matchedUsers = await User.findAll({
+        where: {
+          [Op.or]: [
+            { name: { [Op.like]: `%${userSearch}%` } },
+            { mobile_number: { [Op.like]: `%${userSearch}%` } },
+            { abheepay_id: { [Op.like]: `%${userSearch}%` } },
+            ...(Number.isInteger(Number(userSearch)) ? [{ id: Number(userSearch) }] : [])
+          ]
+        },
+        attributes: ['id']
+      });
+      const matchedIds = matchedUsers.map(u => u.id);
+      if (where.user_id && typeof where.user_id === 'object' && Array.isArray(where.user_id[Op.in])) {
+        const existingIds = new Set(where.user_id[Op.in]);
+        const intersected = matchedIds.filter(id => existingIds.has(id));
+        where.user_id = intersected.length > 0 ? { [Op.in]: intersected } : -1;
+      } else {
+        where.user_id = matchedIds.length > 0 ? { [Op.in]: matchedIds } : -1;
+      }
+    }
+
+    if (status) {
+      const sUpper = String(status).trim().toUpperCase();
+      let statusWhere = {};
+      if (sUpper === 'SUCCESS') {
+        statusWhere = {
+          [Op.or]: [
+            { statuscode: { [Op.in]: ['TXN', 'TUP'] } },
+            { status: { [Op.like]: '%success%' } }
+          ]
+        };
+      } else if (sUpper === 'PENDING') {
+        statusWhere = {
+          [Op.or]: [
+            { statuscode: { [Op.in]: ['PEN', 'PENDING', 'PROCESSING', 'INP', 'INIT', 'INITIATED'] } },
+            { status: { [Op.like]: '%pend%' } },
+            { status: { [Op.like]: '%process%' } }
+          ]
+        };
+      } else if (sUpper === 'FAILED') {
+        statusWhere = {
+          [Op.or]: [
+            { statuscode: { [Op.notIn]: ['TXN', 'TUP', 'PEN', 'PENDING', 'PROCESSING', 'INP', 'INIT', 'INITIATED'] } },
+            { status: { [Op.like]: '%fail%' } },
+            { status: { [Op.like]: '%error%' } }
+          ]
+        };
+      }
+      const matchedPayments = await CcBillPayment.findAll({
+        where: statusWhere,
+        attributes: ['id']
+      });
+      const matchedPaymentIds = matchedPayments.map(p => p.id);
+      where.reference_id = matchedPaymentIds.length > 0 ? { [Op.in]: matchedPaymentIds } : -1;
     }
 
     const pageNum  = Math.max(1, parseInt(page)  || 1);
