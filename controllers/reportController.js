@@ -483,17 +483,11 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
 
       const matchedIds = matchedUsers.map(u => u.id);
       if (matchedIds.length > 0) {
-        if (where.user_id) {
-          if (typeof where.user_id === 'number') {
-            if (!matchedIds.includes(where.user_id)) {
-              where.user_id = -1;
-            }
-          } else if (where.user_id[Op.in]) {
-            const allowed = where.user_id[Op.in].filter(id => matchedIds.includes(id));
-            where.user_id = allowed.length > 0 ? { [Op.in]: allowed } : -1;
-          } else if (where.user_id[Op.ne]) {
-            where.user_id = { [Op.in]: matchedIds };
-          }
+        if (typeof where.user_id === 'number') {
+          where.user_id = matchedIds.includes(where.user_id) ? where.user_id : -1;
+        } else if (where.user_id && Array.isArray(where.user_id[Op.in])) {
+          const allowed = where.user_id[Op.in].filter(id => matchedIds.includes(id));
+          where.user_id = allowed.length > 0 ? { [Op.in]: allowed } : -1;
         } else {
           where.user_id = { [Op.in]: matchedIds };
         }
