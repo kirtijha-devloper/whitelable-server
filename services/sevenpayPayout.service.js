@@ -27,6 +27,7 @@ const DEFAULT_TIMEOUT_MS = Number(process.env.SEVENPAY_TIMEOUT_MS || 30000);
 const DEFAULT_LOGIN_PATH = process.env.SEVENPAY_LOGIN_PATH || '/api/Account/GetToken/Login';
 const DEFAULT_PAYOUT_PATH = process.env.SEVENPAY_PAYOUT_INITIATE_PATH || '/api/PayOut/InitiatePayoutNew';
 const DEFAULT_STATUS_PATH = process.env.SEVENPAY_PAYOUT_STATUS_PATH || '/api/PayOut/getPayoutStatus';
+const DEFAULT_BALANCE_PATH = process.env.SEVENPAY_BALANCE_PATH || '/api/User/GetWalletBalanceAsync';
 const DEFAULT_TOKEN_TTL_MS = Number(process.env.SEVENPAY_TOKEN_TTL_MS || 10 * 60 * 1000);
 const DEFAULT_CHANNEL_TYPE = process.env.SEVENPAY_CHANNEL_TYPE || 'API';
 
@@ -286,7 +287,7 @@ function buildEncryptedRequest(payload) {
   };
 }
 
-async function sendEncryptedRequest({ path, payload, auth }) {
+async function sendEncryptedRequest({ path, payload, auth, method }) {
   if (!auth) {
     auth = await login();
   }
@@ -295,7 +296,7 @@ async function sendEncryptedRequest({ path, payload, auth }) {
   const client = getAxiosClient();
   const encryptedRequest = buildEncryptedRequest(payload);
 
-  const isGet = path === DEFAULT_STATUS_PATH;
+  const isGet = method ? String(method).toUpperCase() === 'GET' : (path === DEFAULT_STATUS_PATH || path === DEFAULT_BALANCE_PATH);
   const requestId = crypto.randomUUID();
 
   const requestHeaders = {
@@ -332,7 +333,13 @@ async function sendEncryptedRequest({ path, payload, auth }) {
 
     const response = await client.request(axiosConfig);
 
-    const decryptedText = decryptAesFromBase64(response.data, encryptedRequest.aesKey, encryptedRequest.iv);
+    let decryptedText;
+    try {
+      decryptedText = decryptAesFromBase64(response.data, encryptedRequest.aesKey, encryptedRequest.iv);
+    } catch (_err) {
+      decryptedText = response.data;
+    }
+
     try {
       rawResponse = JSON.parse(decryptedText);
     } catch {
@@ -420,13 +427,52 @@ async function getPayoutStatus(payload) {
   };
 }
 
+async function getWalletBalance(payload = {}) {
+  const auth = await login();
+  const orgId = payload.orgId || auth.orgId || process.env.SEVENPAY_ORG_ID || 47716;
+
+  const queryParams = { orgId };
+
+  const result = await sendEncryptedRequest({
+    path: DEFAULT_BALANCE_PATH,
+    payload: queryParams,
+    auth,
+    method: 'GET',
+  });
+
+  const rawResponse = result.response;
+  const responseData = rawResponse?.data && typeof rawResponse.data === 'object'
+    ? rawResponse.data
+    : rawResponse;
+
+  const walletBalance = pickFirstValue(
+    responseData?.walletBalance,
+    responseData?.wallet_balance,
+    responseData?.balance,
+    null
+  );
+
+  return {
+    walletBalance: walletBalance !== null ? String(walletBalance) : null,
+    rawResponse,
+    auth: {
+      cached: result.auth?.cached,
+      expiresAt: result.auth?.expiresAt,
+      userId: result.auth?.userId || null,
+      orgId: result.auth?.orgId || null,
+    },
+  };
+}
+
 function getRequestPreview(type, payload) {
   const config = getBaseConfig();
   const path = type === 'login'
     ? DEFAULT_LOGIN_PATH
     : type === 'status'
       ? DEFAULT_STATUS_PATH
-      : DEFAULT_PAYOUT_PATH;
+      : type === 'balance'
+        ? DEFAULT_BALANCE_PATH
+        : DEFAULT_PAYOUT_PATH;
 
   if (type === 'login') {
     const encryptedRequest = buildEncryptedRequest(buildLoginPayload());
@@ -463,6 +509,7 @@ module.exports = {
   login,
   initiatePayout,
   getPayoutStatus,
+  getWalletBalance,
   getRequestPreview,
   normalizePayoutResponse,
   normalizeStatus,

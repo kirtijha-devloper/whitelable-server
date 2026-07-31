@@ -8,6 +8,7 @@ describe('SevenPay Payout Service Tests', () => {
   let axiosGetStub;
   let axiosPostStub;
   let axiosRequestStub;
+  let axiosCreateStub;
 
   beforeEach(() => {
     // Set up env variables
@@ -22,7 +23,8 @@ describe('SevenPay Payout Service Tests', () => {
 
     axiosGetStub = sinon.stub(axios, 'get');
     axiosPostStub = sinon.stub(axios, 'post');
-    axiosRequestStub = sinon.stub(axios, 'request');
+    axiosRequestStub = sinon.stub();
+    axiosCreateStub = sinon.stub(axios, 'create').returns({ request: axiosRequestStub });
   });
 
   afterEach(() => {
@@ -72,5 +74,40 @@ describe('SevenPay Payout Service Tests', () => {
       'x-7pay-login-id': 'test-login-id',
       'x-7pay-login-api-key': 'test-api-key'
     });
+  });
+
+  it('getWalletBalance should fetch balance using encrypted GET request with orgId', async () => {
+    const mockSharedApiResponse = {
+      success: true,
+      responseCode: '0',
+      token: 'fresh-token-123',
+      expiresIn: 3600,
+      responseData: {
+        userId: 'some-user',
+        orgId: '47716'
+      }
+    };
+    axiosGetStub.resolves({ data: mockSharedApiResponse });
+
+    axiosRequestStub.callsFake(async (config) => {
+      expect(config.method).to.equal('get');
+      expect(config.url).to.equal('/api/User/GetWalletBalanceAsync');
+      expect(config.params).to.deep.equal({ orgId: 47716 });
+
+      return {
+        data: JSON.stringify({
+          responseCode: '0',
+          response: 'Success',
+          data: {
+            walletBalance: '25000.50'
+          },
+          errors: null
+        })
+      };
+    });
+
+    const balanceResult = await sevenpayService.getWalletBalance({ orgId: 47716 });
+    expect(balanceResult.walletBalance).to.equal('25000.50');
+    expect(balanceResult.rawResponse.responseCode).to.equal('0');
   });
 });

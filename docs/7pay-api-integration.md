@@ -72,6 +72,28 @@ For **every single request** (Login, Payout, Status), you must perform the follo
   - `paymentId`
   - `userid`
 
+### 2.4 Get Wallet Balance (Self Balance Check)
+- **Path**: `/api/User/GetWalletBalanceAsync`
+- **Method**: `GET`
+- **Headers**:
+  - `Content-Type`: `application/json`
+  - `Authorization`: `Bearer <Token>` (Obtained from Login)
+  - `key`: Base64(RSA_Encrypt(AES_Key))
+  - `iv`: Base64(RSA_Encrypt(AES_IV))
+- **Query Parameters / Request**:
+  - `orgId` (e.g. `47716`)
+- **Sample Success Response (Decrypted)**:
+  ```json
+  {
+    "responseCode": "0",
+    "response": "Success",
+    "data": {
+      "walletBalance": "25000.50"
+    },
+    "errors": null
+  }
+  ```
+
 ## 3. Response Statuses and Error Handling
 
 ### 3.1 Payout Status Normalization
