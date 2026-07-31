@@ -1253,14 +1253,6 @@ const getPayoutAuditLogsByPayout = asyncHandler(async (req, res) => {
  * Get SevenPay provider wallet balance
  */
 const getWalletBalance = asyncHandler(async (req, res) => {
-  const userRole = String(req.user?.role || '').toLowerCase();
-  if (userRole !== 'admin' && !isPrivilegedUser(req.user)) {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied: Self balance check is restricted to Admin or authorized managers',
-    });
-  }
-
   const orgId = req.query?.orgId || req.body?.orgId || process.env.SEVENPAY_ORG_ID || 47716;
 
   const result = await sevenpayService.getWalletBalance({ orgId });
