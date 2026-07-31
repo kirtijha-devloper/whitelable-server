@@ -503,6 +503,28 @@ const initiatePayout = asyncHandler(async (req, res) => {
     return;
   }
 
+  // ── Provider Balance Check (Self balance check before initiate request) ────
+  try {
+    const orgId = req.body.orgId || process.env.SEVENPAY_ORG_ID || 47716;
+    const balanceResult = await sevenpayService.getWalletBalance({ orgId });
+    const providerWalletBalance = balanceResult?.walletBalance !== null && balanceResult?.walletBalance !== undefined
+      ? Number(balanceResult.walletBalance)
+      : null;
+
+    if (providerWalletBalance === null || isNaN(providerWalletBalance) || amount > providerWalletBalance) {
+      return res.status(400).json({
+        success: false,
+        message: 'System is temporarily busy or undergoing maintenance. Please try again in 5-10 minutes. If this issue persists, you may contact the administrator.',
+      });
+    }
+  } catch (balanceError) {
+    console.error('SevenPay provider balance check error before initiate:', balanceError?.message || balanceError);
+    return res.status(400).json({
+      success: false,
+      message: 'System is temporarily busy or undergoing maintenance. Please try again in 5-10 minutes. If this issue persists, you may contact the administrator.',
+    });
+  }
+
   const tpin = req.body.tpin;
   if (!tpin) {
     return res.status(400).json({
