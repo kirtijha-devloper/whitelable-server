@@ -2,6 +2,7 @@ const WEBHOOK_SOURCES = Object.freeze({
   AGRO_AXIS: 'agro_axis',
   AGRO_HDFC: 'agro_hdfc',
   EVERLIFE: 'everlife',
+  PINELAB_MANUAL: 'pinelab_manual',
   UNKNOWN: 'UNKNOWN',
 });
 

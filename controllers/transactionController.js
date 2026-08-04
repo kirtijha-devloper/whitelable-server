@@ -6,7 +6,11 @@ const WalletTransaction = require("../models/WalletTransaction")
 const { Op } = require("sequelize");
 const PosMachine = require("../models/posMachine");
 const User = require("../models/User");
+const RazorpayNotification = require("../models/RazorpayNotification");
+const MerchantTransactionCharge = require("../models/MerchantTransactionCharge");
 const ChargeService = require("../services/chargeService");
+const ledgerService = require("../services/ledgerService");
+const { WEBHOOK_SOURCES } = require("../utils/razorpay/sources");
 
 function cleanCsvValue(value) {
   if (value === null || value === undefined) return null;
@@ -947,4 +951,243 @@ console.log("Final WHERE clause:", whereCondition);
   
 // });
 
-module.exports = { uploadCSV, previewCSV, getAllTransaction, getTransactionByID, getAllFileUpload, getFilteredTransactions };
+function isValidDate(d) {
+  return d instanceof Date && !isNaN(d.getTime());
+}
+
+const processPinelabNotifications = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: "No file uploaded" });
+  }
+
+  try {
+    const rows = await readCsvRows(req.file.path);
+    let totalCount = rows.length;
+    let completedCount = 0;
+    let needsAdminCount = 0;
+    let skippedDuplicatesCount = 0;
+
+    for (const row of rows) {
+      const preview = await resolvePreviewContext(row);
+
+      const txn_id = preview.txn_id;
+      if (!txn_id) {
+        continue;
+      }
+
+      // Check duplicate
+      const existing = await RazorpayNotification.findOne({ where: { txn_id } });
+      if (existing) {
+        skippedDuplicatesCount++;
+        continue;
+      }
+
+      const amount = preview.amount;
+      const mid = preview.mid;
+      const tid = preview.tid;
+      const paymentMode = (preview.debug?.inputs?.normalized?.payment_mode || preview.payment_mode || '').toUpperCase();
+      const cardType = preview.card_type;
+      const cardBrand = preview.card_brand;
+      const cardSubType = preview.card_sub_type;
+      const dateStr = preview.date;
+      const parsedPostingDate = dateStr ? new Date(dateStr) : new Date();
+      const postingDate = isValidDate(parsedPostingDate) ? parsedPostingDate : new Date();
+
+      const posMachineId = preview.pos_machine_id;
+      const userId = preview.user_id;
+      const hasRule = preview.match_status === 'matched' && preview.debug?.rule;
+
+      const sourceValue = WEBHOOK_SOURCES.PINELAB_MANUAL || 'pinelab_manual';
+
+      const event_json = {
+        ...row,
+        txn_id,
+        mid,
+        tid,
+        amount,
+        paymentMode,
+        cardType,
+        cardBrand,
+        cardSubType,
+        postingDate: dateStr,
+        source: sourceValue
+      };
+
+      if (hasRule && userId && posMachineId && typeof amount === 'number' && amount > 0) {
+        const rule = preview.debug.rule;
+        const chargePercent = Number(rule.charge_percent || 0);
+        const chargeFlat = Number(rule.charge_flat || 0);
+
+        const chargeRuleStub = {
+          charge_percent: chargePercent,
+          charge_flat: chargeFlat,
+          gst_required: rule.gst_required || false,
+          gst_percent: rule.gst_percent || 0
+        };
+
+        const chargeResult = ChargeService.calculateCharge(amount, chargeRuleStub);
+        const chargeAmount = chargeResult.charge;
+        const gstAmount = chargeResult.gstAmount || 0;
+        const netAmount = parseFloat((amount - chargeAmount - gstAmount).toFixed(2));
+
+        const notification = await RazorpayNotification.create({
+          txn_id,
+          mid,
+          tid,
+          amount,
+          currency_code: 'INR',
+          payment_mode: paymentMode,
+          payment_card_type: cardType,
+          payment_card_brand: cardBrand,
+          posting_date: postingDate,
+          event_json,
+          status: 'AUTHORIZED',
+          source: sourceValue,
+          user_id: userId,
+          pos_machine_id: posMachineId,
+          processed: true,
+          processing_status: 'completed',
+          processed_at: new Date()
+        });
+
+        const posOperator = await User.findByPk(userId);
+
+        let franchiseChargeAmount = 0;
+        let franchiseEarning = 0;
+
+        if (posOperator && posOperator.role === 'merchant' && posOperator.franchaise_id) {
+          const franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
+            franchiseId: posOperator.franchaise_id,
+            paymentMode,
+            cardType,
+            cardBrand,
+            classification: cardSubType,
+            settlement: posOperator.settlement_type || null,
+            amount
+          });
+
+          if (franchiseRule) {
+            franchiseChargeAmount = ChargeService.calculateCharge(amount, franchiseRule).charge;
+          } else {
+            const DEFAULT_MDR = 2.5;
+            franchiseChargeAmount = parseFloat((amount * (DEFAULT_MDR / 100)).toFixed(2));
+          }
+          franchiseEarning = parseFloat((chargeAmount - franchiseChargeAmount).toFixed(2));
+        }
+
+        const merchantTransactionCharge = await MerchantTransactionCharge.create({
+          merchant_id: userId,
+          pos_machine_id: posMachineId,
+          razorpay_transaction_id: txn_id,
+          transaction_amount: amount,
+          charge_amount: chargeAmount,
+          gst_amount: gstAmount,
+          gst_percent: 0,
+          net_amount: netAmount,
+          charge_rate: chargePercent,
+          charge_config_id: rule.id || null,
+          payment_method: paymentMode,
+          payment_card_type: cardType,
+          payment_card_brand: cardBrand,
+          wallet_transaction_id: null,
+          rr_number: row['RRN'] || row['rr_number'] || null,
+          mid_number: String(mid || ''),
+          tid_number: String(tid || ''),
+          customer_name: row['Customer Name'] || null
+        });
+
+        await ledgerService.createRazorpayChargeEntry({
+          userId: userId,
+          razorpayTransactionId: txn_id,
+          transactionAmount: amount,
+          chargeAmount: chargeAmount,
+          gstAmount: gstAmount,
+          netAmount: netAmount,
+          merchantTransactionChargeId: merchantTransactionCharge.id,
+          description: `Pinelab Manual notification txn ${txn_id}`,
+          metadata: {
+            razorpay_notification_id: notification.id,
+            payment_method: paymentMode,
+            charge_rate: chargePercent,
+            charge_flat: chargeFlat,
+            gst_amount: gstAmount,
+            gst_percent: 0,
+            pos_machine_id: posMachineId,
+            mid_number: String(mid || ''),
+            tid_number: String(tid || ''),
+            merchant_id: userId,
+            customer_name: row['Customer Name'] || null,
+            source: sourceValue
+          }
+        });
+
+        if (posOperator && posOperator.role === 'merchant' && posOperator.franchaise_id && franchiseEarning > 0) {
+          try {
+            await ledgerService.createFranchiseEarningEntry({
+              userId: posOperator.franchaise_id,
+              razorpayTransactionId: txn_id,
+              amount: franchiseEarning,
+              description: `Franchise earning on Pinelab manual txn ${txn_id}`,
+              metadata: {
+                merchant_id: userId,
+                transaction_amount: amount,
+                charge_amount: chargeAmount,
+                franchise_charge: franchiseChargeAmount,
+                charge_rate: chargePercent
+              }
+            });
+          } catch (earnErr) {
+            console.error('[processPinelabNotifications] Franchise earning entry failed:', earnErr);
+          }
+        }
+
+        completedCount++;
+      } else {
+        const errorReason = preview.note || preview.debug?.summary || "No active POS charge rule found. Needs admin review.";
+
+        await RazorpayNotification.create({
+          txn_id,
+          mid,
+          tid,
+          amount: amount || 0,
+          currency_code: 'INR',
+          payment_mode: paymentMode,
+          payment_card_type: cardType,
+          payment_card_brand: cardBrand,
+          posting_date: postingDate,
+          event_json,
+          status: 'AUTHORIZED',
+          source: sourceValue,
+          user_id: userId || null,
+          pos_machine_id: posMachineId || null,
+          processed: false,
+          processing_status: 'needs_admin',
+          processing_error: errorReason
+        });
+
+        needsAdminCount++;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Pinelab notification processing complete. Auto-processed: ${completedCount}, Marked for Admin Review: ${needsAdminCount}, Skipped Duplicates: ${skippedDuplicatesCount}`,
+      summary: {
+        total: totalCount,
+        completed: completedCount,
+        needs_admin: needsAdminCount,
+        skipped_duplicates: skippedDuplicatesCount
+      }
+    });
+  } catch (error) {
+    console.error("Error processing Pinelab notifications upload:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to process Pinelab notifications upload"
+    });
+  } finally {
+    await removeUploadedFile(req.file.path);
+  }
+});
+
+module.exports = { uploadCSV, previewCSV, processPinelabNotifications, getAllTransaction, getTransactionByID, getAllFileUpload, getFilteredTransactions };
