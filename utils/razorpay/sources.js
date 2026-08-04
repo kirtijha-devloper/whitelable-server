@@ -3,6 +3,8 @@ const WEBHOOK_SOURCES = Object.freeze({
   AGRO_HDFC: 'agro_hdfc',
   EVERLIFE: 'everlife',
   PINELAB_MANUAL: 'pinelab_manual',
+  YESBANK_MANUAL: 'yesbank_manual',
+  PAYTM_MANUAL: 'paytm_manual',
   UNKNOWN: 'UNKNOWN',
 });
 

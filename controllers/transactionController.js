@@ -320,27 +320,41 @@ function buildPreviewDebugInfo({
 
 async function resolvePreviewContext(row) {
   const midRaw = firstCsvValue(row, ['MID', 'Mid', 'mid', 'Merchant ID', 'merchant_id']);
-  const tidRaw = firstCsvValue(row, ['TID', 'Tid', 'tid', 'Terminal ID', 'terminal_id']);
-  const amountRaw = firstCsvValue(row, ['Amount', 'amount', 'Txn Amount', 'Transaction Amount']);
-  const txnIdRaw = firstCsvValue(row, ['Transaction ID', 'transaction_id', 'txn_id', 'Txn ID', 'ID']);
-  const dateRaw = firstCsvValue(row, ['Date', 'date', 'Txn Date', 'Transaction Date']);
-  const paymentModeRaw = firstCsvValue(row, ['Payment Mode', 'payment_mode', 'Mode', 'mode']);
-  const cardTypeRaw = firstCsvValue(row, ['Card Type', 'card_type', 'CardType']);
-  const cardBrandRaw = firstCsvValue(row, ['Card Network', 'card_network', 'Brand Type', 'Brand', 'Card Brand']);
+  const tidRaw = firstCsvValue(row, ['TID', 'Tid', 'tid', 'Terminal ID', 'terminal_id', 'POS_ID', 'POS ID', 'pos_id']);
+  const amountRaw = firstCsvValue(row, ['Amount', 'amount', 'Txn Amount', 'Transaction Amount', 'TRANSACTION AMOUNT']);
+  const txnIdRaw = firstCsvValue(row, ['Transaction ID', 'Transaction_ID', 'transaction_id', 'txn_id', 'Txn ID', 'ID', 'RRN', 'rrn', 'Merchant_Order_ID']);
+  const dateRaw = firstCsvValue(row, ['Date', 'date', 'Txn Date', 'Transaction Date', 'Transaction_Date', 'TRANSACTION DATE TIME']);
+  const paymentModeRaw = firstCsvValue(row, ['Payment Mode', 'Payment_Mode', 'payment_mode', 'Mode', 'mode']);
+  const cardTypeRaw = firstCsvValue(row, ['Card Type', 'Card_Type', 'card_type', 'CardType', 'CARD TYPE']);
+  const cardBrandRaw = firstCsvValue(row, ['Card Network', 'card_network', 'Brand Type', 'Brand', 'Card Brand', 'Card_Scheme', 'SCHEME']);
   const cardSubTypeRaw = firstCsvValue(row, ['Card Colour', 'Card colour', 'Card Classification', 'card_classification', 'Card Colour ']);
 
-  const mid = normalizeCsvId(midRaw);
+  let mid = normalizeCsvId(midRaw);
   const tid = normalizeCsvId(tidRaw);
   const amount = parseAmount(amountRaw);
   const txn_id = cleanCsvValue(txnIdRaw);
   const date = parseCsvDate(dateRaw);
-  const paymentMode = ChargeService.normalizeLookupValue(paymentModeRaw);
-  const cardType = ChargeService.normalizeLookupValue(cardTypeRaw);
+  const paymentMode = ChargeService.normalizeLookupValue(paymentModeRaw) || 'CREDIT_CARD';
+  const cardType = ChargeService.normalizeLookupValue(cardTypeRaw) || 'CREDIT';
   const cardBrandHint = cardBrandRaw ? ChargeService.normalizeCardBrand(cardBrandRaw) : extractCardBrandFromSubType(cardSubTypeRaw);
   const cardSubType = cardSubTypeRaw ? extractCardSubTypeFromRaw(cardSubTypeRaw, cardBrandHint) : null;
   const cardBrand = cardBrandRaw
     ? ChargeService.normalizeCardBrand(cardBrandRaw)
     : cardBrandHint;
+
+  // Fallback: If MID is not present in CSV (e.g. YesBank Worldline), try to resolve MID & POS machine from TID alone
+  let tidOnlyPosMachine = null;
+  if (!mid && tid) {
+    tidOnlyPosMachine = await PosMachine.findOne({
+      where: {
+        status: 'active',
+        tid_number: { [Op.in]: [tidRaw, tid].filter(Boolean) }
+      }
+    });
+    if (tidOnlyPosMachine) {
+      mid = normalizeCsvId(tidOnlyPosMachine.mid_number);
+    }
+  }
 
   if (!mid || !tid || amount === null || !txn_id || !date) {
     const debug = buildPreviewDebugInfo({
@@ -372,7 +386,7 @@ async function resolvePreviewContext(row) {
     });
 
     return {
-      mid: midRaw ? cleanCsvValue(midRaw) : null,
+      mid: mid || (midRaw ? cleanCsvValue(midRaw) : null),
       tid: tidRaw ? cleanCsvValue(tidRaw) : null,
       txn_id,
       amount,
@@ -392,33 +406,35 @@ async function resolvePreviewContext(row) {
     };
   }
 
-  const posMachines = await PosMachine.findAll({
-    where: {
-      status: 'active',
-      tid_number: { [Op.in]: [tidRaw, tid].filter(Boolean) }
-    }
-  });
-
-  let posMachine = null;
-  for (const machine of posMachines) {
-    const storedMid = normalizeCsvId(machine.mid_number);
-    const storedTid = normalizeCsvId(machine.tid_number);
-    if (storedMid === mid && storedTid === tid) {
-      posMachine = machine;
-      break;
-    }
-  }
-
+  let posMachine = tidOnlyPosMachine || null;
   if (!posMachine) {
-    const fallback = await PosMachine.findOne({
+    const posMachines = await PosMachine.findAll({
       where: {
         status: 'active',
-        mid_number: { [Op.in]: [midRaw, mid].filter(Boolean) },
         tid_number: { [Op.in]: [tidRaw, tid].filter(Boolean) }
       }
     });
-    if (fallback) {
-      posMachine = fallback;
+
+    for (const machine of posMachines) {
+      const storedMid = normalizeCsvId(machine.mid_number);
+      const storedTid = normalizeCsvId(machine.tid_number);
+      if (storedMid === mid && storedTid === tid) {
+        posMachine = machine;
+        break;
+      }
+    }
+
+    if (!posMachine) {
+      const fallback = await PosMachine.findOne({
+        where: {
+          status: 'active',
+          mid_number: { [Op.in]: [midRaw, mid].filter(Boolean) },
+          tid_number: { [Op.in]: [tidRaw, tid].filter(Boolean) }
+        }
+      });
+      if (fallback) {
+        posMachine = fallback;
+      }
     }
   }
 
@@ -967,6 +983,14 @@ const processPinelabNotifications = asyncHandler(async (req, res) => {
     let needsAdminCount = 0;
     let skippedDuplicatesCount = 0;
 
+    const provider = String(req.body?.provider || req.query?.provider || 'pinelab').toLowerCase();
+    let sourceValue = WEBHOOK_SOURCES.PINELAB_MANUAL || 'pinelab_manual';
+    if (provider === 'yesbank') {
+      sourceValue = WEBHOOK_SOURCES.YESBANK_MANUAL || 'yesbank_manual';
+    } else if (provider === 'paytm') {
+      sourceValue = WEBHOOK_SOURCES.PAYTM_MANUAL || 'paytm_manual';
+    }
+
     for (const row of rows) {
       const preview = await resolvePreviewContext(row);
 
@@ -996,8 +1020,6 @@ const processPinelabNotifications = asyncHandler(async (req, res) => {
       const posMachineId = preview.pos_machine_id;
       const userId = preview.user_id;
       const hasRule = preview.match_status === 'matched' && preview.debug?.rule;
-
-      const sourceValue = WEBHOOK_SOURCES.PINELAB_MANUAL || 'pinelab_manual';
 
       const event_json = {
         ...row,
