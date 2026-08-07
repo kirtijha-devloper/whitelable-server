@@ -504,20 +504,26 @@ async function validateBill({ billerId, customerParams, amount, paymentMode, qui
 }
 
 /**
- * Check transaction status.
+ * Check transaction status using official BillAvenue specification.
+ * Supports REQUEST_ID (35 chars) or TRANS_REF_ID trackType.
  */
-async function getTransactionStatus({ transactionRefId, billerId }) {
-  const fields = {
-    agentId: require('../../../config/billavenue').agentId,
-    billerId,
-    txnReferenceId: transactionRefId,
-  };
+async function getTransactionStatus({ transactionRefId, requestId }) {
+  const fields = {};
 
-  if (!billerId) {
-    delete fields.billerId;
+  const cleanReqId = String(requestId || '').trim();
+  const cleanTxnRefId = String(transactionRefId || '').trim();
+
+  if (cleanReqId.length > 0) {
+    fields.trackType = 'REQUEST_ID';
+    fields.trackValue = cleanReqId;
+  } else if (cleanTxnRefId.length > 0) {
+    fields.trackType = 'TRANS_REF_ID';
+    fields.trackValue = cleanTxnRefId;
+  } else {
+    throw new Error('Either requestId (35-digit) or transactionRefId is required for status check');
   }
 
-  const xml = buildXml('transactionStatusRequest', fields);
+  const xml = buildXml('transactionStatusReq', fields);
   return callBillAvenue('/transactionStatus/fetchInfo/xml', xml);
 }
 

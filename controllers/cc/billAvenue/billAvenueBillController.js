@@ -604,25 +604,41 @@ const validateBill = asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 const getTransactionStatus = asyncHandler(async (req, res) => {
   try {
-    const { transactionRefId, billerId } = req.body;
+    const { transactionRefId, requestId } = req.body;
 
-    if (!transactionRefId) {
-      return res.status(400).json({ success: false, message: 'Required: transactionRefId' });
+    if (!transactionRefId && !requestId) {
+      return res.status(400).json({ success: false, message: 'Required: transactionRefId or requestId' });
     }
 
-    let targetBillerId = billerId;
-    if (!targetBillerId) {
+    let targetRequestId = requestId;
+    let targetTxnRefId = transactionRefId;
+
+    // Lookup payment record in DB to get the saved 35-character _requestId
+    if (transactionRefId || requestId) {
       const paymentRecord = await BillAvenuePayment.findOne({
-        where: { transaction_ref_id: transactionRefId },
+        where: transactionRefId
+          ? { transaction_ref_id: transactionRefId }
+          : { id: requestId },
       });
+
       if (paymentRecord) {
-        targetBillerId = paymentRecord.biller_id;
+        if (!targetTxnRefId) targetTxnRefId = paymentRecord.transaction_ref_id;
+        const respObj = paymentRecord.response;
+        const extractedReqId =
+          respObj?._requestId ||
+          respObj?.requestId ||
+          respObj?.data?._requestId ||
+          respObj?.data?.requestId;
+
+        if (extractedReqId && String(extractedReqId).trim().length > 0) {
+          targetRequestId = String(extractedReqId).trim();
+        }
       }
     }
 
     const result = await billAvenueService.getTransactionStatus({
-      transactionRefId,
-      billerId: targetBillerId,
+      requestId: targetRequestId,
+      transactionRefId: targetTxnRefId,
     });
 
     return res.status(200).json({ success: true, data: result });
