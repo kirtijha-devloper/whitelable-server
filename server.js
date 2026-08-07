@@ -30,6 +30,7 @@ try {
 
 // start CcBillPayment pending resolver cron (scheduled status-check polling)
 require('./cron/resolvePendingCcBillPayment');
+require('./cron/resolvePendingBillAvenueCcBill');
 
 // start settlement hold releaser cron (next-day settlement)
 require('./cron/releaseSettlementHolds');
