@@ -27,6 +27,13 @@ router.post('/auth/login', ndia5Controller.login);
 router.post('/payout/balance', ndia5Controller.getBalance);
 router.get('/payout/balance', ndia5Controller.getBalance);
 
+// Beneficiary management endpoints
+router.get('/payout/reference', ndia5Controller.getPayoutReference);
+router.post('/beneficiaries', ndia5Controller.createBeneficiary);
+router.get('/beneficiaries', ndia5Controller.listBeneficiaries);
+router.get('/beneficiaries/:merchant_id', ndia5Controller.listBeneficiaries);
+router.delete('/beneficiaries/:id', ndia5Controller.deleteBeneficiary);
+
 // Payout Initiate endpoints
 router.post('/payout', ndia5Controller.initiatePayout);
 router.post('/payout/initiate', ndia5Controller.initiatePayout);

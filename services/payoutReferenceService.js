@@ -10,6 +10,7 @@ const PROVIDER_PREFIX = {
   credxpay: 'APC',
   sevenpay: 'APS',
   mx_payout: 'APM',
+  ndia5: 'APN',
 };
 const DEFAULT_PREFIX = 'APT';
 
