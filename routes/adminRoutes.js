@@ -118,4 +118,20 @@ router.get("/logs/:filename/download", validateToken, ensureEmployeePermission(E
   elevateRole: "admin",
 }), requireAdmin, downloadLogFile);
 
+// GET /api/admin/bill-avenue/billers
+//   Admin-only: fetch all BillAvenue billers, with optional category filter.
+router.get("/bill-avenue/billers", validateToken, requireAdmin, async (req, res) => {
+  try {
+    const BillAvenueBiller = require("../models/BillAvenueBiller");
+    const where = {};
+    if (req.query.category) {
+      where.category = req.query.category;
+    }
+    const billers = await BillAvenueBiller.findAll({ where });
+    res.json({ success: true, count: billers.length, data: billers });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 module.exports = router;
