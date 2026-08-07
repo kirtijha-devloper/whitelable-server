@@ -473,7 +473,7 @@ const getPayments = asyncHandler(async (req, res) => {
       {
         model: User,
         as: 'user',
-        attributes: ['id', 'name', 'abheepay_id', 'mobile', 'role'],
+        attributes: ['id', 'name', 'abheepay_id', 'mobile_number', 'role'],
       },
     ],
     order: [['createdAt', 'DESC']],
