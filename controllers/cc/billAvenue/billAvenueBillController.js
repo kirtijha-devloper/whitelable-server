@@ -7,6 +7,7 @@ const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenuePayment = require('../../../models/BillAvenuePayment');
 const BillAvenueBillFetch = require('../../../models/BillAvenueBillFetch');
 const BbpsCcChargeRule = require('../../../models/BbpsCcChargeRule');
+const User = require('../../../models/User');
 const ledgerService = require('../../../services/ledgerService');
 const {
   SERVICE_SETTING_KEYS,
