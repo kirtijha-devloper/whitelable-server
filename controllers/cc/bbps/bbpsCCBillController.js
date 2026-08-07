@@ -10,6 +10,7 @@ const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
 } = require('../../../services/serviceSettingsService');
+const { normalizeRole } = require('../../../utils/permissions');
 
 // Debug logging helper for this controller
 // Logs are written to the shared root /logs folder (same as auth.log etc.)
@@ -325,8 +326,11 @@ const getCcBillPayments = asyncHandler(async (req, res) => {
 
   const { billerId, externalRef, statuscode, status, customerMobile } = req.query;
 
+  const userRole = normalizeRole(req.user?.role);
+  const isAdminOrEmployee = userRole === 'admin' || userRole === 'employee';
+
   const where = {};
-  if (req.user?.role !== 'admin') {
+  if (!isAdminOrEmployee) {
     where.user_id = req.user?.id;
   }
   if (billerId) {
@@ -361,7 +365,9 @@ const getCcBillPayment = asyncHandler(async (req, res) => {
   if (!record) {
     return res.status(404).json({ success: false, message: 'Payment record not found' });
   }
-  if (req.user?.role !== 'admin' && record.user_id !== req.user?.id) {
+  const userRole = normalizeRole(req.user?.role);
+  const isAdminOrEmployee = userRole === 'admin' || userRole === 'employee';
+  if (!isAdminOrEmployee && record.user_id !== req.user?.id) {
     return res.status(403).json({ success: false, message: 'Forbidden' });
   }
   return res.status(200).json({ success: true, data: record });

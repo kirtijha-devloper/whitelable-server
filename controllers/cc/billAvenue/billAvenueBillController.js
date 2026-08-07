@@ -12,7 +12,7 @@ const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
 } = require('../../../services/serviceSettingsService');
-const { parseIstBusinessDateRange } = require('../../../utils/dateRange');
+const { normalizeRole } = require('../../../utils/permissions');
 
 // ─── Logging ──.──────────────────────────────────────────────────────────────
 const logFile = path.join(__dirname, '../../../logs/billAvenue.log');
@@ -429,8 +429,11 @@ const getPayments = asyncHandler(async (req, res) => {
 
   const { billerId, transactionRefId, status, startDate, endDate, from_date, to_date } = req.query;
 
+  const userRole = normalizeRole(req.user?.role);
+  const isAdminOrEmployee = userRole === 'admin' || userRole === 'employee';
+
   const where = {};
-  if (req.user?.role !== 'admin') {
+  if (!isAdminOrEmployee) {
     where.user_id = req.user?.id;
   }
   if (billerId) where.biller_id = billerId;
@@ -481,7 +484,9 @@ const getPayment = asyncHandler(async (req, res) => {
   if (!record) {
     return res.status(404).json({ success: false, message: 'Payment record not found' });
   }
-  if (req.user?.role !== 'admin' && record.user_id !== req.user?.id) {
+  const userRole = normalizeRole(req.user?.role);
+  const isAdminOrEmployee = userRole === 'admin' || userRole === 'employee';
+  if (!isAdminOrEmployee && record.user_id !== req.user?.id) {
     return res.status(403).json({ success: false, message: 'Forbidden' });
   }
   return res.status(200).json({ success: true, data: record });

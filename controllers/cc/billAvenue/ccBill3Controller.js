@@ -15,6 +15,7 @@ const {
   SERVICE_SETTING_KEYS,
   assertServiceEnabledOrRespond,
 } = require('../../../services/serviceSettingsService');
+const { normalizeRole } = require('../../../utils/permissions');
 
 const SUPPORTED_CC_BANKS = [
   {
@@ -250,7 +251,9 @@ async function executeCcBill3Payment(req, res, options = {}) {
     if (!fetchRecord) {
       return res.status(404).json({ success: false, message: 'Bill fetch record not found' });
     }
-    if (req.user?.role !== 'admin' && fetchRecord.user_id !== userId) {
+    const userRole = normalizeRole(req.user?.role);
+    const isAdminOrEmployee = userRole === 'admin' || userRole === 'employee';
+    if (!isAdminOrEmployee && fetchRecord.user_id !== userId) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
   }
@@ -593,7 +596,9 @@ const getCcBill3Status = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'CC Bill 3 payment record not found' });
   }
 
-  if (req.user?.role !== 'admin' && payment.user_id !== req.user?.id) {
+  const userRole = normalizeRole(req.user?.role);
+  const isAdminOrEmployee = userRole === 'admin' || userRole === 'employee';
+  if (!isAdminOrEmployee && payment.user_id !== req.user?.id) {
     return res.status(403).json({ success: false, message: 'Forbidden' });
   }
 
