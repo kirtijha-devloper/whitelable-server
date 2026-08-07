@@ -604,13 +604,26 @@ const validateBill = asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 const getTransactionStatus = asyncHandler(async (req, res) => {
   try {
-    const { transactionRefId } = req.body;
+    const { transactionRefId, billerId } = req.body;
 
     if (!transactionRefId) {
       return res.status(400).json({ success: false, message: 'Required: transactionRefId' });
     }
 
-    const result = await billAvenueService.getTransactionStatus({ transactionRefId });
+    let targetBillerId = billerId;
+    if (!targetBillerId) {
+      const paymentRecord = await BillAvenuePayment.findOne({
+        where: { transaction_ref_id: transactionRefId },
+      });
+      if (paymentRecord) {
+        targetBillerId = paymentRecord.biller_id;
+      }
+    }
+
+    const result = await billAvenueService.getTransactionStatus({
+      transactionRefId,
+      billerId: targetBillerId,
+    });
 
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
