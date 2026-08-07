@@ -140,14 +140,6 @@ const login = asyncHandler(async (req, res) => {
  * GET/POST /api/ndia5/payout/balance
  */
 const getBalance = asyncHandler(async (req, res) => {
-  const userRole = String(req.user?.role || '').toLowerCase();
-  if (userRole !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied: Self balance check is restricted to Admin only',
-    });
-  }
-
   const result = await ndia5Service.getBalance(req.body || {});
   return res.status(200).json({
     success: true,
