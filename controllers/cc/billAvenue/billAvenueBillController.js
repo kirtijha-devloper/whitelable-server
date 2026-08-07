@@ -468,6 +468,13 @@ const getPayments = asyncHandler(async (req, res) => {
 
   const { count, rows } = await BillAvenuePayment.findAndCountAll({
     where,
+    include: [
+      {
+        model: User,
+        as: 'user',
+        attributes: ['id', 'name', 'abheepay_id', 'mobile', 'role'],
+      },
+    ],
     order: [['createdAt', 'DESC']],
     limit,
     offset,

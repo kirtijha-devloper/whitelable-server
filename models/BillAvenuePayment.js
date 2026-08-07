@@ -71,4 +71,10 @@ const BillAvenuePayment = db.define('BillAvenuePayment', {
   tableName: 'BillAvenuePayments',
 });
 
+BillAvenuePayment.associate = (models) => {
+  if (models.User) {
+    BillAvenuePayment.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
+  }
+};
+
 module.exports = BillAvenuePayment;
