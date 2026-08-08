@@ -358,7 +358,7 @@ async function fetchBill({ billerId, customerParams, amount, paymentMode, quickP
  * Pay a bill via BillAvenue.
  * @param {object} params
  */
-function buildStandardFields(billerId, customerParams, amount, paymentMode, initChannel) {
+function buildStandardFields(billerId, customerParams, amount, paymentMode, initChannel, customerPan) {
   const inputs = [];
   let customerMobile = '9999999999';
 
@@ -395,7 +395,7 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode, init
       customerMobile: customerMobile,
       customerEmail: '',
       customerAdhaar: '',
-      customerPan: ''
+      customerPan: customerPan || ''
     },
     billerId,
     inputParams: { input: inputs },
@@ -407,8 +407,8 @@ function buildStandardFields(billerId, customerParams, amount, paymentMode, init
   return fields;
 }
 
-async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, additionalInfo, requestId, initChannel }) {
-  const baseFields = buildStandardFields(billerId, customerParams, null, null, initChannel);
+async function payBill({ billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, additionalInfo, requestId, initChannel, customerPan }) {
+  const baseFields = buildStandardFields(billerId, customerParams, null, null, initChannel, customerPan);
   delete baseFields.amount;
   delete baseFields.paymentMode;
 
