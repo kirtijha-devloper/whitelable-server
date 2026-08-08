@@ -235,8 +235,35 @@ async function getBillerInfoByIdXml({ billerId } = {}) {
     throw new Error('Missing billerId');
   }
 
+  // 1. Check local DB first to avoid MDM fetch daily limit errors
+  const dbBiller = await BillAvenueBiller.findOne({ where: { biller_id: billerId } });
+  if (dbBiller && dbBiller.metadata && typeof dbBiller.metadata === 'object' && Object.keys(dbBiller.metadata).length > 0) {
+    console.log(`[billAvenue] Serving biller info from DB cache for billerId: ${billerId}`);
+    return dbBiller.metadata;
+  }
+
+  // 2. Call external BillAvenue API if not cached
   const xml = buildXml('billerInfoRequest', { billerId });
   const result = await callBillAvenue('/extMdmCntrl/mdmRequestNew/xml', xml);
+
+  // 3. Cache response in DB for future requests
+  if (result) {
+    try {
+      if (dbBiller) {
+        await dbBiller.update({ metadata: result });
+      } else {
+        await BillAvenueBiller.create({
+          biller_id: billerId,
+          biller_name: billerId,
+          metadata: result,
+          is_active: true,
+        });
+      }
+    } catch (dbErr) {
+      console.error(`[billAvenue] Failed to cache biller info metadata for ${billerId}:`, dbErr.message);
+    }
+  }
+
   return result;
 }
 

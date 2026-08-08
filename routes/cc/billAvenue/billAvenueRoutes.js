@@ -6,6 +6,7 @@ const {
   getBillerCategories,
   getBillerInfoById,
   getBillerInfoByIdJson,
+  seedBillerMetadata,
   uploadBillersFromFile,
   fetchBill,
   validateBill,
@@ -42,6 +43,9 @@ router.post('/biller-info', getBillerInfoById);
 
 // POST /api/bill-avenue/biller-info-json  – Fetch biller info using BillAvenue JSON payload
 router.post('/biller-info-json', getBillerInfoByIdJson);
+
+// POST /api/bill-avenue/seed-biller-metadata – Seed / update cached biller metadata in DB
+router.post('/seed-biller-metadata', seedBillerMetadata);
 
 // POST /api/bill-avenue/fetch-bill           – Fetch/validate a bill
 router.post('/fetch-bill', fetchBill);

@@ -138,6 +138,45 @@ const getBillerCategories = asyncHandler(async (req, res) => {
   }
 });
 
+const seedBillerMetadata = asyncHandler(async (req, res) => {
+  try {
+    const { billerId, billerName, category, metadata } = req.body;
+    if (!billerId || !metadata) {
+      return res.status(400).json({ success: false, message: 'Required: billerId and metadata' });
+    }
+
+    const BillAvenueBiller = require('../../../models/BillAvenueBiller');
+    const [biller, created] = await BillAvenueBiller.findOrCreate({
+      where: { biller_id: billerId },
+      defaults: {
+        biller_id: billerId,
+        biller_name: billerName || billerId,
+        category: category || 'Credit Card',
+        metadata,
+        is_active: true,
+      },
+    });
+
+    if (!created) {
+      await biller.update({
+        metadata,
+        biller_name: billerName || biller.biller_name,
+        category: category || biller.category,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully seeded metadata for ${billerId}`,
+      created,
+      data: biller,
+    });
+  } catch (error) {
+    console.error('[billAvenue] seedBillerMetadata error:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to seed biller metadata' });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /api/bill-avenue/billers/upload
 // Body: multipart/form-data with field `file` (CSV/XLS/XLSX)
@@ -661,6 +700,7 @@ module.exports = {
   getBillerCategories,
   getBillerInfoById,
   getBillerInfoByIdJson,
+  seedBillerMetadata,
   uploadBillersFromFile,
   fetchBill,
   validateBill,

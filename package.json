@@ -9,6 +9,7 @@
     "seed:commissions": "node scripts/seedCommissions.js",
     "seed:test": "node scripts/seedTestData.js",
     "seed:fix-sequences": "node scripts/fixSequences.js",
+    "seed:billers": "node scripts/seed36Billers.js",
     "webhook:upi": "node scripts/testWebhook.js upi",
     "webhook:card": "node scripts/testWebhook.js card"
   },
