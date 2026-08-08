@@ -1,0 +1,5210 @@
+{
+  "ICIC00000NATSI": {
+    "billerId": "ICIC00000NATSI",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "ICICI Credit card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20240629,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 161,
+      "state": 12,
+      "pincode": 390007,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 390007
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "999999999.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[5-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "SBIC00000NATDN": {
+    "billerId": "SBIC00000NATDN",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "SBI Card",
+      "description": "Please do not initiate payment more than the Maximum Permissible Amount limit",
+      "ownership": "Private",
+      "effectFrom": 20230920,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 130,
+      "state": 9,
+      "pincode": 110034,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 110034
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "999999999.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Last 4 digit of primary credit card number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4,4}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Mobile Number Linked with Credit Card",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10,10}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "BANK00000NATKB": {
+    "billerId": "BANK00000NATKB",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "NOT_SUPPORTED",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "BoB Credit Card",
+      "description": "NULL",
+      "ownership": "PSU",
+      "effectFrom": 20201106,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400102,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400102
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "AXIS00000NATKF": {
+    "billerId": "AXIS00000NATKF",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "F",
+    "paymentAmountExactness": "EXACT_DOWN",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Axis Bank Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20240723,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 137,
+      "state": 12,
+      "pincode": 380006,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 380006
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[5-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "HDFC00000NATW1": {
+    "billerId": "HDFC00000NATW1",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "F",
+    "paymentAmountExactness": "EXACT_DOWN",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "HDFC Credit Card",
+      "description": "-",
+      "ownership": "Private",
+      "effectFrom": 20240708,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 127,
+      "state": 9,
+      "pincode": 110001,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 110001
+    },
+    "initChannels": [],
+    "paymentModes": [],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Primary Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 130
+  },
+  "HDFC00000NATBH": {
+    "billerId": "HDFC00000NATBH",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "F",
+    "paymentAmountExactness": "EXACT_DOWN",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "HDFC Bank Pixel Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20250603,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400013,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400013
+    },
+    "initChannels": [],
+    "paymentModes": [],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Primary Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 130
+  },
+  "HSBC00000NAT4M": {
+    "billerId": "HSBC00000NAT4M",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "NOT_SUPPORTED",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "HSBC Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20240911,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400001,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400001
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Last 4 Digit of Primary Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[5-9][0-9]{9}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "INDU00000NATL1": {
+    "billerId": "INDU00000NATL1",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "IndusInd Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20231027,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400093,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400093
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of primary creditcard",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 130
+  },
+  "CANA00000NATDO": {
+    "billerId": "CANA00000NATDO",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Canara Credit Card",
+      "description": "NULL",
+      "ownership": "PSU",
+      "effectFrom": 20231127,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 251,
+      "state": 18,
+      "pincode": 560002,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 560002
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Mobile number Linked with Credit Card",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 Digits Of Credit Card",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "SOUT00000NAT68": {
+    "billerId": "SOUT00000NAT68",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "SIB One Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20241015,
+      "effectTo": 20500101
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 248,
+      "state": 17,
+      "pincode": 680001,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 680001
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INT",
+        "desc": "Internet (Pre-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "ATM",
+        "desc": "ATM",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "BNKBRNCH",
+        "desc": "Bank Branch",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ifsc",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          }
+        ]
+      },
+      {
+        "name": "BSC",
+        "desc": "Business Correspondent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INTB",
+        "desc": "Internet Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "KIOSK",
+        "desc": "Kiosk",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "MOB",
+        "desc": "Mobile (Pre-login) ",
+        "commercialType": "ONLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      },
+      {
+        "name": "MOBB",
+        "desc": "Mobile Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      },
+      {
+        "name": "Account_Transfer",
+        "desc": "Account_Transfer",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "Debit_Card",
+        "desc": "Debit_Card",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "CardNum",
+            "desc": "Card number used for the payment",
+            "minLength": 5,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[0-9]{5,20}$"
+          },
+          {
+            "name": "AuthCode",
+            "desc": "Authorization code used for the payment",
+            "minLength": 3,
+            "maxLength": 10,
+            "inputType": "ALL",
+            "regex": "^[0-9]{3,10}$"
+          }
+        ]
+      },
+      {
+        "name": "Internet_Banking",
+        "desc": "Internet_Banking",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "UPI",
+        "desc": "UPI",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "VPA",
+            "desc": "Virtual Provider Address used for the payment",
+            "minLength": 3,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9@-]{3,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "INDI00000NAT8I": {
+    "billerId": "INDI00000NAT8I",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Indian Bank One Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20241106,
+      "effectTo": 20481231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 495,
+      "state": 31,
+      "pincode": 600014,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 600014
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INT",
+        "desc": "Internet (Pre-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "ATM",
+        "desc": "ATM",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "BNKBRNCH",
+        "desc": "Bank Branch",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ifsc",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          }
+        ]
+      },
+      {
+        "name": "BSC",
+        "desc": "Business Correspondent",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INTB",
+        "desc": "Internet Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "KIOSK",
+        "desc": "Kiosk",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "MOB",
+        "desc": "Mobile (Pre-login) ",
+        "commercialType": "ONLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      },
+      {
+        "name": "MOBB",
+        "desc": "Mobile Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      },
+      {
+        "name": "Account_Transfer",
+        "desc": "Account_Transfer",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "Debit_Card",
+        "desc": "Debit_Card",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "CardNum",
+            "desc": "Card number used for the payment",
+            "minLength": 5,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[0-9]{5,20}$"
+          },
+          {
+            "name": "AuthCode",
+            "desc": "Authorization code used for the payment",
+            "minLength": 3,
+            "maxLength": 10,
+            "inputType": "ALL",
+            "regex": "^[0-9]{3,10}$"
+          }
+        ]
+      },
+      {
+        "name": "Internet_Banking",
+        "desc": "Internet_Banking",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "UPI",
+        "desc": "UPI",
+        "minAmount": "10.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "VPA",
+            "desc": "Virtual Provider Address used for the payment",
+            "minLength": 3,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9@-]{3,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "KOTA00000NATED": {
+    "billerId": "KOTA00000NATED",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "NOT_SUPPORTED",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Kotak Mahindra Bank Credit Card",
+      "description": "Kotak Credit Cards",
+      "ownership": "Private",
+      "effectFrom": 20220722,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400051,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400051
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[5-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "ALPHANUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "ONEB00000NATS1": {
+    "billerId": "ONEB00000NATS1",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "BOBCARD One Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20250121,
+      "effectTo": 20500101
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400102,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400102
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INT",
+        "desc": "Internet (Pre-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "ATM",
+        "desc": "ATM",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "BNKBRNCH",
+        "desc": "Bank Branch",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ifsc",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          }
+        ]
+      },
+      {
+        "name": "BSC",
+        "desc": "Business Correspondent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INTB",
+        "desc": "Internet Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "KIOSK",
+        "desc": "Kiosk",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "MOB",
+        "desc": "Mobile (Pre-login) ",
+        "commercialType": "ONLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      },
+      {
+        "name": "MOBB",
+        "desc": "Mobile Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      },
+      {
+        "name": "Account_Transfer",
+        "desc": "Account_Transfer",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "Debit_Card",
+        "desc": "Debit_Card",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "CardNum",
+            "desc": "Card number used for the payment",
+            "minLength": 5,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[0-9]{5,20}$"
+          },
+          {
+            "name": "AuthCode",
+            "desc": "Authorization code used for the payment",
+            "minLength": 3,
+            "maxLength": 10,
+            "inputType": "ALL",
+            "regex": "^[0-9]{3,10}$"
+          }
+        ]
+      },
+      {
+        "name": "Internet_Banking",
+        "desc": "Internet_Banking",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "UPI",
+        "desc": "UPI",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "paymentInfo": [
+          {
+            "name": "VPA",
+            "desc": "Virtual Provider Address used for the payment",
+            "minLength": 3,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9@-]{3,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "BANK00026NATRG": {
+    "billerId": "BANK00026NATRG",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "F",
+    "paymentAmountExactness": "EXACT_DOWN",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Bank of India Credit Card",
+      "description": "NULL",
+      "ownership": "PSU",
+      "effectFrom": 20251216,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400051,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400051
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INT",
+        "desc": "Internet (Pre-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "ATM",
+        "desc": "ATM",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "BNKBRNCH",
+        "desc": "Bank Branch",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "ifsc",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          }
+        ]
+      },
+      {
+        "name": "BSC",
+        "desc": "Business Correspondent",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INTB",
+        "desc": "Internet Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "KIOSK",
+        "desc": "Kiosk",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "MOB",
+        "desc": "Mobile (Pre-login) ",
+        "commercialType": "ONLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      },
+      {
+        "name": "MOBB",
+        "desc": "Mobile Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "100.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "50000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      },
+      {
+        "name": "Debit_Card",
+        "desc": "Debit_Card",
+        "minAmount": "1.00",
+        "maxAmount": "500000.00",
+        "paymentInfo": [
+          {
+            "name": "CardNum",
+            "desc": "Card number used for the payment",
+            "minLength": 5,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[0-9]{5,20}$"
+          },
+          {
+            "name": "AuthCode",
+            "desc": "Authorization code used for the payment",
+            "minLength": 3,
+            "maxLength": 10,
+            "inputType": "ALL",
+            "regex": "^[0-9]{3,10}$"
+          }
+        ]
+      },
+      {
+        "name": "Internet_Banking",
+        "desc": "Internet_Banking",
+        "minAmount": "1.00",
+        "maxAmount": "4000000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "UPI",
+        "desc": "UPI",
+        "minAmount": "1.00",
+        "maxAmount": "200000.00",
+        "paymentInfo": [
+          {
+            "name": "VPA",
+            "desc": "Virtual Provider Address used for the payment",
+            "minLength": 3,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9@-]{3,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^\\\\d{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^\\\\d{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "IDFC00000NATFQ": {
+    "billerId": "IDFC00000NATFQ",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "IDFC FIRST Bank Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20240709,
+      "effectTo": 20500630
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 495,
+      "state": 31,
+      "pincode": 600031,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 600031
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INT",
+        "desc": "Internet (Pre-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "ATM",
+        "desc": "ATM",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "BNKBRNCH",
+        "desc": "Bank Branch",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ifsc",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          }
+        ]
+      },
+      {
+        "name": "BSC",
+        "desc": "Business Correspondent",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INTB",
+        "desc": "Internet Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "KIOSK",
+        "desc": "Kiosk",
+        "commercialType": "OFFLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "MOB",
+        "desc": "Mobile (Pre-login) ",
+        "commercialType": "ONLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      },
+      {
+        "name": "MOBB",
+        "desc": "Mobile Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "100.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "9999999.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      },
+      {
+        "name": "Account_Transfer",
+        "desc": "Account_Transfer",
+        "minAmount": "1.00",
+        "maxAmount": "9999999.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "Debit_Card",
+        "desc": "Debit_Card",
+        "minAmount": "1.00",
+        "maxAmount": "9999999.00",
+        "paymentInfo": [
+          {
+            "name": "CardNum",
+            "desc": "Card number used for the payment",
+            "minLength": 5,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[0-9]{5,20}$"
+          },
+          {
+            "name": "AuthCode",
+            "desc": "Authorization code used for the payment",
+            "minLength": 3,
+            "maxLength": 10,
+            "inputType": "ALL",
+            "regex": "^[0-9]{3,10}$"
+          }
+        ]
+      },
+      {
+        "name": "Internet_Banking",
+        "desc": "Internet_Banking",
+        "minAmount": "1.00",
+        "maxAmount": "9999999.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "UPI",
+        "desc": "UPI",
+        "minAmount": "1.00",
+        "maxAmount": "9999999.00",
+        "paymentInfo": [
+          {
+            "name": "VPA",
+            "desc": "Virtual Provider Address used for the payment",
+            "minLength": 3,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9@-]{3,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Primary Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "IDBI00000NAT7G": {
+    "billerId": "IDBI00000NAT7G",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "IDBI Bank Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20240305,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400005,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400005
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "999999999.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[6-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "ALPHANUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "PUNJ00000NATEY": {
+    "billerId": "PUNJ00000NATEY",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Punjab National Bank Credit Card",
+      "description": "NULL",
+      "ownership": "PSU",
+      "effectFrom": 20240629,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 132,
+      "state": 9,
+      "pincode": 110075,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 110075
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "1000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "1000000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "SARA00000NAT16": {
+    "billerId": "SARA00000NAT16",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "NOT_SUPPORTED",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Saraswat Co-Operative Bank Ltd",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20240629,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400025,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400025
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[6-9]{1}[0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": ""
+      }
+    ],
+    "timeout": 70
+  },
+  "FEDE00000NATDL": {
+    "billerId": "FEDE00000NATDL",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Federal Bank Credit Card",
+      "description": "Please note option for credit card bill payment via BBPS is available only for Credit Cards issued by Federal Bank and not for Co-branded Credit cards",
+      "ownership": "Private",
+      "effectFrom": 20230725,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 237,
+      "state": 17,
+      "pincode": 683101,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 683101
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "1000000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "RBLB00000NATN3": {
+    "billerId": "RBLB00000NATN3",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "NOT_SUPPORTED",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "RBL Bank Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20240924,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 302,
+      "state": 21,
+      "pincode": 416001,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 416001
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[5-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digit of Primary Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "EDGE00000NATWS": {
+    "billerId": "EDGE00000NATWS",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Edge CSB Bank RuPay Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20250826,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 248,
+      "state": 17,
+      "pincode": 680020,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 680020
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "999999.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[5-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "AUBA00000NAT3Q": {
+    "billerId": "AUBA00000NAT3Q",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "AU Bank Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20231017,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 474,
+      "state": 29,
+      "pincode": 302020,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 302020
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "999999999.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile No",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[6-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 Digits of Credit Card",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "CSBO00026NATWL": {
+    "billerId": "CSBO00026NATWL",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "CSB One Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20260526,
+      "effectTo": 20300531
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 248,
+      "state": 17,
+      "pincode": 680020,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 680020
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INT",
+        "desc": "Internet (Pre-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "ATM",
+        "desc": "ATM",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "BNKBRNCH",
+        "desc": "Bank Branch",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ifsc",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          }
+        ]
+      },
+      {
+        "name": "BSC",
+        "desc": "Business Correspondent",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      },
+      {
+        "name": "INTB",
+        "desc": "Internet Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "KIOSK",
+        "desc": "Kiosk",
+        "commercialType": "OFFLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "MOB",
+        "desc": "Mobile (Pre-login) ",
+        "commercialType": "ONLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      },
+      {
+        "name": "MOBB",
+        "desc": "Mobile Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      },
+      {
+        "name": "Account_Transfer",
+        "desc": "Account_Transfer",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "Debit_Card",
+        "desc": "Debit_Card",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "paymentInfo": [
+          {
+            "name": "CardNum",
+            "desc": "Card number used for the payment",
+            "minLength": 5,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[0-9]{5,20}$"
+          },
+          {
+            "name": "AuthCode",
+            "desc": "Authorization code used for the payment",
+            "minLength": 3,
+            "maxLength": 10,
+            "inputType": "ALL",
+            "regex": "^[0-9]{3,10}$"
+          }
+        ]
+      },
+      {
+        "name": "Internet_Banking",
+        "desc": "Internet_Banking",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "UPI",
+        "desc": "UPI",
+        "minAmount": "10.00",
+        "maxAmount": "500000.00",
+        "paymentInfo": [
+          {
+            "name": "VPA",
+            "desc": "Virtual Provider Address used for the payment",
+            "minLength": 3,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9@-]{3,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{10}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "YESB00000NAT8U": {
+    "billerId": "YESB00000NAT8U",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Yes Bank Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20240729,
+      "effectTo": 20501231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400055,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400055
+    },
+    "initChannels": [
+      {
+        "name": "INT",
+        "desc": "Internet (Pre-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "5.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "ATM",
+        "desc": "ATM",
+        "commercialType": "OFFLINE",
+        "minAmount": "5.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          }
+        ]
+      },
+      {
+        "name": "INTB",
+        "desc": "Internet Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "5.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "mac",
+            "desc": "MAC ID of the terminal",
+            "minLength": 17,
+            "maxLength": 17,
+            "inputType": "ALL",
+            "regex": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+          }
+        ]
+      },
+      {
+        "name": "MOB",
+        "desc": "Mobile (Pre-login) ",
+        "commercialType": "ONLINE",
+        "minAmount": "5.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      },
+      {
+        "name": "MOBB",
+        "desc": "Mobile Banking (Post-login)",
+        "commercialType": "ONLINE",
+        "minAmount": "5.00",
+        "maxAmount": "999999999.00",
+        "deviceInfo": [
+          {
+            "name": "ip",
+            "desc": "IP address of the device",
+            "minLength": 7,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": ""
+          },
+          {
+            "name": "imei",
+            "desc": "IMEI number of the mobile",
+            "minLength": 15,
+            "maxLength": 15,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{15}$"
+          },
+          {
+            "name": "os",
+            "desc": "Operating system used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          },
+          {
+            "name": "app",
+            "desc": "Application used in the device",
+            "minLength": 1,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,20}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Debit_Card",
+        "desc": "Debit_Card",
+        "minAmount": "5.00",
+        "maxAmount": "999999999.00",
+        "paymentInfo": [
+          {
+            "name": "CardNum",
+            "desc": "Card number used for the payment",
+            "minLength": 5,
+            "maxLength": 20,
+            "inputType": "ALL",
+            "regex": "^[0-9]{5,20}$"
+          },
+          {
+            "name": "AuthCode",
+            "desc": "Authorization code used for the payment",
+            "minLength": 3,
+            "maxLength": 10,
+            "inputType": "ALL",
+            "regex": "^[0-9]{3,10}$"
+          }
+        ]
+      },
+      {
+        "name": "Internet_Banking",
+        "desc": "Internet_Banking",
+        "minAmount": "5.00",
+        "maxAmount": "999999999.00",
+        "paymentInfo": [
+          {
+            "name": "IFSC",
+            "desc": "IFSC of the branch from which the transaction is initiated",
+            "minLength": 11,
+            "maxLength": 11,
+            "inputType": "ALPHANUMERIC",
+            "regex": "^[A-Z0-9]{11}$"
+          },
+          {
+            "name": "AccountNo",
+            "desc": "Account number used for the payment",
+            "minLength": 2,
+            "maxLength": 30,
+            "inputType": "ALL",
+            "regex": "^[A-Z0-9]{3,30}$"
+          }
+        ]
+      },
+      {
+        "name": "UPI",
+        "desc": "UPI",
+        "minAmount": "5.00",
+        "maxAmount": "999999999.00",
+        "paymentInfo": [
+          {
+            "name": "VPA",
+            "desc": "Virtual Provider Address used for the payment",
+            "minLength": 3,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9@-]{3,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[6-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Primary Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "INDI00000NATFA": {
+    "billerId": "INDI00000NATFA",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "MANDATORY",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "Indian bank credit card",
+      "description": "NULL",
+      "ownership": "PSU",
+      "effectFrom": 20240709,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 495,
+      "state": 31,
+      "pincode": 600014,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 600014
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "300000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [
+      {
+        "name": "Cash",
+        "desc": "Cash",
+        "minAmount": "1.00",
+        "maxAmount": "300000.00",
+        "paymentInfo": [
+          {
+            "name": "Remarks",
+            "desc": "Remarks when the mode of payment is cash",
+            "minLength": 1,
+            "maxLength": 50,
+            "inputType": "ALL",
+            "regex": "^[A-Za-z0-9- .]{1,50}$"
+          }
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[6-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  },
+  "DBSB00000NATPR": {
+    "billerId": "DBSB00000NATPR",
+    "mode": "ONLINE",
+    "acceptsAdhoc": "T",
+    "paymentAmountExactness": "ANY",
+    "fetchRequirement": "NOT_SUPPORTED",
+    "supportValidation": "NOT_SUPPORTED",
+    "billerInfo": {
+      "type": "OFFUS",
+      "name": "DBS Bank Credit Card",
+      "description": "NULL",
+      "ownership": "Private",
+      "effectFrom": 20241001,
+      "effectTo": 20301231
+    },
+    "category": {
+      "key": "C15",
+      "name": "Credit Card"
+    },
+    "registeredAddress": {
+      "address": "-",
+      "city": 304,
+      "state": 21,
+      "pincode": 400021,
+      "country": "India"
+    },
+    "communicationAddress": {
+      "address": "-",
+      "city": 0,
+      "state": 0,
+      "pincode": 0,
+      "country": "India"
+    },
+    "coverage": {
+      "address": "IND",
+      "countryId": "1",
+      "countryCode": "IND",
+      "country": "India",
+      "stateId": 0,
+      "stateCode": "-",
+      "state": "-",
+      "cityId": 0,
+      "city": "-",
+      "pincode": 400021
+    },
+    "initChannels": [
+      {
+        "name": "AGT",
+        "desc": "Agent",
+        "commercialType": "OFFLINE",
+        "minAmount": "1.00",
+        "maxAmount": "5000000.00",
+        "deviceInfo": [
+          {
+            "name": "terminalId",
+            "desc": "Terminal ID of the device",
+            "minLength": 1,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[0-9]{1,10}$"
+          },
+          {
+            "name": "mobile",
+            "desc": "Mobile number of the agent",
+            "minLength": 10,
+            "maxLength": 10,
+            "inputType": "NUMERIC",
+            "regex": "^[5-9][0-9]{9}$"
+          },
+          {
+            "name": "geoCode",
+            "desc": "Latitude and longitude of the device - Represented in degrees with 4 digits after decimal",
+            "minLength": 13,
+            "maxLength": 15,
+            "inputType": "ALL",
+            "regex": "^[0-9]{1,2}+[.]{1}+[0-9]{4}+[,]{1}+[0-9]{1,2}+[.]{1}+[0-9]{4}$"
+          },
+          {
+            "name": "postalCode",
+            "desc": "Postal code of the agent",
+            "minLength": 6,
+            "maxLength": 6,
+            "inputType": "NUMERIC",
+            "regex": "^[1-9][0-9]{5}$"
+          }
+        ]
+      }
+    ],
+    "paymentModes": [],
+    "parameters": [
+      {
+        "name": "param1",
+        "desc": "Registered Mobile Number",
+        "minLength": 10,
+        "maxLength": 10,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[5-9][0-9]{9}$"
+      },
+      {
+        "name": "param2",
+        "desc": "Last 4 digits of Primary Credit Card Number",
+        "minLength": 4,
+        "maxLength": 4,
+        "inputType": "NUMERIC",
+        "mandatory": 1,
+        "regex": "^[0-9]{4}$"
+      }
+    ],
+    "timeout": 70
+  }
+}

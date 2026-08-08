@@ -186,6 +186,8 @@ async function getBillerInfo({ category } = {}) {
         circle: b.circle,
         state: b.state,
         metadata: b.metadata,
+        parameters: b.metadata?.parameters || [],
+        inputParams: b.metadata?.parameters || [],
       })),
     };
   }

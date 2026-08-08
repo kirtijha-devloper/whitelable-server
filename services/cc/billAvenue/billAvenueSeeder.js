@@ -1,9 +1,14 @@
 /**
  * BillAvenue Auto-Seeder Module for Credit Card Billers
- * Automatically seeds the 36 Credit Card Billers into POS-SERVER PostgreSQL DB on startup
+ * Automatically seeds 36 Credit Card Billers along with rich Metadata (input parameters, regex, etc.)
+ * into POS-SERVER PostgreSQL DB on startup.
  */
 
+const fs = require('fs');
+const path = require('path');
 const BillAvenueBiller = require('../../../models/BillAvenueBiller');
+
+const METADATA_CACHE_FILE = path.join(__dirname, '../../../biller_metadata_cache.json');
 
 const CREDIT_CARD_BILLERS = [
   { billerId: "AUBA00000NAT3Q", billerName: "AU Bank Credit Card", category: "Credit Card", serviceType: "IND", circle: "AU Bank Credit Card" },
@@ -44,25 +49,61 @@ const CREDIT_CARD_BILLERS = [
   { billerId: "YESB00000NAT8U", billerName: "Yes Bank Credit Card", category: "Credit Card", serviceType: "IND", circle: "Yes Bank Credit Card" }
 ];
 
+function buildFallbackMetadata(b) {
+  return {
+    billerId: b.billerId,
+    mode: "ONLINE",
+    acceptsAdhoc: "T",
+    paymentAmountExactness: "ANY",
+    fetchRequirement: "MANDATORY",
+    supportValidation: "NOT_SUPPORTED",
+    billerInfo: {
+      type: "OFFUS",
+      name: b.billerName,
+      description: "NULL",
+      ownership: "Private"
+    },
+    category: { key: "C15", name: "Credit Card" },
+    parameters: [
+      {
+        name: "param1",
+        desc: "Registered Mobile Number",
+        minLength: 10,
+        maxLength: 10,
+        inputType: "NUMERIC",
+        mandatory: 1,
+        regex: "^[5-9][0-9]{9}$"
+      },
+      {
+        name: "param2",
+        desc: "Last 4 digits of Credit Card Number",
+        minLength: 4,
+        maxLength: 4,
+        inputType: "NUMERIC",
+        mandatory: 1,
+        regex: "^[0-9]{4}$"
+      }
+    ]
+  };
+}
+
 async function autoSeedBillAvenueBillers() {
   try {
-    const existingCount = await BillAvenueBiller.count({ where: { category: 'Credit Card', is_active: true } });
-    if (existingCount >= CREDIT_CARD_BILLERS.length) {
-      console.log(`[BillAvenue AutoSeeder] ${existingCount} Credit Card billers already seeded.`);
-      return;
+    let metadataCache = {};
+    if (fs.existsSync(METADATA_CACHE_FILE)) {
+      try {
+        const raw = fs.readFileSync(METADATA_CACHE_FILE, 'utf8');
+        metadataCache = JSON.parse(raw);
+      } catch (err) {
+        console.error('[BillAvenue AutoSeeder] Failed to read metadata cache:', err.message);
+      }
     }
 
-    console.log(`[BillAvenue AutoSeeder] Seeding ${CREDIT_CARD_BILLERS.length} Credit Card billers...`);
+    console.log(`[BillAvenue AutoSeeder] Seeding/Updating ${CREDIT_CARD_BILLERS.length} Credit Card billers with rich metadata...`);
 
     let seededCount = 0;
     for (const b of CREDIT_CARD_BILLERS) {
-      const metadata = {
-        blr_id: b.billerId,
-        blr_name: b.billerName,
-        blr_coverage: b.serviceType,
-        blr_alias_name: b.circle,
-        blr_category_name: b.category,
-      };
+      const meta = metadataCache[b.billerId] || buildFallbackMetadata(b);
 
       await BillAvenueBiller.upsert({
         biller_id: b.billerId,
@@ -71,13 +112,13 @@ async function autoSeedBillAvenueBillers() {
         service_type: b.serviceType,
         circle: b.circle,
         state: null,
-        metadata,
+        metadata: meta,
         is_active: true,
       });
       seededCount++;
     }
 
-    console.log(`[BillAvenue AutoSeeder] Successfully seeded ${seededCount} BillAvenue billers.`);
+    console.log(`[BillAvenue AutoSeeder] Successfully seeded ${seededCount} BillAvenue billers with metadata.`);
   } catch (err) {
     console.error('[BillAvenue AutoSeeder Error]:', err.message || err);
   }
