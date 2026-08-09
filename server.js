@@ -360,14 +360,15 @@ const runStartupPayoutCheck = async () => {
   }
 };
 
+const { autoSeedBillAvenueBillers } = require('./services/cc/billAvenue/billAvenueSeeder');
+
 const startServer = async () => {
   try {
     await connectDb(); // Connect to DB
+    // Auto-seed BillAvenue 36 Credit Card Billers into PostgreSQL DB if not present
+    await autoSeedBillAvenueBillers();
+
     // Only sync when explicitly enabled via SYNC_DB=true — never in production.
-    // Relying solely on NODE_ENV was fragile: if PM2 starts the app without the
-    // ecosystem config (e.g. `pm2 start server.js`) NODE_ENV is undefined and
-    // db.sync({ alter: true }) would run against the live database, causing FK
-    // constraint violations when it tries to add constraints over orphaned rows.
     if (process.env.SYNC_DB === 'true' && process.env.NODE_ENV !== 'production') {
       await db.sync({ alter: true }); // Sync models in dev only — use migrations in production
     }
