@@ -259,7 +259,7 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
       });
     }
 
-    // Fixed initChannel required by InstantPay for this integration.
+// Fixed initChannel required by InstantPay for this integration.
     const initChannel = 'AGT';
 
     const result = await bbpsCCBillService.prePaymentEnquiry({
@@ -495,8 +495,12 @@ const payCCBill = asyncHandler(async (req, res) => {
       });
     }
 
-    // Fixed initChannel required by InstantPay for this integration.
+// Fixed initChannel required by InstantPay for this integration.
     const initChannel = 'AGT';
+
+    // Generate the external reference BEFORE creating the pending record so it is
+    // always persisted (even if the InstantPay call later fails or times out).
+    const externalRef = bbpsCCBillService.generateExternalRef();
 
     // Create a pending CC bill payment record early so ledger/wallet tx can reference it
     const ccPayment = await CcBillPayment.create({
@@ -509,6 +513,7 @@ const payCCBill = asyncHandler(async (req, res) => {
       payment_mode:       paymentMode || 'Cash',
       payment_info:       paymentInfo || { Remarks: 'CC Bill Payment' },
       enquiry_reference_id: enquiryReferenceId,
+      external_ref:       externalRef,
       status:             'pending',
       geo_code:           normalizeGeoCode(geoCode),
     });
@@ -532,7 +537,7 @@ const payCCBill = asyncHandler(async (req, res) => {
       });
     }
 
-    // ── Step 2: Call InstantPay ──────────────────────────────────────────────
+// ── Step 2: Call InstantPay ──────────────────────────────────────────────
     const result = await bbpsCCBillService.payCCBill({
       billerId,
       initChannel,
@@ -547,6 +552,7 @@ const payCCBill = asyncHandler(async (req, res) => {
       customerPan,
       ipAddress: normalizeIp(req.ip),
       outletId:  getOutletId(req),
+      externalRef, // reuse the reference already persisted on the pending record
     });
 
     const isSuccess = ['TXN', 'TUP'].includes(result.data?.statuscode);

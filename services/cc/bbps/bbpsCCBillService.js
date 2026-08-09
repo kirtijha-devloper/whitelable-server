@@ -149,7 +149,9 @@ async function prePaymentEnquiry(opts) {
  * @param {string}  opts.ipAddress
  */
 async function payCCBill(opts) {
-  const externalRef = generateExternalRef();
+  // Allow caller to supply an externalRef (e.g. one already persisted to the DB
+  // before the API call) so the reference is always available even on failure.
+  const externalRef = opts.externalRef || generateExternalRef();
 
   const payload = {
     billerId:           opts.billerId,
