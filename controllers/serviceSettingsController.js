@@ -67,10 +67,39 @@ function getValidatedServiceSettingsPayload(body) {
 }
 
 function extractRequestContext(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  const ip_address = forwarded ? String(forwarded).split(',')[0].trim() : (req.ip || req.connection?.remoteAddress || null);
-  const user_agent = req.headers['user-agent'] ? String(req.headers['user-agent']).substring(0, 500) : null;
-  return { ip_address, user_agent };
+  if (!req) return { ip_address: '127.0.0.1', user_agent: null };
+
+  const forwarded = req.headers
+    ? (req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'])
+    : null;
+  let ip_address = null;
+
+  if (forwarded) {
+    const rawIp = String(forwarded).split(',')[0].trim();
+    const cleanIp = rawIp.startsWith('::ffff:') ? rawIp.replace('::ffff:', '') : rawIp;
+    if (cleanIp && cleanIp !== '::1' && cleanIp !== '127.0.0.1') {
+      ip_address = cleanIp;
+    }
+  }
+
+  if (!ip_address) {
+    let fallbackIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
+    if (fallbackIp) {
+      if (fallbackIp.startsWith('::ffff:')) {
+        fallbackIp = fallbackIp.replace('::ffff:', '');
+      }
+      if (fallbackIp === '::1') {
+        fallbackIp = '127.0.0.1';
+      }
+      ip_address = fallbackIp;
+    }
+  }
+
+  const user_agent = req.headers && req.headers['user-agent']
+    ? String(req.headers['user-agent']).substring(0, 500)
+    : null;
+
+  return { ip_address: ip_address || '127.0.0.1', user_agent };
 }
 
 const getServiceSettings = asyncHandler(async (_req, res) => {

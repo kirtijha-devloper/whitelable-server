@@ -22,6 +22,34 @@ function generateTransactionId() {
   return `TXN_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
 }
 
+// Safely extract client IP address prioritizing forwarded headers
+function extractClientIp(req) {
+  if (!req) return '127.0.0.1';
+  const forwarded = req.headers
+    ? (req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'])
+    : null;
+  if (forwarded) {
+    const rawIp = String(forwarded).split(',')[0].trim();
+    const cleanIp = rawIp.startsWith('::ffff:') ? rawIp.replace('::ffff:', '') : rawIp;
+    if (cleanIp && cleanIp !== '::1' && cleanIp !== '127.0.0.1') {
+      return cleanIp;
+    }
+  }
+
+  let fallbackIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
+  if (fallbackIp) {
+    if (fallbackIp.startsWith('::ffff:')) {
+      fallbackIp = fallbackIp.replace('::ffff:', '');
+    }
+    if (fallbackIp === '::1') {
+      fallbackIp = '127.0.0.1';
+    }
+    return fallbackIp;
+  }
+
+  return '127.0.0.1';
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/admin/wallet/credit
 // ---------------------------------------------------------------------------
@@ -114,7 +142,7 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
       action: 'CREDIT',
       balance_before: currentBalance,
       balance_after: newBalance,
-      ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+      ip_address: extractClientIp(req),
       user_agent: req.headers['user-agent'] || null,
     }, { transaction });
 
@@ -245,7 +273,7 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
       action: 'DEBIT',
       balance_before: currentBalance,
       balance_after: newBalance,
-      ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+      ip_address: extractClientIp(req),
       user_agent: req.headers['user-agent'] || null,
     }, { transaction });
 
