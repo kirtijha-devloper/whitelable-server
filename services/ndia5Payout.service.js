@@ -161,11 +161,11 @@ async function getBalance(params = {}) {
   const config = getConfig();
   const token = await login();
   const endpoint = `${config.baseURL}/transaction/getBalance`;
-  const timestamp = new Date().toISOString();
+  const timestamp = getIstTimestamp();
 
   const payload = {
-    accountNumber: params.accountNumber || '123456789012',
-    ifsc: params.ifsc || 'SBIN0001234',
+    accountNumber: params.accountNumber || '103712250034',
+    ifsc: params.ifsc || 'SMCB0001037',
   };
 
   const reqLog = {
@@ -241,7 +241,7 @@ async function initiatePayout(params) {
   }
 
   const timestamp = getIstTimestamp();
-  
+
   // Format amount strictly for NDIA5 signature generation (append '.0' if integer format)
   const numAmount = Number(amount);
   const sigAmount = Number.isInteger(numAmount) ? `${numAmount}.0` : `${numAmount}`;
