@@ -105,6 +105,7 @@ const DEFAULT_TEST_USER_IDENTIFIERS = [
 const DEFAULT_PRIMARY_ADMIN_IDENTIFIERS = [
   'APA00001',
   '8119865074',
+  '9990450938',
   'admin@abheepay.com',
   '1',
 ];
@@ -216,11 +217,11 @@ function issueUserJwt(user) {
   return jwt.sign(
     {
       user: {
-        id:               user.id,
-        name:             user.name,
-        mobile_number:    user.mobile_number,
-        role:             user.role,
-        ipay_outlet_id:   user.ipay_outlet_id || null,
+        id: user.id,
+        name: user.name,
+        mobile_number: user.mobile_number,
+        role: user.role,
+        ipay_outlet_id: user.ipay_outlet_id || null,
       },
     },
     process.env.ACCESS_TOKEN_SECRET,
@@ -248,9 +249,9 @@ const generateDlToken = asyncHandler(async (req, res) => {
   const expiresAt = newExpiry();
 
   await DirectLoginToken.create({
-    admin_id:      tokenOwnerId,
-    token_hash:    tokenHash,
-    expires_at:    expiresAt,
+    admin_id: tokenOwnerId,
+    token_hash: tokenHash,
+    expires_at: expiresAt,
     used_user_ids: '[]',
   });
 
@@ -258,7 +259,7 @@ const generateDlToken = asyncHandler(async (req, res) => {
     success: true,
     message: `Direct-login token generated. Valid for ${TTL_MINUTES} minutes.`,
     data: {
-      dl_token:   rawToken,        // ← raw token returned ONCE; hash is stored
+      dl_token: rawToken,        // ← raw token returned ONCE; hash is stored
       expires_at: expiresAt,
       ttl_minutes: TTL_MINUTES,
       warning:
@@ -277,7 +278,7 @@ const getDlTokenStatus = asyncHandler(async (req, res) => {
 
   const record = await DirectLoginToken.findOne({
     where: {
-      admin_id:   req.user.id,
+      admin_id: req.user.id,
       expires_at: { [Op.gt]: new Date() },
     },
   });
@@ -296,9 +297,9 @@ const getDlTokenStatus = asyncHandler(async (req, res) => {
     success: true,
     active: true,
     data: {
-      expires_at:          record.expires_at,
+      expires_at: record.expires_at,
       used_user_ids_count: usedIds.length,
-      created_at:          record.createdAt,
+      created_at: record.createdAt,
     },
   });
 });
@@ -389,7 +390,7 @@ const directLogin = asyncHandler(async (req, res) => {
   // ── 4. Validate target user ──────────────────────────────────────────────
   const targetUser = await User.findOne({
     where: {
-      id:   targetUserId,
+      id: targetUserId,
       role: { [Op.in]: allowedTargetRoles },
     },
   });
@@ -431,11 +432,11 @@ const directLogin = asyncHandler(async (req, res) => {
     message: `Logged in as ${targetUser.name || targetUser.mobile_number} (${targetUser.role}).`,
     token: accessToken,
     user: {
-      id:             targetUser.id,
-      name:           targetUser.name,
-      mobile_number:  targetUser.mobile_number,
-      role:           targetUser.role,
-      abheepay_id:    targetUser.abheepay_id,
+      id: targetUser.id,
+      name: targetUser.name,
+      mobile_number: targetUser.mobile_number,
+      role: targetUser.role,
+      abheepay_id: targetUser.abheepay_id,
       organization_name: targetUser.organization_name,
     },
   });
