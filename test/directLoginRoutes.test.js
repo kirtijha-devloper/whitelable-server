@@ -225,14 +225,14 @@ describe('direct login employee impersonation support', () => {
       };
     };
     User.findOne = async ({ where }) => {
-      expect(where.id).to.equal(11);
+      expect(where.id).to.equal(9);
       return {
-        id: 11,
-        name: 'Merchant Target',
-        mobile_number: '9000000011',
+        id: 9,
+        name: 'TEST DEMO-M',
+        mobile_number: '9262914251',
         role: 'merchant',
         status: 'active',
-        abheepay_id: 'APM00011',
+        abheepay_id: 'APM00009',
         organization_name: 'Merchant Org',
       };
     };
@@ -241,12 +241,59 @@ describe('direct login employee impersonation support', () => {
       .post('/api/auth/direct-login')
       .send({
         dl_token: 'employee-direct-login-token',
-        user_id: 11,
+        user_id: 9,
       });
 
     expect(res.status).to.equal(200);
     expect(res.body.success).to.equal(true);
     expect(res.body.user.role).to.equal('merchant');
+  });
+
+  it('blocks an employee-owned token from opening a non-test user account', async () => {
+    DirectLoginToken.findOne = async () => ({
+      admin_id: 7,
+      used_user_ids: '[]',
+      update: async function (updates) {
+        Object.assign(this, updates);
+        return this;
+      },
+    });
+    User.findByPk = async () => ({
+      id: 7,
+      name: 'Ops Employee',
+      mobile_number: '9000000007',
+      role: 'employee',
+      status: 'active',
+      employee_access_role_id: 3,
+    });
+    EmployeeAccessRole.findByPk = async () => ({
+      id: 3,
+      name: 'Ops',
+      slug: 'ops',
+      status: 'active',
+      permissions: [EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE],
+      toJSON() {
+        return { ...this };
+      },
+    });
+    User.findOne = async () => ({
+      id: 99,
+      name: 'Regular Merchant',
+      mobile_number: '9999999999',
+      role: 'merchant',
+      status: 'active',
+      abheepay_id: 'APM00099',
+    });
+
+    const res = await request(app)
+      .post('/api/auth/direct-login')
+      .send({
+        dl_token: 'employee-direct-login-token',
+        user_id: 99,
+      });
+
+    expect(res.status).to.equal(403);
+    expect(res.body.message).to.match(/only primary admins can log in as any user/i);
   });
 
   it('blocks an employee-owned token from opening another employee account', async () => {

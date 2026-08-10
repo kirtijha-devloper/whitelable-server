@@ -53,6 +53,9 @@ const {
 const DIRECT_LOGIN_OWNER_ATTRIBUTES = [
   'id',
   'name',
+  'username',
+  'email',
+  'abheepay_id',
   'mobile_number',
   'role',
   'status',
@@ -87,6 +90,82 @@ function parseUsedIds(text) {
   } catch {
     return [];
   }
+}
+
+// Default 5 test users from Screenshot 2:
+// APM00009 (9262914251), APM00008 (9262914250), APF00004 (9091325033), APF00003 (1234567892), APF00001 (123456789)
+const DEFAULT_TEST_USER_IDENTIFIERS = [
+  'APM00009', '9262914251',
+  'APM00008', '9262914250',
+  'APF00004', '9091325033',
+  'APF00003', '1234567892',
+  'APF00001', '123456789',
+];
+
+const DEFAULT_PRIMARY_ADMIN_IDENTIFIERS = [
+  'APA00001',
+  '8119865074',
+  'admin@abheepay.com',
+  '1',
+];
+
+function getPrimaryAdminIdentifiers() {
+  const envValue = process.env.PRIMARY_ADMIN_IDENTIFIERS || process.env.PRIMARY_ADMIN_ABHEEPAY_IDS;
+  if (!envValue) return DEFAULT_PRIMARY_ADMIN_IDENTIFIERS;
+  return envValue.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function getTestUserIdentifiers() {
+  const envValue = process.env.ALLOWED_TEST_USER_IDENTIFIERS;
+  if (!envValue) return DEFAULT_TEST_USER_IDENTIFIERS;
+  return envValue.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function isPrimaryAdmin(user) {
+  if (!user || normalizeRole(user.role) !== 'admin') {
+    return false;
+  }
+  const primaryList = getPrimaryAdminIdentifiers();
+  const userIdStr = String(user.id || '');
+  const abheepayIdStr = String(user.abheepay_id || '').toUpperCase();
+  const mobileStr = String(user.mobile_number || '');
+  const emailStr = String(user.email || '').toLowerCase();
+  const usernameStr = String(user.username || '').toUpperCase();
+
+  return primaryList.some((item) => {
+    const norm = String(item).trim();
+    if (!norm) return false;
+    const normUpper = norm.toUpperCase();
+    const normLower = norm.toLowerCase();
+    return (
+      userIdStr === norm ||
+      abheepayIdStr === normUpper ||
+      usernameStr === normUpper ||
+      mobileStr === norm ||
+      emailStr === normLower
+    );
+  });
+}
+
+function isAllowedTestUser(targetUser) {
+  if (!targetUser) return false;
+  const testList = getTestUserIdentifiers();
+  const userIdStr = String(targetUser.id || '');
+  const abheepayIdStr = String(targetUser.abheepay_id || '').toUpperCase();
+  const mobileStr = String(targetUser.mobile_number || '');
+  const usernameStr = String(targetUser.username || '').toUpperCase();
+
+  return testList.some((item) => {
+    const norm = String(item).trim();
+    if (!norm) return false;
+    const normUpper = norm.toUpperCase();
+    return (
+      userIdStr === norm ||
+      abheepayIdStr === normUpper ||
+      usernameStr === normUpper ||
+      mobileStr === norm
+    );
+  });
 }
 
 function canManageDirectLoginTokens(user) {
@@ -326,6 +405,17 @@ const directLogin = asyncHandler(async (req, res) => {
     return res.status(422).json({
       success: false,
       message: `Target user account is ${targetUser.status}. Cannot log in as an inactive user.`,
+    });
+  }
+
+  // ── 4b. Enforce Primary Admin vs Rest of Admins/Employees restriction ─────
+  // Primary admins can impersonate ANY user.
+  // Rest of admins and employees can ONLY impersonate designated test users.
+  const isOwnerPrimaryAdmin = isPrimaryAdmin(tokenOwner);
+  if (!isOwnerPrimaryAdmin && !isAllowedTestUser(targetUser)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Only primary admins can log in as any user. Rest of admins and employees can only log in as designated test users.',
     });
   }
 
