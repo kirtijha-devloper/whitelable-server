@@ -42,6 +42,10 @@ router.post('/payout/initiate', ndia5Controller.initiatePayout);
 router.post('/payout/status', ndia5Controller.getPayoutStatus);
 router.get('/payout/status', ndia5Controller.getPayoutStatus);
 
+// Debug Status Check endpoint (No DB updates)
+router.post('/payout/debug-status', ndia5Controller.getDebugPayoutStatus);
+router.get('/payout/debug-status', ndia5Controller.getDebugPayoutStatus);
+
 // Manual Refund endpoint (strictly manual, no automatic refunds)
 router.post('/payout/manual-refund', ndia5Controller.manualRefundPayout);
 

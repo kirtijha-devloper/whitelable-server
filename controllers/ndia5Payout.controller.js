@@ -757,6 +757,33 @@ const getPayoutAuditLogsByPayout = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * GET/POST /api/ndia5/payout/debug-status
+ * Fetches status from NDIA5 without modifying DB (used for debugging/checking true status in UI)
+ */
+const getDebugPayoutStatus = asyncHandler(async (req, res) => {
+  const referenceId = req.query.referenceId || req.query.reference_id || req.body.referenceId || req.body.reference_id;
+
+  if (!referenceId) {
+    return res.status(400).json({ success: false, message: 'referenceId parameter is required' });
+  }
+
+  try {
+    const providerResult = await ndia5Service.getPayoutStatus(referenceId);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'NDIA5 Debug Payout Status fetched successfully',
+      data: providerResult,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch debug status from NDIA5',
+    });
+  }
+});
+
 module.exports = {
   login,
   getBalance,
@@ -768,4 +795,5 @@ module.exports = {
   getPayoutStatus,
   manualRefundPayout,
   getPayoutAuditLogsByPayout,
+  getDebugPayoutStatus,
 };
