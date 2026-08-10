@@ -453,18 +453,36 @@ async function getServiceToggleAuditLogs(filters = {}) {
   const models = require('../models/initAssociations');
   const UserModel = models.User || User;
 
+  const affectedUserWhere = {};
+  const search = String(filters.search || filters.q || filters.targetUser || '').trim();
+
+  if (search) {
+    const likeOp = Op.iLike || Op.like;
+    affectedUserWhere[Op.or] = [
+      { name: { [likeOp]: `%${search}%` } },
+      { username: { [likeOp]: `%${search}%` } },
+      { mobile_number: { [likeOp]: `%${search}%` } },
+      { abheepay_id: { [likeOp]: `%${search}%` } },
+      { email: { [likeOp]: `%${search}%` } },
+    ];
+  }
+
+  const hasAffectedUserWhere = Object.keys(affectedUserWhere).length > 0;
+
   const { count, rows } = await ServiceToggleAuditLog.findAndCountAll({
     where,
     include: [
       {
         model: UserModel,
         as: 'performingUser',
-        attributes: ['id', 'name', 'abheepay_id', 'role'],
+        attributes: ['id', 'name', 'abheepay_id', 'role', 'mobile_number'],
       },
       {
         model: UserModel,
         as: 'affectedUser',
-        attributes: ['id', 'name', 'abheepay_id', 'role'],
+        attributes: ['id', 'name', 'abheepay_id', 'role', 'mobile_number'],
+        where: hasAffectedUserWhere ? affectedUserWhere : undefined,
+        required: hasAffectedUserWhere,
       },
     ],
     order: [['createdAt', 'DESC']],
