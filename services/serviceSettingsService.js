@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const ServiceSetting = require('../models/ServiceSetting');
 const UserServiceSetting = require('../models/UserServiceSetting');
+const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
 const User = require('../models/User');
 const { normalizeRole } = require('../utils/permissions');
 
@@ -156,14 +157,37 @@ async function getServiceSettingsMap() {
   }
 }
 
-async function upsertServiceSettings(updates, updatedBy) {
+async function upsertServiceSettings(updates, updatedBy, options = {}) {
   const entries = Object.entries(updates || {});
+  const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
+  const currentMap = await getServiceSettingsMap();
 
   await Promise.all(entries.map(([serviceKey, isEnabled]) => ServiceSetting.upsert({
     service_key: serviceKey,
     is_enabled: isEnabled,
     updated_by: updatedBy ?? null,
-  })));
+  }, transactionOpts)));
+
+  const performingUserId = updatedBy || 1;
+  const ipAddress = options.ip_address || options.ip || null;
+  const userAgent = options.user_agent || null;
+
+  for (const [serviceKey, isEnabled] of entries) {
+    const previousState = Boolean(currentMap[serviceKey]?.is_enabled);
+    const newState = Boolean(isEnabled);
+    if (previousState !== newState) {
+      await ServiceToggleAuditLog.create({
+        user_id: performingUserId,
+        affected_user_id: null,
+        service_key: serviceKey,
+        previous_state: previousState,
+        new_state: newState,
+        action: newState ? 'ENABLE' : 'DISABLE',
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      }, transactionOpts);
+    }
+  }
 
   return getServiceSettingsMap();
 }
@@ -324,13 +348,36 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
     ...updates,
   };
 
+  const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
+
   await Promise.all(entries.map(([serviceKey, isEnabled]) => UserServiceSetting.upsert({
     user_id: plainUser.id,
     service_key: serviceKey,
     is_enabled: isEnabled,
     updated_by: updatedBy ?? null,
     updated_at: now,
-  }, options.transaction ? { transaction: options.transaction } : {})));
+  }, transactionOpts)));
+
+  const performingUserId = updatedBy || plainUser.id;
+  const ipAddress = options.ip_address || options.ip || null;
+  const userAgent = options.user_agent || null;
+
+  for (const [serviceKey, isEnabled] of entries) {
+    const previousState = Boolean(currentUserServiceSettings[serviceKey]);
+    const newState = Boolean(isEnabled);
+    if (previousState !== newState) {
+      await ServiceToggleAuditLog.create({
+        user_id: performingUserId,
+        affected_user_id: plainUser.id,
+        service_key: serviceKey,
+        previous_state: previousState,
+        new_state: newState,
+        action: newState ? 'ENABLE' : 'DISABLE',
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      }, transactionOpts);
+    }
+  }
 
   const shouldSyncLegacyPayoutGate = entries.some(([serviceKey]) =>
     serviceKey === SERVICE_SETTING_KEYS.VIMO_PAYOUT
@@ -386,6 +433,54 @@ async function assertServiceEnabledOrRespond(res, serviceKey, user) {
   return false;
 }
 
+async function getServiceToggleAuditLogs(filters = {}) {
+  const where = {};
+
+  if (filters.userId) {
+    where.user_id = Number(filters.userId);
+  }
+  if (filters.affectedUserId) {
+    where.affected_user_id = Number(filters.affectedUserId);
+  }
+  if (filters.serviceKey) {
+    where.service_key = String(filters.serviceKey).trim();
+  }
+
+  const page = Math.max(1, Number(filters.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(filters.limit) || 20));
+  const offset = (page - 1) * limit;
+
+  const models = require('../models/initAssociations');
+  const UserModel = models.User || User;
+
+  const { count, rows } = await ServiceToggleAuditLog.findAndCountAll({
+    where,
+    include: [
+      {
+        model: UserModel,
+        as: 'performingUser',
+        attributes: ['id', 'name', 'abheepay_id', 'role'],
+      },
+      {
+        model: UserModel,
+        as: 'affectedUser',
+        attributes: ['id', 'name', 'abheepay_id', 'role'],
+      },
+    ],
+    order: [['createdAt', 'DESC']],
+    limit,
+    offset,
+  });
+
+  return {
+    count,
+    page,
+    limit,
+    totalPages: Math.ceil(count / limit) || 1,
+    data: rows,
+  };
+}
+
 module.exports = {
   SERVICE_SETTING_KEYS,
   SERVICE_SETTING_KEY_LIST,
@@ -404,4 +499,5 @@ module.exports = {
   getEffectiveServiceFlags,
   buildServiceDisabledPayload,
   assertServiceEnabledOrRespond,
+  getServiceToggleAuditLogs,
 };

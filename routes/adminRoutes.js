@@ -6,6 +6,7 @@ const {
   getServiceSettings,
   updateServiceSettings,
   updateUserServiceSettings,
+  getServiceToggleAuditLogsController,
 } = require("../controllers/serviceSettingsController");
 const {
   createLoginPopup,
@@ -102,6 +103,14 @@ router.put("/user/:id/service-settings", validateToken, ensureEmployeePermission
   message: "You do not have permission to manage user service settings.",
   elevateRole: "admin",
 }), updateUserServiceSettings);
+
+router.get("/service-settings/audit-logs", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ,
+  EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE,
+], {
+  message: "You do not have permission to view service audit logs.",
+  elevateRole: "admin",
+}), getServiceToggleAuditLogsController);
 
 router.get("/login-popups", validateToken, listLoginPopupsForAdmin);
 router.post("/login-popups", validateToken, loginPopupUpload, createLoginPopup);

@@ -7,6 +7,7 @@ const {
   getServiceSettingsMap,
   upsertServiceSettings,
   upsertUserServiceSettings,
+  getServiceToggleAuditLogs,
 } = require('../services/serviceSettingsService');
 const { normalizeRole } = require('../utils/permissions');
 
@@ -65,6 +66,13 @@ function getValidatedServiceSettingsPayload(body) {
   return { payload };
 }
 
+function extractRequestContext(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip_address = forwarded ? String(forwarded).split(',')[0].trim() : (req.ip || req.connection?.remoteAddress || null);
+  const user_agent = req.headers['user-agent'] ? String(req.headers['user-agent']).substring(0, 500) : null;
+  return { ip_address, user_agent };
+}
+
 const getServiceSettings = asyncHandler(async (_req, res) => {
   const data = await getServiceSettingsMap();
 
@@ -81,7 +89,13 @@ const updateServiceSettings = asyncHandler(async (req, res) => {
     return res.status(error.status).json(error.body);
   }
 
-  const data = await upsertServiceSettings(payload, req.user?.id || null);
+  const context = extractRequestContext(req);
+  const data = await db.transaction(async (transaction) => {
+    return await upsertServiceSettings(payload, req.user?.id || null, {
+      transaction,
+      ...context,
+    });
+  });
 
   return res.status(200).json({
     success: true,
@@ -122,6 +136,7 @@ const updateUserServiceSettings = asyncHandler(async (req, res) => {
     });
   }
 
+  const context = extractRequestContext(req);
   const data = await db.transaction(async (transaction) => {
     const {
       user,
@@ -131,7 +146,10 @@ const updateUserServiceSettings = asyncHandler(async (req, res) => {
       targetUser,
       payload,
       req.user?.id || null,
-      { transaction }
+      {
+        transaction,
+        ...context,
+      }
     );
 
     return {
@@ -147,8 +165,35 @@ const updateUserServiceSettings = asyncHandler(async (req, res) => {
   });
 });
 
+const getServiceToggleAuditLogsController = asyncHandler(async (req, res) => {
+  const requesterRole = normalizeRole(req.user?.role);
+
+  if (requesterRole !== 'admin' && requesterRole !== 'employee') {
+    return res.status(403).json({
+      success: false,
+      message: 'Only admin or employee can view service toggle audit logs.',
+    });
+  }
+
+  const filters = {
+    userId: req.query.user_id || req.query.userId,
+    affectedUserId: req.query.affected_user_id || req.query.affectedUserId,
+    serviceKey: req.query.service_key || req.query.serviceKey,
+    page: req.query.page,
+    limit: req.query.limit,
+  };
+
+  const result = await getServiceToggleAuditLogs(filters);
+
+  return res.status(200).json({
+    success: true,
+    ...result,
+  });
+});
+
 module.exports = {
   getServiceSettings,
   updateServiceSettings,
   updateUserServiceSettings,
+  getServiceToggleAuditLogsController,
 };
