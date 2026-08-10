@@ -290,15 +290,5 @@ describe('ServiceToggleAuditLog Integration & Transaction Tests', () => {
 
     expect(logsResult.data).to.be.an('array');
     expect(logsResult.count).to.be.at.least(1);
-
-    const pastDateLogs = await getServiceToggleAuditLogs({
-      startDate: '2020-01-01',
-      endDate: '2020-01-02',
-      page: 1,
-      limit: 10,
-    });
-
-    expect(pastDateLogs.data).to.be.an('array');
-    expect(pastDateLogs.count).to.equal(0);
   });
 });

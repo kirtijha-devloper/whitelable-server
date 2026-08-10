@@ -449,16 +449,17 @@ async function getServiceToggleAuditLogs(filters = {}) {
 
   if (filters.startDate || filters.endDate) {
     const createdAtWhere = {};
+
     if (filters.startDate) {
-      const startStr = String(filters.startDate).trim();
-      const start = new Date(`${startStr}T00:00:00`);
+      const startStr = String(filters.startDate).trim().split('T')[0];
+      const start = new Date(`${startStr}T00:00:00.000Z`);
       if (!isNaN(start.getTime())) {
         createdAtWhere[Op.gte] = start;
       }
     }
     if (filters.endDate) {
-      const endStr = String(filters.endDate).trim();
-      const end = new Date(`${endStr}T23:59:59.999`);
+      const endStr = String(filters.endDate).trim().split('T')[0];
+      const end = new Date(`${endStr}T23:59:59.999Z`);
       if (!isNaN(end.getTime())) {
         createdAtWhere[Op.lte] = end;
       }
