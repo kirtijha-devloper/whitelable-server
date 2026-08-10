@@ -5,6 +5,34 @@ const  User = require('../models/User');
 const EmployeeAccessRole = require('../models/EmployeeAccessRole');
 const db = require('../config/database');
 const UsernameSequence = require('../models/UsernameSequence');
+const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
+
+function extractClientIp(req) {
+  if (!req) return '127.0.0.1';
+  const forwarded = req.headers
+    ? (req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'])
+    : null;
+  if (forwarded) {
+    const rawIp = String(forwarded).split(',')[0].trim();
+    const cleanIp = rawIp.startsWith('::ffff:') ? rawIp.replace('::ffff:', '') : rawIp;
+    if (cleanIp && cleanIp !== '::1' && cleanIp !== '127.0.0.1') {
+      return cleanIp;
+    }
+  }
+
+  let fallbackIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
+  if (fallbackIp) {
+    if (fallbackIp.startsWith('::ffff:')) {
+      fallbackIp = fallbackIp.replace('::ffff:', '');
+    }
+    if (fallbackIp === '::1') {
+      fallbackIp = '127.0.0.1';
+    }
+    return fallbackIp;
+  }
+
+  return '127.0.0.1';
+}
 
 const fs = require("fs");
 const path = require("path");
@@ -2053,7 +2081,25 @@ const updateUser = asyncHandler(async (req, res) => {
     }
 
     // ── Persist ───────────────────────────────────────────────────────────
+    const prevSettlementType = targetUser.settlement_type || 'today_settlement';
     await targetUser.update(updates);
+    
+    if (updates.settlement_type && updates.settlement_type !== prevSettlementType) {
+      const isTodayNew = updates.settlement_type === 'today_settlement';
+      const isTodayPrev = prevSettlementType === 'today_settlement';
+  
+      await ServiceToggleAuditLog.create({
+        user_id: req.user.id,
+        affected_user_id: targetUser.id,
+        service_key: 'settlement_type',
+        previous_state: isTodayPrev,
+        new_state: isTodayNew,
+        action: isTodayNew ? 'T0' : 'T+1',
+        ip_address: extractClientIp(req),
+        user_agent: req.headers ? (req.headers['user-agent'] || null) : null,
+      });
+    }
+
     await targetUser.reload();
 
     // Strip sensitive fields before responding
