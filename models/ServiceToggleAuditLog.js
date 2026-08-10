@@ -33,7 +33,15 @@ const ServiceToggleAuditLog = db.define('ServiceToggleAuditLog', {
   action: {
     type: Sequelize.STRING(50),
     allowNull: false,
-    comment: 'ENABLE or DISABLE',
+    comment: 'ENABLE, DISABLE, CREDIT, or DEBIT',
+  },
+  balance_before: {
+    type: Sequelize.DECIMAL(12, 2),
+    allowNull: true,
+  },
+  balance_after: {
+    type: Sequelize.DECIMAL(12, 2),
+    allowNull: true,
   },
   ip_address: {
     type: Sequelize.STRING(100),

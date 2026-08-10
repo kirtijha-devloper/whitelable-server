@@ -17,10 +17,12 @@ describe('ServiceToggleAuditLog Integration & Transaction Tests', () => {
     // Ensure associations are loaded
     require('../models/initAssociations');
     const ServiceSetting = require('../models/ServiceSetting');
+    const Ledger = require('../models/Ledger');
     await User.sync();
     await UserServiceSetting.sync();
     await ServiceSetting.sync();
     await ServiceToggleAuditLog.sync();
+    await Ledger.sync();
 
     // Create test admin user
     [adminUser] = await User.findOrCreate({
@@ -208,5 +210,72 @@ describe('ServiceToggleAuditLog Integration & Transaction Tests', () => {
 
     expect(emptyResult.data).to.be.an('array');
     expect(emptyResult.count).to.equal(0);
+  });
+
+  it('should record audit log when admin credits or debits user wallet', async () => {
+    const { adminDirectCredit, adminDirectDebit } = require('../controllers/adminWalletController');
+    const reqCredit = {
+      user: { id: adminUser.id, role: 'admin', name: 'Admin Test' },
+      body: { user_id: merchantUser.id, amount: 250.50, reason: 'Test Credit Audit' },
+      ip: '127.0.0.1',
+      headers: {},
+    };
+    let jsonCredit = null;
+    const resCredit = {
+      status: (code) => ({
+        json: (data) => {
+          jsonCredit = data;
+          return data;
+        },
+      }),
+    };
+
+    await adminDirectCredit(reqCredit, resCredit);
+    expect(jsonCredit.success).to.equal(true);
+
+    const creditLog = await ServiceToggleAuditLog.findOne({
+      where: {
+        user_id: adminUser.id,
+        affected_user_id: merchantUser.id,
+        service_key: 'admin_credit',
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    expect(creditLog).to.exist;
+    expect(creditLog.action).to.equal('CREDIT');
+    expect(parseFloat(creditLog.balance_after)).to.equal(250.50);
+
+    const reqDebit = {
+      user: { id: adminUser.id, role: 'admin', name: 'Admin Test' },
+      body: { user_id: merchantUser.id, amount: 50.00, reason: 'Test Debit Audit' },
+      ip: '127.0.0.1',
+      headers: {},
+    };
+    let jsonDebit = null;
+    const resDebit = {
+      status: (code) => ({
+        json: (data) => {
+          jsonDebit = data;
+          return data;
+        },
+      }),
+    };
+
+    await adminDirectDebit(reqDebit, resDebit);
+    expect(jsonDebit.success).to.equal(true);
+
+    const debitLog = await ServiceToggleAuditLog.findOne({
+      where: {
+        user_id: adminUser.id,
+        affected_user_id: merchantUser.id,
+        service_key: 'admin_debit',
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    expect(debitLog).to.exist;
+    expect(debitLog.action).to.equal('DEBIT');
+    expect(parseFloat(debitLog.balance_after)).to.equal(200.50);
   });
 });

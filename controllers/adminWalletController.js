@@ -14,6 +14,7 @@ const crypto = require("crypto");
 const db = require("../config/database");
 const User = require("../models/User");
 const Ledger = require("../models/Ledger");
+const ServiceToggleAuditLog = require("../models/ServiceToggleAuditLog");
 const ledgerService = require("../services/ledgerService");
 
 // Generate a unique transaction ID
@@ -102,6 +103,20 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
 
     // Update user balance
     await user.update({ wallet: newBalance }, { transaction });
+
+    // Record audit log for system activity
+    await ServiceToggleAuditLog.create({
+      user_id: req.user.id,
+      affected_user_id: user.id,
+      service_key: 'admin_credit',
+      previous_state: false,
+      new_state: true,
+      action: 'CREDIT',
+      balance_before: currentBalance,
+      balance_after: newBalance,
+      ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+      user_agent: req.headers['user-agent'] || null,
+    }, { transaction });
 
     // Commit transaction
     await transaction.commit();
@@ -219,6 +234,20 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
 
     // Update user balance
     await user.update({ wallet: newBalance }, { transaction });
+
+    // Record audit log for system activity
+    await ServiceToggleAuditLog.create({
+      user_id: req.user.id,
+      affected_user_id: user.id,
+      service_key: 'admin_debit',
+      previous_state: false,
+      new_state: true,
+      action: 'DEBIT',
+      balance_before: currentBalance,
+      balance_after: newBalance,
+      ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+      user_agent: req.headers['user-agent'] || null,
+    }, { transaction });
 
     // Commit transaction
     await transaction.commit();
