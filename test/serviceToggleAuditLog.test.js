@@ -291,4 +291,40 @@ describe('ServiceToggleAuditLog Integration & Transaction Tests', () => {
     expect(logsResult.data).to.be.an('array');
     expect(logsResult.count).to.be.at.least(1);
   });
+
+  it('should record audit log when settlement type is updated for a user', async () => {
+    const { setUserSettlementType } = require('../controllers/adminController');
+    const req = {
+      user: { id: adminUser.id, role: 'admin', name: 'Admin Test' },
+      params: { id: merchantUser.id },
+      body: { settlement_type: 'next_day_settlement' },
+      ip: '127.0.0.1',
+      headers: {},
+    };
+    let jsonResult = null;
+    const res = {
+      status: (code) => ({
+        json: (data) => {
+          jsonResult = data;
+          return data;
+        },
+      }),
+    };
+
+    await setUserSettlementType(req, res);
+    expect(jsonResult.success).to.equal(true);
+
+    const settlementLog = await ServiceToggleAuditLog.findOne({
+      where: {
+        user_id: adminUser.id,
+        affected_user_id: merchantUser.id,
+        service_key: 'settlement_type',
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    expect(settlementLog).to.exist;
+    expect(settlementLog.action).to.equal('T+1');
+    expect(settlementLog.new_state).to.equal(false);
+  });
 });
