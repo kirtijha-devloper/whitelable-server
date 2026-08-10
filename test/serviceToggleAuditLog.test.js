@@ -188,4 +188,25 @@ describe('ServiceToggleAuditLog Integration & Transaction Tests', () => {
     expect(logsResult.data[0].affectedUser).to.exist;
     expect(logsResult.data[0].affectedUser.id).to.equal(merchantUser.id);
   });
+
+  it('should filter audit logs by search query matching target user name or abheepay_id', async () => {
+    const logsResult = await getServiceToggleAuditLogs({
+      search: 'Test Merchant Audit',
+      page: 1,
+      limit: 10,
+    });
+
+    expect(logsResult.data).to.be.an('array');
+    expect(logsResult.count).to.be.at.least(1);
+    expect(logsResult.data[0].affectedUser.name).to.equal('Test Merchant Audit');
+
+    const emptyResult = await getServiceToggleAuditLogs({
+      search: 'NON_EXISTENT_USER_XYZ_123',
+      page: 1,
+      limit: 10,
+    });
+
+    expect(emptyResult.data).to.be.an('array');
+    expect(emptyResult.count).to.equal(0);
+  });
 });

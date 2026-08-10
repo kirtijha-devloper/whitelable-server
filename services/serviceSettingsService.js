@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const db = require('../config/database');
 const ServiceSetting = require('../models/ServiceSetting');
 const UserServiceSetting = require('../models/UserServiceSetting');
 const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
@@ -446,28 +447,50 @@ async function getServiceToggleAuditLogs(filters = {}) {
     where.service_key = String(filters.serviceKey).trim();
   }
 
+  const search = String(filters.search || filters.q || filters.targetUser || '').trim();
+  const models = require('../models/initAssociations');
+  const UserModel = models.User || User;
+
   const page = Math.max(1, Number(filters.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(filters.limit) || 20));
   const offset = (page - 1) * limit;
 
-  const models = require('../models/initAssociations');
-  const UserModel = models.User || User;
-
-  const affectedUserWhere = {};
-  const search = String(filters.search || filters.q || filters.targetUser || '').trim();
-
   if (search) {
-    const likeOp = Op.iLike || Op.like;
-    affectedUserWhere[Op.or] = [
-      { name: { [likeOp]: `%${search}%` } },
-      { username: { [likeOp]: `%${search}%` } },
-      { mobile_number: { [likeOp]: `%${search}%` } },
-      { abheepay_id: { [likeOp]: `%${search}%` } },
-      { email: { [likeOp]: `%${search}%` } },
+    const isSqlite = db.options?.dialect === 'sqlite';
+    const likeOp = isSqlite ? Op.like : Op.iLike;
+    const searchPattern = `%${search}%`;
+
+    const matchingUsers = await UserModel.findAll({
+      where: {
+        [Op.or]: [
+          { name: { [likeOp]: searchPattern } },
+          { username: { [likeOp]: searchPattern } },
+          { mobile_number: { [likeOp]: searchPattern } },
+          { abheepay_id: { [likeOp]: searchPattern } },
+          { email: { [likeOp]: searchPattern } },
+        ],
+      },
+      attributes: ['id'],
+      raw: true,
+    });
+
+    const matchingUserIds = matchingUsers.map((u) => u.id);
+
+    if (matchingUserIds.length === 0) {
+      return {
+        count: 0,
+        page,
+        limit,
+        totalPages: 1,
+        data: [],
+      };
+    }
+
+    where[Op.or] = [
+      { affected_user_id: { [Op.in]: matchingUserIds } },
+      { user_id: { [Op.in]: matchingUserIds } },
     ];
   }
-
-  const hasAffectedUserWhere = Object.keys(affectedUserWhere).length > 0;
 
   const { count, rows } = await ServiceToggleAuditLog.findAndCountAll({
     where,
@@ -481,8 +504,6 @@ async function getServiceToggleAuditLogs(filters = {}) {
         model: UserModel,
         as: 'affectedUser',
         attributes: ['id', 'name', 'abheepay_id', 'role', 'mobile_number'],
-        where: hasAffectedUserWhere ? affectedUserWhere : undefined,
-        required: hasAffectedUserWhere,
       },
     ],
     order: [['createdAt', 'DESC']],
