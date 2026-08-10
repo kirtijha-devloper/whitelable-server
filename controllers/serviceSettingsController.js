@@ -209,6 +209,8 @@ const getServiceToggleAuditLogsController = asyncHandler(async (req, res) => {
     affectedUserId: req.query.affected_user_id || req.query.affectedUserId,
     serviceKey: req.query.service_key || req.query.serviceKey,
     search: req.query.search || req.query.q || req.query.target_user || req.query.targetUser,
+    startDate: req.query.start_date || req.query.startDate,
+    endDate: req.query.end_date || req.query.endDate,
     page: req.query.page,
     limit: req.query.limit,
   };

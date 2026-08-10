@@ -447,6 +447,27 @@ async function getServiceToggleAuditLogs(filters = {}) {
     where.service_key = String(filters.serviceKey).trim();
   }
 
+  if (filters.startDate || filters.endDate) {
+    const createdAtWhere = {};
+    if (filters.startDate) {
+      const startStr = String(filters.startDate).trim();
+      const start = new Date(`${startStr}T00:00:00`);
+      if (!isNaN(start.getTime())) {
+        createdAtWhere[Op.gte] = start;
+      }
+    }
+    if (filters.endDate) {
+      const endStr = String(filters.endDate).trim();
+      const end = new Date(`${endStr}T23:59:59.999`);
+      if (!isNaN(end.getTime())) {
+        createdAtWhere[Op.lte] = end;
+      }
+    }
+    if (Object.keys(createdAtWhere).length > 0) {
+      where.createdAt = createdAtWhere;
+    }
+  }
+
   const search = String(filters.search || filters.q || filters.targetUser || '').trim();
   const models = require('../models/initAssociations');
   const UserModel = models.User || User;
