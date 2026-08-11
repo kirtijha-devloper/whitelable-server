@@ -721,7 +721,7 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
     details: {
       reference_id: payoutTransaction.reference_id,
       refundAmount,
-      refundBy: req.user?.id || 'admin',
+      refundBy: req.user ? `${req.user.name || req.user.username || 'Admin'} (${req.user.id})` : 'admin',
       refundLedgerId: refundEntry?.id || null,
     },
   });
