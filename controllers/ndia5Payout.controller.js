@@ -678,21 +678,33 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
     });
   }
 
-  const refundAmount = payoutTransaction.amount;
+  const amount = Number(payoutTransaction.amount) || 0;
+  const serviceCharge = Number(payoutTransaction.service_charge) || 0;
+  const refundAmount = amount + serviceCharge;
   let refundEntry = null;
 
   try {
     if (typeof ledgerService.createLedgerEntry === 'function') {
       refundEntry = await ledgerService.createLedgerEntry({
-        merchant_id: payoutTransaction.merchant_id,
-        transaction_type: 'CREDIT',
-        amount: refundAmount,
+        userId: payoutTransaction.merchant_id,
+        transactionType: 'payout_refund',
+        referenceId: payoutTransaction.id,
+        referenceTable: 'PayoutTransactions',
         description: `Manual Refund for NDIA5 Payout ${payoutTransaction.reference_id}`,
-        reference_id: `REFUND-${payoutTransaction.reference_id}`,
+        credit: refundAmount,
+        metadata: {
+          payout_provider: 'Ndia5',
+          payout_reference: payoutTransaction.reference_id,
+          original_payout_amount: String(amount),
+          original_service_charge: String(serviceCharge),
+          refund_source: 'admin_manual',
+          performed_by: req.user?.id,
+          performed_role: req.user?.role,
+        },
       });
     }
   } catch (ledgerError) {
-    console.error('[NDIA5 Manual Refund Ledger Error]:', ledgerError.message);
+    console.error('[NDIA5 Manual Refund Ledger Error]:', ledgerError);
   }
 
   existingData.manualRefundProcessed = true;
