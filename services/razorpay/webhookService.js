@@ -1,6 +1,5 @@
 const RazorpayNotification = require("../../models/RazorpayNotification.js");
 const razorpayWebhookQueue = require("../../queues/razorpayWebhookQueue.js");
-const { WEBHOOK_SOURCES } = require("../../utils/razorpay/sources");
 
 /**
  * Process Razorpay webhook notification
@@ -13,7 +12,7 @@ const { WEBHOOK_SOURCES } = require("../../utils/razorpay/sources");
  * - Business logic runs asynchronously (non-blocking)
  * - Production-ready with retries and error handling
  */
-async function processRzpNotification(event, source = WEBHOOK_SOURCES.AGRO_AXIS) {
+async function processRzpNotification(event, source = 'agro') {
     try {
         // tag the incoming payload so downstream code and logs can see where it came from
         if (event && typeof event === 'object') {
@@ -51,7 +50,8 @@ async function processRzpNotification(event, source = WEBHOOK_SOURCES.AGRO_AXIS)
         // extract fields we'll store directly on the row for reporting
         const midVal = event.mid || event.mid_number || null;
         const tidVal = event.tid || event.tid_number || null;
-        const amountVal = event.amount || event.amountOriginal || null;
+        const rawAmount = event.amount ?? event.amountOriginal ?? null;
+        const amountVal = rawAmount != null ? Math.round(Number(rawAmount)) : null;
         const currencyVal = event.currencyCode || null;
         const paymentModeVal = event.paymentMode || null;
         const cardTypeVal = event.paymentCardType || null;
@@ -60,11 +60,12 @@ async function processRzpNotification(event, source = WEBHOOK_SOURCES.AGRO_AXIS)
         const deviceSerialVal = event.deviceSerial || null;
         const postingDateVal = event.postingDate ? new Date(event.postingDate) : null;
 
+
         const defaults = {
             txn_id: txnId,
             event_json: event,
             status: status || null,
-            source: source || WEBHOOK_SOURCES.AGRO_AXIS,
+            source: source || 'agro',
             mid: midVal,
             tid: tidVal,
             amount: amountVal,
