@@ -38,7 +38,8 @@ afterEach(() => {
 describe('GET /api/payout/beneficiaries', () => {
   it('returns all beneficiaries for admin', async () => {
     Beneficiary.findAll = async (options) => {
-      expect(options).to.deep.equal({ order: [['createdAt', 'DESC']] });
+      expect(options.order).to.deep.equal([['createdAt', 'DESC']]);
+      expect(options.where.status).to.exist;
       return [{ id: 1, merchant_id: 2 }];
     };
 
@@ -53,7 +54,9 @@ describe('GET /api/payout/beneficiaries', () => {
 
   it('returns only merchant-owned beneficiaries for merchant', async () => {
     Beneficiary.findAll = async (options) => {
-      expect(options).to.deep.equal({ where: { merchant_id: 2 }, order: [['createdAt', 'DESC']] });
+      expect(options.order).to.deep.equal([['createdAt', 'DESC']]);
+      expect(options.where.merchant_id).to.equal(2);
+      expect(options.where.status).to.exist;
       return [{ id: 10, merchant_id: 2 }];
     };
 
@@ -68,7 +71,9 @@ describe('GET /api/payout/beneficiaries', () => {
 
   it('returns only franchise-owned beneficiaries for franshaise', async () => {
     Beneficiary.findAll = async (options) => {
-      expect(options).to.deep.equal({ where: { merchant_id: 3 }, order: [['createdAt', 'DESC']] });
+      expect(options.order).to.deep.equal([['createdAt', 'DESC']]);
+      expect(options.where.merchant_id).to.equal(3);
+      expect(options.where.status).to.exist;
       return [{ id: 20, merchant_id: 3 }];
     };
 
@@ -131,5 +136,27 @@ describe('PUT /api/payout/beneficiaries/:id', () => {
 
     expect(res.status).to.equal(403);
     expect(res.body.success).to.equal(false);
+  });
+});
+
+describe('POST/GET /api/payout/ndia5/callback', () => {
+  it('accepts and logs POST callback requests without authentication', async () => {
+    const res = await request(app)
+      .post('/api/payout/ndia5/callback')
+      .send({ event: 'payout.success', transactionId: '703560' });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.message).to.equal('Callback logged successfully');
+  });
+
+  it('accepts and logs GET callback requests without authentication', async () => {
+    const res = await request(app)
+      .get('/api/payout/ndia5/callback')
+      .query({ event: 'payout.success', transactionId: '703560' });
+
+    expect(res.status).to.equal(200);
+    expect(res.body.success).to.equal(true);
+    expect(res.body.message).to.equal('Callback logged successfully');
   });
 });

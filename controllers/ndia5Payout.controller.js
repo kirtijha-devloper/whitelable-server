@@ -528,6 +528,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
       ifsc: beneficiary.ifsc_code,
       customerMobile: beneficiary.mobile_number || '9876543210',
       customerName: beneficiary.beneficiary_name,
+      webhookUrl: 'https://pos.abheepay.com/api/payout/ndia5/callback',
     });
 
     // Update payout transaction record with provider response
@@ -796,6 +797,26 @@ const getDebugPayoutStatus = asyncHandler(async (req, res) => {
   }
 });
 
+/**
+ * GET/POST /api/payout/ndia5/callback
+ * Handles NDIA5 callback/webhook and logs it to india5.log
+ */
+const handleCallback = asyncHandler(async (req, res) => {
+  try {
+    ndia5Service.india5Log('CALLBACK', {
+      method: req.method,
+      url: req.originalUrl,
+      headers: req.headers,
+      query: req.query,
+      body: req.body,
+    });
+    return res.status(200).json({ success: true, message: 'Callback logged successfully' });
+  } catch (error) {
+    console.error('[NDIA5 Callback Error]:', error.message);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
 module.exports = {
   login,
   getBalance,
@@ -808,4 +829,5 @@ module.exports = {
   manualRefundPayout,
   getPayoutAuditLogsByPayout,
   getDebugPayoutStatus,
+  handleCallback,
 };
