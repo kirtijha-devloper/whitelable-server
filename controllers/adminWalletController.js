@@ -100,6 +100,19 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
     });
   }
 
+  // Ledger tracking must be enabled before any wallet adjustment
+  if (!user.start_ledger) {
+    return res.status(422).json({
+      success: false,
+      message: `Cannot credit wallet. Ledger tracking is not enabled for this user. Enable ledger tracking first (start_ledger = true) before giving money to ${user.name || ('user ' + user.id)}.`,
+      data: {
+        user_id: user.id,
+        user_name: user.name,
+        start_ledger: false
+      }
+    });
+  }
+
   // Start transaction
   const transaction = await db.transaction();
 
@@ -220,6 +233,19 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
     return res.status(404).json({ 
       success: false, 
       message: "User not found." 
+    });
+  }
+
+  // Ledger tracking must be enabled before any wallet adjustment
+  if (!user.start_ledger) {
+    return res.status(422).json({
+      success: false,
+      message: `Cannot debit wallet. Ledger tracking is not enabled for this user. Enable ledger tracking first (start_ledger = true) before taking money from ${user.name || ('user ' + user.id)}.`,
+      data: {
+        user_id: user.id,
+        user_name: user.name,
+        start_ledger: false
+      }
     });
   }
 

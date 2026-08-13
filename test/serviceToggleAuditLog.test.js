@@ -48,6 +48,7 @@ describe('ServiceToggleAuditLog Integration & Transaction Tests', () => {
         role: 'merchant',
         status: 'active',
         is_payout_enabled: true,
+        start_ledger: true,
       },
     });
   });

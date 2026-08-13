@@ -91,18 +91,18 @@ function stubHappyCredit({ balanceBefore = 1000, amount = 500 } = {}) {
   // No duplicate ledger entry
   Ledger.findOne = async () => null;
 
-  // Target user is active merchant
+  // Target user is active merchant with ledger tracking enabled
   User.findOne = async () => ({
-    id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, status: 'active',
+    id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, status: 'active', start_ledger: true,
   });
 
   // Inside txn: lock user row
   User.findByPk = async (id, opts) => {
     if (opts && opts.lock) {
-      return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore };
+      return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, start_ledger: true };
     }
     // Re-fetch after commit
-    return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore + amount };
+    return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore + amount, start_ledger: true };
   };
 
   // No prior ledger row (balance falls back to user.wallet via getBalanceInTxn)
@@ -131,14 +131,14 @@ function stubHappyDebit({ balanceBefore = 1000, amount = 200 } = {}) {
   Ledger.findOne = async () => null;
 
   User.findOne = async () => ({
-    id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, status: 'active',
+    id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, status: 'active', start_ledger: true,
   });
 
   User.findByPk = async (id, opts) => {
     if (opts && opts.lock) {
-      return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore };
+      return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, start_ledger: true };
     }
-    return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore - amount };
+    return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore - amount, start_ledger: true };
   };
 
   Ledger.create = async (data) => ({
@@ -240,6 +240,26 @@ describe('POST /api/admin/wallet/credit', () => {
     expect(res.body.message).to.match(/inactive/i);
   });
 
+  it('returns 422 when ledger tracking is not enabled for the target user', async () => {
+    Ledger.findOne = async () => null;
+    User.findOne   = async () => ({
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: 0, status: 'active', start_ledger: false,
+    });
+    User.findByPk  = async () => ({
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: 0, start_ledger: false,
+    });
+
+    const res = await request(app)
+      .post('/api/admin/wallet/credit')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send(BASE_CREDIT);
+    expect(res.status).to.equal(422);
+    expect(res.body.success).to.be.false;
+    expect(res.body.message).to.match(/ledger tracking is not enabled/i);
+    expect(res.body.message).to.match(/enable ledger tracking/i);
+    expect(res.body.data.start_ledger).to.be.false;
+  });
+
   // ── Idempotency ────────────────────────────────────────────────────────────
   it('returns 200 with original result on duplicate idempotency key', async () => {
     const existingLedger = {
@@ -257,7 +277,7 @@ describe('POST /api/admin/wallet/credit', () => {
 
     Ledger.findOne = async () => existingLedger;
     User.findByPk  = async () => ({
-      id: 42, name: 'Merchant A', role: 'merchant', wallet: 1500,
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: 1500, start_ledger: true,
     });
 
     const res = await request(app)
@@ -380,6 +400,26 @@ describe('POST /api/admin/wallet/debit', () => {
     expect(res.body.message).to.match(/suspended/i);
   });
 
+  it('returns 422 when ledger tracking is not enabled for the target user', async () => {
+    Ledger.findOne = async () => null;
+    User.findOne   = async () => ({
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: 500, status: 'active', start_ledger: false,
+    });
+    User.findByPk  = async () => ({
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: 500, start_ledger: false,
+    });
+
+    const res = await request(app)
+      .post('/api/admin/wallet/debit')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send(BASE_DEBIT);
+    expect(res.status).to.equal(422);
+    expect(res.body.success).to.be.false;
+    expect(res.body.message).to.match(/ledger tracking is not enabled/i);
+    expect(res.body.message).to.match(/enable ledger tracking/i);
+    expect(res.body.data.start_ledger).to.be.false;
+  });
+
   it('returns 422 when wallet balance is insufficient', async () => {
     const balanceBefore = 50; // less than debit amount of 200
     const txn = makeFakeTxn();
@@ -388,15 +428,15 @@ describe('POST /api/admin/wallet/debit', () => {
     Ledger.findOne = async () => null;
 
     User.findOne = async () => ({
-      id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, status: 'active',
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, status: 'active', start_ledger: true,
     });
 
     User.findByPk = async (_id, opts) => {
       if (opts && opts.lock) {
         // Lock path: return no ledger row so balance falls back to user.wallet
-        return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore };
+        return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, start_ledger: true };
       }
-      return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore };
+      return { id: 42, name: 'Merchant A', role: 'merchant', wallet: balanceBefore, start_ledger: true };
     };
 
     // Inside txn call sequence: first ledger findOne returns null (latest balance row)
@@ -430,7 +470,7 @@ describe('POST /api/admin/wallet/debit', () => {
 
     Ledger.findOne = async () => existingLedger;
     User.findByPk  = async () => ({
-      id: 42, name: 'Merchant A', role: 'merchant', wallet: 800,
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: 800, start_ledger: true,
     });
 
     const res = await request(app)
