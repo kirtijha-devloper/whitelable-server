@@ -12,6 +12,7 @@ const fileUpload = require('express-fileupload');
 // Import workers to start processing queues
 require("./workers/walletWorker"); // Existing wallet worker
 require("./workers/razorpayWebhookWorker"); // Razorpay webhook worker
+require("./workers/worldlineWebhookWorker"); // Worldline webhook worker
 // start BranchX pending resolver cron (scheduled status-check polling)
 require('./cron/resolvePendingBranchx');
 
@@ -164,6 +165,8 @@ app.use('/api/complaint', require('./routes/complaintRoutes'));
 app.use('/api/report', require('./routes/reportRoutes'));
 app.use('/api/kyc', require('./routes/kycRoutes'));
 app.use('/api/razorpay', require('./routes/razorpay/webhook/notificationRoutes'));
+app.use('/api/worldline', require('./routes/worldline/webhook/notificationRoutes'));
+app.use('/api/worldline-notifications', require('./routes/worldline/webhook/notificationRoutes'));
 app.use('/api/vimo', require('./routes/vimoRoutes'));
 // Direct-login feature: DL token management (admin-protected) + exchange endpoint (uses dl_token as credential)
 app.use('/api/admin',   require('./routes/directLoginRoutes'));
