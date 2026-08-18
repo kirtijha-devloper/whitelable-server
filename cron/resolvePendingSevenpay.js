@@ -3,9 +3,11 @@ const path = require('path');
 const cron = require('node-cron');
 const { Op } = require('sequelize');
 const PayoutTransaction = require('../models/PayoutTransaction');
+const Ledger = require('../models/Ledger');
 const PayoutAuditLog = require('../models/PayoutAuditLog');
 const db = require('../config/database');
 const sevenpayService = require('../services/sevenpayPayout.service');
+const ledgerService = require('../services/ledgerService');
 
 const LOG_FILE = path.resolve(__dirname, '../logs/sevenpay-payout-cron.log');
 if (!fs.existsSync(path.dirname(LOG_FILE))) {
@@ -181,9 +183,59 @@ async function resolvePendingSevenpay() {
           locked.status = serviceResponse.status;
           locked.reference_id = serviceResponse.crn || locked.reference_id;
           locked.amount = serviceResponse.amount || locked.amount;
-          locked.data = JSON.stringify(mergedData);
           locked.service_charge = locked.service_charge ?? serviceResponse.serviceCharge ?? 0;
 
+          let refundEntry = null;
+          if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && serviceResponse.status === 'FAILED') {
+            const refundAmount = parseFloat(locked.amount || 0) + parseFloat(locked.service_charge || 0);
+
+            if (refundAmount > 0) {
+              const existingRefund = await Ledger.findOne({
+                where: {
+                  transaction_type: 'payout_refund',
+                  reference_id: locked.id,
+                  reference_table: 'PayoutTransactions'
+                },
+                transaction: tr
+              });
+
+              if (existingRefund) {
+                locked.data = JSON.stringify(mergedData);
+                await locked.save({ transaction: tr });
+                await tr.commit();
+                const msg = `[cron] SevenPay payout ${locked.reference_id} (${sequenceLabel}) failed but refund already exists`;
+                console.log(msg);
+                appendLog(msg);
+                continue;
+              }
+
+              refundEntry = await ledgerService.createLedgerEntry({
+                userId: locked.merchant_id,
+                transactionType: 'payout_refund',
+                referenceId: locked.id,
+                referenceTable: 'PayoutTransactions',
+                description: `SevenPay payout failed: refund ₹${refundAmount} for payout ${locked.reference_id}`,
+                credit: refundAmount,
+                metadata: {
+                  payout_provider: 'Sevenpay',
+                  payout_reference: locked.reference_id,
+                  sevenpay_status: serviceResponse.status,
+                  original_payout_amount: locked.amount,
+                  original_service_charge: locked.service_charge
+                }
+              }, { transaction: tr });
+
+              mergedData.manualRefund = {
+                refundedAt: new Date().toISOString(),
+                refundedBy: 'system_cron',
+                refundedRole: 'system',
+                refundLedgerId: refundEntry?.id || null,
+                refundAmount,
+              };
+            }
+          }
+
+          locked.data = JSON.stringify(mergedData);
           await locked.save({ transaction: tr });
 
           if (['SUCCESS', 'FAILED'].includes(serviceResponse.status)) {
@@ -199,6 +251,8 @@ async function resolvePendingSevenpay() {
                 rawResponse: serviceResponse.rawResponse || null,
                 resolvedByCron: true,
                 refundRequired: serviceResponse.status === 'FAILED',
+                refundLedgerId: refundEntry?.id || null,
+                autoRefunded: !!refundEntry,
               },
             }, { transaction: tr });
           }

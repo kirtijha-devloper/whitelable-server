@@ -282,6 +282,61 @@ async function upsertPayoutTransaction({
       payload.status = 'SUCCESS';
     }
     
+    const previousStatus = existingTransaction.status;
+    const newStatus = payload.status;
+
+    let refundEntry = null;
+    let updatedSnapshot = buildProviderSnapshot(existingTransaction, normalizedResponse);
+
+    if ((previousStatus === 'SUCCESS' || previousStatus === 'PENDING') && newStatus === 'FAILED') {
+      const refundAmount = parseFloat(resolvedAmount || 0) + parseFloat(resolvedServiceCharge || 0);
+
+      if (refundAmount > 0) {
+        // Query to check if refund already exists (double refund check)
+        const existingRefund = await Ledger.findOne({
+          where: {
+            transaction_type: 'payout_refund',
+            reference_id: existingTransaction.id,
+            reference_table: 'PayoutTransactions',
+          },
+        });
+
+        if (!existingRefund) {
+          try {
+            refundEntry = await ledgerService.createLedgerEntry({
+              userId: merchantId,
+              transactionType: 'payout_refund',
+              referenceId: existingTransaction.id,
+              referenceTable: 'PayoutTransactions',
+              description: `SevenPay payout failed: refund ₹${refundAmount} for payout ${existingTransaction.reference_id}`,
+              credit: refundAmount,
+              metadata: {
+                payout_provider: 'Sevenpay',
+                payout_reference: existingTransaction.reference_id,
+                sevenpay_status: newStatus,
+                original_payout_amount: String(resolvedAmount),
+                original_service_charge: String(resolvedServiceCharge),
+                refund_source: 'status_update_auto',
+              },
+            });
+
+            updatedSnapshot.manualRefund = {
+              refundedAt: new Date().toISOString(),
+              refundedBy: 'system_auto',
+              refundedRole: 'system',
+              refundLedgerId: refundEntry?.id || null,
+              refundAmount,
+            };
+          } catch (refundErr) {
+            console.error('Failed to create SevenPay auto-refund ledger entry:', refundErr);
+          }
+        } else {
+          console.log(`SevenPay payout ${existingTransaction.reference_id} failed but refund already exists.`);
+        }
+      }
+    }
+
+    payload.data = JSON.stringify(updatedSnapshot);
     await existingTransaction.update(payload);
 
     try {
@@ -291,7 +346,9 @@ async function upsertPayoutTransaction({
         details: {
           reference_id: payload.reference_id,
           status: payload.status,
-          rawResponse: normalizedResponse.rawResponse || null
+          rawResponse: normalizedResponse.rawResponse || null,
+          refundLedgerId: refundEntry?.id || null,
+          autoRefunded: !!refundEntry,
         }
       });
     } catch (e) {
