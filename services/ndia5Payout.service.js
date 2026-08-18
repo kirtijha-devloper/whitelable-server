@@ -159,57 +159,71 @@ async function login(forceRefresh = false) {
  */
 async function getBalance(params = {}) {
   const config = getConfig();
-  const token = await login();
+  let token = await login();
   const endpoint = `${config.baseURL}/transaction/getBalance`;
-  const timestamp = getIstTimestamp();
 
-  const payload = {
-    accountNumber: params.accountNumber || '103712250034',
-    ifsc: params.ifsc || 'SMCB0001037',
-  };
+  let attempts = 0;
+  while (attempts < 2) {
+    const timestamp = getIstTimestamp();
+    const payload = {
+      accountNumber: params.accountNumber || '103712250034',
+      ifsc: params.ifsc || 'SMCB0001037',
+    };
 
-  const reqLog = {
-    endpoint,
-    method: 'POST',
-    requestHeaders: {
-      Authorization: 'Bearer [HIDDEN]',
-      timestamp,
-      'Content-Type': 'application/json',
-    },
-    requestBody: payload,
-  };
-
-  try {
-    const response = await axios.post(endpoint, payload, {
-      headers: {
-        Authorization: `Bearer ${token}`,
+    const reqLog = {
+      endpoint,
+      method: 'POST',
+      requestHeaders: {
+        Authorization: 'Bearer [HIDDEN]',
         timestamp,
         'Content-Type': 'application/json',
       },
-      timeout: config.timeout,
-    });
-
-    india5Log('BALANCE_CHECK', {
-      ...reqLog,
-      responseStatus: response.status,
-      responseBody: response.data,
-      success: true,
-    });
-
-    return {
-      success: true,
-      rawResponse: response.data,
-      balance: response.data,
+      requestBody: payload,
     };
-  } catch (error) {
-    const errorResponse = error.response ? { status: error.response.status, data: error.response.data } : null;
-    india5Log('BALANCE_CHECK', {
-      ...reqLog,
-      error: error.message,
-      errorResponse,
-      success: false,
-    });
-    throw new Error(`NDIA5 Get Balance Failed: ${error.message}`);
+
+    try {
+      const response = await axios.post(endpoint, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          timestamp,
+          'Content-Type': 'application/json',
+        },
+        timeout: config.timeout,
+      });
+
+      india5Log('BALANCE_CHECK', {
+        ...reqLog,
+        responseStatus: response.status,
+        responseBody: response.data,
+        success: true,
+      });
+
+      return {
+        success: true,
+        rawResponse: response.data,
+        balance: response.data,
+      };
+    } catch (error) {
+      const errorStatus = error.response ? error.response.status : null;
+      if (errorStatus === 401 && attempts === 0) {
+        attempts++;
+        india5Log('BALANCE_CHECK_401_RETRY', {
+          message: 'Received 401 Unauthorized from NDIA5. Requesting new login token and retrying...',
+          error: error.message,
+        });
+        token = await login(true); // force fresh login
+        continue;
+      }
+
+      const errorResponse = error.response ? { status: error.response.status, data: error.response.data } : null;
+      india5Log('BALANCE_CHECK', {
+        ...reqLog,
+        error: error.message,
+        errorResponse,
+        success: false,
+      });
+      throw new Error(`NDIA5 Get Balance Failed: ${error.message}`);
+    }
   }
 }
 
@@ -219,7 +233,7 @@ async function getBalance(params = {}) {
  */
 async function initiatePayout(params) {
   const config = getConfig();
-  const token = await login();
+  let token = await login();
   const endpoint = `${config.baseURL}/transaction/initiate`;
 
   const {
@@ -240,24 +254,9 @@ async function initiatePayout(params) {
     throw new Error('Missing required payout parameters: merchantReferenceId, amount, bankAccount, ifsc');
   }
 
-  const timestamp = getIstTimestamp();
-
-  // Format amount strictly for NDIA5 signature generation (append '.0' if integer format)
-  const numAmount = Number(amount);
-  const sigAmount = Number.isInteger(numAmount) ? `${numAmount}.0` : `${numAmount}`;
-
-  // Signature raw string: "<AMOUNT>.0|PAYOUT|<merchant_ref_id>|<account_no>"
-  const rawString = `${sigAmount}|PAYOUT|${merchantReferenceId}|${bankAccount}`;
-
-  // Calculate HMAC-SHA256 Base64 signature
-  const signature = crypto
-    .createHmac('sha256', config.salt)
-    .update(rawString)
-    .digest('base64');
-
   const payload = {
     merchant_reference_id: merchantReferenceId,
-    amount: numAmount,
+    amount: Number(amount),
     currency: 'INR',
     service: 'PAYOUT',
     service_details: {
@@ -281,60 +280,89 @@ async function initiatePayout(params) {
     webhook_url: webhookUrl,
   };
 
-  const reqLog = {
-    endpoint,
-    method: 'POST',
-    requestHeaders: {
-      Authorization: 'Bearer [HIDDEN]',
-      timestamp,
-      signature,
-      'Content-Type': 'application/json',
-    },
-    rawSignatureDataString: rawString,
-    requestBody: payload,
-  };
+  let attempts = 0;
+  while (attempts < 2) {
+    const timestamp = getIstTimestamp();
 
-  try {
-    const response = await axios.post(endpoint, payload, {
-      headers: {
-        Authorization: `Bearer ${token}`,
+    // Format amount strictly for NDIA5 signature generation (append '.0' if integer format)
+    const numAmount = Number(amount);
+    const sigAmount = Number.isInteger(numAmount) ? `${numAmount}.0` : `${numAmount}`;
+
+    // Signature raw string: "<AMOUNT>.0|PAYOUT|<merchant_ref_id>|<account_no>"
+    const rawString = `${sigAmount}|PAYOUT|${merchantReferenceId}|${bankAccount}`;
+
+    // Calculate HMAC-SHA256 Base64 signature
+    const signature = crypto
+      .createHmac('sha256', config.salt)
+      .update(rawString)
+      .digest('base64');
+
+    const reqLog = {
+      endpoint,
+      method: 'POST',
+      requestHeaders: {
+        Authorization: 'Bearer [HIDDEN]',
         timestamp,
         signature,
         'Content-Type': 'application/json',
       },
-      timeout: config.timeout,
-    });
-
-    const data = response.data;
-    const responseStatus = normalizeStatus(data?.data?.status);
-
-    india5Log('INITIATE_PAYOUT', {
-      ...reqLog,
-      responseStatus: response.status,
-      responseBody: data,
-      normalizedStatus: responseStatus,
-      success: true,
-    });
-
-    return {
-      success: true,
-      transactionId: data?.data?.transaction_id || data?.data?.transactionId || null,
-      merchantReferenceId: data?.data?.merchant_reference_id || data?.data?.merchantReferenceId || merchantReferenceId,
-      status: responseStatus,
-      rawStatus: data?.data?.status || 'PENDING',
-      serviceCharge: data?.data?.service_charge ?? data?.data?.serviceCharge ?? 0,
-      createdAt: data?.data?.created_at || null,
-      rawResponse: data,
+      rawSignatureDataString: rawString,
+      requestBody: payload,
     };
-  } catch (error) {
-    const errorResponse = error.response ? { status: error.response.status, data: error.response.data } : null;
-    india5Log('INITIATE_PAYOUT', {
-      ...reqLog,
-      error: error.message,
-      errorResponse,
-      success: false,
-    });
-    throw new Error(`NDIA5 Payout Initiation Failed: ${error.message}`);
+
+    try {
+      const response = await axios.post(endpoint, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          timestamp,
+          signature,
+          'Content-Type': 'application/json',
+        },
+        timeout: config.timeout,
+      });
+
+      const data = response.data;
+      const responseStatus = normalizeStatus(data?.data?.status);
+
+      india5Log('INITIATE_PAYOUT', {
+        ...reqLog,
+        responseStatus: response.status,
+        responseBody: data,
+        normalizedStatus: responseStatus,
+        success: true,
+      });
+
+      return {
+        success: true,
+        transactionId: data?.data?.transaction_id || data?.data?.transactionId || null,
+        merchantReferenceId: data?.data?.merchant_reference_id || data?.data?.merchantReferenceId || merchantReferenceId,
+        status: responseStatus,
+        rawStatus: data?.data?.status || 'PENDING',
+        serviceCharge: data?.data?.service_charge ?? data?.data?.serviceCharge ?? 0,
+        createdAt: data?.data?.created_at || null,
+        rawResponse: data,
+      };
+    } catch (error) {
+      const errorStatus = error.response ? error.response.status : null;
+      if (errorStatus === 401 && attempts === 0) {
+        attempts++;
+        india5Log('INITIATE_PAYOUT_401_RETRY', {
+          message: 'Received 401 Unauthorized from NDIA5. Requesting new login token and retrying...',
+          error: error.message,
+        });
+        token = await login(true); // force fresh login
+        continue;
+      }
+
+      const errorResponse = error.response ? { status: error.response.status, data: error.response.data } : null;
+      india5Log('INITIATE_PAYOUT', {
+        ...reqLog,
+        error: error.message,
+        errorResponse,
+        success: false,
+      });
+      throw new Error(`NDIA5 Payout Initiation Failed: ${error.message}`);
+    }
   }
 }
 
@@ -348,62 +376,77 @@ async function getPayoutStatus(merchantReferenceId) {
   }
 
   const config = getConfig();
-  const token = await login();
+  let token = await login();
   const endpoint = `${config.baseURL}/transaction/check/payoutStatus/${merchantReferenceId}`;
-  const timestamp = getIstTimestamp();
 
-  const reqLog = {
-    endpoint,
-    method: 'GET',
-    requestHeaders: {
-      Authorization: 'Bearer [HIDDEN]',
-      timestamp,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    merchantReferenceId,
-  };
+  let attempts = 0;
+  while (attempts < 2) {
+    const timestamp = getIstTimestamp();
 
-  try {
-    const response = await axios.get(endpoint, {
-      headers: {
-        Authorization: `Bearer ${token}`,
+    const reqLog = {
+      endpoint,
+      method: 'GET',
+      requestHeaders: {
+        Authorization: 'Bearer [HIDDEN]',
         timestamp,
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      timeout: config.timeout,
-    });
-
-    const data = response.data;
-    const responseStatus = normalizeStatus(data?.data?.status);
-
-    india5Log('STATUS_CHECK', {
-      ...reqLog,
-      responseStatus: response.status,
-      responseBody: data,
-      normalizedStatus: responseStatus,
-      success: true,
-    });
-
-    return {
-      success: true,
-      transactionId: data?.data?.transactionId || data?.data?.transaction_id || null,
-      merchantReferenceId: data?.data?.merchantReferenceId || data?.data?.merchant_reference_id || merchantReferenceId,
-      status: responseStatus,
-      rawStatus: data?.data?.status || 'PENDING',
-      serviceCharge: data?.data?.serviceCharge ?? data?.data?.service_charge ?? 0,
-      rawResponse: data,
+      merchantReferenceId,
     };
-  } catch (error) {
-    const errorResponse = error.response ? { status: error.response.status, data: error.response.data } : null;
-    india5Log('STATUS_CHECK', {
-      ...reqLog,
-      error: error.message,
-      errorResponse,
-      success: false,
-    });
-    throw new Error(`NDIA5 Status Check Failed: ${error.message}`);
+
+    try {
+      const response = await axios.get(endpoint, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          timestamp,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        timeout: config.timeout,
+      });
+
+      const data = response.data;
+      const responseStatus = normalizeStatus(data?.data?.status);
+
+      india5Log('STATUS_CHECK', {
+        ...reqLog,
+        responseStatus: response.status,
+        responseBody: data,
+        normalizedStatus: responseStatus,
+        success: true,
+      });
+
+      return {
+        success: true,
+        transactionId: data?.data?.transactionId || data?.data?.transaction_id || null,
+        merchantReferenceId: data?.data?.merchantReferenceId || data?.data?.merchant_reference_id || merchantReferenceId,
+        status: responseStatus,
+        rawStatus: data?.data?.status || 'PENDING',
+        serviceCharge: data?.data?.serviceCharge ?? data?.data?.service_charge ?? 0,
+        rawResponse: data,
+      };
+    } catch (error) {
+      const errorStatus = error.response ? error.response.status : null;
+      if (errorStatus === 401 && attempts === 0) {
+        attempts++;
+        india5Log('STATUS_CHECK_401_RETRY', {
+          message: 'Received 401 Unauthorized from NDIA5. Requesting new login token and retrying...',
+          error: error.message,
+        });
+        token = await login(true); // force fresh login
+        continue;
+      }
+
+      const errorResponse = error.response ? { status: error.response.status, data: error.response.data } : null;
+      india5Log('STATUS_CHECK', {
+        ...reqLog,
+        error: error.message,
+        errorResponse,
+        success: false,
+      });
+      throw new Error(`NDIA5 Status Check Failed: ${error.message}`);
+    }
   }
 }
 
