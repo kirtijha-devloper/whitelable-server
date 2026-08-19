@@ -347,34 +347,34 @@ function mapRowToNotificationEvent(r, provider = 'telering', index = 0) {
 
   const rrn = String(
     normalizedRow['RRN'] || normalizedRow['RR_NUMBER'] || normalizedRow['REF_NO'] || normalizedRow['RRN_NUMBER'] || ''
-  ).trim();
+  ).replace(/'/g, '').trim();
 
   let txnId = String(
     normalizedRow['TXN_ID'] || normalizedRow['TRANSACTION_ID'] || normalizedRow['ID'] || rrn || ''
-  ).trim();
+  ).replace(/'/g, '').trim();
 
   if (!txnId) {
     txnId = `TEL-${tid || mid || 'UNKNOWN'}-${Date.now()}-${index}`;
   }
 
   const rawAmt = normalizedRow['TRANSACTION_AMOUNT'] || normalizedRow['AMOUNT'] || normalizedRow['TXN_AMOUNT'] || 0;
-  const amount = parseFloat(String(rawAmt).replace(/,/g, '')) || 0;
+  const amount = parseFloat(String(rawAmt).replace(/'/g, '').replace(/,/g, '')) || 0;
 
   const paymentCardBrand = String(
     normalizedRow['SCHEME'] || normalizedRow['CARD_BRAND'] || normalizedRow['BRAND'] || normalizedRow['CARD_SCHEME'] || 'VISA'
-  ).trim().toUpperCase();
+  ).replace(/'/g, '').trim().toUpperCase();
 
   const paymentCardType = String(
     normalizedRow['CARD_TYPE'] || normalizedRow['PAYMENT_CARD_TYPE'] || 'CREDIT'
-  ).trim().toUpperCase();
+  ).replace(/'/g, '').trim().toUpperCase();
 
   const cardSubType = String(
     normalizedRow['TRANSACTION_TYPE'] || normalizedRow['TXN_TYPE'] || normalizedRow['TYPE'] || 'SALE'
-  ).trim().toUpperCase();
+  ).replace(/'/g, '').trim().toUpperCase();
 
   const rawStatus = String(
     normalizedRow['TRANSACTION_STATUS'] || normalizedRow['STATUS'] || normalizedRow['RESPONSE_MESSAGE'] || 'SUCCESS'
-  ).trim().toUpperCase();
+  ).replace(/'/g, '').trim().toUpperCase();
 
   let status = 'AUTHORIZED';
   if (rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED') {
@@ -396,11 +396,11 @@ function mapRowToNotificationEvent(r, provider = 'telering', index = 0) {
     paymentCardType,
     paymentCardBrand,
     rrNumber: rrn || null,
-    deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').trim() || null,
+    deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').replace(/'/g, '').trim() || null,
     postingDate: isNaN(postingDate.getTime()) ? new Date().toISOString() : postingDate.toISOString(),
     status,
     source: provider || 'telering',
-    customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').trim() || null,
+    customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').replace(/'/g, '').trim() || null,
     raw: r
   };
 
@@ -440,7 +440,9 @@ const previewCSV = asyncHandler(async (req, res) => {
     const previewList = [];
     rawRows.forEach((r, idx) => {
       const { previewRow } = mapRowToNotificationEvent(r, provider, idx);
-      previewList.push(previewRow);
+      if (previewRow.status !== 'FAILED') {
+        previewList.push(previewRow);
+      }
     });
 
     res.status(200).json({
@@ -480,7 +482,7 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
     let processedCount = 0;
     for (let i = 0; i < rawRows.length; i++) {
       const { event } = mapRowToNotificationEvent(rawRows[i], provider, i);
-      if (event.txnId) {
+      if (event.txnId && event.status !== 'FAILED') {
         await processRzpNotification(event, provider);
         processedCount++;
       }
