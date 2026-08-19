@@ -330,51 +330,24 @@ function parseUploadedFileToRows(filePath) {
   return XLSX.utils.sheet_to_json(worksheet, { defval: "" });
 }
 
-function mapRowToNotificationEvent(r, provider = 'telering', index = 0) {
-  const normalizedRow = {};
-  for (const k of Object.keys(r)) {
-    const cleanKey = String(k).trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
-    normalizedRow[cleanKey] = r[k];
-  }
-
-  const mid = String(
-    normalizedRow['MID'] || normalizedRow['MERCHANT_ID'] || normalizedRow['MID_NUMBER'] || ''
-  ).replace(/'/g, '').trim();
-
-  const tid = String(
-    normalizedRow['TID'] || normalizedRow['TERMINAL_ID'] || normalizedRow['TID_NUMBER'] || ''
-  ).replace(/'/g, '').trim();
-
-  const rrn = String(
-    normalizedRow['RRN'] || normalizedRow['RR_NUMBER'] || normalizedRow['REF_NO'] || normalizedRow['RRN_NUMBER'] || ''
-  ).replace(/'/g, '').trim();
-
-  let txnId = String(
-    normalizedRow['TXN_ID'] || normalizedRow['TRANSACTION_ID'] || normalizedRow['ID'] || rrn || ''
-  ).replace(/'/g, '').trim();
+function mapPaytmRow(r, normalizedRow, provider, index) {
+  const mid = String(normalizedRow['MID'] || normalizedRow['MERCHANT_ID'] || '').replace(/'/g, '').trim();
+  const tid = String(normalizedRow['TID'] || normalizedRow['TERMINAL_ID'] || '').replace(/'/g, '').trim();
+  const rrn = String(normalizedRow['RRN'] || normalizedRow['REF_NO'] || '').replace(/'/g, '').trim();
+  let txnId = String(normalizedRow['TXN_ID'] || normalizedRow['TRANSACTION_ID'] || rrn || '').replace(/'/g, '').trim();
 
   if (!txnId) {
-    txnId = `TEL-${tid || mid || 'UNKNOWN'}-${Date.now()}-${index}`;
+    txnId = `PAYTM-${tid || mid || 'UNKNOWN'}-${Date.now()}-${index}`;
   }
 
-  const rawAmt = normalizedRow['TRANSACTION_AMOUNT'] || normalizedRow['AMOUNT'] || normalizedRow['TXN_AMOUNT'] || 0;
+  const rawAmt = normalizedRow['AMOUNT'] || normalizedRow['TXN_AMOUNT'] || 0;
   const amount = parseFloat(String(rawAmt).replace(/'/g, '').replace(/,/g, '')) || 0;
 
-  const paymentCardBrand = String(
-    normalizedRow['SCHEME'] || normalizedRow['CARD_BRAND'] || normalizedRow['BRAND'] || normalizedRow['CARD_SCHEME'] || 'VISA'
-  ).replace(/'/g, '').trim().toUpperCase();
+  const paymentCardBrand = String(normalizedRow['CARD_BRAND'] || normalizedRow['SCHEME'] || normalizedRow['BRAND'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
+  const paymentCardType = String(normalizedRow['CARD_TYPE'] || normalizedRow['PAYMENT_CARD_TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
+  const cardSubType = String(normalizedRow['TRANSACTION_TYPE'] || normalizedRow['TXN_TYPE'] || 'SALE').replace(/'/g, '').trim().toUpperCase();
 
-  const paymentCardType = String(
-    normalizedRow['CARD_TYPE'] || normalizedRow['PAYMENT_CARD_TYPE'] || 'CREDIT'
-  ).replace(/'/g, '').trim().toUpperCase();
-
-  const cardSubType = String(
-    normalizedRow['TRANSACTION_TYPE'] || normalizedRow['TXN_TYPE'] || normalizedRow['TYPE'] || 'SALE'
-  ).replace(/'/g, '').trim().toUpperCase();
-
-  const rawStatus = String(
-    normalizedRow['TRANSACTION_STATUS'] || normalizedRow['STATUS'] || normalizedRow['RESPONSE_MESSAGE'] || 'SUCCESS'
-  ).replace(/'/g, '').trim().toUpperCase();
+  const rawStatus = String(normalizedRow['STATUS'] || normalizedRow['TRANSACTION_STATUS'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
 
   let status = 'AUTHORIZED';
   if (rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED') {
@@ -383,7 +356,208 @@ function mapRowToNotificationEvent(r, provider = 'telering', index = 0) {
     status = 'FAILED';
   }
 
-  const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || normalizedRow['POSTING_DATE'] || new Date();
+  const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
+  const postingDate = new Date(rawDate);
+
+  const event = {
+    txnId,
+    mid,
+    tid,
+    amount,
+    currencyCode: 'INR',
+    paymentMode: 'CARD',
+    paymentCardType,
+    paymentCardBrand,
+    rrNumber: rrn || null,
+    deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').replace(/'/g, '').trim() || null,
+    postingDate: isNaN(postingDate.getTime()) ? new Date().toISOString() : postingDate.toISOString(),
+    status,
+    source: provider || 'paytm',
+    customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').replace(/'/g, '').trim() || null,
+    raw: r
+  };
+
+  return {
+    event,
+    previewRow: {
+      tid,
+      mid,
+      txn_id: txnId,
+      amount,
+      card_type: paymentCardType,
+      card_brand: paymentCardBrand,
+      card_sub_type: cardSubType,
+      charge: 0,
+      charge_percentage: 0,
+      left_amount: amount,
+      date: isNaN(postingDate.getTime()) ? String(rawDate) : postingDate.toISOString().replace('T', ' ').substring(0, 19),
+      status,
+      raw: r
+    }
+  };
+}
+
+function mapPinelabRow(r, normalizedRow, provider, index) {
+  const mid = String(normalizedRow['MID'] || normalizedRow['MERCHANT_ID'] || normalizedRow['MID_NUMBER'] || '').replace(/'/g, '').trim();
+  const tid = String(normalizedRow['TID'] || normalizedRow['TERMINAL_ID'] || normalizedRow['TID_NUMBER'] || '').replace(/'/g, '').trim();
+  const rrn = String(normalizedRow['RRN'] || normalizedRow['RR_NUMBER'] || '').replace(/'/g, '').trim();
+  let txnId = String(normalizedRow['TXN_ID'] || normalizedRow['TRANSACTION_ID'] || rrn || '').replace(/'/g, '').trim();
+
+  if (!txnId) {
+    txnId = `PINELAB-${tid || mid || 'UNKNOWN'}-${Date.now()}-${index}`;
+  }
+
+  const rawAmt = normalizedRow['AMOUNT'] || normalizedRow['TRANSACTION_AMOUNT'] || 0;
+  const amount = parseFloat(String(rawAmt).replace(/'/g, '').replace(/,/g, '')) || 0;
+
+  const paymentCardBrand = String(normalizedRow['SCHEME'] || normalizedRow['CARD_BRAND'] || normalizedRow['CARD_SCHEME'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
+  const paymentCardType = String(normalizedRow['CARD_TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
+  const cardSubType = String(normalizedRow['TRANSACTION_TYPE'] || normalizedRow['TYPE'] || 'SALE').replace(/'/g, '').trim().toUpperCase();
+
+  const rawStatus = String(normalizedRow['STATUS'] || normalizedRow['RESPONSE_MESSAGE'] || normalizedRow['TRANSACTION_STATUS'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
+
+  let status = 'AUTHORIZED';
+  if (rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED') {
+    status = (cardSubType === 'SETTLEMENT') ? 'SETTLED' : 'AUTHORIZED';
+  } else if (rawStatus.includes('DECLINE') || rawStatus.includes('FAIL') || rawStatus.includes('REJECT')) {
+    status = 'FAILED';
+  }
+
+  const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
+  const postingDate = new Date(rawDate);
+
+  const event = {
+    txnId,
+    mid,
+    tid,
+    amount,
+    currencyCode: 'INR',
+    paymentMode: 'CARD',
+    paymentCardType,
+    paymentCardBrand,
+    rrNumber: rrn || null,
+    deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').replace(/'/g, '').trim() || null,
+    postingDate: isNaN(postingDate.getTime()) ? new Date().toISOString() : postingDate.toISOString(),
+    status,
+    source: provider || 'pinelab',
+    customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').replace(/'/g, '').trim() || null,
+    raw: r
+  };
+
+  return {
+    event,
+    previewRow: {
+      tid,
+      mid,
+      txn_id: txnId,
+      amount,
+      card_type: paymentCardType,
+      card_brand: paymentCardBrand,
+      card_sub_type: cardSubType,
+      charge: 0,
+      charge_percentage: 0,
+      left_amount: amount,
+      date: isNaN(postingDate.getTime()) ? String(rawDate) : postingDate.toISOString().replace('T', ' ').substring(0, 19),
+      status,
+      raw: r
+    }
+  };
+}
+
+function mapYesBankRow(r, normalizedRow, provider, index) {
+  const mid = String(normalizedRow['MID'] || normalizedRow['MERCHANT_ID'] || '').replace(/'/g, '').trim();
+  const tid = String(normalizedRow['TID'] || normalizedRow['TERMINAL_ID'] || '').replace(/'/g, '').trim();
+  const rrn = String(normalizedRow['RRN'] || normalizedRow['REF_NO'] || normalizedRow['RRN_NUMBER'] || '').replace(/'/g, '').trim();
+  let txnId = String(normalizedRow['TXN_ID'] || normalizedRow['TRANSACTION_ID'] || rrn || '').replace(/'/g, '').trim();
+
+  if (!txnId) {
+    txnId = `YESBANK-${tid || mid || 'UNKNOWN'}-${Date.now()}-${index}`;
+  }
+
+  const rawAmt = normalizedRow['AMOUNT'] || normalizedRow['TXN_AMOUNT'] || 0;
+  const amount = parseFloat(String(rawAmt).replace(/'/g, '').replace(/,/g, '')) || 0;
+
+  const paymentCardBrand = String(normalizedRow['CARD_BRAND'] || normalizedRow['SCHEME'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
+  const paymentCardType = String(normalizedRow['CARD_TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
+  const cardSubType = String(normalizedRow['TRANSACTION_TYPE'] || 'SALE').replace(/'/g, '').trim().toUpperCase();
+
+  const rawStatus = String(normalizedRow['STATUS'] || normalizedRow['TRANSACTION_STATUS'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
+
+  let status = 'AUTHORIZED';
+  if (rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED') {
+    status = (cardSubType === 'SETTLEMENT') ? 'SETTLED' : 'AUTHORIZED';
+  } else if (rawStatus.includes('DECLINE') || rawStatus.includes('FAIL') || rawStatus.includes('REJECT')) {
+    status = 'FAILED';
+  }
+
+  const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
+  const postingDate = new Date(rawDate);
+
+  const event = {
+    txnId,
+    mid,
+    tid,
+    amount,
+    currencyCode: 'INR',
+    paymentMode: 'CARD',
+    paymentCardType,
+    paymentCardBrand,
+    rrNumber: rrn || null,
+    deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').replace(/'/g, '').trim() || null,
+    postingDate: isNaN(postingDate.getTime()) ? new Date().toISOString() : postingDate.toISOString(),
+    status,
+    source: provider || 'yesbank',
+    customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').replace(/'/g, '').trim() || null,
+    raw: r
+  };
+
+  return {
+    event,
+    previewRow: {
+      tid,
+      mid,
+      txn_id: txnId,
+      amount,
+      card_type: paymentCardType,
+      card_brand: paymentCardBrand,
+      card_sub_type: cardSubType,
+      charge: 0,
+      charge_percentage: 0,
+      left_amount: amount,
+      date: isNaN(postingDate.getTime()) ? String(rawDate) : postingDate.toISOString().replace('T', ' ').substring(0, 19),
+      status,
+      raw: r
+    }
+  };
+}
+
+function mapTeleringRow(r, normalizedRow, provider, index) {
+  const mid = String(normalizedRow['MID'] || '').replace(/'/g, '').trim();
+  const tid = String(normalizedRow['TID'] || '').replace(/'/g, '').trim();
+  const rrn = String(normalizedRow['RRN'] || '').replace(/'/g, '').trim();
+  let txnId = rrn;
+
+  if (!txnId) {
+    txnId = `TEL-${tid || mid || 'UNKNOWN'}-${Date.now()}-${index}`;
+  }
+
+  const rawAmt = normalizedRow['TRANSACTION_AMOUNT'] || 0;
+  const amount = parseFloat(String(rawAmt).replace(/'/g, '').replace(/,/g, '')) || 0;
+
+  const paymentCardBrand = String(normalizedRow['SCHEME'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
+  const paymentCardType = String(normalizedRow['CARD_TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
+  const cardSubType = String(normalizedRow['TRANSACTION_TYPE'] || 'SALE').replace(/'/g, '').trim().toUpperCase();
+
+  const rawStatus = String(normalizedRow['TRANSACTION_STATUS'] || normalizedRow['RESPONSE_MESSAGE'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
+
+  let status = 'AUTHORIZED';
+  if (rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED') {
+    status = (cardSubType === 'SETTLEMENT') ? 'SETTLED' : 'AUTHORIZED';
+  } else if (rawStatus.includes('DECLINE') || rawStatus.includes('FAIL') || rawStatus.includes('REJECT')) {
+    status = 'FAILED';
+  }
+
+  const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || new Date();
   const postingDate = new Date(rawDate);
 
   const event = {
@@ -422,6 +596,26 @@ function mapRowToNotificationEvent(r, provider = 'telering', index = 0) {
       raw: r
     }
   };
+}
+
+function mapRowToNotificationEvent(r, provider = 'telering', index = 0) {
+  const normalizedRow = {};
+  for (const k of Object.keys(r)) {
+    const cleanKey = String(k).trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    normalizedRow[cleanKey] = r[k];
+  }
+
+  const providerLower = String(provider).trim().toLowerCase();
+
+  if (providerLower.includes('paytm')) {
+    return mapPaytmRow(r, normalizedRow, providerLower, index);
+  } else if (providerLower.includes('pinelab')) {
+    return mapPinelabRow(r, normalizedRow, providerLower, index);
+  } else if (providerLower.includes('yesbank') || providerLower.includes('yes_bank')) {
+    return mapYesBankRow(r, normalizedRow, providerLower, index);
+  } else {
+    return mapTeleringRow(r, normalizedRow, providerLower, index);
+  }
 }
 
 const previewCSV = asyncHandler(async (req, res) => {
