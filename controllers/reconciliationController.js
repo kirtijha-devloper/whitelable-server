@@ -14,12 +14,21 @@ const reconcileEndpointWorking = asyncHandler(async (req, res) => {
 });
 
 const reconcile = asyncHandler(async (req, res) => {
-  // Return all payout-related transactions created today (server local timezone)
-  const start = new Date();
+  let start = new Date();
   start.setHours(0, 0, 0, 0);
 
-  const end = new Date();
+  let end = new Date();
   end.setHours(23, 59, 59, 999);
+
+  if (req.query.from) {
+    start = new Date(req.query.from);
+    start.setHours(0, 0, 0, 0);
+  }
+
+  if (req.query.to) {
+    end = new Date(req.query.to);
+    end.setHours(23, 59, 59, 999);
+  }
 
   const payoutTransactions = await PayoutTransaction.findAll({
     where: {
