@@ -483,10 +483,13 @@ function mapYesBankRow(r, normalizedRow, provider, index) {
 
   const rawStatus = String(normalizedRow['STATUS'] || normalizedRow['TRANSACTION_STATUS'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
 
-  let status = 'AUTHORIZED';
-  if (rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED') {
-    status = (cardSubType === 'SETTLEMENT') ? 'SETTLED' : 'AUTHORIZED';
-  } else if (rawStatus.includes('DECLINE') || rawStatus.includes('FAIL') || rawStatus.includes('REJECT')) {
+  let status = 'FAILED';
+  const isStatusSuccess = rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED';
+  const isTypeValid = cardSubType === 'SALE' || cardSubType === 'UPI';
+
+  if (isStatusSuccess && isTypeValid) {
+    status = 'AUTHORIZED';
+  } else {
     status = 'FAILED';
   }
 
