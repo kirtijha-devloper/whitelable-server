@@ -479,13 +479,14 @@ function mapYesBankRow(r, normalizedRow, provider, index) {
 
   const paymentCardBrand = String(normalizedRow['CARD_BRAND'] || normalizedRow['SCHEME'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
   const paymentCardType = String(normalizedRow['CARD_TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
-  const cardSubType = String(normalizedRow['TRANSACTION_TYPE'] || 'SALE').replace(/'/g, '').trim().toUpperCase();
+  const rawTxnType = String(normalizedRow['TRANSACTION_TYPE'] || '').replace(/'/g, '').trim().toUpperCase();
+  const cardSubType = rawTxnType || null;
 
   const rawStatus = String(normalizedRow['STATUS'] || normalizedRow['TRANSACTION_STATUS'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
 
   let status = 'FAILED';
   const isStatusSuccess = rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED';
-  const isTypeValid = cardSubType === 'SALE' || cardSubType === 'UPI';
+  const isTypeValid = !cardSubType || cardSubType === 'SALE' || cardSubType === 'UPI';
 
   if (isStatusSuccess && isTypeValid) {
     status = 'AUTHORIZED';
@@ -549,13 +550,14 @@ function mapTeleringRow(r, normalizedRow, provider, index) {
 
   const paymentCardBrand = String(normalizedRow['SCHEME'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
   const paymentCardType = String(normalizedRow['CARD_TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
-  const cardSubType = String(normalizedRow['TRANSACTION_TYPE'] || 'SALE').replace(/'/g, '').trim().toUpperCase();
+  const rawTxnType = String(normalizedRow['TRANSACTION_TYPE'] || '').replace(/'/g, '').trim().toUpperCase();
+  const cardSubType = rawTxnType || null;
 
   const rawStatus = String(normalizedRow['TRANSACTION_STATUS'] || normalizedRow['RESPONSE_MESSAGE'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
 
   let status = 'FAILED';
   const isStatusSuccess = rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED';
-  const isTypeValid = cardSubType === 'SALE' || cardSubType === 'UPI';
+  const isTypeValid = !cardSubType || cardSubType === 'SALE' || cardSubType === 'UPI';
 
   if (isStatusSuccess && isTypeValid) {
     status = 'AUTHORIZED';
