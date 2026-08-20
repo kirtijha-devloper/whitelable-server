@@ -112,11 +112,11 @@ async function getTransactionChargeRule({
   const query = `
     SELECT *,
     (
-      (CASE WHEN payment_mode IS NOT NULL THEN 16000 ELSE 0 END) +
-      (CASE WHEN settlement_type IS NOT NULL THEN 8000 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL THEN 4000 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL THEN 2000 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL THEN 1000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       -- scope tier weight
       CASE scope
         WHEN 'franchise_merchant' THEN 64
@@ -199,11 +199,11 @@ async function getAdminChargeRuleForFranchise({
   const query = `
     SELECT *,
     (
-      (CASE WHEN payment_mode IS NOT NULL THEN 16000 ELSE 0 END) +
-      (CASE WHEN settlement_type IS NOT NULL THEN 8000 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL THEN 4000 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL THEN 2000 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL THEN 1000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
         WHEN 'admin_franchise' THEN 16
         ELSE 0
