@@ -653,4 +653,33 @@ const myChargesDebug = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { myChargesDebug };
+const debugListMastercardRules = asyncHandler(async (req, res) => {
+  const rules = await PosChargeRule.findAll({
+    where: {
+      card_brand: {
+        [Op.or]: [
+          { [Op.like]: '%MASTER%' },
+          { [Op.like]: '%master%' },
+          { [Op.like]: '%Master%' },
+          { [Op.eq]: 'MASTERCARD' },
+          { [Op.eq]: 'MASTER_CARD' },
+          { [Op.eq]: 'MASTER' },
+          { [Op.eq]: 'MASTER CARD' }
+        ]
+      }
+    },
+    order: [['id', 'ASC']]
+  });
+
+  return res.status(200).json({
+    success: true,
+    user: {
+      id: req.user?.id || null,
+      role: req.user?.role || null
+    },
+    count: rules.length,
+    rules
+  });
+});
+
+module.exports = { myChargesDebug, debugListMastercardRules };
