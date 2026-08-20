@@ -138,11 +138,11 @@ async function getTransactionChargeRule({
          OR (user_id IS NULL AND (franchaise_id = $2 OR franchaise_id IS NULL))
       )
       -- dimension matching (each is optional in the rule)
-      AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL)
-      AND (UPPER(card_type)    = $4 OR card_type    IS NULL)
-      AND (UPPER(card_brand)   = $5 OR card_brand   IS NULL)
-      AND (UPPER(card_classification) = $6 OR card_classification IS NULL)
-      AND (settlement_type     = $7 OR settlement_type     IS NULL)
+      AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
+      AND (UPPER(card_type)    = $4 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
+      AND (UPPER(card_brand)   = $5 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
+      AND (UPPER(card_classification) = $6 OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')
+      AND (settlement_type     = $7 OR settlement_type     IS NULL OR UPPER(settlement_type)     = 'ANY')
       -- amount slab
       AND $8 >= min_amount
       AND ($8 <= max_amount OR max_amount IS NULL)
@@ -214,11 +214,11 @@ async function getAdminChargeRuleForFranchise({
       AND scope IN ('admin_franchise', 'admin_default')
       AND user_id IS NULL
       AND (franchaise_id = $1 OR franchaise_id IS NULL)
-      AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL)
-      AND (UPPER(card_type)    = $3 OR card_type    IS NULL)
-      AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL)
-      AND (UPPER(card_classification) = $5 OR card_classification IS NULL)
-      AND (settlement_type     = $6 OR settlement_type     IS NULL)
+      AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
+      AND (UPPER(card_type)    = $3 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
+      AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
+      AND (UPPER(card_classification) = $5 OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')
+      AND (settlement_type     = $6 OR settlement_type     IS NULL OR UPPER(settlement_type)     = 'ANY')
       AND $7 >= min_amount
       AND ($7 <= max_amount OR max_amount IS NULL)
     ORDER BY specificity DESC

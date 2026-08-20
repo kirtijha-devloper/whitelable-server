@@ -176,5 +176,28 @@ describe('ChargeService', () => {
         amount: 100
       });
     });
+
+    it('supports ANY wildcard condition matching in SQL query', async () => {
+      const stub = sinon.stub(db, 'query').callsFake((query, opts) => {
+        expect(query).to.include("UPPER(payment_mode) = $3 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY'");
+        expect(query).to.include("UPPER(card_type)    = $4 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY'");
+        expect(query).to.include("UPPER(card_brand)   = $5 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY'");
+        expect(query).to.include("UPPER(card_classification) = $6 OR card_classification IS NULL OR UPPER(card_classification) = 'ANY'");
+        expect(query).to.include("settlement_type     = $7 OR settlement_type     IS NULL OR UPPER(settlement_type)     = 'ANY'");
+        return [];
+      });
+
+      await ChargeService.getTransactionChargeRule({
+        userId: 1,
+        paymentMode: 'CARD',
+        cardType: 'CREDIT',
+        cardBrand: 'MASTERCARD',
+        classification: 'ANY',
+        settlement: 'today_settlement',
+        amount: 100
+      });
+
+      expect(stub.callCount).to.equal(4);
+    });
   });
 });

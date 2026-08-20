@@ -19,7 +19,9 @@ function buildNullableMatch(column, value) {
   return {
     [Op.or]: [
       { [column]: value },
-      { [column]: null }
+      { [column]: null },
+      { [column]: 'ANY' },
+      { [column]: 'any' }
     ]
   };
 }
@@ -56,11 +58,11 @@ function getSpecificityBreakdown(rule, search = {}) {
   const normalizedRuleBrand = normalizeCardBrand(rule.card_brand);
   const normalizedRuleClassification = normalizeLookupValue(rule.card_classification);
   const normalizedRuleSettlement = normalizeLookupValue(rule.settlement_type);
-  const paymentModeWeight = normalizedSearchPaymentMode && normalizedRulePaymentMode === normalizedSearchPaymentMode ? 16000 : 0;
-  const settlementWeight = normalizedSearchSettlement && normalizedRuleSettlement === normalizedSearchSettlement ? 8000 : 0;
-  const classificationWeight = normalizedSearchClassification && normalizedRuleClassification === normalizedSearchClassification ? 4000 : 0;
-  const brandWeight = normalizedSearchBrand && normalizedRuleBrand === normalizedSearchBrand ? 2000 : 0;
-  const cardTypeWeight = normalizedSearchCardType && normalizedRuleCardType === normalizedSearchCardType ? 1000 : 0;
+  const paymentModeWeight = normalizedSearchPaymentMode && (normalizedRulePaymentMode === normalizedSearchPaymentMode || normalizedRulePaymentMode === 'ANY') ? 16000 : 0;
+  const settlementWeight = normalizedSearchSettlement && (normalizedRuleSettlement === normalizedSearchSettlement || normalizedRuleSettlement === 'ANY') ? 8000 : 0;
+  const classificationWeight = normalizedSearchClassification && (normalizedRuleClassification === normalizedSearchClassification || normalizedRuleClassification === 'ANY') ? 4000 : 0;
+  const brandWeight = normalizedSearchBrand && (normalizedRuleBrand === normalizedSearchBrand || normalizedRuleBrand === 'ANY') ? 2000 : 0;
+  const cardTypeWeight = normalizedSearchCardType && (normalizedRuleCardType === normalizedSearchCardType || normalizedRuleCardType === 'ANY') ? 1000 : 0;
   let amountWeight = 0;
 
   if (rule.min_amount != null && rule.max_amount != null) {
