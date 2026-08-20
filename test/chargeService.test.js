@@ -36,6 +36,15 @@ describe('ChargeService', () => {
     it('normalizes MASTER_CARD to MASTERCARD', () => {
       expect(ChargeService.normalizeCardBrand('MASTER_CARD')).to.equal('MASTERCARD');
       expect(ChargeService.normalizeCardBrand('master_card')).to.equal('MASTERCARD');
+      expect(ChargeService.normalizeCardBrand('MASTER CARD')).to.equal('MASTERCARD');
+      expect(ChargeService.normalizeCardBrand('master-card')).to.equal('MASTERCARD');
+    });
+
+    it('normalizes AMERICAN EXPRESS and DINERS variants', () => {
+      expect(ChargeService.normalizeCardBrand('AMERICAN EXPRESS')).to.equal('AMEX');
+      expect(ChargeService.normalizeCardBrand('american-express')).to.equal('AMEX');
+      expect(ChargeService.normalizeCardBrand('DINERS CLUB')).to.equal('DINERS');
+      expect(ChargeService.normalizeCardBrand('diners-club')).to.equal('DINERS');
     });
 
     it('returns canonical values for brand candidates', () => {
@@ -43,6 +52,7 @@ describe('ChargeService', () => {
       expect(candidates).to.include('MASTERCARD');
       expect(candidates).to.include('MASTER_CARD');
       expect(candidates).to.include('MASTER');
+      expect(candidates).to.include('MASTER CARD');
     });
   });
 

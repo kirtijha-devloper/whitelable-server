@@ -2,24 +2,33 @@ const db = require('../config/database');
 
 const CARD_BRAND_MAPPINGS = {
   MASTER_CARD: 'MASTERCARD',
+  'MASTER CARD': 'MASTERCARD',
   MASTER: 'MASTERCARD',
   MASTERCARD: 'MASTERCARD',
   AMERICAN_EXPRESS: 'AMEX',
+  'AMERICAN EXPRESS': 'AMEX',
   AMEX: 'AMEX',
   DINERS_CLUB: 'DINERS',
+  'DINERS CLUB': 'DINERS',
   DINERS: 'DINERS'
 };
 
 const CARD_BRAND_SYNONYMS = {
-  MASTERCARD: ['MASTER_CARD', 'MASTER'],
-  AMEX: ['AMERICAN_EXPRESS'],
-  DINERS: ['DINERS_CLUB']
+  MASTERCARD: ['MASTER_CARD', 'MASTER', 'MASTER CARD'],
+  AMEX: ['AMERICAN_EXPRESS', 'AMERICAN EXPRESS'],
+  DINERS: ['DINERS_CLUB', 'DINERS CLUB']
 };
 
 function normalizeCardBrand(cardBrand) {
-  const normalized = String(cardBrand || '').trim().toUpperCase();
-  if (!normalized) return null;
-  return CARD_BRAND_MAPPINGS[normalized] || normalized;
+  if (!cardBrand) return null;
+  const normalized = String(cardBrand).trim().toUpperCase();
+  const cleanWithSpace = normalized.replace(/[\s_-]+/g, ' ');
+  const cleanWithUnderscore = normalized.replace(/[\s_-]+/g, '_');
+  
+  return CARD_BRAND_MAPPINGS[normalized] || 
+         CARD_BRAND_MAPPINGS[cleanWithSpace] || 
+         CARD_BRAND_MAPPINGS[cleanWithUnderscore] || 
+         normalized;
 }
 
 function normalizeLookupValue(value) {
