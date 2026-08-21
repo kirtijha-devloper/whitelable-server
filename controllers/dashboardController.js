@@ -198,7 +198,10 @@ const getDashboard = asyncHandler(async (req, res) => {
   try {
     let data = {};
 
-    const dateWhere = buildRazorpayDateRange(start, end);
+    const dateWhere = {
+      ...buildRazorpayDateRange(start, end),
+      processing_status: 'completed'
+    };
 
     if (role === 'admin') {
       const [activeMachineCount, deactiveMachineCount, activeMerchantCount, activeFranchaiseCount] =
