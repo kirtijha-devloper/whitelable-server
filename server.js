@@ -171,7 +171,59 @@ app.use('/api/vimo', require('./routes/vimoRoutes'));
 // Direct-login feature: DL token management (admin-protected) + exchange endpoint (uses dl_token as credential)
 app.use('/api/admin',   require('./routes/directLoginRoutes'));
 
-app.get('/api/ping', (req, res) => res.send('Server is running!'));
+app.get('/api/ping', async (req, res) => {
+  try {
+    const User = require('./models/User');
+    const PosChargeRule = require('./models/PosChargeRule');
+    const ChargeService = require('./services/chargeService');
+
+    const user = await User.findByPk(41);
+    const rules = await PosChargeRule.findAll({
+      where: {
+        card_brand: {
+          [require('sequelize').Op.or]: [
+            { [require('sequelize').Op.like]: '%MASTER%' },
+            { [require('sequelize').Op.like]: '%master%' },
+            { [require('sequelize').Op.eq]: 'MASTERCARD' },
+            { [require('sequelize').Op.eq]: 'MASTER_CARD' },
+            { [require('sequelize').Op.eq]: 'MASTER' }
+          ]
+        }
+      }
+    });
+
+    let resolvedRule = null;
+    if (user) {
+      resolvedRule = await ChargeService.getTransactionChargeRule({
+        userId: user.id,
+        userRole: user.role,
+        franchiseId: user.franchaise_id || null,
+        paymentMode: 'CARD',
+        cardType: 'CREDIT',
+        cardBrand: 'MASTERCARD',
+        classification: '-',
+        settlement: user.settlement_type || null,
+        amount: 102626
+      });
+    }
+
+    res.json({
+      success: true,
+      user: user ? {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        settlement_type: user.settlement_type,
+        franchaise_id: user.franchaise_id
+      } : null,
+      resolvedRule,
+      rulesCount: rules.length,
+      rules: rules.map(r => r.toJSON ? r.toJSON() : r)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
 
 // debug helper – exposes current IPAY env vars (remove in production)
 app.get('/api/debug/ipay', (req, res) => {
