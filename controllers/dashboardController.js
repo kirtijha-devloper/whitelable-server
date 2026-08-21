@@ -61,10 +61,10 @@ const getAssignedMachineMids = async (assigneeIds = []) => {
 
 const getRazorpayTransactionStats = async (whereClause) => {
   if (!whereClause) {
-    return { total: 0, success: 0, fail: 0, count: 0, success_rate: 0, failure_rate: 0 };
+    return { total: 0, success: 0, fail: 0, t0_amount: 0, t1_amount: 0, count: 0, success_rate: 0, failure_rate: 0 };
   }
 
-  const [count, totalRaw, successRaw, failRaw] = await Promise.all([
+  const [count, totalRaw, successRaw, failRaw, t0Raw, t1Raw] = await Promise.all([
     RazorpayNotification.count({ where: whereClause }),
     RazorpayNotification.sum('amount', { where: whereClause }),
     RazorpayNotification.sum('amount', {
@@ -78,18 +78,36 @@ const getRazorpayTransactionStats = async (whereClause) => {
         ...whereClause,
         status: { [Op.in]: ['FAILED', 'VOIDED', 'DECLINED'] }
       }
+    }),
+    RazorpayNotification.sum('amount', {
+      where: {
+        ...whereClause,
+        settlement_type: 'today_settlement',
+        status: { [Op.in]: ['CAPTURED', 'AUTHORIZED', 'SETTLED'] }
+      }
+    }),
+    RazorpayNotification.sum('amount', {
+      where: {
+        ...whereClause,
+        settlement_type: 'next_day_settlement',
+        status: { [Op.in]: ['CAPTURED', 'AUTHORIZED', 'SETTLED'] }
+      }
     })
   ]);
 
   const total = Number(totalRaw || 0);
   const success = Number(successRaw || 0);
   const fail = Number(failRaw || 0);
+  const t0_amount = Number(t0Raw || 0);
+  const t1_amount = Number(t1Raw || 0);
   const countVal = Number(count || 0);
 
   return {
     total,
     success,
     fail,
+    t0_amount,
+    t1_amount,
     count: countVal,
     success_rate: total > 0 ? Number(((success / total) * 100).toFixed(2)) : 0,
     failure_rate: total > 0 ? Number(((fail / total) * 100).toFixed(2)) : 0
@@ -227,6 +245,8 @@ const getDashboard = asyncHandler(async (req, res) => {
           total: posStats.total,
           success: posStats.success,
           fail: posStats.fail,
+          t0_amount: posStats.t0_amount,
+          t1_amount: posStats.t1_amount,
           count: posStats.count,
           success_rate: posStats.success_rate,
           failure_rate: posStats.failure_rate
@@ -287,6 +307,8 @@ const getDashboard = asyncHandler(async (req, res) => {
           total: posStats.total,
           success: posStats.success,
           fail: posStats.fail,
+          t0_amount: posStats.t0_amount,
+          t1_amount: posStats.t1_amount,
           count: posStats.count,
           success_rate: posStats.success_rate,
           failure_rate: posStats.failure_rate
@@ -327,6 +349,8 @@ const getDashboard = asyncHandler(async (req, res) => {
           total: posStats.total,
           success: posStats.success,
           fail: posStats.fail,
+          t0_amount: posStats.t0_amount,
+          t1_amount: posStats.t1_amount,
           count: posStats.count,
           success_rate: posStats.success_rate,
           failure_rate: posStats.failure_rate

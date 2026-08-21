@@ -196,10 +196,31 @@ console.log("data5:")
 
 
 // Helpers
-function parseDate(dateStr) {
+function parseDateAsIst(dateStr) {
   if (!dateStr) return null;
-  const parsed = new Date(dateStr);
-  return isNaN(parsed.getTime()) ? null : parsed;
+  if (dateStr instanceof Date) return dateStr;
+  
+  const str = String(dateStr).trim();
+  
+  // If it already has Z or offset like +05:30 or +0000, parse it as-is
+  if (/Z|[+-]\d{2}:?\d{2}$/i.test(str)) {
+    const parsed = new Date(str);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  
+  // Otherwise, assume it's in IST (GMT+0530)
+  const parsed = new Date(`${str} GMT+0530`);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+  
+  // Fallback to default parsing
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function parseDate(dateStr) {
+  return parseDateAsIst(dateStr);
 }
 
 function parseFloatOrNull(value) {
@@ -360,7 +381,7 @@ function mapPaytmRow(r, normalizedRow, provider, index) {
   }
 
   const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
-  const postingDate = new Date(rawDate);
+  const postingDate = parseDateAsIst(rawDate);
 
   const event = {
     txnId,
@@ -427,7 +448,7 @@ function mapPinelabRow(r, normalizedRow, provider, index) {
   }
 
   const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
-  const postingDate = new Date(rawDate);
+  const postingDate = parseDateAsIst(rawDate);
 
   const event = {
     txnId,
@@ -496,7 +517,7 @@ function mapYesBankRow(r, normalizedRow, provider, index) {
   }
 
   const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
-  const postingDate = new Date(rawDate);
+  const postingDate = parseDateAsIst(rawDate);
 
   const event = {
     txnId,
@@ -566,7 +587,7 @@ function mapTeleringRow(r, normalizedRow, provider, index) {
   }
 
   const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || new Date();
-  const postingDate = new Date(rawDate);
+  const postingDate = parseDateAsIst(rawDate);
 
   const event = {
     txnId,
