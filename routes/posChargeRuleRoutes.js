@@ -15,7 +15,7 @@ const {
   deleteAllUserSpecificRules,
   calculateCharge
 } = require('../controllers/posChargeRuleController');
-const { myChargesDebug, debugListMastercardRules } = require('../controllers/posChargeRuleDebugController');
+const { myChargesDebug } = require('../controllers/posChargeRuleDebugController');
 
 router.use(validateToken);
 
@@ -69,8 +69,5 @@ router.post('/my-charges-debug', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.R
   message: 'You do not have permission to view rate settings.',
   elevateRole: 'admin',
 }), myChargesDebug);
-
-// Temporary test route to inspect all Mastercard rules from DB
-router.get('/debug/mastercard', debugListMastercardRules);
 
 module.exports = router;
