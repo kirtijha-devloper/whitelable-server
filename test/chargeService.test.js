@@ -1,3 +1,4 @@
+require('./test-setup');
 const { expect } = require('chai');
 const sinon = require('sinon');
 
