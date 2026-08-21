@@ -7,6 +7,7 @@ const CcBillPayment = require('../models/CcBillPayment');
 const PayoutTransaction = require('../models/PayoutTransaction');
 const PayoutRequest = require('../models/PayoutRequest');
 const WalletTransaction = require("../models/WalletTransaction");
+const BillAvenuePayment = require('../models/BillAvenuePayment');
 
 const CC_BILL_SUCCESS_STATUS_CODES = ['TXN', 'TUP'];
 const CC_BILL_FAILURE_STATUSES = ['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'];
@@ -132,6 +133,34 @@ const getCcBillTransactionStats = async (whereClause) => {
   };
 };
 
+const getBillAvenueCcBillTransactionStats = async (whereClause) => {
+  if (!whereClause) {
+    return { total: 0, success: 0, fail: 0 };
+  }
+
+  const [totalRaw, successRaw, failRaw] = await Promise.all([
+    BillAvenuePayment.sum('transaction_amount', { where: whereClause }),
+    BillAvenuePayment.sum('transaction_amount', {
+      where: {
+        ...whereClause,
+        status: { [Op.in]: ['success', 'SUCCESS'] }
+      }
+    }),
+    BillAvenuePayment.sum('transaction_amount', {
+      where: {
+        ...whereClause,
+        status: { [Op.in]: ['failed', 'FAILED'] }
+      }
+    })
+  ]);
+
+  return {
+    total: Number(totalRaw || 0),
+    success: Number(successRaw || 0),
+    fail: Number(failRaw || 0)
+  };
+};
+
 const getPayoutStats = async ({ userIds = [], start, end }) => {
   const payoutTransactionWhere = {
     createdAt: { [Op.between]: [start, end] },
@@ -180,9 +209,10 @@ const getDashboard = asyncHandler(async (req, res) => {
           User.count({ where: { role: 'franchaise', status: 'active' } })
         ]);
 
-      const [posStats, ccBillStats, today_total_payout] = await Promise.all([
+      const [posStats, ccBillStats, baCcBillStats, today_total_payout] = await Promise.all([
         getRazorpayTransactionStats(dateWhere),
         getCcBillTransactionStats({ createdAt: { [Op.between]: [start, end] } }),
+        getBillAvenueCcBillTransactionStats({ createdAt: { [Op.between]: [start, end] } }),
         getPayoutStats({ start, end })
       ]);
 
@@ -199,9 +229,9 @@ const getDashboard = asyncHandler(async (req, res) => {
           failure_rate: posStats.failure_rate
         },
         today_total_payout: Number(today_total_payout || 0),
-        ccBillPaymentTXN: ccBillStats.total,
-        ccBillPaymentSuccess: ccBillStats.success,
-        ccBillPaymentFailed: ccBillStats.fail
+        ccBillPaymentTXN: ccBillStats.total + baCcBillStats.total,
+        ccBillPaymentSuccess: ccBillStats.success + baCcBillStats.success,
+        ccBillPaymentFailed: ccBillStats.fail + baCcBillStats.fail
       };
     }
 
@@ -237,9 +267,10 @@ const getDashboard = asyncHandler(async (req, res) => {
         user_id: { [Op.in]: scopedUserIds }
       };
 
-      const [posStats, ccBillStats, today_total_payout] = await Promise.all([
+      const [posStats, ccBillStats, baCcBillStats, today_total_payout] = await Promise.all([
         getRazorpayTransactionStats({ [Op.and]: [dateWhere, franchiseRoleFilter] }),
         getCcBillTransactionStats(ccBillWhere),
+        getBillAvenueCcBillTransactionStats(ccBillWhere),
         getPayoutStats({ userIds: scopedUserIds, start, end })
       ]);
 
@@ -258,9 +289,9 @@ const getDashboard = asyncHandler(async (req, res) => {
           failure_rate: posStats.failure_rate
         },
         today_total_payout: Number(today_total_payout || 0),
-        ccBillPaymentTXN: ccBillStats.total,
-        ccBillPaymentSuccess: ccBillStats.success,
-        ccBillPaymentFailed: ccBillStats.fail
+        ccBillPaymentTXN: ccBillStats.total + baCcBillStats.total,
+        ccBillPaymentSuccess: ccBillStats.success + baCcBillStats.success,
+        ccBillPaymentFailed: ccBillStats.fail + baCcBillStats.fail
       };
     }
 
@@ -274,13 +305,16 @@ const getDashboard = asyncHandler(async (req, res) => {
         ]
       };
 
-      const [posMachineCount, posStats, ccBillStats, today_total_payout] = await Promise.all([
+      const ccBillWhere = {
+        createdAt: { [Op.between]: [start, end] },
+        user_id: userId
+      };
+
+      const [posMachineCount, posStats, ccBillStats, baCcBillStats, today_total_payout] = await Promise.all([
         PosMachine.count({ where: { assigned_to: userId } }),
         getRazorpayTransactionStats({ [Op.and]: [dateWhere, merchantRoleFilter] }),
-        getCcBillTransactionStats({
-          createdAt: { [Op.between]: [start, end] },
-          user_id: userId
-        }),
+        getCcBillTransactionStats(ccBillWhere),
+        getBillAvenueCcBillTransactionStats(ccBillWhere),
         getPayoutStats({ userIds: [userId], start, end })
       ]);
 
@@ -295,9 +329,9 @@ const getDashboard = asyncHandler(async (req, res) => {
           failure_rate: posStats.failure_rate
         },
         today_total_payout: Number(today_total_payout || 0),
-        ccBillPaymentTXN: ccBillStats.total,
-        ccBillPaymentSuccess: ccBillStats.success,
-        ccBillPaymentFailed: ccBillStats.fail
+        ccBillPaymentTXN: ccBillStats.total + baCcBillStats.total,
+        ccBillPaymentSuccess: ccBillStats.success + baCcBillStats.success,
+        ccBillPaymentFailed: ccBillStats.fail + baCcBillStats.fail
       };
     }
 

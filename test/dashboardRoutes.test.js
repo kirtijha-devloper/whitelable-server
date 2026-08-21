@@ -1,5 +1,5 @@
 'use strict';
-
+require('./test-setup');
 const { expect } = require('chai');
 const request = require('supertest');
 const express = require('express');
@@ -15,6 +15,7 @@ const RazorpayNotification = require('../models/RazorpayNotification');
 const CcBillPayment = require('../models/CcBillPayment');
 const PayoutTransaction = require('../models/PayoutTransaction');
 const PayoutRequest = require('../models/PayoutRequest');
+const BillAvenuePayment = require('../models/BillAvenuePayment');
 
 const app = express();
 app.use(express.json());
@@ -56,6 +57,13 @@ const getCcVariant = (where) => {
   return 'fail';
 };
 
+const getBaCcVariant = (where) => {
+  if (!where || !where.status) return 'total';
+  const statusIn = where.status[Op.in];
+  if (statusIn && statusIn.includes('success')) return 'success';
+  return 'fail';
+};
+
 describe('GET /api/dashboard', () => {
   let originals;
 
@@ -68,6 +76,7 @@ describe('GET /api/dashboard', () => {
       razorpayCount: RazorpayNotification.count,
       razorpaySum: RazorpayNotification.sum,
       ccBillSum: CcBillPayment.sum,
+      baCcBillSum: BillAvenuePayment.sum,
       payoutTransactionSum: PayoutTransaction.sum,
       payoutRequestSum: PayoutRequest.sum
     };
@@ -81,6 +90,7 @@ describe('GET /api/dashboard', () => {
     RazorpayNotification.count = originals.razorpayCount;
     RazorpayNotification.sum = originals.razorpaySum;
     CcBillPayment.sum = originals.ccBillSum;
+    BillAvenuePayment.sum = originals.baCcBillSum;
     PayoutTransaction.sum = originals.payoutTransactionSum;
     PayoutRequest.sum = originals.payoutRequestSum;
   });
@@ -105,6 +115,13 @@ describe('GET /api/dashboard', () => {
       return 9000;
     };
 
+    BillAvenuePayment.sum = async (_field, { where }) => {
+      const variant = getBaCcVariant(where);
+      if (variant === 'success') return 800;
+      if (variant === 'fail') return 200;
+      return 1000;
+    };
+
     PayoutTransaction.sum = async () => 18000;
     PayoutRequest.sum = async () => 7000;
 
@@ -119,9 +136,9 @@ describe('GET /api/dashboard', () => {
     expect(res.body.data.franchaises).to.deep.equal({ count: 5 });
     expect(res.body.data.pos_transactions).to.include({ total: 150000, success: 140000, fail: 10000 });
     expect(res.body.data.today_total_payout).to.equal(25000);
-    expect(res.body.data.ccBillPaymentTXN).to.equal(9000);
-    expect(res.body.data.ccBillPaymentSuccess).to.equal(7000);
-    expect(res.body.data.ccBillPaymentFailed).to.equal(2000);
+    expect(res.body.data.ccBillPaymentTXN).to.equal(10000);
+    expect(res.body.data.ccBillPaymentSuccess).to.equal(7800);
+    expect(res.body.data.ccBillPaymentFailed).to.equal(2200);
   });
 
   it('returns merchant dashboard scoped to own user and machine data', async () => {
@@ -156,6 +173,14 @@ describe('GET /api/dashboard', () => {
       return 800;
     };
 
+    BillAvenuePayment.sum = async (_field, { where }) => {
+      expect(toScopedIds(where.user_id)).to.deep.equal([2]);
+      const variant = getBaCcVariant(where);
+      if (variant === 'success') return 100;
+      if (variant === 'fail') return 50;
+      return 150;
+    };
+
     PayoutTransaction.sum = async (_field, { where }) => {
       expect(toScopedIds(where.merchant_id)).to.deep.equal([2]);
       return 500;
@@ -173,9 +198,9 @@ describe('GET /api/dashboard', () => {
     expect(res.body.data.pos_machines).to.deep.equal({ count: 1 });
     expect(res.body.data.pos_transactions).to.include({ total: 1200, success: 1100, fail: 100 });
     expect(res.body.data.today_total_payout).to.equal(800);
-    expect(res.body.data.ccBillPaymentTXN).to.equal(800);
-    expect(res.body.data.ccBillPaymentSuccess).to.equal(700);
-    expect(res.body.data.ccBillPaymentFailed).to.equal(100);
+    expect(res.body.data.ccBillPaymentTXN).to.equal(950);
+    expect(res.body.data.ccBillPaymentSuccess).to.equal(800);
+    expect(res.body.data.ccBillPaymentFailed).to.equal(150);
     expect(getScopeMembers(capturedRazorpayWhere, 'user_id')).to.deep.equal([2]);
     expect(getScopeMembers(capturedRazorpayWhere, 'mid')).to.deep.equal(['MID123']);
   });
@@ -228,6 +253,14 @@ describe('GET /api/dashboard', () => {
       return 2500;
     };
 
+    BillAvenuePayment.sum = async (_field, { where }) => {
+      expect(toScopedIds(where.user_id)).to.have.members([3, 11, 12]);
+      const variant = getBaCcVariant(where);
+      if (variant === 'success') return 300;
+      if (variant === 'fail') return 100;
+      return 400;
+    };
+
     PayoutTransaction.sum = async (_field, { where }) => {
       expect(toScopedIds(where.merchant_id)).to.have.members([3, 11, 12]);
       return 3000;
@@ -249,9 +282,9 @@ describe('GET /api/dashboard', () => {
     });
     expect(res.body.data.pos_transactions).to.include({ total: 4500, success: 4000, fail: 500 });
     expect(res.body.data.today_total_payout).to.equal(5000);
-    expect(res.body.data.ccBillPaymentTXN).to.equal(2500);
-    expect(res.body.data.ccBillPaymentSuccess).to.equal(2300);
-    expect(res.body.data.ccBillPaymentFailed).to.equal(200);
+    expect(res.body.data.ccBillPaymentTXN).to.equal(2900);
+    expect(res.body.data.ccBillPaymentSuccess).to.equal(2600);
+    expect(res.body.data.ccBillPaymentFailed).to.equal(300);
     expect(getScopeMembers(capturedRazorpayWhere, 'user_id')).to.have.members([3, 11, 12]);
     expect(getScopeMembers(capturedRazorpayWhere, 'mid')).to.have.members(['MID-FR-1', 'MID-M-11', 'MID-M-12']);
   });
