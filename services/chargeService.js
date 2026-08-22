@@ -161,6 +161,7 @@ async function getTransactionChargeRule({
     normalizedUserRole
   ];
 
+  let bestRule = null;
   for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
     const replacements = [
       ...replacementBase.slice(0, 4),
@@ -168,9 +169,14 @@ async function getTransactionChargeRule({
       ...replacementBase.slice(4)
     ];
     const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
-    if (results && results.length) return results[0];
+    if (results && results.length) {
+      const candidateRule = results[0];
+      if (!bestRule || candidateRule.specificity > bestRule.specificity) {
+        bestRule = candidateRule;
+      }
+    }
   }
-  return null;
+  return bestRule;
 }
 
 /**
@@ -234,6 +240,7 @@ async function getAdminChargeRuleForFranchise({
     amount
   ];
 
+  let bestRule = null;
   for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
     const replacements = [
       replacementBase[0],
@@ -245,9 +252,14 @@ async function getAdminChargeRuleForFranchise({
       replacementBase[5]
     ];
     const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
-    if (results && results.length) return results[0];
+    if (results && results.length) {
+      const candidateRule = results[0];
+      if (!bestRule || candidateRule.specificity > bestRule.specificity) {
+        bestRule = candidateRule;
+      }
+    }
   }
-  return null;
+  return bestRule;
 }
 
 /**
