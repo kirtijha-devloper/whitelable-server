@@ -83,10 +83,10 @@ function getIstTimestamp() {
 function normalizeStatus(statusRaw) {
   if (!statusRaw) return 'PENDING';
   const val = String(statusRaw).trim().toUpperCase();
-  if (['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'PROCESSED', 'APPROVED'].includes(val)) {
+  if (['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'PROCESSED', 'APPROVED', 'PAYOUT.SUCCESS'].includes(val)) {
     return 'SUCCESS';
   }
-  if (['FAILED', 'FAILURE', 'REJECTED', 'DECLINED', 'CANCELLED', 'ERROR'].includes(val)) {
+  if (['FAILED', 'FAILURE', 'REJECTED', 'DECLINED', 'CANCELLED', 'ERROR', 'PAYOUT.FAILED'].includes(val)) {
     return 'FAILED';
   }
   return 'PENDING';
@@ -365,6 +365,7 @@ async function initiatePayout(params) {
       if (errorResponse) {
         customErr.errorResponse = errorResponse;
       }
+      customErr.isProperError = !!(error.response && error.response.status < 500);
       throw customErr;
     }
   }

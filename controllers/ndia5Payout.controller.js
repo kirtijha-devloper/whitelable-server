@@ -556,21 +556,72 @@ const initiatePayout = asyncHandler(async (req, res) => {
       },
     });
   } catch (error) {
-    // Mark payout transaction as FAILED if gateway call throws
-    payoutTransaction.status = 'FAILED';
+    const isProper = error.isProperError === true;
+    
+    // Mark payout transaction status
+    payoutTransaction.status = isProper ? 'FAILED' : 'PENDING';
+    
     const existingData = parseJsonMaybe(payoutTransaction.data);
-    payoutTransaction.data = JSON.stringify({
-      ...existingData,
-      initiationError: error.message,
-    });
+    existingData.initiationError = error.message;
+    existingData.initiationErrorResponse = error.errorResponse || null;
+    
+    let autoRefundCompleted = false;
+    let refundEntry = null;
+
+    if (isProper) {
+      const amount = Number(payoutTransaction.amount) || 0;
+      const serviceCharge = Number(payoutTransaction.service_charge) || 0;
+      const refundAmount = amount + serviceCharge;
+
+      try {
+        const Ledger = require('../models/Ledger');
+        const existingRefund = await Ledger.findOne({
+          where: {
+            transaction_type: 'payout_refund',
+            reference_id: payoutTransaction.id,
+            reference_table: 'PayoutTransactions',
+          },
+        });
+
+        if (!existingRefund) {
+          refundEntry = await ledgerService.createLedgerEntry({
+            userId: payoutTransaction.merchant_id,
+            transactionType: 'payout_refund',
+            referenceId: payoutTransaction.id,
+            referenceTable: 'PayoutTransactions',
+            description: `Auto Refund for failed NDIA5 Payout initiation ${payoutTransaction.reference_id}`,
+            credit: refundAmount,
+            metadata: {
+              payout_provider: 'Ndia5',
+              payout_reference: payoutTransaction.reference_id,
+              original_payout_amount: String(amount),
+              original_service_charge: String(serviceCharge),
+              refund_source: 'initiate_auto',
+            },
+          });
+
+          existingData.autoRefundProcessed = true;
+          existingData.autoRefundAt = new Date().toISOString();
+          existingData.refundLedgerId = refundEntry?.id || null;
+          autoRefundCompleted = true;
+        }
+      } catch (ledgerError) {
+        console.error('[NDIA5 Auto Refund Ledger Error]:', ledgerError);
+      }
+    }
+
+    payoutTransaction.data = JSON.stringify(existingData);
     await payoutTransaction.save();
 
     await PayoutAuditLog.create({
       payout_id: payoutTransaction.id,
-      action: 'NDIA5_PAYOUT_INITIATE_FAILED',
+      action: autoRefundCompleted ? 'NDIA5_PAYOUT_INITIATE_AUTO_REFUND' : 'NDIA5_PAYOUT_INITIATE_FAILED',
       details: {
         error: error.message,
         errorResponse: error.errorResponse || null,
+        statusAssigned: payoutTransaction.status,
+        autoRefundProcessed: autoRefundCompleted,
+        refundLedgerId: refundEntry?.id || null,
       },
     });
 
@@ -579,6 +630,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
       message: error.message || 'NDIA5 Payout Initiation Failed',
       payoutId: payoutTransaction.id,
       referenceId: crn,
+      autoRefunded: autoRefundCompleted,
     });
   }
 });
@@ -803,6 +855,8 @@ const getDebugPayoutStatus = asyncHandler(async (req, res) => {
  * Handles NDIA5 callback/webhook and logs it to india5.log
  */
 const handleCallback = asyncHandler(async (req, res) => {
+  const payload = req.method === 'POST' ? req.body : req.query;
+
   try {
     ndia5Service.india5Log('CALLBACK', {
       method: req.method,
@@ -811,7 +865,119 @@ const handleCallback = asyncHandler(async (req, res) => {
       query: req.query,
       body: req.body,
     });
-    return res.status(200).json({ success: true, message: 'Callback logged successfully' });
+
+    const merchantReferenceId = payload.merchant_reference_id || payload.merchantReferenceId || payload.referenceId || payload.reference_id || payload.client_id;
+    const statusRaw = payload.status || payload.event || payload.status_code || payload.statusCode;
+
+    if (!merchantReferenceId) {
+      return res.status(200).json({ success: true, message: 'Callback logged successfully' });
+    }
+
+    const payoutTransaction = await PayoutTransaction.findOne({
+      where: { reference_id: merchantReferenceId, payout_provider: 'Ndia5' },
+    });
+
+    if (!payoutTransaction) {
+      return res.status(200).json({ success: true, message: 'No NDIA5 transaction found for reference' });
+    }
+
+    const status = ndia5Service.normalizeStatus(statusRaw);
+
+    const tr = await db.transaction();
+    try {
+      const locked = await PayoutTransaction.findByPk(payoutTransaction.id, {
+        transaction: tr,
+        lock: tr.LOCK.UPDATE,
+      });
+
+      if (!locked) {
+        await tr.rollback();
+        return res.status(500).json({ success: false, message: 'Failed to lock transaction' });
+      }
+
+      const previousStatus = locked.status;
+      const existingData = parseJsonMaybe(locked.data);
+
+      if (previousStatus === 'FAILED' || previousStatus === 'SUCCESS') {
+        // Already finalized, skip to avoid double refund or status flip
+        await tr.commit();
+        return res.status(200).json({ success: true, message: 'Transaction already finalized' });
+      }
+
+      locked.status = status;
+      existingData.callbackReceived = true;
+      existingData.callbackPayload = payload;
+      existingData.callbackAt = new Date().toISOString();
+
+      let autoRefundCompleted = false;
+      let refundEntry = null;
+
+      if (status === 'FAILED') {
+        const amount = Number(locked.amount) || 0;
+        const serviceCharge = Number(locked.service_charge) || 0;
+        const refundAmount = amount + serviceCharge;
+
+        const Ledger = require('../models/Ledger');
+        const existingRefund = await Ledger.findOne({
+          where: {
+            transaction_type: 'payout_refund',
+            reference_id: locked.id,
+            reference_table: 'PayoutTransactions',
+          },
+          transaction: tr,
+        });
+
+        if (!existingRefund) {
+          refundEntry = await ledgerService.createLedgerEntry({
+            userId: locked.merchant_id,
+            transactionType: 'payout_refund',
+            referenceId: locked.id,
+            referenceTable: 'PayoutTransactions',
+            description: `Auto Refund for failed NDIA5 Payout ${locked.reference_id}`,
+            credit: refundAmount,
+            metadata: {
+              payout_provider: 'Ndia5',
+              payout_reference: locked.reference_id,
+              original_payout_amount: String(amount),
+              original_service_charge: String(serviceCharge),
+              refund_source: 'callback_auto',
+            },
+          }, { transaction: tr });
+
+          existingData.autoRefundProcessed = true;
+          existingData.autoRefundAt = new Date().toISOString();
+          existingData.refundLedgerId = refundEntry?.id || null;
+          autoRefundCompleted = true;
+        }
+      }
+
+      locked.data = JSON.stringify(existingData);
+      await locked.save({ transaction: tr });
+
+      await PayoutAuditLog.create({
+        payout_id: locked.id,
+        action: autoRefundCompleted ? 'NDIA5_CALLBACK_AUTO_REFUND' : 'NDIA5_CALLBACK_STATUS_UPDATE',
+        details: {
+          reference_id: locked.reference_id,
+          from: previousStatus,
+          to: status,
+          autoRefundProcessed: autoRefundCompleted,
+          refundLedgerId: refundEntry?.id || null,
+          callbackPayload: payload,
+        },
+      }, { transaction: tr });
+
+      await tr.commit();
+      return res.status(200).json({
+        success: true,
+        message: 'Callback processed successfully',
+        status,
+        autoRefunded: autoRefundCompleted,
+      });
+    } catch (dbErr) {
+      await tr.rollback();
+      throw dbErr;
+    }
   } catch (error) {
     console.error('[NDIA5 Callback Error]:', error.message);
     return res.status(500).json({ success: false, message: 'Internal server error' });
