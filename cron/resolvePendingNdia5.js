@@ -116,7 +116,7 @@ async function resolvePendingNdia5() {
           };
 
           locked.status = providerResult.status;
-          locked.service_charge = providerResult.serviceCharge ?? locked.service_charge ?? 0;
+          locked.service_charge = locked.service_charge ?? providerResult.serviceCharge ?? 0;
           locked.data = JSON.stringify(mergedData);
 
           await locked.save({ transaction: tr });
