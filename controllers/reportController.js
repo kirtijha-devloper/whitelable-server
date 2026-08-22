@@ -822,14 +822,16 @@ const getLedgerReport = asyncHandler(async (req, res) => {
     });
 
     const RazorpayNotification = require("../models/RazorpayNotification");
-    const franchiseEarningTxnIds = entries
-      .filter(e => e.transaction_type === 'pos_franchise_earning' && e.transaction_id && e.description && !e.description.includes('| RRN:'))
+
+    // Collect ALL transaction_ids that don't already have RRN embedded in description
+    const txnIdsNeedingRrn = entries
+      .filter(e => e.transaction_id && !(e.description && e.description.includes('| RRN:')))
       .map(e => e.transaction_id);
 
     let notificationMap = {};
-    if (franchiseEarningTxnIds.length > 0) {
+    if (txnIdsNeedingRrn.length > 0) {
       const notifications = await RazorpayNotification.findAll({
-        where: { txn_id: { [Op.in]: franchiseEarningTxnIds } }
+        where: { txn_id: { [Op.in]: txnIdsNeedingRrn } }
       });
       for (const notif of notifications) {
         let rrNumber = notif.rr_number;
@@ -840,13 +842,14 @@ const getLedgerReport = asyncHandler(async (req, res) => {
           } catch(e) {}
         }
         if (rrNumber || notif.txn_id) {
-          notificationMap[notif.txn_id] = rrNumber || 'N/A';
+          notificationMap[notif.txn_id] = rrNumber || null;
         }
       }
     }
 
     const data = entries.map(e => {
       let description = e.description;
+      // For franchise earning entries that don't already have RRN in description, append it
       if (e.transaction_type === 'pos_franchise_earning' && description && !description.includes('| RRN:') && notificationMap[e.transaction_id]) {
         description = `${description} | Txn: ${e.transaction_id} | RRN: ${notificationMap[e.transaction_id]}`;
       }
@@ -861,6 +864,15 @@ const getLedgerReport = asyncHandler(async (req, res) => {
         }
       }
 
+      // Resolve RRN: prefer embedded in description, fall back to notification lookup
+      let rr_number = null;
+      const rrnInDesc = description && description.match(/RRN\s*:\s*([^|\n]+)/i);
+      if (rrnInDesc && rrnInDesc[1]) {
+        rr_number = rrnInDesc[1].trim();
+      } else if (e.transaction_id && notificationMap[e.transaction_id]) {
+        rr_number = notificationMap[e.transaction_id];
+      }
+
       return {
       id:              e.id,
       date:            e.createdAt,
@@ -868,6 +880,7 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       user:            userObj,
       transaction_type:e.transaction_type,
       description:     description,
+      rr_number,
       debit:           parseFloat(e.debit)  || 0,
       credit:          parseFloat(e.credit) || 0,
       amount:          parseFloat(e.debit) > 0 ? parseFloat(e.debit) : parseFloat(e.credit),
@@ -880,6 +893,7 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       metadata:        e.metadata ? (() => { try { return JSON.parse(e.metadata); } catch (_) { return e.metadata; } })() : null
     };
     });
+
 
     res.status(200).json({
       success: true,
