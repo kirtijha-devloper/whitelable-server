@@ -648,7 +648,8 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       let userObj = null;
       if (n.user) {
         userObj = n.user.toJSON ? n.user.toJSON() : { ...n.user };
-        const isEmployeeUser = req.user?.role && String(req.user?.role).toLowerCase() === 'employee';
+        const actualRole = req.user?.original_role || req.user?.role;
+        const isEmployeeUser = actualRole && String(actualRole).toLowerCase() === 'employee';
         if (isEmployeeUser) {
           userObj.mobile_number = maskMobileNumber(userObj.mobile_number);
         }
@@ -853,7 +854,8 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       let userObj = null;
       if (e.user) {
         userObj = e.user.toJSON ? e.user.toJSON() : { ...e.user };
-        const isEmployeeUser = req.user?.role && String(req.user?.role).toLowerCase() === 'employee';
+        const actualRole = req.user?.original_role || req.user?.role;
+        const isEmployeeUser = actualRole && String(actualRole).toLowerCase() === 'employee';
         if (isEmployeeUser) {
           userObj.mobile_number = maskMobileNumber(userObj.mobile_number);
         }
@@ -970,7 +972,8 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         : []
     ]);
 
-    const isEmployeeUser = req.user?.role && String(req.user?.role).toLowerCase() === 'employee';
+    const actualRole = req.user?.original_role || req.user?.role;
+    const isEmployeeUser = actualRole && String(actualRole).toLowerCase() === 'employee';
     let finalMerchants = merchants;
     if (isEmployeeUser) {
       finalMerchants = merchants.map(m => {
@@ -1319,7 +1322,8 @@ const getUserReport = asyncHandler(async (req, res) => {
     });
 
     let data = users;
-    const isEmployeeUser = req.user?.role && String(req.user?.role).toLowerCase() === 'employee';
+    const actualRole = req.user?.original_role || req.user?.role;
+    const isEmployeeUser = actualRole && String(actualRole).toLowerCase() === 'employee';
     if (isEmployeeUser) {
       data = users.map(u => {
         const plain = u.toJSON ? u.toJSON() : { ...u };
