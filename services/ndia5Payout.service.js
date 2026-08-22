@@ -361,7 +361,11 @@ async function initiatePayout(params) {
         errorResponse,
         success: false,
       });
-      throw new Error(`NDIA5 Payout Initiation Failed: ${error.message}`);
+      const customErr = new Error(`NDIA5 Payout Initiation Failed: ${error.message}`);
+      if (errorResponse) {
+        customErr.errorResponse = errorResponse;
+      }
+      throw customErr;
     }
   }
 }

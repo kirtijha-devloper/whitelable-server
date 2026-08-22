@@ -570,6 +570,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
       action: 'NDIA5_PAYOUT_INITIATE_FAILED',
       details: {
         error: error.message,
+        errorResponse: error.errorResponse || null,
       },
     });
 
