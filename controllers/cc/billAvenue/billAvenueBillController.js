@@ -1,7 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const fs = require('fs');
 const path = require('path');
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
 const billAvenueService = require('../../../services/cc/billAvenue/billAvenueService');
 const billAvenueConfig = require('../../../config/billavenue');
 const BillAvenuePayment = require('../../../models/BillAvenuePayment');
@@ -485,7 +485,11 @@ const getPayments = asyncHandler(async (req, res) => {
   const userRole = normalizeRole(req.user?.role);
   const isAdminOrEmployee = userRole === 'admin' || userRole === 'employee';
 
-  const where = {};
+  const where = {
+    [Op.and]: [
+      Sequelize.literal(`COALESCE(response->>'source', '') != 'ba_cc_bill_3'`)
+    ]
+  };
   if (!isAdminOrEmployee) {
     where.user_id = req.user?.id;
   }
