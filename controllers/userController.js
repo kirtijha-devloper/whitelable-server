@@ -343,6 +343,13 @@ async function buildFranchiseSummaryMap(users) {
   }));
 }
 
+function maskMobileNumber(mobile) {
+  if (!mobile) return "";
+  const str = String(mobile).trim();
+  if (str.length <= 4) return str;
+  return "*".repeat(str.length - 4) + str.slice(-4);
+}
+
 const getUsers = asyncHandler(async (req, res) => {
     try {
         const { 
@@ -367,6 +374,13 @@ const getUsers = asyncHandler(async (req, res) => {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to list users.',
+            });
+        }
+
+        if (userRole === 'employee' && parseInt(limit) > 100) {
+            return res.status(403).json({
+                success: false,
+                message: 'Employees are not allowed to export user data.',
             });
         }
 
@@ -440,7 +454,7 @@ const getUsers = asyncHandler(async (req, res) => {
           const normalizedListedRole = normalizeRole(u.role);
           const userServiceSettings = getResolvedUserServiceSettingsFromMap(userServiceSettingsMap, u);
 
-          return {
+          const serialized = {
             ...serializeUserWithResolvedAccessRole(u, employeeAccessRole),
             pos_machine_count: u.pos_machine_count,
             wallet_balance: wallet,
@@ -453,6 +467,12 @@ const getUsers = asyncHandler(async (req, res) => {
             user_service_settings: userServiceSettings,
             service_flags: getEffectiveServiceFlags(u, serviceSettingsMap, userServiceSettings),
           };
+
+          if (userRole === 'employee') {
+            serialized.mobile_number = maskMobileNumber(serialized.mobile_number);
+          }
+
+          return serialized;
         });
 
         res.status(200).json({
@@ -496,10 +516,17 @@ const searchUsers = asyncHandler(async (req, res) => {
             });
         }
 
-        if (isEmployee(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SEARCH)) {
+        if (userRole === 'employee' && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SEARCH)) {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to search users.',
+            });
+        }
+
+        if (userRole === 'employee' && parseInt(limit) > 100) {
+            return res.status(403).json({
+                success: false,
+                message: 'Employees are not allowed to export user data.',
             });
         }
 
@@ -571,7 +598,7 @@ const searchUsers = asyncHandler(async (req, res) => {
             const normalizedListedRole = normalizeRole(plain.role);
             const userServiceSettings = getResolvedUserServiceSettingsFromMap(userServiceSettingsMap, plain);
 
-            return {
+            const serialized = {
                 ...serializeUserWithResolvedAccessRole(plain, employeeAccessRole),
                 pos_machine_count: posCountMap[plain.id] || 0,
                 wallet_balance: walletVal,
@@ -584,6 +611,12 @@ const searchUsers = asyncHandler(async (req, res) => {
                 user_service_settings: userServiceSettings,
                 service_flags: getEffectiveServiceFlags(plain, serviceSettingsMap, userServiceSettings),
             };
+
+            if (userRole === 'employee') {
+                serialized.mobile_number = maskMobileNumber(serialized.mobile_number);
+            }
+
+            return serialized;
         });
 
         res.status(200).json({
@@ -724,6 +757,10 @@ const getUserByID = asyncHandler(async (req, res) => {
       user_service_settings: userServiceSettings,
       service_flags: getEffectiveServiceFlags(searchedUser, serviceSettingsMap, userServiceSettings),
     };
+
+    if (role === 'employee') {
+      response.user.mobile_number = "";
+    }
 
     // Fetch charges associated with merchant (if merchant role)
     if (searchedUserRole === "merchant" || role === "admin") {
@@ -2010,6 +2047,10 @@ const updateUser = asyncHandler(async (req, res) => {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
       }
+    }
+
+    if (requesterRole === 'employee' && (updates.mobile_number === "" || !updates.mobile_number)) {
+      delete updates.mobile_number;
     }
 
     if (requesterRole === 'admin') {
