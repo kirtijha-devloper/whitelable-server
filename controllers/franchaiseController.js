@@ -10,6 +10,13 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+function maskMobileNumber(mobile) {
+  if (!mobile) return "";
+  const str = String(mobile).trim();
+  if (str.length <= 4) return str;
+  return "*".repeat(str.length - 4) + str.slice(-4);
+}
+
 const onBoardUser = asyncHandler(async(req, res) => {
     try{
     const role = "franchaise"
@@ -118,8 +125,10 @@ const getUsers = asyncHandler(async (req, res) => {
       limit = 10
     } = req.query;
 
-    const userRole = req.user.role;
-    
+    const userRole = req.user?.role;
+    const requesterRole = req.user?.original_role || userRole;
+    const isEmployeeUser = requesterRole && String(requesterRole).toLowerCase() === 'employee';
+
     if (userRole === "merchant") {
       res.status(400);
       throw new Error('you are not allowed!');
@@ -129,7 +138,7 @@ const getUsers = asyncHandler(async (req, res) => {
     const where = {};
 
     // Role-based filtering
-    if (userRole === "admin") {
+    if (userRole === "admin" || isEmployeeUser) {
       where.role = "franchaise";
       if (status) where.status = status;
     } else if (userRole === "franchaise") {
@@ -148,8 +157,8 @@ const getUsers = asyncHandler(async (req, res) => {
 
     let resultUsers = users;
 
-    // if admin, include number of merchants under each franchise
-    if (userRole === 'admin' && users.length) {
+    // if admin or employee, include number of merchants under each franchise
+    if ((userRole === 'admin' || isEmployeeUser) && users.length) {
       // fetch merchant counts grouped by franchise id
       const merchantCounts = await User.findAll({
         where: { role: 'merchant' },
@@ -175,6 +184,14 @@ const getUsers = asyncHandler(async (req, res) => {
         } else {
           json.merchantCount = 0;
         }
+        return json;
+      });
+    }
+
+    if (isEmployeeUser) {
+      resultUsers = resultUsers.map(u => {
+        const json = u.toJSON ? u.toJSON() : { ...u };
+        json.mobile_number = maskMobileNumber(json.mobile_number);
         return json;
       });
     }

@@ -4,6 +4,13 @@ const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
 const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
 
+function maskMobileNumber(mobile) {
+  if (!mobile) return "";
+  const str = String(mobile).trim();
+  if (str.length <= 4) return str;
+  return "*".repeat(str.length - 4) + str.slice(-4);
+}
+
 function extractClientIp(req) {
   if (!req) return '127.0.0.1';
   const forwarded = req.headers
@@ -136,6 +143,16 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
     offset,
   });
 
+  let resultRows = rows;
+  const requesterRole = req.user?.original_role || req.user?.role;
+  if (requesterRole && String(requesterRole).toLowerCase() === 'employee') {
+    resultRows = rows.map(r => {
+      const plain = r.toJSON ? r.toJSON() : { ...r };
+      plain.mobile_number = maskMobileNumber(plain.mobile_number);
+      return plain;
+    });
+  }
+
   return res.status(200).json({
     success: true,
     message: "Unassigned merchants fetched successfully.",
@@ -144,7 +161,7 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
       page,
       limit,
       totalPages:  Math.ceil(count / limit),
-      merchants:   rows,
+      merchants:   resultRows,
     },
   });
 });
