@@ -16,6 +16,13 @@ const {
 } = require('../utils/permissions');
 
 // ---------------------------------------------------------------------------
+function maskMobileNumber(mobile) {
+  if (!mobile) return "";
+  const str = String(mobile).trim();
+  if (str.length <= 4) return str;
+  return "*".repeat(str.length - 4) + str.slice(-4);
+}
+
 // Helper – create / refresh a PosRentalBilling record when a machine is
 // assigned to a user.  Any previously-active billing for this machine is
 // deactivated first so there is never more than one active record per machine.
@@ -43,13 +50,21 @@ async function upsertRentalBilling(posMachineId, assignedUser) {
   });
 }
 
-async function buildPosMachineWithAssignedUser(posMachine) {
+async function buildPosMachineWithAssignedUser(posMachine, req = null) {
   let assignedUser = null;
 
   if (posMachine.assigned_to) {
     assignedUser = await User.findByPk(posMachine.assigned_to, {
       attributes: ['id', 'name', 'email', 'role', 'username', 'mobile_number'],
     });
+  }
+
+  let mobileNumber = assignedUser?.mobile_number || "";
+  if (req && assignedUser) {
+    const requesterRole = req.user?.original_role || req.user?.role;
+    if (requesterRole && String(requesterRole).toLowerCase() === 'employee') {
+      mobileNumber = maskMobileNumber(mobileNumber);
+    }
   }
 
   return {
@@ -69,7 +84,7 @@ async function buildPosMachineWithAssignedUser(posMachine) {
       email: assignedUser.email,
       role: assignedUser.role,
       username: assignedUser.username,
-      mobile_number: assignedUser.mobile_number,
+      mobile_number: mobileNumber,
     } : null,
     createdAt: posMachine.createdAt,
     updatedAt: posMachine.updatedAt,
@@ -122,7 +137,7 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     });
 
     const formattedPosMachines = await Promise.all(posMachines.map(async (posMachine) => {
-      return await buildPosMachineWithAssignedUser(posMachine);
+      return await buildPosMachineWithAssignedUser(posMachine, req);
     }));
     
     res.status(200).json({
@@ -223,7 +238,7 @@ const getPosMachine = asyncHandler( async (req, res) => {
     const id = req.params.id;
     const posMachineById = await PosMachine.findByPk(id);
     if (posMachineById) {
-        const formatted = await buildPosMachineWithAssignedUser(posMachineById);
+        const formatted = await buildPosMachineWithAssignedUser(posMachineById, req);
         res.status(200).json(formatted);
     } else {
         res.status(404);
@@ -543,9 +558,7 @@ const getPosMachineList = asyncHandler(async (req, res) => {
     });
 
     const formattedPosMachines = await Promise.all(machines.map(async (posMachine) => {
-      let assignedUser = null;
-      
-      return await buildPosMachineWithAssignedUser(posMachine);
+      return await buildPosMachineWithAssignedUser(posMachine, req);
     }));
 
     res.status(200).json({
