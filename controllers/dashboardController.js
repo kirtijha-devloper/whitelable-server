@@ -221,7 +221,10 @@ const getDashboard = asyncHandler(async (req, res) => {
       processing_status: 'completed'
     };
 
-    if (role === 'admin') {
+    const requesterRole = req.user?.original_role || req.user?.role;
+    const isEmployeeUser = requesterRole && String(requesterRole).toLowerCase() === 'employee';
+
+    if (role === 'admin' || isEmployeeUser) {
       const [activeMachineCount, deactiveMachineCount, activeMerchantCount, activeFranchaiseCount] =
         await Promise.all([
           PosMachine.count({ where: { status: { [Op.ne]: 'in_active' } } }),
