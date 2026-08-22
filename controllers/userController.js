@@ -377,7 +377,7 @@ const getUsers = asyncHandler(async (req, res) => {
             });
         }
 
-        if (userRole === 'employee' && parseInt(limit) > 100) {
+        if (isEmployee(req.user) && parseInt(limit) > 100) {
             return res.status(403).json({
                 success: false,
                 message: 'Employees are not allowed to export user data.',
@@ -468,7 +468,7 @@ const getUsers = asyncHandler(async (req, res) => {
             service_flags: getEffectiveServiceFlags(u, serviceSettingsMap, userServiceSettings),
           };
 
-          if (userRole === 'employee') {
+          if (isEmployee(req.user)) {
             serialized.mobile_number = maskMobileNumber(serialized.mobile_number);
           }
 
@@ -516,14 +516,14 @@ const searchUsers = asyncHandler(async (req, res) => {
             });
         }
 
-        if (userRole === 'employee' && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SEARCH)) {
+        if (isEmployee(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SEARCH)) {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to search users.',
             });
         }
 
-        if (userRole === 'employee' && parseInt(limit) > 100) {
+        if (isEmployee(req.user) && parseInt(limit) > 100) {
             return res.status(403).json({
                 success: false,
                 message: 'Employees are not allowed to export user data.',
@@ -612,7 +612,7 @@ const searchUsers = asyncHandler(async (req, res) => {
                 service_flags: getEffectiveServiceFlags(plain, serviceSettingsMap, userServiceSettings),
             };
 
-            if (userRole === 'employee') {
+            if (isEmployee(req.user)) {
                 serialized.mobile_number = maskMobileNumber(serialized.mobile_number);
             }
 
@@ -758,7 +758,7 @@ const getUserByID = asyncHandler(async (req, res) => {
       service_flags: getEffectiveServiceFlags(searchedUser, serviceSettingsMap, userServiceSettings),
     };
 
-    if (role === 'employee') {
+    if (isEmployee(req.user)) {
       response.user.mobile_number = "";
     }
 
@@ -2049,7 +2049,7 @@ const updateUser = asyncHandler(async (req, res) => {
       }
     }
 
-    if (requesterRole === 'employee' && (updates.mobile_number === "" || !updates.mobile_number)) {
+    if (isEmployee(req.user) && (updates.mobile_number === "" || !updates.mobile_number)) {
       delete updates.mobile_number;
     }
 

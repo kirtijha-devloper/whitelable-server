@@ -648,7 +648,8 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
       let userObj = null;
       if (n.user) {
         userObj = n.user.toJSON ? n.user.toJSON() : { ...n.user };
-        if (userRole === 'employee') {
+        const isEmployeeUser = req.user?.role && String(req.user?.role).toLowerCase() === 'employee';
+        if (isEmployeeUser) {
           userObj.mobile_number = maskMobileNumber(userObj.mobile_number);
         }
       }
@@ -852,7 +853,8 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       let userObj = null;
       if (e.user) {
         userObj = e.user.toJSON ? e.user.toJSON() : { ...e.user };
-        if (userRole === 'employee') {
+        const isEmployeeUser = req.user?.role && String(req.user?.role).toLowerCase() === 'employee';
+        if (isEmployeeUser) {
           userObj.mobile_number = maskMobileNumber(userObj.mobile_number);
         }
       }
@@ -968,9 +970,9 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         : []
     ]);
 
-    const requesterRole = req.user?.role;
+    const isEmployeeUser = req.user?.role && String(req.user?.role).toLowerCase() === 'employee';
     let finalMerchants = merchants;
-    if (requesterRole === 'employee') {
+    if (isEmployeeUser) {
       finalMerchants = merchants.map(m => {
         const plain = m.toJSON ? m.toJSON() : { ...m };
         plain.mobile_number = maskMobileNumber(plain.mobile_number);
@@ -1317,7 +1319,8 @@ const getUserReport = asyncHandler(async (req, res) => {
     });
 
     let data = users;
-    if (userRole === 'employee') {
+    const isEmployeeUser = req.user?.role && String(req.user?.role).toLowerCase() === 'employee';
+    if (isEmployeeUser) {
       data = users.map(u => {
         const plain = u.toJSON ? u.toJSON() : { ...u };
         plain.mobile_number = maskMobileNumber(plain.mobile_number);
