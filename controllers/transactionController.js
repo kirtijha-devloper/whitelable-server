@@ -627,6 +627,19 @@ function mapTeleringRow(r, normalizedRow, provider, index) {
   };
 }
 
+function checkIsSettlementRow(normalizedRow) {
+  const keys = ['TRANSACTION_TYPE', 'TXN_TYPE', 'TYPE', 'DESCRIPTION', 'RESPONSE_MESSAGE', 'TRANSACTION_STATUS', 'STATUS'];
+  for (const key of keys) {
+    if (normalizedRow[key]) {
+      const val = String(normalizedRow[key]).trim().toUpperCase();
+      if (val.includes('SETTLEMENT') || val === 'SETTLE') {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function mapRowToNotificationEvent(r, provider = 'telering', index = 0) {
   const normalizedRow = {};
   for (const k of Object.keys(r)) {
@@ -634,17 +647,24 @@ function mapRowToNotificationEvent(r, provider = 'telering', index = 0) {
     normalizedRow[cleanKey] = r[k];
   }
 
+  const isSettlement = checkIsSettlementRow(normalizedRow);
   const providerLower = String(provider).trim().toLowerCase();
 
+  let mapped;
   if (providerLower.includes('paytm')) {
-    return mapPaytmRow(r, normalizedRow, providerLower, index);
+    mapped = mapPaytmRow(r, normalizedRow, providerLower, index);
   } else if (providerLower.includes('pinelab')) {
-    return mapPinelabRow(r, normalizedRow, providerLower, index);
+    mapped = mapPinelabRow(r, normalizedRow, providerLower, index);
   } else if (providerLower.includes('yesbank') || providerLower.includes('yes_bank')) {
-    return mapYesBankRow(r, normalizedRow, providerLower, index);
+    mapped = mapYesBankRow(r, normalizedRow, providerLower, index);
   } else {
-    return mapTeleringRow(r, normalizedRow, providerLower, index);
+    mapped = mapTeleringRow(r, normalizedRow, providerLower, index);
   }
+
+  return {
+    ...mapped,
+    isSettlement
+  };
 }
 
 function cleanCsvValue(value) {
@@ -857,7 +877,10 @@ const previewCSV = asyncHandler(async (req, res) => {
 
     for (let idx = 0; idx < rawRows.length; idx++) {
       const r = rawRows[idx];
-      const { previewRow } = mapRowToNotificationEvent(r, provider, idx);
+      const { previewRow, isSettlement } = mapRowToNotificationEvent(r, provider, idx);
+      if (isSettlement) {
+        continue;
+      }
       if (previewRow.status !== 'FAILED') {
         const mid = previewRow.mid;
         const tid = previewRow.tid;
@@ -1034,7 +1057,10 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
 
     let processedCount = 0;
     for (let i = 0; i < rawRows.length; i++) {
-      const { event } = mapRowToNotificationEvent(rawRows[i], provider, i);
+      const { event, isSettlement } = mapRowToNotificationEvent(rawRows[i], provider, i);
+      if (isSettlement) {
+        continue;
+      }
       if (event.txnId && event.status !== 'FAILED') {
         await processRzpNotification(event, provider);
         processedCount++;

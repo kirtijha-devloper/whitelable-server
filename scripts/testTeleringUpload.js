@@ -61,6 +61,7 @@ console.log("--- Testing Telering Data Mapping ---");
 sampleCsvData.forEach((row, idx) => {
   const result = mapRowToNotificationEvent(row, 'telering', idx);
   console.log(`\nRow ${idx + 1}:`);
+  console.log("Is Settlement:", result.isSettlement);
   console.log("Event:", JSON.stringify(result.event, null, 2));
   console.log("Preview:", JSON.stringify(result.previewRow, null, 2));
 });
