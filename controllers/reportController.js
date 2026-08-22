@@ -22,6 +22,13 @@ function pickFirstNonEmpty(...values) {
   return null;
 }
 
+function maskMobileNumber(mobile) {
+  if (!mobile) return "";
+  const str = String(mobile).trim();
+  if (str.length <= 4) return str;
+  return "*".repeat(str.length - 4) + str.slice(-4);
+}
+
 function maskCardNumber(rawValue) {
   const raw = pickFirstNonEmpty(rawValue);
   if (!raw) return null;
@@ -638,6 +645,14 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         )
       );
 
+      let userObj = null;
+      if (n.user) {
+        userObj = n.user.toJSON ? n.user.toJSON() : { ...n.user };
+        if (userRole === 'employee') {
+          userObj.mobile_number = maskMobileNumber(userObj.mobile_number);
+        }
+      }
+
       return {
         id:                n.id,
         txn_id:            n.txn_id,
@@ -669,7 +684,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         settlement_type:   n.settlement_type || null,
         user_id:           n.user_id,
         pos_machine_id:    n.pos_machine_id,
-        user:              n.user        || null,
+        user:              userObj,
         franchise_id:      franchiseId,
         franchise_name:    franchise?.name || null,
         franchise,
@@ -834,11 +849,19 @@ const getLedgerReport = asyncHandler(async (req, res) => {
         description = `${description} | Txn: ${e.transaction_id} | RRN: ${notificationMap[e.transaction_id]}`;
       }
 
+      let userObj = null;
+      if (e.user) {
+        userObj = e.user.toJSON ? e.user.toJSON() : { ...e.user };
+        if (userRole === 'employee') {
+          userObj.mobile_number = maskMobileNumber(userObj.mobile_number);
+        }
+      }
+
       return {
       id:              e.id,
       date:            e.createdAt,
       user_id:         e.user_id,
-      user:            e.user || null,
+      user:            userObj,
       transaction_type:e.transaction_type,
       description:     description,
       debit:           parseFloat(e.debit)  || 0,
@@ -945,7 +968,17 @@ const getPayoutReport = asyncHandler(async (req, res) => {
         : []
     ]);
 
-    const merchantMap = Object.fromEntries(merchants.map(m => [m.id, m]));
+    const requesterRole = req.user?.role;
+    let finalMerchants = merchants;
+    if (requesterRole === 'employee') {
+      finalMerchants = merchants.map(m => {
+        const plain = m.toJSON ? m.toJSON() : { ...m };
+        plain.mobile_number = maskMobileNumber(plain.mobile_number);
+        return plain;
+      });
+    }
+
+    const merchantMap = Object.fromEntries(finalMerchants.map(m => [m.id, m]));
     const beneficiaryMap = Object.fromEntries(beneficiaries.map(b => [b.id, b]));
 
     const data = payouts.map(p => {
@@ -1283,10 +1316,19 @@ const getUserReport = asyncHandler(async (req, res) => {
       order: [['createdAt', 'DESC']],
     });
 
+    let data = users;
+    if (userRole === 'employee') {
+      data = users.map(u => {
+        const plain = u.toJSON ? u.toJSON() : { ...u };
+        plain.mobile_number = maskMobileNumber(plain.mobile_number);
+        return plain;
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'User report fetched successfully',
-      data: users,
+      data,
       pagination: {
         total: count,
         page: parseInt(page),
