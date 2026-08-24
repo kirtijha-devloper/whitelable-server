@@ -180,19 +180,26 @@ const extractPayoutReferenceFields = (payout) => {
   const rrnKeys = ['rrn'];
   const utrKeys = ['utr', 'bankRefNo', 'bankReferenceNo', 'utrNo', 'utr_no'];
 
+  let finalRrn = null;
+  let finalUtr = null;
+
   for (const source of sources) {
     const rrn = findFirstNestedValue(source, rrnKeys);
     const utr = findFirstNestedValue(source, utrKeys);
 
-    if (rrn || utr) {
-      return {
-        rrn: rrn || null,
-        utr: utr || null,
-      };
-    }
+    if (rrn && !finalRrn) finalRrn = rrn;
+    if (utr && !finalUtr) finalUtr = utr;
   }
 
-  return { rrn: null, utr: null };
+  // Fallback: If RRN is missing, use UTR as RRN (needed for providers like NDIA5 where bank response is UTR)
+  if (!finalRrn) {
+    finalRrn = finalUtr;
+  }
+
+  return {
+    rrn: finalRrn || null,
+    utr: finalUtr || null,
+  };
 };
 
 /**
