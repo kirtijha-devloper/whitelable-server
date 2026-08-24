@@ -27,6 +27,7 @@ try {
 } catch (_) { /* prevent permission failure crashes */ }
 
 const THREE_MINUTES_MS = 3 * 60 * 1000;
+const THIRTY_MINUTES_MS = 30 * 60 * 1000;
 const ENABLE_NDIA5_PENDING_CRON = process.env.ENABLE_NDIA5_PENDING_CRON !== 'false';
 const NDIA5_PENDING_CRON_SCHEDULE = process.env.NDIA5_PENDING_CRON_SCHEDULE || '0 */3 * * * *';
 
@@ -153,6 +154,88 @@ async function resolvePendingNdia5() {
         const errLog = `[cron] Status check API failed for NDIA5 payout ${tx.id} (${tx.reference_id}): ${apiErr.message}`;
         console.error(errLog, apiErr);
         appendCronLog(errLog);
+
+        // ----------------------------------------------------------------
+        // Auto-fail guard: mark as FAILED (no auto-refund) if either:
+        //   1. Status check returned HTTP 400 (NDIA5 does not recognise the
+        //      reference — typically because initiation timed out before
+        //      NDIA5 could register it), OR
+        //   2. The initiation itself previously failed with a timeout and
+        //      left the transaction in PENDING state
+        // …and the transaction is already older than 30 minutes.
+        //
+        // Refund is intentionally NOT issued here — admin must do it
+        // manually, consistent with existing NDIA5 refund policy.
+        // ----------------------------------------------------------------
+        try {
+          const txAgeMs = Date.now() - new Date(tx.createdAt).getTime();
+          const isOlderThan30Min = txAgeMs > THIRTY_MINUTES_MS;
+
+          const is400StatusCheck = apiErr.message.includes('status code 400');
+          const txData = parseJsonMaybe(tx.data);
+          const hasInitiationTimeout =
+            !!(txData.initiationError && /timeout/i.test(txData.initiationError));
+
+          if (isOlderThan30Min && (is400StatusCheck || hasInitiationTimeout)) {
+            const autoFailReason = is400StatusCheck
+              ? 'status_check_returned_400'
+              : 'initiation_timeout_detected';
+
+            const tr2 = await db.transaction();
+            try {
+              const locked2 = await PayoutTransaction.findByPk(tx.id, {
+                transaction: tr2,
+                lock: tr2.LOCK.UPDATE,
+              });
+
+              if (locked2 && !['SUCCESS', 'FAILED', 'REVERSED', 'CANCELLED'].includes(locked2.status)) {
+                const existingData2 = parseJsonMaybe(locked2.data);
+                locked2.status = 'FAILED';
+                locked2.data = JSON.stringify({
+                  ...existingData2,
+                  cronAutoFailedReason: autoFailReason,
+                  cronAutoFailedAt: new Date().toISOString(),
+                  cronAutoFailApiError: apiErr.message,
+                  txAgeMinutesAtFail: Math.floor(txAgeMs / 60000),
+                });
+                await locked2.save({ transaction: tr2 });
+
+                await PayoutAuditLog.create({
+                  payout_id: locked2.id,
+                  action: 'NDIA5_CRON_AUTO_FAILED',
+                  details: {
+                    reference_id: locked2.reference_id,
+                    from: 'PENDING',
+                    to: 'FAILED',
+                    reason: is400StatusCheck
+                      ? 'Status check returned HTTP 400 — reference not found on NDIA5 (payout was never registered).'
+                      : 'Initiation previously timed out; payout was never submitted to NDIA5.',
+                    apiError: apiErr.message,
+                    txAgeMinutes: Math.floor(txAgeMs / 60000),
+                    autoRefund: false,
+                    refundNotice: 'Payout auto-failed by cron after 30-minute threshold. Refund must be triggered manually by admin.',
+                  },
+                }, { transaction: tr2 });
+
+                const failMsg = `[cron] NDIA5 payout ${locked2.reference_id} auto-marked FAILED (reason=${autoFailReason}, age=${Math.floor(txAgeMs / 60000)}min)`;
+                console.log(failMsg);
+                appendCronLog(failMsg);
+              }
+
+              await tr2.commit();
+            } catch (autoFailDbErr) {
+              await tr2.rollback();
+              const autoFailErrLog = `[cron] Auto-fail DB update failed for NDIA5 payout ${tx.id}: ${autoFailDbErr.message}`;
+              console.error(autoFailErrLog, autoFailDbErr);
+              appendCronLog(autoFailErrLog);
+            }
+          }
+        } catch (autoFailErr) {
+          // Never crash the main cron loop due to auto-fail logic
+          const guardErrLog = `[cron] Auto-fail guard threw for NDIA5 payout ${tx.id}: ${autoFailErr.message}`;
+          console.error(guardErrLog, autoFailErr);
+          appendCronLog(guardErrLog);
+        }
       }
     }
   } finally {
