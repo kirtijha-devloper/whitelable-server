@@ -356,7 +356,7 @@ function parseUploadedFileToRows(filePath) {
 
 function mapPaytmRow(r, normalizedRow, provider, index) {
   const mid = String(normalizedRow['MID'] || normalizedRow['MERCHANT_ID'] || '').replace(/'/g, '').trim();
-  const tid = String(normalizedRow['TID'] || normalizedRow['TERMINAL_ID'] || '').replace(/'/g, '').trim();
+  const tid = String(normalizedRow['TID'] || normalizedRow['TERMINAL_ID'] || normalizedRow['POS_ID'] || '').replace(/'/g, '').trim();
   const rrn = String(normalizedRow['RRN'] || normalizedRow['REF_NO'] || '').replace(/'/g, '').trim();
   let txnId = String(normalizedRow['TXN_ID'] || normalizedRow['TRANSACTION_ID'] || rrn || '').replace(/'/g, '').trim();
 
