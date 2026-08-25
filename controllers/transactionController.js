@@ -369,7 +369,10 @@ function mapPaytmRow(r, normalizedRow, provider, index) {
 
   const paymentCardBrand = String(normalizedRow['CARD_BRAND'] || normalizedRow['SCHEME'] || normalizedRow['BRAND'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
   const paymentCardType = String(normalizedRow['CARD_TYPE'] || normalizedRow['PAYMENT_CARD_TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
-  const cardSubType = String(normalizedRow['TRANSACTION_TYPE'] || normalizedRow['TXN_TYPE'] || 'SALE').replace(/'/g, '').trim().toUpperCase();
+  let cardSubType = String(normalizedRow['TRANSACTION_TYPE'] || normalizedRow['TXN_TYPE'] || 'SALE').replace(/'/g, '').trim().toUpperCase();
+  if (cardSubType === 'ACQUIRING') {
+    cardSubType = null;
+  }
 
   const rawStatus = String(normalizedRow['STATUS'] || normalizedRow['TRANSACTION_STATUS'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
 
