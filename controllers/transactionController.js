@@ -382,6 +382,7 @@ function mapPaytmRow(r, normalizedRow, provider, index) {
 
   const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
   const postingDate = parseDateAsIst(rawDate);
+  const isDateValid = postingDate instanceof Date && !isNaN(postingDate.getTime());
 
   const event = {
     txnId,
@@ -394,7 +395,7 @@ function mapPaytmRow(r, normalizedRow, provider, index) {
     paymentCardBrand,
     rrNumber: rrn || null,
     deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').replace(/'/g, '').trim() || null,
-    postingDate: isNaN(postingDate.getTime()) ? new Date().toISOString() : postingDate.toISOString(),
+    postingDate: isDateValid ? postingDate.toISOString() : new Date().toISOString(),
     status,
     source: provider || 'paytm',
     customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').replace(/'/g, '').trim() || null,
@@ -414,7 +415,7 @@ function mapPaytmRow(r, normalizedRow, provider, index) {
       charge: 0,
       charge_percentage: 0,
       left_amount: amount,
-      date: isNaN(postingDate.getTime()) ? String(rawDate) : postingDate.toISOString().replace('T', ' ').substring(0, 19),
+      date: isDateValid ? postingDate.toISOString().replace('T', ' ').substring(0, 19) : String(rawDate),
       status,
       raw: r
     }
@@ -449,6 +450,7 @@ function mapPinelabRow(r, normalizedRow, provider, index) {
 
   const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
   const postingDate = parseDateAsIst(rawDate);
+  const isDateValid = postingDate instanceof Date && !isNaN(postingDate.getTime());
 
   const event = {
     txnId,
@@ -461,7 +463,7 @@ function mapPinelabRow(r, normalizedRow, provider, index) {
     paymentCardBrand,
     rrNumber: rrn || null,
     deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').replace(/'/g, '').trim() || null,
-    postingDate: isNaN(postingDate.getTime()) ? new Date().toISOString() : postingDate.toISOString(),
+    postingDate: isDateValid ? postingDate.toISOString() : new Date().toISOString(),
     status,
     source: provider || 'pinelab',
     customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').replace(/'/g, '').trim() || null,
@@ -481,7 +483,7 @@ function mapPinelabRow(r, normalizedRow, provider, index) {
       charge: 0,
       charge_percentage: 0,
       left_amount: amount,
-      date: isNaN(postingDate.getTime()) ? String(rawDate) : postingDate.toISOString().replace('T', ' ').substring(0, 19),
+      date: isDateValid ? postingDate.toISOString().replace('T', ' ').substring(0, 19) : String(rawDate),
       status,
       raw: r
     }
@@ -518,6 +520,7 @@ function mapYesBankRow(r, normalizedRow, provider, index) {
 
   const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
   const postingDate = parseDateAsIst(rawDate);
+  const isDateValid = postingDate instanceof Date && !isNaN(postingDate.getTime());
 
   const event = {
     txnId,
@@ -530,7 +533,7 @@ function mapYesBankRow(r, normalizedRow, provider, index) {
     paymentCardBrand,
     rrNumber: rrn || null,
     deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').replace(/'/g, '').trim() || null,
-    postingDate: isNaN(postingDate.getTime()) ? new Date().toISOString() : postingDate.toISOString(),
+    postingDate: isDateValid ? postingDate.toISOString() : new Date().toISOString(),
     status,
     source: provider || 'yesbank',
     customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').replace(/'/g, '').trim() || null,
@@ -550,7 +553,7 @@ function mapYesBankRow(r, normalizedRow, provider, index) {
       charge: 0,
       charge_percentage: 0,
       left_amount: amount,
-      date: isNaN(postingDate.getTime()) ? String(rawDate) : postingDate.toISOString().replace('T', ' ').substring(0, 19),
+      date: isDateValid ? postingDate.toISOString().replace('T', ' ').substring(0, 19) : String(rawDate),
       status,
       raw: r
     }
@@ -588,6 +591,7 @@ function mapTeleringRow(r, normalizedRow, provider, index) {
 
   const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || new Date();
   const postingDate = parseDateAsIst(rawDate);
+  const isDateValid = postingDate instanceof Date && !isNaN(postingDate.getTime());
 
   const event = {
     txnId,
@@ -600,7 +604,7 @@ function mapTeleringRow(r, normalizedRow, provider, index) {
     paymentCardBrand,
     rrNumber: rrn || null,
     deviceSerial: String(normalizedRow['DEVICE_SERIAL'] || normalizedRow['SERIAL_NO'] || '').replace(/'/g, '').trim() || null,
-    postingDate: isNaN(postingDate.getTime()) ? new Date().toISOString() : postingDate.toISOString(),
+    postingDate: isDateValid ? postingDate.toISOString() : new Date().toISOString(),
     status,
     source: provider || 'telering',
     customerName: String(normalizedRow['MERCHANT_DBA_NAME'] || '').replace(/'/g, '').trim() || null,
@@ -620,7 +624,7 @@ function mapTeleringRow(r, normalizedRow, provider, index) {
       charge: 0,
       charge_percentage: 0,
       left_amount: amount,
-      date: isNaN(postingDate.getTime()) ? String(rawDate) : postingDate.toISOString().replace('T', ' ').substring(0, 19),
+      date: isDateValid ? postingDate.toISOString().replace('T', ' ').substring(0, 19) : String(rawDate),
       status,
       raw: r
     }
