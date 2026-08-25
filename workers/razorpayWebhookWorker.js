@@ -297,6 +297,21 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       }
     }
 
+    // Fallback to MID-only matching for Paytm
+    if (!posMachine && src.includes('paytm')) {
+      const fallbackMid = await PosMachine.findOne({
+        where: {
+          status: "active",
+          mid_number: { [Op.in]: midCandidates }
+        }
+      });
+      if (fallbackMid) {
+        posMachine = fallbackMid;
+        matchedMid = fallbackMid.mid_number;
+        matchedTid = fallbackMid.tid_number;
+      }
+    }
+
     if (!posMachine) {
       logger.warn(`[Razorpay Webhook Worker] ⚠️ POS Machine not found for mid: ${merchantId}, tid: ${terminalId}. Tried mid candidates=${JSON.stringify(midCandidates)}, tid candidates=${JSON.stringify(tidCandidates)}. Notification stored without user link.`);
       // mark for admin review so it can be fixed later

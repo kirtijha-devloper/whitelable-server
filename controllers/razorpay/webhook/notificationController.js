@@ -369,6 +369,22 @@ async function _resolvePosContext(notification) {
         }
     }
 
+    // Fallback to MID-only matching for Paytm
+    const source = notification.source || '';
+    if (!posMachine && source.includes('paytm')) {
+        const fallbackMid = await PosMachine.findOne({
+            where: {
+                status: 'active',
+                mid_number: { [Op.in]: midCandidates }
+            }
+        });
+        if (fallbackMid) {
+            posMachine = fallbackMid;
+            matchedMid = fallbackMid.mid_number;
+            matchedTid = fallbackMid.tid_number;
+        }
+    }
+
     if (!posMachine) {
         throw new Error(`POS machine not found for mid=${merchantId}, tid=${terminalId}`);
     }

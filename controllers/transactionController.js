@@ -938,6 +938,16 @@ const previewCSV = asyncHandler(async (req, res) => {
           });
         }
 
+        // Fallback to MID-only matching for Paytm
+        if (!posMachine && provider.includes('paytm') && (mid || normalizedMid)) {
+          posMachine = await PosMachine.findOne({
+            where: {
+              status: 'active',
+              mid_number: { [Op.in]: [mid, normalizedMid].filter(Boolean) }
+            }
+          });
+        }
+
         const user = posMachine && posMachine.assigned_to
           ? await User.findByPk(posMachine.assigned_to, {
               attributes: ['id', 'name', 'role', 'franchaise_id', 'settlement_type']
