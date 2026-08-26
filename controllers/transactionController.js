@@ -1081,22 +1081,44 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: "The uploaded file is empty or could not be parsed." });
     }
 
-    let processedCount = 0;
+    let insertedCount = 0;
+    let duplicateCount = 0;
+    let failedCount = 0;
+
     for (let i = 0; i < rawRows.length; i++) {
       const { event, isSettlement } = mapRowToNotificationEvent(rawRows[i], provider, i);
       if (isSettlement) {
         continue;
       }
       if (event.txnId && event.status !== 'FAILED') {
-        await processRzpNotification(event, provider, true);
-        processedCount++;
+        try {
+          const existing = await RazorpayNotification.findOne({ where: { txn_id: event.txnId } });
+          if (existing) {
+            duplicateCount++;
+          } else {
+            await processRzpNotification(event, provider, true);
+            insertedCount++;
+          }
+        } catch (err) {
+          failedCount++;
+          console.error(`Error processing row ${i}:`, err);
+        }
+      } else {
+        failedCount++;
       }
+    }
+
+    let message = `${insertedCount} DATA INSERTED ; ${duplicateCount} DATA DUPLICATE`;
+    if (failedCount > 0) {
+      message += ` ; ${failedCount} DATA FAILED`;
     }
 
     res.status(200).json({
       success: true,
-      message: `${provider.toUpperCase()} notifications uploaded and queued successfully (${processedCount} records)`,
-      count: processedCount
+      message,
+      insertedCount,
+      duplicateCount,
+      failedCount
     });
   } catch (error) {
     console.error("Error uploading provider notifications:", error);
