@@ -12,7 +12,7 @@ const razorpayWebhookQueue = require("../../queues/razorpayWebhookQueue.js");
  * - Business logic runs asynchronously (non-blocking)
  * - Production-ready with retries and error handling
  */
-async function processRzpNotification(event, source = 'agro') {
+async function processRzpNotification(event, source = 'agro', throwOnError = false) {
     try {
         // tag the incoming payload so downstream code and logs can see where it came from
         if (event && typeof event === 'object') {
@@ -141,6 +141,9 @@ async function processRzpNotification(event, source = 'agro') {
 
     } catch (error) {
         console.error("[Webhook Service] ❌ Failed to process notification", error);
+        if (throwOnError) {
+            throw error;
+        }
         // Don't throw - we already sent 200 OK to Razorpay
         // The error is logged for monitoring/debugging
     }

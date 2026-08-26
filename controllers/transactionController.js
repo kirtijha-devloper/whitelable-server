@@ -1079,7 +1079,7 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
         continue;
       }
       if (event.txnId && event.status !== 'FAILED') {
-        await processRzpNotification(event, provider);
+        await processRzpNotification(event, provider, true);
         processedCount++;
       }
     }
