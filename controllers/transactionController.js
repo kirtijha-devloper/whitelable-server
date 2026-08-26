@@ -139,45 +139,54 @@ console.log("data5:")
           }));
 
 
-        if (newTransactions.length === 0) {
+        if (sanitizedResults.length === 0) {
           return res.status(400).json({ message: "No valid records found in CSV." });
         }
 
-        // Bulk insert
-        await Transaction.bulkCreate(newTransactions, {
-          ignoreDuplicates: true // ✅ This will skip records with duplicate primary keys
-        });
-        console.log("CSV data uploaded successfully")
+        let insertedCount = 0;
+        let duplicateCount = sanitizedResults.length;
 
-        const settledTransactions = newTransactions.filter(t => t.Status === "SETTLED");
-        const walletRequests = [];
-        for (const tx of settledTransactions) {
-          // 🔐 Make sure you have a valid user to attach (modify logic as needed)
-          const posMachine = await PosMachine.findOne({where: {mid_number: tx.MID}})
+        if (newTransactions.length > 0) {
+          // Bulk insert
+          await Transaction.bulkCreate(newTransactions, {
+            ignoreDuplicates: true // ✅ This will skip records with duplicate primary keys
+          });
+          console.log("CSV data uploaded successfully");
 
-          if (!posMachine) {
-            console.warn(`No POS Machine Found in our system: ${tx.MID}, skipping wallet request`);
-            // continue;
+          insertedCount = newTransactions.length;
+          duplicateCount = sanitizedResults.length - insertedCount;
+
+          const settledTransactions = newTransactions.filter(t => t.Status === "SETTLED");
+          const walletRequests = [];
+          for (const tx of settledTransactions) {
+            // 🔐 Make sure you have a valid user to attach (modify logic as needed)
+            const posMachine = await PosMachine.findOne({where: {mid_number: tx.MID}});
+
+            if (!posMachine) {
+              console.warn(`No POS Machine Found in our system: ${tx.MID}, skipping wallet request`);
+              // continue;
+            }
+
+            walletRequests.push({
+              type: "request",
+              amount: tx.Amount,
+              status: "pending", // Marked as request
+              reason: `Razorpay transaction ID: ${tx.ID}`,
+              requested_by: posMachine ? posMachine.assigned_to : null, // assuming self-initiated
+              source: "razorpay"
+            });
           }
 
-          walletRequests.push({
-            type: "request",
-            amount: tx.Amount,
-            status: "pending", // Marked as request
-            reason: `Razorpay transaction ID: ${tx.ID}`,
-            requested_by: posMachine.assigned_to, // assuming self-initiated
-            source: "razorpay"
-          });
+          if (walletRequests.length) {
+            await WalletTransaction.bulkCreate(walletRequests);
+            console.log(`Wallet requests created: ${walletRequests.length}`);
+          }
         }
 
-        if (walletRequests.length) {
-          await WalletTransaction.bulkCreate(walletRequests);
-          console.log(`Wallet requests created: ${walletRequests.length}`);
-}
-
         res.status(200).json({
-          message: "CSV data uploaded successfully",
-          insertedCount: sanitizedResults.length,
+          message: `${insertedCount} DATA INSERTED ; ${duplicateCount} DATA DUPLICATE`,
+          insertedCount,
+          duplicateCount
         });
       } catch (err) {
         console.error("Error inserting data:", err);
