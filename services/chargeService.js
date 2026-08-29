@@ -141,12 +141,11 @@ async function getTransactionChargeRule({
       AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
       AND (UPPER(card_type)    = $4 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
       AND (UPPER(card_brand)   = $5 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
-      -- When $6 (classification) is NULL (not available, e.g. from Excel uploads),
-      -- treat it as a wildcard: match any rule regardless of its classification value.
-      -- When $6 is provided, only match rules whose classification equals $6, is NULL, or is ANY.
-      AND ($6::text IS NULL OR UPPER(card_classification) = UPPER($6::text) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')
-      -- Same wildcard treatment for settlement: NULL means "ignore this dimension"
-      AND ($7::text IS NULL OR settlement_type = $7::text OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')
+      -- When $6 (classification) is NULL, only match rules whose classification is NULL or 'ANY'.
+      -- When $6 is provided, match rules whose classification equals $6, is NULL, or is 'ANY'.
+      AND (($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')
+      -- Same treatment for settlement: when $7 is NULL, only match NULL or 'ANY' settlement rules.
+      AND (($7::text IS NOT NULL AND settlement_type = $7::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')
       -- amount slab
       AND $8 >= min_amount
       AND ($8 <= max_amount OR max_amount IS NULL)
@@ -227,8 +226,8 @@ async function getAdminChargeRuleForFranchise({
       AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
       AND (UPPER(card_type)    = $3 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
       AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
-      AND ($5::text IS NULL OR UPPER(card_classification) = UPPER($5::text) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')
-      AND ($6::text IS NULL OR settlement_type = $6::text OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')
+      AND (($5::text IS NOT NULL AND UPPER(card_classification) = UPPER($5::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')
+      AND (($6::text IS NOT NULL AND settlement_type = $6::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')
       AND $7 >= min_amount
       AND ($7 <= max_amount OR max_amount IS NULL)
     ORDER BY specificity DESC

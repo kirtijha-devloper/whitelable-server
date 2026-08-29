@@ -183,8 +183,8 @@ describe('ChargeService', () => {
         expect(query).to.include("UPPER(payment_mode) = $3 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY'");
         expect(query).to.include("UPPER(card_type)    = $4 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY'");
         expect(query).to.include("UPPER(card_brand)   = $5 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY'");
-        expect(query).to.include("$6::text IS NULL OR UPPER(card_classification) = UPPER($6::text) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY'");
-        expect(query).to.include("$7::text IS NULL OR settlement_type = $7::text OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY'");
+        expect(query).to.include("(($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')");
+        expect(query).to.include("(($7::text IS NOT NULL AND settlement_type = $7::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')");
         return [];
       });
 
