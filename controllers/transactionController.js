@@ -7,8 +7,17 @@ const { Op } = require("sequelize");
 const PosMachine = require("../models/posMachine");
 const User = require("../models/User");
 const ChargeService = require("../services/chargeService");
+const path = require("path");
 
-
+const logFilePath = path.join(__dirname, "../logs/manualUpload.log");
+function writeManualUploadLog(message) {
+  const ts = new Date().toISOString();
+  try {
+    fs.appendFileSync(logFilePath, `[${ts}] ${message}\n`, "utf8");
+  } catch (err) {
+    console.error("Failed to write to manualUpload.log:", err);
+  }
+}
 
 const formatMidNumbers = (mids) => {
   return mids
@@ -1079,12 +1088,16 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
   try {
     const rawRows = parseUploadedFileToRows(req.file.path);
     if (!rawRows || rawRows.length === 0) {
+      writeManualUploadLog(`Upload failed: The file is empty or could not be parsed.`);
       return res.status(400).json({ success: false, message: "The uploaded file is empty or could not be parsed." });
     }
+
+    writeManualUploadLog(`Starting upload for provider: ${provider}, file: ${req.file.originalname || 'unknown'} (total rows: ${rawRows.length})`);
 
     let insertedCount = 0;
     let duplicateCount = 0;
     let failedCount = 0;
+    const failedDetails = [];
 
     for (let i = 0; i < rawRows.length; i++) {
       const { event, isSettlement } = mapRowToNotificationEvent(rawRows[i], provider, i);
@@ -1102,6 +1115,9 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
           }
         } catch (err) {
           failedCount++;
+          const reasonMsg = err.message || "Unknown processing error";
+          failedDetails.push({ row: i, reason: reasonMsg, txnId: event.txnId });
+          writeManualUploadLog(`[Row ${i}] Error processing transaction: ${reasonMsg} (Txn ID: ${event.txnId || 'N/A'})`);
           console.error(`[upload][${provider}] row ${i} processing error:`, err.message, {
             txnId: event.txnId,
             status: event.status,
@@ -1112,8 +1128,11 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
         }
       } else {
         failedCount++;
+        const skipReason = !event.txnId ? 'missing txnId' : `status is FAILED`;
+        failedDetails.push({ row: i, reason: skipReason, txnId: event.txnId || null });
+        writeManualUploadLog(`[Row ${i}] Skipped: ${skipReason} (Txn ID: ${event.txnId || 'N/A'}, Status: ${event.status || 'N/A'})`);
         console.warn(`[upload][${provider}] row ${i} skipped:`, {
-          reason: !event.txnId ? 'missing txnId' : `status is FAILED`,
+          reason: skipReason,
           txnId: event.txnId || null,
           status: event.status || null,
           mid: event.mid || null,
@@ -1128,12 +1147,15 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
       message += ` ; ${failedCount} DATA FAILED`;
     }
 
+    writeManualUploadLog(`Finished upload. Results: Inserted = ${insertedCount}, Duplicate = ${duplicateCount}, Failed = ${failedCount}`);
+
     res.status(200).json({
       success: true,
       message,
       insertedCount,
       duplicateCount,
-      failedCount
+      failedCount,
+      failedDetails
     });
   } catch (error) {
     console.error("Error uploading provider notifications:", error);
