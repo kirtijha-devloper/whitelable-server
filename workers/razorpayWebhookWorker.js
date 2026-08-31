@@ -386,7 +386,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const isNormalEmi = (String(externalRefNumber6 || '').trim().toUpperCase() === 'NORMAL_EMI' || 
                          String(externalRefNumber7 || '').trim().toUpperCase() === 'NORMAL_EMI');
 
-    const companyName = posMachine ? posMachine.company_name : src;
+    const companyName = posMachine ? posMachine.company_name : null;
 
     let rule = await ChargeService.getTransactionChargeRule({
       userId: posOperator.id,
