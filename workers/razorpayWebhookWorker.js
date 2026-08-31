@@ -386,6 +386,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     const isNormalEmi = (String(externalRefNumber6 || '').trim().toUpperCase() === 'NORMAL_EMI' || 
                          String(externalRefNumber7 || '').trim().toUpperCase() === 'NORMAL_EMI');
 
+    const companyName = posMachine ? posMachine.company_name : src;
+
     let rule = await ChargeService.getTransactionChargeRule({
       userId: posOperator.id,
       userRole: posOperator.role,
@@ -395,7 +397,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       cardBrand: paymentCardBrand || null,
       classification: classificationFromJson, // currently typically null
       settlement: posOperator.settlement_type || null,
-      amount: parseFloat(transactionAmount)
+      amount: parseFloat(transactionAmount),
+      companyName
     });
 
     if (rule && isNormalEmi) {
@@ -444,7 +447,8 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
         cardBrand: paymentCardBrand || null,
         classification: classificationFromJson,
         settlement: posOperator.settlement_type || null,
-        amount: parseFloat(transactionAmount)
+        amount: parseFloat(transactionAmount),
+        companyName
       });
 
       if (franchiseRule && isNormalEmi) {

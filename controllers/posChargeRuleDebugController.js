@@ -53,11 +53,14 @@ function getSpecificityBreakdown(rule, search = {}) {
   const normalizedSearchBrand = search.cardBrand ? normalizeCardBrand(search.cardBrand) : null;
   const normalizedSearchClassification = normalizeLookupValue(search.classification);
   const normalizedSearchSettlement = normalizeLookupValue(search.settlement);
+  const normalizedSearchCompanyName = normalizeLookupValue(search.companyName);
   const normalizedRulePaymentMode = normalizeLookupValue(rule.payment_mode);
   const normalizedRuleCardType = normalizeLookupValue(rule.card_type);
   const normalizedRuleBrand = normalizeCardBrand(rule.card_brand);
   const normalizedRuleClassification = normalizeLookupValue(rule.card_classification);
   const normalizedRuleSettlement = normalizeLookupValue(rule.settlement_type);
+  const normalizedRuleCompanyName = normalizeLookupValue(rule.company_name);
+  const companyNameWeight = normalizedSearchCompanyName && normalizedRuleCompanyName === normalizedSearchCompanyName && normalizedRuleCompanyName !== 'ANY' ? 32000 : 0;
   const paymentModeWeight = normalizedSearchPaymentMode && normalizedRulePaymentMode === normalizedSearchPaymentMode && normalizedRulePaymentMode !== 'ANY' ? 16000 : 0;
   const settlementWeight = normalizedSearchSettlement && normalizedRuleSettlement === normalizedSearchSettlement && normalizedRuleSettlement !== 'ANY' ? 8000 : 0;
   const classificationWeight = normalizedSearchClassification && normalizedRuleClassification === normalizedSearchClassification && normalizedRuleClassification !== 'ANY' ? 4000 : 0;
@@ -76,6 +79,7 @@ function getSpecificityBreakdown(rule, search = {}) {
 
   return {
     scope_weight: scopeWeight,
+    company_name_weight: companyNameWeight,
     payment_mode_weight: paymentModeWeight,
     card_type_weight: cardTypeWeight,
     card_brand_weight: brandWeight,
@@ -103,6 +107,7 @@ function summarizeChargeRule(rule) {
     card_brand: rule.card_brand,
     card_classification: rule.card_classification,
     settlement_type: rule.settlement_type,
+    company_name: rule.company_name,
     min_amount: rule.min_amount !== undefined && rule.min_amount !== null ? parseFloat(rule.min_amount) : null,
     max_amount: rule.max_amount !== undefined && rule.max_amount !== null ? parseFloat(rule.max_amount) : null,
     charge_percent: rule.charge_percent !== undefined && rule.charge_percent !== null ? parseFloat(rule.charge_percent) : null,
@@ -154,6 +159,7 @@ function buildExactMatchWhere({
   cardBrand,
   classification,
   settlement,
+  companyName,
   amount,
 }) {
   const where = {
@@ -165,6 +171,7 @@ function buildExactMatchWhere({
   if (cardBrand) where.card_brand = cardBrand;
   if (classification) where.card_classification = classification;
   if (settlement) where.settlement_type = settlement;
+  if (companyName) where.company_name = companyName;
 
   const amountProvided = amount !== undefined && amount !== null && String(amount).trim() !== '';
   const numericAmount = amountProvided ? parseFloat(amount) : null;
@@ -199,6 +206,7 @@ async function resolveUiChargeSnapshot({
   cardBrand,
   classification,
   settlement,
+  companyName,
   amount,
 }) {
   const exactSettlement = normalizeSettlementValue(settlement);
@@ -206,12 +214,14 @@ async function resolveUiChargeSnapshot({
   const exactPaymentMode = normalizeLookupValue(paymentMode);
   const exactCardType = normalizeLookupValue(cardType);
   const exactClassification = normalizeLookupValue(classification);
+  const exactCompanyName = normalizeLookupValue(companyName);
   const { where: exactWhere, amountProvided, numericAmount } = buildExactMatchWhere({
     paymentMode: exactPaymentMode,
     cardType: exactCardType,
     cardBrand: exactCardBrand,
     classification: exactClassification,
     settlement: exactSettlement,
+    companyName: exactCompanyName,
     amount
   });
 
@@ -265,11 +275,13 @@ async function resolveBestChargeRuleWithoutAmount({
   cardBrand,
   classification,
   settlement,
+  companyName,
 }) {
   const normalizedPaymentMode = normalizeLookupValue(paymentMode);
   const normalizedCardType = normalizeLookupValue(cardType);
   const normalizedClassification = normalizeLookupValue(classification);
   const normalizedSettlement = normalizeLookupValue(settlement);
+  const normalizedCompanyName = normalizeLookupValue(companyName);
   const cardBrandCandidates = getCardBrandCandidates(cardBrand);
   const candidateBrands = cardBrandCandidates.length ? cardBrandCandidates : [null];
 
@@ -291,7 +303,8 @@ async function resolveBestChargeRuleWithoutAmount({
         buildNullableMatch('card_type', normalizedCardType),
         buildNullableMatch('card_brand', brandCandidate),
         buildNullableMatch('card_classification', normalizedClassification),
-        buildNullableMatch('settlement_type', normalizedSettlement)
+        buildNullableMatch('settlement_type', normalizedSettlement),
+        buildNullableMatch('company_name', normalizedCompanyName)
       ]
     };
 
@@ -311,7 +324,8 @@ async function resolveBestChargeRuleWithoutAmount({
       cardType: normalizedCardType,
       cardBrand: brandCandidate,
       classification: normalizedClassification,
-      settlement: normalizedSettlement
+      settlement: normalizedSettlement,
+      companyName: normalizedCompanyName
     };
 
     for (const row of rows) {
@@ -339,12 +353,14 @@ async function findRankedChargeRuleCandidates({
   cardBrand,
   classification,
   settlement,
+  companyName,
   amount,
 }) {
   const normalizedPaymentMode = normalizeLookupValue(paymentMode);
   const normalizedCardType = normalizeLookupValue(cardType);
   const normalizedClassification = normalizeLookupValue(classification);
   const normalizedSettlement = normalizeLookupValue(settlement);
+  const normalizedCompanyName = normalizeLookupValue(companyName);
   const amountProvided = amount !== undefined && amount !== null && String(amount).trim() !== '';
   const numericAmount = amountProvided ? parseFloat(amount) : null;
   const cardBrandCandidates = getCardBrandCandidates(cardBrand);
@@ -369,7 +385,8 @@ async function findRankedChargeRuleCandidates({
         buildNullableMatch('card_type', normalizedCardType),
         buildNullableMatch('card_brand', brandCandidate),
         buildNullableMatch('card_classification', normalizedClassification),
-        buildNullableMatch('settlement_type', normalizedSettlement)
+        buildNullableMatch('settlement_type', normalizedSettlement),
+        buildNullableMatch('company_name', normalizedCompanyName)
       ]
     };
 
@@ -395,7 +412,8 @@ async function findRankedChargeRuleCandidates({
       cardType: normalizedCardType,
       cardBrand: brandCandidate,
       classification: normalizedClassification,
-      settlement: normalizedSettlement
+      settlement: normalizedSettlement,
+      companyName: normalizedCompanyName
     };
 
     for (const row of rows) {
@@ -525,6 +543,8 @@ const myChargesDebug = asyncHandler(async (req, res) => {
       network,
       card_classification,
       amount,
+      company_name,
+      companyName
     } = req.body;
 
     const lookupMobile = mobile_number || phone_number || mobile || null;
@@ -564,6 +584,7 @@ const myChargesDebug = asyncHandler(async (req, res) => {
     const normalizedCardType = normalizeLookupValue(card_type);
     const normalizedCardBrand = normalizeCardBrand(card_brand || network);
     const normalizedClassification = normalizeLookupValue(card_classification);
+    const normalizedCompanyName = normalizeLookupValue(company_name || companyName);
 
     const transactionTodaySnapshot = await resolveTransactionChargeSnapshot({
       user,
@@ -572,7 +593,8 @@ const myChargesDebug = asyncHandler(async (req, res) => {
       cardBrand: normalizedCardBrand,
       classification: normalizedClassification,
       settlement: 'today_settlement',
-      amount
+      amount,
+      companyName: normalizedCompanyName
     });
 
     const transactionTplus1Snapshot = await resolveTransactionChargeSnapshot({
@@ -582,7 +604,8 @@ const myChargesDebug = asyncHandler(async (req, res) => {
       cardBrand: normalizedCardBrand,
       classification: normalizedClassification,
       settlement: 'next_day_settlement',
-      amount
+      amount,
+      companyName: normalizedCompanyName
     });
 
     const liveSettlementType = user.settlement_type || null;

@@ -92,7 +92,8 @@ async function getTransactionChargeRule({
   cardBrand,
   classification,
   settlement,
-  amount
+  amount,
+  companyName
 }) {
   // Scope tier weights — determines precedence between rule origins.
   // Within the same tier, optional-dimension specificity (0-15) breaks ties.
@@ -112,6 +113,7 @@ async function getTransactionChargeRule({
   const query = `
     SELECT *,
     (
+      (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32000 ELSE 0 END) +
       (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
       (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
       (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' THEN 4000 ELSE 0 END) +
@@ -146,6 +148,8 @@ async function getTransactionChargeRule({
       AND (($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')
       -- Same treatment for settlement: when $7 is NULL, only match NULL or 'ANY' settlement rules.
       AND (($7::text IS NOT NULL AND settlement_type = $7::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')
+      -- company_name match
+      AND (($10::text IS NOT NULL AND UPPER(company_name) = UPPER($10::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')
       -- amount slab
       AND $8 >= min_amount
       AND ($8 <= max_amount OR max_amount IS NULL)
@@ -161,7 +165,8 @@ async function getTransactionChargeRule({
     normalizedClassification,
     settlement || null,
     amount,
-    normalizedUserRole
+    normalizedUserRole,
+    normalizeLookupValue(companyName)
   ];
 
   let bestRule = null;
@@ -198,7 +203,8 @@ async function getAdminChargeRuleForFranchise({
   cardBrand,
   classification,
   settlement,
-  amount
+  amount,
+  companyName
 }) {
   const normalizedPaymentMode = normalizeLookupValue(paymentMode);
   const normalizedCardType = normalizeLookupValue(cardType);
@@ -208,6 +214,7 @@ async function getAdminChargeRuleForFranchise({
   const query = `
     SELECT *,
     (
+      (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32000 ELSE 0 END) +
       (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
       (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
       (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' THEN 4000 ELSE 0 END) +
@@ -228,6 +235,7 @@ async function getAdminChargeRuleForFranchise({
       AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
       AND (($5::text IS NOT NULL AND UPPER(card_classification) = UPPER($5::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')
       AND (($6::text IS NOT NULL AND settlement_type = $6::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')
+      AND (($8::text IS NOT NULL AND UPPER(company_name) = UPPER($8::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')
       AND $7 >= min_amount
       AND ($7 <= max_amount OR max_amount IS NULL)
     ORDER BY specificity DESC
@@ -241,7 +249,8 @@ async function getAdminChargeRuleForFranchise({
     normalizedCardType,
     normalizedClassification,
     settlement || null,
-    amount
+    amount,
+    normalizeLookupValue(companyName)
   ];
 
   let bestRule = null;

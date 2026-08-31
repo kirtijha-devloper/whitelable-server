@@ -41,6 +41,11 @@ const PosChargeRule = db.define('PosChargeRule', {
     type: Sequelize.STRING,
     allowNull: true
   },
+  company_name: {
+    type: Sequelize.STRING(100),
+    allowNull: true,
+    comment: 'POS provider/company name (e.g. paytm, telering, pinelab)'
+  },
   card_classification: {
     type: Sequelize.STRING,
     allowNull: true

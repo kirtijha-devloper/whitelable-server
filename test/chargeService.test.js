@@ -185,6 +185,7 @@ describe('ChargeService', () => {
         expect(query).to.include("UPPER(card_brand)   = $5 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY'");
         expect(query).to.include("(($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')");
         expect(query).to.include("(($7::text IS NOT NULL AND settlement_type = $7::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')");
+        expect(query).to.include("(($10::text IS NOT NULL AND UPPER(company_name) = UPPER($10::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')");
         return [];
       });
 
@@ -195,10 +196,32 @@ describe('ChargeService', () => {
         cardBrand: 'MASTERCARD',
         classification: 'ANY',
         settlement: 'today_settlement',
-        amount: 100
+        amount: 100,
+        companyName: 'telering'
       });
 
       expect(stub.callCount).to.equal(4);
+    });
+
+    it('picks the rule with company_name match when companyName parameter is supplied', async () => {
+      const mockRules = [
+        { id: 2, company_name: 'telering', specificity: 32000, charge_percent: 1.5 },
+        { id: 1, company_name: null, specificity: 0, charge_percent: 2.5 }
+      ];
+      sinon.stub(db, 'query').resolves(mockRules);
+
+      const rule = await ChargeService.getTransactionChargeRule({
+        userId: 1,
+        paymentMode: 'CARD',
+        cardType: 'CREDIT',
+        cardBrand: 'VISA',
+        amount: 100,
+        companyName: 'telering'
+      });
+
+      expect(rule).to.not.be.null;
+      expect(rule.id).to.equal(2);
+      expect(rule.charge_percent).to.equal(1.5);
     });
   });
 });

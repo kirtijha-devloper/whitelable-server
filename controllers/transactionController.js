@@ -981,7 +981,8 @@ const previewCSV = asyncHandler(async (req, res) => {
             cardBrand,
             classification: cardSubType,
             settlement: user.settlement_type || null,
-            amount
+            amount,
+            companyName: posMachine ? posMachine.company_name : provider
           });
 
           if (rule) {

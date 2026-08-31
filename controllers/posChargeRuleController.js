@@ -79,7 +79,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     charge_flat,
     gst_required,
     gst_percent,
-    is_active
+    is_active,
+    company_name
   } = req.body;
   // we will also record who created this rule for later filtering/permissions
   const creatorId = req.user && req.user.id ? req.user.id : null;
@@ -140,6 +141,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       card_brand: normalizedCardBrand || null,
       card_classification: card_classification || null,
       settlement_type: settlement_type || null,
+      company_name: company_name || null,
       min_amount: min_amount !== undefined ? min_amount : 0,
       max_amount: max_amount || null
     }
@@ -163,7 +165,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     card_type: card_type || null,
     card_brand: normalizedCardBrand || null,
     card_classification: card_classification || null,
-    settlement_type: settlement_type || null
+    settlement_type: settlement_type || null,
+    company_name: company_name || null
   };
   const existingSlabs = await PosChargeRule.findAll({ where: overlapCondition });
   const hasOverlap = existingSlabs.some((slab) => {
@@ -191,6 +194,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       card_brand: normalizedCardBrand || null,
       card_classification: card_classification || null,
       settlement_type: settlement_type || null,
+      company_name: company_name || null,
       min_amount: min_amount !== undefined ? min_amount : 0,
       max_amount: max_amount || null,
       charge_percent,
@@ -339,6 +343,7 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
     settlement_type,
     scope,
     is_active,
+    company_name,
     page = 1,
     limit = 100
   } = req.query;
@@ -354,6 +359,7 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   if (settlement_type) where.settlement_type = settlement_type;
   if (scope) where.scope = scope;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
+  if (company_name) where.company_name = company_name;
 
   // merchants should not be able to request rules for someone else; if
   // `user_id` is supplied it must match the caller.  we also later ensure the
@@ -577,7 +583,8 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     min_amount,
     max_amount,
     gst_required,
-    gst_percent
+    gst_percent,
+    company_name
   } = req.body;
 
   const normalizedCardBrand = card_brand !== undefined ? normalizeCardBrand(card_brand) : undefined;
@@ -624,7 +631,8 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     min_amount,
     max_amount,
     gst_required,
-    gst_percent
+    gst_percent,
+    company_name
   ];
 
   // derive scope early so we can use it in duplicate/overlap checks
@@ -645,6 +653,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
         card_brand: normalizedCardBrand !== undefined ? normalizedCardBrand || null : rec.card_brand,
         card_classification: card_classification !== undefined ? card_classification || null : rec.card_classification,
         settlement_type: settlement_type !== undefined ? settlement_type || null : rec.settlement_type,
+        company_name: company_name !== undefined ? company_name || null : rec.company_name,
         min_amount: min_amount !== undefined ? min_amount : rec.min_amount,
         max_amount: max_amount !== undefined ? max_amount || null : rec.max_amount
       }
@@ -665,7 +674,8 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
       card_type: card_type !== undefined ? card_type || null : rec.card_type,
       card_brand: normalizedCardBrand !== undefined ? normalizedCardBrand || null : rec.card_brand,
       card_classification: card_classification !== undefined ? card_classification || null : rec.card_classification,
-      settlement_type: settlement_type !== undefined ? settlement_type || null : rec.settlement_type
+      settlement_type: settlement_type !== undefined ? settlement_type || null : rec.settlement_type,
+      company_name: company_name !== undefined ? company_name || null : rec.company_name
     };
     const existingSlabs = await PosChargeRule.findAll({
       where: {
@@ -699,6 +709,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   if (normalizedCardBrand !== undefined) updateData.card_brand = normalizedCardBrand || null;
   if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
   if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
+  if (req.body.company_name !== undefined) updateData.company_name = req.body.company_name || null;
   await rec.update(updateData);
   fileLog(`UPDATE success id=${rec.id}`);
   res.status(200).json({ success: true, message: 'Rule updated', record: rec });
