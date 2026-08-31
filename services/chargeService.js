@@ -256,13 +256,14 @@ async function getAdminChargeRuleForFranchise({
   let bestRule = null;
   for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
     const replacements = [
-      replacementBase[0],
-      replacementBase[1],
-      replacementBase[2],
-      candidate || null,
-      replacementBase[3],
-      replacementBase[4],
-      replacementBase[5]
+      replacementBase[0],       // $1 franchiseId
+      replacementBase[1],       // $2 paymentMode
+      replacementBase[2],       // $3 cardType
+      candidate || null,        // $4 cardBrand (per-loop)
+      replacementBase[3],       // $5 classification
+      replacementBase[4],       // $6 settlement
+      replacementBase[5],       // $7 amount
+      replacementBase[6]        // $8 companyName
     ];
     const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
     if (results && results.length) {
