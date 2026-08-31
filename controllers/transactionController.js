@@ -1102,10 +1102,24 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
           }
         } catch (err) {
           failedCount++;
-          console.error(`Error processing row ${i}:`, err);
+          console.error(`[upload][${provider}] row ${i} processing error:`, err.message, {
+            txnId: event.txnId,
+            status: event.status,
+            mid: event.mid,
+            tid: event.tid,
+            amount: event.amount
+          });
         }
       } else {
         failedCount++;
+        console.warn(`[upload][${provider}] row ${i} skipped:`, {
+          reason: !event.txnId ? 'missing txnId' : `status is FAILED`,
+          txnId: event.txnId || null,
+          status: event.status || null,
+          mid: event.mid || null,
+          tid: event.tid || null,
+          rawRow: rawRows[i]
+        });
       }
     }
 
