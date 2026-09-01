@@ -15,7 +15,7 @@ const {
   deleteAllUserSpecificRules,
   calculateCharge
 } = require('../controllers/posChargeRuleController');
-const { myChargesDebug } = require('../controllers/posChargeRuleDebugController');
+const { myChargesDebug, debugPreviewPayload } = require('../controllers/posChargeRuleDebugController');
 
 router.use(validateToken);
 
@@ -69,5 +69,15 @@ router.post('/my-charges-debug', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.R
   message: 'You do not have permission to view rate settings.',
   elevateRole: 'admin',
 }), myChargesDebug);
+
+router.post('/debug-preview', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: 'You do not have permission to view rate settings.',
+  elevateRole: 'admin',
+}), debugPreviewPayload);
+
+router.post('/debug-preview-payload', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: 'You do not have permission to view rate settings.',
+  elevateRole: 'admin',
+}), debugPreviewPayload);
 
 module.exports = router;

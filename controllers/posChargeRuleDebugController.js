@@ -676,4 +676,177 @@ const myChargesDebug = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { myChargesDebug };
+/**
+ * POST /api/pos-charge-rules/debug-preview
+ * Dry-run charge rule lookup from raw webhook payload or body fields
+ * Strictly Read-Only (NO DB/Wallet Operations)
+ */
+const debugPreviewPayload = asyncHandler(async (req, res) => {
+  try {
+    const body = req.body || {};
+    const payloadData = body.payload && typeof body.payload === 'object' ? body.payload : body;
+
+    const userId = body.user_id || body.userId || payloadData.user_id || payloadData.userId || null;
+    const userMobile = body.user_mobile || body.userMobile || body.mobile || body.mobile_number || payloadData.user_mobile || payloadData.userMobile || payloadData.mobile || null;
+
+    let user = null;
+    if (userId) {
+      user = await User.findByPk(parseInt(userId, 10));
+    }
+    if (!user && userMobile) {
+      user = await User.findOne({ where: { mobile_number: String(userMobile).trim() } });
+    }
+
+    const mid = payloadData.mid || payloadData.mid_number || null;
+    const tid = payloadData.tid || payloadData.tid_number || null;
+
+    if (!user && (mid || tid)) {
+      const PosMachine = require('../models/posMachine');
+      const posMachine = await PosMachine.findOne({ where: { mid_number: String(mid).trim(), tid_number: String(tid).trim(), status: 'active' } });
+      if (posMachine && posMachine.assigned_to) {
+        user = await User.findByPk(posMachine.assigned_to);
+      }
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found. Please provide valid user_id, user_mobile, or matching POS machine mid/tid.',
+      });
+    }
+
+    const { extractCardClassification } = require('../utils/razorpay/sources');
+
+    const amount = parseFloat(payloadData.amount || payloadData.amountOriginal || 0);
+    const paymentMode = payloadData.paymentMode || payloadData.payment_mode || null;
+    const cardType = payloadData.paymentCardType || payloadData.card_type || payloadData.cardType || null;
+    const cardBrand = payloadData.paymentCardBrand || payloadData.card_brand || payloadData.cardBrand || null;
+    const classification = extractCardClassification(payloadData) || payloadData.cardClassification || payloadData.card_classification || null;
+    const settlement = user.settlement_type || 'today_settlement';
+    const franchiseId = user.franchaise_id || (user.role === 'franchaise' ? user.id : null);
+
+    let companyName = null;
+    if (mid || tid) {
+      const PosMachine = require('../models/posMachine');
+      const pm = await PosMachine.findOne({ where: { mid_number: String(mid).trim(), tid_number: String(tid).trim(), status: 'active' } });
+      if (pm) companyName = pm.company_name || null;
+    }
+
+    const rule = await ChargeService.getTransactionChargeRule({
+      userId: user.id,
+      userRole: user.role,
+      franchiseId: franchiseId,
+      paymentMode: paymentMode ? paymentMode.toUpperCase() : null,
+      cardType: cardType || null,
+      cardBrand: cardBrand || null,
+      classification: classification || null,
+      settlement: settlement,
+      amount: amount,
+      companyName: companyName,
+    });
+
+    let chargeRate = 0;
+    let chargeAmount = 0;
+    let gstAmount = 0;
+    let netAmount = amount;
+
+    if (rule) {
+      const calculated = ChargeService.calculateCharge(amount, rule);
+      chargeRate = parseFloat(rule.charge_percent || 0);
+      chargeAmount = calculated.charge;
+      gstAmount = calculated.gstAmount;
+      netAmount = parseFloat((amount - chargeAmount - gstAmount).toFixed(2));
+    }
+
+    let franchiseRule = null;
+    let franchiseChargeAmount = 0;
+    let franchiseEarning = 0;
+
+    if (user.role === 'merchant' && user.franchaise_id) {
+      franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
+        franchiseId: user.franchaise_id,
+        paymentMode: paymentMode ? paymentMode.toUpperCase() : null,
+        cardType: cardType || null,
+        cardBrand: cardBrand || null,
+        classification: classification || null,
+        settlement: settlement,
+        amount: amount,
+        companyName: companyName,
+      });
+
+      if (franchiseRule) {
+        franchiseChargeAmount = ChargeService.calculateCharge(amount, franchiseRule).charge;
+      } else {
+        franchiseChargeAmount = parseFloat((amount * (2.5 / 100)).toFixed(2));
+      }
+      franchiseEarning = chargeAmount - franchiseChargeAmount;
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Charge rule debug preview calculated successfully (Dry-Run, No DB/Wallet Operation performed)',
+      user: {
+        id: user.id,
+        name: user.name || user.username || user.email,
+        mobile: user.mobile_number,
+        role: user.role,
+        settlement_type: user.settlement_type,
+        franchaise_id: user.franchaise_id || null,
+      },
+      resolvedInputs: {
+        paymentMode: paymentMode ? paymentMode.toUpperCase() : null,
+        cardType: cardType || null,
+        cardBrand: cardBrand || null,
+        cardClassification: classification || null,
+        settlementType: settlement,
+        amount: amount,
+        companyName: companyName,
+      },
+      matchedRule: rule
+        ? {
+            id: rule.id,
+            scope: rule.scope,
+            user_id: rule.user_id,
+            franchaise_id: rule.franchaise_id,
+            payment_mode: rule.payment_mode,
+            card_type: rule.card_type,
+            card_brand: rule.card_brand,
+            card_classification: rule.card_classification,
+            settlement_type: rule.settlement_type,
+            charge_percent: `${rule.charge_percent}%`,
+            flat_fee: rule.flat_fee,
+            min_amount: rule.min_amount,
+            max_amount: rule.max_amount,
+            specificity: rule.specificity,
+          }
+        : null,
+      franchiseRule: franchiseRule
+        ? {
+            id: franchiseRule.id,
+            scope: franchiseRule.scope,
+            charge_percent: `${franchiseRule.charge_percent}%`,
+            specificity: franchiseRule.specificity,
+          }
+        : null,
+      calculatedCharge: {
+        chargeRate: `${chargeRate}%`,
+        chargeAmount: chargeAmount,
+        gstAmount: gstAmount,
+        netAmount: netAmount,
+        franchiseChargeAmount: franchiseChargeAmount,
+        franchiseEarning: franchiseEarning,
+      },
+    });
+  } catch (error) {
+    console.error('debugPreviewPayload error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error executing debug preview payload',
+    });
+  }
+});
+
+module.exports = {
+  myChargesDebug,
+  debugPreviewPayload,
+};
