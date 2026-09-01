@@ -116,7 +116,7 @@ async function getTransactionChargeRule({
       (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32000 ELSE 0 END) +
       (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
       (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       -- scope tier weight
@@ -217,7 +217,7 @@ async function getAdminChargeRuleForFranchise({
       (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32000 ELSE 0 END) +
       (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
       (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
