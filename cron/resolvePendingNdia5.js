@@ -17,6 +17,7 @@ const PayoutTransaction = require('../models/PayoutTransaction');
 const PayoutAuditLog = require('../models/PayoutAuditLog');
 const db = require('../config/database');
 const ndia5Service = require('../services/ndia5Payout.service');
+const ledgerService = require('../services/ledgerService');
 
 const CRON_LOG_FILE = path.resolve(__dirname, '../logs/india5-payout-cron.log');
 try {
@@ -109,6 +110,52 @@ async function resolvePendingNdia5() {
           const previousStatus = locked.status;
           const existingData = parseJsonMaybe(locked.data);
 
+          let cronAutoRefundCompleted = false;
+          let cronRefundEntry = null;
+
+          if (providerResult.status === 'FAILED') {
+            const amount = Number(locked.amount) || 0;
+            const serviceCharge = Number(locked.service_charge) || 0;
+            const refundAmount = amount + serviceCharge;
+
+            const Ledger = require('../models/Ledger');
+            const existingRefund = await Ledger.findOne({
+              where: {
+                transaction_type: 'payout_refund',
+                reference_id: locked.id,
+                reference_table: 'PayoutTransactions',
+              },
+              transaction: tr,
+            });
+
+            if (!existingRefund && refundAmount > 0) {
+              try {
+                cronRefundEntry = await ledgerService.createLedgerEntry({
+                  userId: locked.merchant_id,
+                  transactionType: 'payout_refund',
+                  referenceId: locked.id,
+                  referenceTable: 'PayoutTransactions',
+                  description: `Auto Refund for failed NDIA5 Payout ${locked.reference_id}`,
+                  credit: refundAmount,
+                  metadata: {
+                    payout_provider: 'Ndia5',
+                    payout_reference: locked.reference_id,
+                    original_payout_amount: String(amount),
+                    original_service_charge: String(serviceCharge),
+                    refund_source: 'cron_status_auto',
+                  },
+                }, { transaction: tr });
+
+                existingData.autoRefundProcessed = true;
+                existingData.autoRefundAt = new Date().toISOString();
+                existingData.refundLedgerId = cronRefundEntry?.id || null;
+                cronAutoRefundCompleted = true;
+              } catch (refundErr) {
+                console.error('[NDIA5 Cron Status Auto Refund Error]:', refundErr);
+              }
+            }
+          }
+
           const mergedData = {
             ...existingData,
             provider: 'Ndia5',
@@ -133,8 +180,10 @@ async function resolvePendingNdia5() {
                 to: providerResult.status,
                 rawResponse: providerResult.rawResponse,
                 resolvedByCron: true,
-                autoRefund: false, // Explicit: No auto-refund executed
-                refundNotice: providerResult.status === 'FAILED' ? 'Payout failed. Refund must be triggered manually.' : undefined,
+                autoRefund: cronAutoRefundCompleted,
+                refundNotice: providerResult.status === 'FAILED' 
+                  ? (cronAutoRefundCompleted ? 'Payout failed. Auto-refund issued to merchant wallet.' : 'Payout failed. Refund must be triggered manually.') 
+                  : undefined,
               },
             }, { transaction: tr });
           }

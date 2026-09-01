@@ -659,6 +659,51 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
   const newStatus = providerResult.status;
 
   const existingData = parseJsonMaybe(payoutTransaction.data);
+  let autoRefundCompleted = false;
+  let refundEntry = null;
+
+  if (newStatus === 'FAILED' && previousStatus !== 'FAILED') {
+    const amount = Number(payoutTransaction.amount) || 0;
+    const serviceCharge = Number(payoutTransaction.service_charge) || 0;
+    const refundAmount = amount + serviceCharge;
+
+    try {
+      const Ledger = require('../models/Ledger');
+      const existingRefund = await Ledger.findOne({
+        where: {
+          transaction_type: 'payout_refund',
+          reference_id: payoutTransaction.id,
+          reference_table: 'PayoutTransactions',
+        },
+      });
+
+      if (!existingRefund && refundAmount > 0) {
+        refundEntry = await ledgerService.createLedgerEntry({
+          userId: payoutTransaction.merchant_id,
+          transactionType: 'payout_refund',
+          referenceId: payoutTransaction.id,
+          referenceTable: 'PayoutTransactions',
+          description: `Auto Refund for failed NDIA5 Payout ${payoutTransaction.reference_id}`,
+          credit: refundAmount,
+          metadata: {
+            payout_provider: 'Ndia5',
+            payout_reference: payoutTransaction.reference_id,
+            original_payout_amount: String(amount),
+            original_service_charge: String(serviceCharge),
+            refund_source: 'status_check_auto',
+          },
+        });
+
+        existingData.autoRefundProcessed = true;
+        existingData.autoRefundAt = new Date().toISOString();
+        existingData.refundLedgerId = refundEntry?.id || null;
+        autoRefundCompleted = true;
+      }
+    } catch (ledgerError) {
+      console.error('[NDIA5 Status Check Auto Refund Ledger Error]:', ledgerError);
+    }
+  }
+
   payoutTransaction.status = newStatus;
   payoutTransaction.data = JSON.stringify({
     ...existingData,
@@ -678,7 +723,10 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
         fromStatus: previousStatus,
         toStatus: newStatus,
         rawResponse: providerResult.rawResponse,
-        refundNotice: newStatus === 'FAILED' ? 'Status marked FAILED. Refund requires manual approval.' : undefined,
+        autoRefund: autoRefundCompleted,
+        refundNotice: newStatus === 'FAILED'
+          ? (autoRefundCompleted ? 'Payout failed. Auto-refund issued to merchant wallet.' : 'Payout failed.')
+          : undefined,
       },
     });
   }
