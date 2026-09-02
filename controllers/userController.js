@@ -97,6 +97,7 @@ const {
   hasPermission,
   canFranchiseAccessTarget,
 } = require('../utils/permissions');
+const { maskEmail } = require('../utils/masking');
 
 // helper used during registration to allocate a unique username
 function prefixForRole(role) {
@@ -216,6 +217,10 @@ function serializeUserWithResolvedAccessRole(userLike, employeeAccessRole = null
   const resolvedAccessRole = employeeAccessRole
     || plainUser.employee_access_role
     || null;
+
+  if (plainUser.email) {
+    plainUser.email = maskEmail(plainUser.email);
+  }
 
   return {
     ...plainUser,
@@ -1373,7 +1378,7 @@ const approveUser = asyncHandler( async (req, res) => {
                 const serviceFlags = getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings);
 
                 res.json({
-                    email: user.email,
+                    email: maskEmail(user.email),
                     mobile_number: user.mobile_number, 
                     name: (user.name || "NA"), 
                     mobile_number_country_code: (user.mobile_number_country_code || "+91"),
@@ -2272,7 +2277,7 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
     await targetUser.save({ transaction: trx });
     await trx.commit();
 
-    const { password: _pw, ...safeUser } = targetUser.toJSON();
+    const { password: _pw, ...safeUser } = serializeUserWithResolvedAccessRole(targetUser, null);
     return res.status(200).json({
       success: true,
       message: 'User promoted to franchise successfully.',
