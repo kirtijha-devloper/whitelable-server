@@ -94,52 +94,55 @@ function normalizeStatus(statusRaw) {
 
 /**
  * API 1: AUTHENTICATION (LOGIN)
- * Logs request & response details to india5.log
+ * Fetches token via the shared proxy endpoint (/api/shared/ndia5-token)
+ * instead of calling NDIA5 directly — mirrors the SevenPay shared-token pattern.
+ * On 401 from downstream APIs, call login(true) to force a fresh token.
  */
 async function login(forceRefresh = false) {
-  const config = getConfig();
-
   // Return cached token if still valid and not forcing refresh
   if (!forceRefresh && tokenCache.token && Date.now() < tokenCache.expiresAt) {
     return tokenCache.token;
   }
 
-  const endpoint = `${config.baseURL}/auth/merchant/login`;
-  const payload = {
-    username: config.username,
-    password: config.password,
-  };
+  // Proxy URL: uses api.abheepay.com shared endpoint (same server in production)
+  const proxyUrl = process.env.NDIA5_TOKEN_PROXY_URL || 'https://api.abheepay.com/api/shared/ndia5-token';
+
+  // Proxy credentials from env, fallback to hardcoded values
+  const clientId = process.env.NDIA5_CLIENT_ID || 'bf9bdf8c7e0491b788b7d3d375f3b1c24f3e76667297b1980bec4133073299c8';
+  const apiKey   = process.env.NDIA5_API_KEY   || '13e6ad2663174b62c2a8536774cd89189877cbd29de1935b84accad586710191c9f35a07a247764f83d3ed8b8bea40c691cc7c5f125bdd5235fb13871585da39';
 
   const reqLog = {
-    endpoint,
-    method: 'POST',
-    requestHeaders: { 'Content-Type': 'application/json' },
-    requestBody: { username: config.username, password: '***' }, // Mask sensitive password in logs
+    endpoint: proxyUrl,
+    method: 'GET',
+    requestHeaders: { 'x-ndia5-client-id': '[HIDDEN]', 'x-ndia5-api-key': '[HIDDEN]' },
   };
 
   try {
-    const response = await axios.post(endpoint, payload, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: config.timeout,
+    const response = await axios.get(proxyUrl, {
+      headers: {
+        'x-ndia5-client-id': clientId,
+        'x-ndia5-api-key': apiKey,
+      },
+      timeout: Number(process.env.NDIA5_TIMEOUT_MS || 30000),
     });
 
-    const data = response.data;
-    const token = data?.data?.token;
+    const data  = response.data;
+    const token = data?.token || data?.data?.token;
 
     india5Log('LOGIN', {
       ...reqLog,
       responseStatus: response.status,
-      responseBody: data,
+      responseBody: { success: data?.success, meta: data?.meta, _source: data?._source },
       success: !!token,
     });
 
     if (token) {
       tokenCache.token = token;
-      // Set expiration buffer to 23 hours (JWT default lifetime is usually 24h)
+      // Buffer expiry to 23 hours (NDIA5 JWT default lifetime is ~24h)
       tokenCache.expiresAt = Date.now() + 23 * 60 * 60 * 1000;
       return token;
     } else {
-      throw new Error(data?.meta?.message || 'Failed to retrieve access token from NDIA5');
+      throw new Error(data?.message || data?.meta?.message || 'NDIA5 proxy did not return a token');
     }
   } catch (error) {
     const errorResponse = error.response ? { status: error.response.status, data: error.response.data } : null;
@@ -152,6 +155,7 @@ async function login(forceRefresh = false) {
     throw new Error(`NDIA5 Login Failed: ${error.message}`);
   }
 }
+
 
 /**
  * API 4: BALANCE CHECK
