@@ -105,7 +105,9 @@ async function login(forceRefresh = false) {
   }
 
   // Proxy URL: uses api.abheepay.com shared endpoint (same server in production)
-  const proxyUrl = process.env.NDIA5_TOKEN_PROXY_URL || 'https://api.abheepay.com/api/shared/ndia5-token';
+  // When forceRefresh=true, add ?force=true so the proxy bypasses its own cache too
+  const baseProxyUrl = process.env.NDIA5_TOKEN_PROXY_URL || 'https://api.abheepay.com/api/shared/ndia5-token';
+  const proxyUrl = forceRefresh ? `${baseProxyUrl}?force=true` : baseProxyUrl;
 
   // Proxy credentials from env, fallback to hardcoded values
   const clientId = process.env.NDIA5_CLIENT_ID || 'bf9bdf8c7e0491b788b7d3d375f3b1c24f3e76667297b1980bec4133073299c8';
