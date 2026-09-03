@@ -129,10 +129,15 @@ async function login(forceRefresh = false) {
     const data  = response.data;
     const token = data?.token || data?.data?.token;
 
+    // Mask token for logging: show first 20 chars + '[MASKED]'
+    const maskedToken = token ? `${token.substring(0, 20)}...[MASKED]` : null;
+
     india5Log('LOGIN', {
       ...reqLog,
       responseStatus: response.status,
       responseBody: { success: data?.success, meta: data?.meta, _source: data?._source },
+      tokenReceived: !!token,
+      tokenMasked: maskedToken,
       success: !!token,
     });
 
@@ -212,10 +217,24 @@ async function getBalance(params = {}) {
       if (errorStatus === 401 && attempts === 0) {
         attempts++;
         india5Log('BALANCE_CHECK_401_RETRY', {
-          message: 'Received 401 Unauthorized from NDIA5. Requesting new login token and retrying...',
+          message: 'Received 401 Unauthorized from NDIA5. Fetching fresh token via proxy and retrying...',
+          expiredTokenMasked: token ? `${token.substring(0, 20)}...[MASKED]` : null,
           error: error.message,
         });
-        token = await login(true); // force fresh login
+        try {
+          token = await login(true); // force fresh token from proxy
+          const newMasked = token ? `${token.substring(0, 20)}...[MASKED]` : null;
+          india5Log('BALANCE_CHECK_401_RETRY_TOKEN_OK', {
+            message: 'Fresh token received. Retrying BALANCE_CHECK...',
+            newTokenMasked: newMasked,
+          });
+        } catch (loginErr) {
+          india5Log('BALANCE_CHECK_401_RETRY_LOGIN_FAIL', {
+            message: 'Failed to fetch fresh token during 401 retry. Aborting.',
+            error: loginErr.message,
+          });
+          throw new Error(`NDIA5 Get Balance Failed (re-login error): ${loginErr.message}`);
+        }
         continue;
       }
 
@@ -351,10 +370,24 @@ async function initiatePayout(params) {
       if (errorStatus === 401 && attempts === 0) {
         attempts++;
         india5Log('INITIATE_PAYOUT_401_RETRY', {
-          message: 'Received 401 Unauthorized from NDIA5. Requesting new login token and retrying...',
+          message: 'Received 401 Unauthorized from NDIA5. Fetching fresh token via proxy and retrying...',
+          expiredTokenMasked: token ? `${token.substring(0, 20)}...[MASKED]` : null,
           error: error.message,
         });
-        token = await login(true); // force fresh login
+        try {
+          token = await login(true); // force fresh token from proxy
+          const newMasked = token ? `${token.substring(0, 20)}...[MASKED]` : null;
+          india5Log('INITIATE_PAYOUT_401_RETRY_TOKEN_OK', {
+            message: 'Fresh token received. Retrying INITIATE_PAYOUT...',
+            newTokenMasked: newMasked,
+          });
+        } catch (loginErr) {
+          india5Log('INITIATE_PAYOUT_401_RETRY_LOGIN_FAIL', {
+            message: 'Failed to fetch fresh token during 401 retry. Aborting.',
+            error: loginErr.message,
+          });
+          throw new Error(`NDIA5 Payout Initiation Failed (re-login error): ${loginErr.message}`);
+        }
         continue;
       }
 
@@ -440,10 +473,24 @@ async function getPayoutStatus(merchantReferenceId) {
       if (errorStatus === 401 && attempts === 0) {
         attempts++;
         india5Log('STATUS_CHECK_401_RETRY', {
-          message: 'Received 401 Unauthorized from NDIA5. Requesting new login token and retrying...',
+          message: 'Received 401 Unauthorized from NDIA5. Fetching fresh token via proxy and retrying...',
+          expiredTokenMasked: token ? `${token.substring(0, 20)}...[MASKED]` : null,
           error: error.message,
         });
-        token = await login(true); // force fresh login
+        try {
+          token = await login(true); // force fresh token from proxy
+          const newMasked = token ? `${token.substring(0, 20)}...[MASKED]` : null;
+          india5Log('STATUS_CHECK_401_RETRY_TOKEN_OK', {
+            message: 'Fresh token received. Retrying STATUS_CHECK...',
+            newTokenMasked: newMasked,
+          });
+        } catch (loginErr) {
+          india5Log('STATUS_CHECK_401_RETRY_LOGIN_FAIL', {
+            message: 'Failed to fetch fresh token during 401 retry. Aborting.',
+            error: loginErr.message,
+          });
+          throw new Error(`NDIA5 Status Check Failed (re-login error): ${loginErr.message}`);
+        }
         continue;
       }
 
