@@ -142,11 +142,9 @@ app.use('/api/user-payout-charge', require('./routes/userPayoutChargeRoutes'));
 app.use('/api/payout', require('./routes/payoutRoutes'));
 app.use('/api/sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/payout-sevenpay', require('./routes/sevenpayPayout.routes'));
-app.use('/api/payout-m-x', require('./routes/payments/mxPayoutRoutes'));
 app.use('/api/ndia5', require('./routes/ndia5Payout.routes'));
 app.use('/api/india5', require('./routes/ndia5Payout.routes'));
-// Shared proxy endpoints (internal-use, header-key secured, no user JWT)
-app.use('/api/shared', require('./routes/sharedRoutes'));
+// Note: /api/shared proxy is hosted on central API Portal (Reseller API), POS-SERVER consumes it as client only.
 app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
 // new charge rule engine (see posChargeRuleRoutes)
 app.use('/api/pos-charge-rules', require('./routes/posChargeRuleRoutes'));
