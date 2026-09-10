@@ -46,6 +46,8 @@ describe('ChargeService', () => {
       expect(ChargeService.normalizeCardBrand('american-express')).to.equal('AMEX');
       expect(ChargeService.normalizeCardBrand('DINERS CLUB')).to.equal('DINERS');
       expect(ChargeService.normalizeCardBrand('diners-club')).to.equal('DINERS');
+      expect(ChargeService.normalizeCardBrand('DINERCLUB')).to.equal('DINERS');
+      expect(ChargeService.normalizeCardBrand('DINERSCLUB')).to.equal('DINERS');
     });
 
     it('returns canonical values for brand candidates', () => {
