@@ -682,8 +682,33 @@ const manualRefundBbpsCcBill = asyncHandler(async (req, res) => {
   const paymentId = ccPayment?.id || debitLedger?.reference_id;
   const userId = ccPayment?.user_id || debitLedger?.user_id;
 
-  const refundAmount = parseFloat(debitLedger?.debit || ccPayment?.transaction_amount || 0);
-  if (!refundAmount || refundAmount <= 0) {
+  // Query all debit entries for this CC bill payment (bbps_payment + bbps_charge if debited)
+  const allDebits = await Ledger.findAll({
+    where: {
+      reference_id: paymentId,
+      transaction_type: { [Op.in]: ['bbps_payment', 'bbps_charge'] }
+    }
+  });
+
+  let paymentDebit = 0;
+  let chargeDebit = 0;
+
+  for (const entry of allDebits) {
+    const d = parseFloat(entry.debit) || 0;
+    if (entry.transaction_type === 'bbps_payment') {
+      paymentDebit += d;
+    } else if (entry.transaction_type === 'bbps_charge') {
+      chargeDebit += d;
+    }
+  }
+
+  if (paymentDebit === 0 && ccPayment?.transaction_amount) {
+    paymentDebit = parseFloat(ccPayment.transaction_amount) || 0;
+  }
+
+  const totalRefundAmount = paymentDebit + chargeDebit;
+
+  if (!totalRefundAmount || totalRefundAmount <= 0) {
     return res.status(400).json({
       success: false,
       message: 'No balance was debited for this transaction; refund cannot be processed.',
@@ -708,17 +733,23 @@ const manualRefundBbpsCcBill = asyncHandler(async (req, res) => {
   const performerName = req.user?.name || req.user?.abheepay_id || req.user?.email || `User #${req.user?.id || 'Admin'}`;
   const performerRole = req.user?.role || 'admin';
 
+  const refundDesc = `Manual Refund for failed BBPS CC payment (${ccPayment?.external_ref || paymentId}) — Principal: ₹${paymentDebit.toFixed(2)}${chargeDebit > 0 ? `, Charge Refunded: ₹${chargeDebit.toFixed(2)}` : ''} by ${performerName}`;
+
   const refundEntry = await ledgerService.createLedgerEntry({
     userId,
     transactionType: 'bbps_payment_reversal',
     referenceId: paymentId,
     referenceTable: 'CcBillPayments',
-    description: `Manual Refund for failed BBPS CC payment (${ccPayment?.external_ref || paymentId}) by ${performerName} (${performerRole})`,
-    credit: refundAmount,
+    description: refundDesc,
+    credit: totalRefundAmount,
     metadata: {
       biller_id: ccPayment?.biller_id || debitLedger?.metadata?.biller_id || null,
       original_ledger_id: debitLedger?.id || null,
       external_ref: ccPayment?.external_ref || null,
+      principal_debit: paymentDebit,
+      charge_debit: chargeDebit,
+      total_refund_amount: totalRefundAmount,
+      charge_refunded: chargeDebit > 0,
       refund_source: 'admin_manual_refund',
       performed_by_id: req.user?.id || null,
       performed_by_name: performerName,
