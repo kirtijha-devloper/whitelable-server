@@ -1169,16 +1169,51 @@ const getBbpsReport = asyncHandler(async (req, res) => {
     const paymentRecords = bbpsPaymentIds.length
       ? await CcBillPayment.findAll({
           where: { id: { [Op.in]: bbpsPaymentIds } },
-          attributes: ['id', 'biller_id', 'customer_mobile', 'payment_mode', 'statuscode', 'status', 'external_ref']
+          attributes: ['id', 'biller_id', 'customer_mobile', 'payment_mode', 'statuscode', 'status', 'external_ref', 'createdAt']
         })
       : [];
 
     const paymentMap = Object.fromEntries(paymentRecords.map((payment) => [payment.id, payment]));
 
+    // Fetch corresponding reversal ledger entries for all BBPS payments in this batch
+    const reversalRecords = bbpsPaymentIds.length
+      ? await Ledger.findAll({
+          where: {
+            transaction_type: 'bbps_payment_reversal',
+            reference_id: { [Op.in]: bbpsPaymentIds }
+          },
+          attributes: ['id', 'reference_id', 'credit', 'createdAt', 'description', 'balance']
+        })
+      : [];
+
+    const reversalMap = Object.fromEntries(reversalRecords.map((rev) => [rev.reference_id, rev]));
+
     const data = entries.map(e => {
       let meta = {};
       try { meta = e.metadata ? JSON.parse(e.metadata) : {}; } catch (_) {}
       const payment = paymentMap[e.reference_id] || null;
+      const reversal = reversalMap[e.reference_id] || null;
+
+      const statusCodeUpper = String(payment?.statuscode || meta.statuscode || '').trim().toUpperCase();
+      const statusTextLower = String(payment?.status || meta.status || '').trim().toLowerCase();
+
+      const isSuccess = ['TXN', 'TUP'].includes(statusCodeUpper) || statusTextLower.includes('success') || statusTextLower.includes('completed');
+      const isPending = ['PEN', 'PENDING', 'PROCESSING', 'INP', 'INIT', 'INITIATED'].includes(statusCodeUpper) || statusTextLower.includes('pend') || statusTextLower.includes('process');
+
+      const debitAmount = parseFloat(e.debit) || 0;
+      let refund_status = 'NOT_APPLICABLE';
+
+      if (isSuccess) {
+        refund_status = 'SUCCESS';
+      } else if (debitAmount > 0) {
+        if (reversal) {
+          refund_status = 'REFUNDED';
+        } else {
+          refund_status = 'REFUND_PENDING';
+        }
+      } else {
+        refund_status = 'NO_DEBIT';
+      }
 
       return {
         id:              e.id,
@@ -1191,12 +1226,22 @@ const getBbpsReport = asyncHandler(async (req, res) => {
         statuscode:      payment?.statuscode || meta.statuscode || null,
         external_ref:    payment?.external_ref || meta.external_ref || e.transaction_id || null,
         description:     e.description,
-        amount:          parseFloat(e.debit)          || 0,
+        amount:          debitAmount,
         balance_before:  parseFloat(e.balance_before) || 0,
         balance_after:   parseFloat(e.balance)        || 0,
         status:          payment?.status || meta.status || null,
         reference_id:    e.reference_id || null,
         reference_table: e.reference_table || null,
+        refund_status,
+        initiated_at:    payment?.createdAt || e.createdAt,
+        deducted_at:     e.createdAt,
+        refund_details:  reversal ? {
+          id:              reversal.id,
+          refunded_at:     reversal.createdAt,
+          credit:          parseFloat(reversal.credit) || 0,
+          description:     reversal.description,
+          closing_balance: parseFloat(reversal.balance) || 0,
+        } : null,
         metadata:        meta,
         raw_payment:     payment || null
       };
