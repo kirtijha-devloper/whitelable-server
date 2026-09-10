@@ -4,6 +4,7 @@ const path = require('path');
 const { Op } = require('sequelize');
 const bbpsCCBillService = require('../../../services/cc/bbps/bbpsCCBillService');
 const CcBillPayment = require('../../../models/CcBillPayment');
+const Ledger = require('../../../models/Ledger');
 const BbpsCcChargeRule = require('../../../models/BbpsCcChargeRule');
 const ledgerService = require('../../../services/ledgerService');
 const {
@@ -634,6 +635,120 @@ const payCCBill = asyncHandler(async (req, res) => {
   }
 });
 
+/**
+ * POST /api/bbps-cc/manual-refund
+ * Admin / Employee manual refund for failed BBPS CC bill payments where balance was debited.
+ */
+const manualRefundBbpsCcBill = asyncHandler(async (req, res) => {
+  const { reference_id, ledger_id, reason } = req.body;
+
+  if (!reference_id && !ledger_id) {
+    return res.status(400).json({
+      success: false,
+      message: 'reference_id or ledger_id is required to process manual refund',
+    });
+  }
+
+  let ccPayment = null;
+  let debitLedger = null;
+
+  if (reference_id) {
+    ccPayment = await CcBillPayment.findByPk(reference_id);
+  }
+
+  if (ledger_id) {
+    debitLedger = await Ledger.findByPk(ledger_id);
+    if (debitLedger && !ccPayment && debitLedger.reference_id) {
+      ccPayment = await CcBillPayment.findByPk(debitLedger.reference_id);
+    }
+  }
+
+  if (!debitLedger && ccPayment) {
+    debitLedger = await Ledger.findOne({
+      where: {
+        transaction_type: 'bbps_payment',
+        reference_id: ccPayment.id,
+      },
+    });
+  }
+
+  if (!ccPayment && !debitLedger) {
+    return res.status(404).json({
+      success: false,
+      message: 'CC bill payment or ledger record not found',
+    });
+  }
+
+  const paymentId = ccPayment?.id || debitLedger?.reference_id;
+  const userId = ccPayment?.user_id || debitLedger?.user_id;
+
+  const refundAmount = parseFloat(debitLedger?.debit || ccPayment?.transaction_amount || 0);
+  if (!refundAmount || refundAmount <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'No balance was debited for this transaction; refund cannot be processed.',
+    });
+  }
+
+  const existingReversal = await Ledger.findOne({
+    where: {
+      transaction_type: 'bbps_payment_reversal',
+      reference_id: paymentId,
+    },
+  });
+
+  if (existingReversal) {
+    return res.status(400).json({
+      success: false,
+      message: `Refund has already been processed for this transaction (Reversal Ledger #${existingReversal.id}).`,
+      existingReversalId: existingReversal.id,
+    });
+  }
+
+  const performerName = req.user?.name || req.user?.abheepay_id || req.user?.email || `User #${req.user?.id || 'Admin'}`;
+  const performerRole = req.user?.role || 'admin';
+
+  const refundEntry = await ledgerService.createLedgerEntry({
+    userId,
+    transactionType: 'bbps_payment_reversal',
+    referenceId: paymentId,
+    referenceTable: 'CcBillPayments',
+    description: `Manual Refund for failed BBPS CC payment (${ccPayment?.external_ref || paymentId}) by ${performerName} (${performerRole})`,
+    credit: refundAmount,
+    metadata: {
+      biller_id: ccPayment?.biller_id || debitLedger?.metadata?.biller_id || null,
+      original_ledger_id: debitLedger?.id || null,
+      external_ref: ccPayment?.external_ref || null,
+      refund_source: 'admin_manual_refund',
+      performed_by_id: req.user?.id || null,
+      performed_by_name: performerName,
+      performed_by_role: performerRole,
+      performed_at: new Date().toISOString(),
+      reason: reason || 'Admin manual refund',
+    },
+  });
+
+  if (ccPayment) {
+    try {
+      await ccPayment.update({
+        status: 'FAILED (REFUNDED)',
+      });
+    } catch (_) {}
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: `Manual refund of ₹${refundAmount.toFixed(2)} issued successfully!`,
+    refundLedgerId: refundEntry.id,
+    refundAmount,
+    performedBy: {
+      id: req.user?.id,
+      name: performerName,
+      role: performerRole,
+    },
+  });
+});
+
 module.exports = {
   getCategories,
   getCCBillers,
@@ -646,4 +761,5 @@ module.exports = {
   createBbpsCcChargeRule,
   updateBbpsCcChargeRule,
   deleteBbpsCcChargeRule,
+  manualRefundBbpsCcBill,
 };

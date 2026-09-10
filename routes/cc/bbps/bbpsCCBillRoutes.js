@@ -12,9 +12,12 @@ const {
   createBbpsCcChargeRule,
   updateBbpsCcChargeRule,
   deleteBbpsCcChargeRule,
+  manualRefundBbpsCcBill,
 } = require('../../../controllers/cc/bbps/bbpsCCBillController');
 
 const validateToken = require('../../../middleware/validateTokenHandler');
+const { ensureEmployeePermission } = require('../../../middleware/employeePermissionHandler');
+const { EMPLOYEE_PERMISSIONS } = require('../../../utils/permissions');
 
 // All routes protected by JWT
 router.use(validateToken);
@@ -33,6 +36,16 @@ router.post('/pre-payment-enquiry', prePaymentEnquiry);
 
 // POST /api/bbps-cc/pay                 – Execute CC bill payment
 router.post('/pay', payCCBill);
+
+// POST /api/bbps-cc/manual-refund       – Issue manual refund for a failed CC bill payment
+router.post('/manual-refund', ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.REPORTS_READ,
+  EMPLOYEE_PERMISSIONS.LEDGER_MANAGE,
+  EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE,
+], {
+  message: "You do not have permission to issue manual refunds.",
+  elevateRole: "admin",
+}), manualRefundBbpsCcBill);
 
 // GET /api/bbps-cc/payments            – List CC bill payment records (admin sees all)
 router.get('/payments', getCcBillPayments);
