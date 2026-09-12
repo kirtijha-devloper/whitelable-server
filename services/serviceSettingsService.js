@@ -16,6 +16,7 @@ const SERVICE_SETTING_KEYS = Object.freeze({
   BA_CC_BILL_PAY: 'ba_cc_bill_pay',
   CC_BILL_3: 'cc_bill_3',
   POS_T0_SETTLEMENT: 'pos_t0_settlement',
+  USER_DAILY_LIMIT: 'user_daily_limit',
 });
 
 const SERVICE_SETTING_KEY_LIST = Object.freeze(Object.values(SERVICE_SETTING_KEYS));
@@ -544,6 +545,100 @@ async function getServiceToggleAuditLogs(filters = {}) {
   };
 }
 
+async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, performingUserId, options = {}) {
+  const isEnabledBool = Boolean(isEnabled);
+  const now = new Date();
+
+  // Find all merchant and franchise users
+  const targetUsers = await User.findAll({
+    where: {
+      role: { [Op.in]: ['merchant', 'franchaise'] },
+    },
+    attributes: ['id', 'role', 'status', 'is_payout_enabled', 'settlement_type'],
+  });
+
+  if (targetUsers.length === 0) {
+    return { affected_count: 0, service_key: serviceKey, is_enabled: isEnabledBool };
+  }
+
+  const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
+
+  // Handle special master service keys
+  if (serviceKey === 'pos_t0_settlement') {
+    const newSettlementType = isEnabledBool ? 'T0' : 'T1';
+    await User.update(
+      { settlement_type: newSettlementType },
+      {
+        where: { role: { [Op.in]: ['merchant', 'franchaise'] } },
+        ...transactionOpts,
+      }
+    );
+  }
+
+  // Also update user_service_settings for the serviceKey across all target users
+  const rows = targetUsers.map((u) => ({
+    user_id: u.id,
+    service_key: serviceKey,
+    is_enabled: isEnabledBool,
+    updated_by: performingUserId ?? null,
+    updated_at: now,
+  }));
+
+  await UserServiceSetting.bulkCreate(rows, {
+    updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at'],
+    ...transactionOpts,
+  });
+
+  // Sync is_payout_enabled if service is a payout service
+  const isPayoutService = [
+    SERVICE_SETTING_KEYS.VIMO_PAYOUT,
+    SERVICE_SETTING_KEYS.BRANCHX_PAYOUT,
+    SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT,
+    SERVICE_SETTING_KEYS.MX_PAYOUT,
+    SERVICE_SETTING_KEYS.NDIA5_PAYOUT,
+  ].includes(serviceKey);
+
+  if (isPayoutService) {
+    if (isEnabledBool) {
+      await User.update(
+        { is_payout_enabled: true },
+        {
+          where: { role: { [Op.in]: ['merchant', 'franchaise'] } },
+          ...transactionOpts,
+        }
+      );
+    }
+  }
+
+  // Also update global default service_settings table
+  await ServiceSetting.upsert({
+    service_key: serviceKey,
+    is_enabled: isEnabledBool,
+    updated_by: performingUserId ?? null,
+  }, transactionOpts);
+
+  // Record audit log
+  const ipAddress = options.ip_address || options.ip || null;
+  const userAgent = options.user_agent || null;
+
+  await ServiceToggleAuditLog.create({
+    user_id: performingUserId || 1,
+    affected_user_id: null,
+    service_key: serviceKey,
+    previous_state: !isEnabledBool,
+    new_state: isEnabledBool,
+    action: `BULK_${isEnabledBool ? 'ENABLE' : 'DISABLE'}_ALL`,
+    ip_address: ipAddress,
+    user_agent: userAgent,
+  }, transactionOpts);
+
+  return {
+    affected_count: targetUsers.length,
+    service_key: serviceKey,
+    is_enabled: isEnabledBool,
+  };
+}
+
 module.exports = {
   SERVICE_SETTING_KEYS,
   SERVICE_SETTING_KEY_LIST,
@@ -559,6 +654,7 @@ module.exports = {
   getUserServiceSettingsMapForUsers,
   getUserServiceSettingsForUser,
   upsertUserServiceSettings,
+  bulkUpdateUserServiceSettingsForAllUsers,
   getEffectiveServiceFlags,
   buildServiceDisabledPayload,
   assertServiceEnabledOrRespond,

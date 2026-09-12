@@ -7,6 +7,7 @@ const {
   getServiceSettingsMap,
   upsertServiceSettings,
   upsertUserServiceSettings,
+  bulkUpdateUserServiceSettingsForAllUsers,
   getServiceToggleAuditLogs,
 } = require('../services/serviceSettingsService');
 const { normalizeRole } = require('../utils/permissions');
@@ -223,9 +224,49 @@ const getServiceToggleAuditLogsController = asyncHandler(async (req, res) => {
   });
 });
 
+const bulkUpdateUserServiceSettings = asyncHandler(async (req, res) => {
+  const requesterRole = normalizeRole(req.user?.role);
+
+  if (requesterRole !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Only admin can perform bulk service updates across all users.',
+    });
+  }
+
+  const { service_key, is_enabled } = req.body || {};
+
+  if (!service_key || typeof is_enabled !== 'boolean') {
+    return res.status(400).json({
+      success: false,
+      message: 'Valid service_key and boolean is_enabled are required.',
+    });
+  }
+
+  const context = extractRequestContext(req);
+  const result = await db.transaction(async (transaction) => {
+    return await bulkUpdateUserServiceSettingsForAllUsers(
+      service_key,
+      is_enabled,
+      req.user?.id || null,
+      {
+        transaction,
+        ...context,
+      }
+    );
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: `Successfully ${is_enabled ? 'enabled' : 'disabled'} ${service_key} for all ${result.affected_count} users.`,
+    data: result,
+  });
+});
+
 module.exports = {
   getServiceSettings,
   updateServiceSettings,
   updateUserServiceSettings,
+  bulkUpdateUserServiceSettings,
   getServiceToggleAuditLogsController,
 };

@@ -12,6 +12,7 @@ const {
   getServiceSettings,
   updateServiceSettings,
   updateUserServiceSettings,
+  bulkUpdateUserServiceSettings,
   getServiceToggleAuditLogsController,
 } = require("../controllers/serviceSettingsController");
 const {
@@ -122,6 +123,11 @@ router.put("/user/:id/service-settings", validateToken, ensureEmployeePermission
   message: "You do not have permission to manage user service settings.",
   elevateRole: "admin",
 }), updateUserServiceSettings);
+
+router.put("/user/bulk-service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE, {
+  message: "You do not have permission to bulk update user service settings.",
+  elevateRole: "admin",
+}), bulkUpdateUserServiceSettings);
 
 router.get("/service-settings/audit-logs", validateToken, ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ,
