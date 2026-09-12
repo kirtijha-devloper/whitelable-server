@@ -1,3 +1,4 @@
+
 const db = require('../config/database');
 
 const CARD_BRAND_MAPPINGS = {
@@ -151,7 +152,14 @@ async function getTransactionChargeRule({
       -- When $6 is provided, match rules whose classification equals $6, is NULL, or is 'ANY'.
       AND (($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
       -- Same treatment for settlement: when $7 is NULL, only match NULL or 'ANY' settlement rules.
-      AND (($7::text IS NOT NULL AND settlement_type = $7::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')
+      AND (
+        $7::text IS NULL
+        OR settlement_type IS NULL
+        OR UPPER(settlement_type) = 'ANY'
+        OR settlement_type = $7::text
+        OR ($7::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
+        OR ($7::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
+      )
       -- company_name match
       AND (($10::text IS NOT NULL AND UPPER(company_name) = UPPER($10::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')
       -- amount slab
@@ -238,7 +246,14 @@ async function getAdminChargeRuleForFranchise({
       AND (UPPER(card_type)    = $3 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
       AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
       AND (($5::text IS NOT NULL AND UPPER(card_classification) = UPPER($5::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
-      AND (($6::text IS NOT NULL AND settlement_type = $6::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')
+      AND (
+        $6::text IS NULL
+        OR settlement_type IS NULL
+        OR UPPER(settlement_type) = 'ANY'
+        OR settlement_type = $6::text
+        OR ($6::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
+        OR ($6::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
+      )
       AND (($8::text IS NOT NULL AND UPPER(company_name) = UPPER($8::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')
       AND $7 >= min_amount
       AND ($7 <= max_amount OR max_amount IS NULL)

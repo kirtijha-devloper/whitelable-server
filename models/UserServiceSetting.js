@@ -10,6 +10,8 @@ const USER_SERVICE_ALLOWED_KEYS = [
   'ba_cc_bill_pay',
   'cc_bill_3',
   'mx_payout',
+  'pos_t0_settlement',
+  'user_daily_limit',
 ];
 
 const UserServiceSetting = db.define('UserServiceSetting', {

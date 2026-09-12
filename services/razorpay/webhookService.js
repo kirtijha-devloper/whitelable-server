@@ -87,10 +87,11 @@ async function processRzpNotification(event, source = 'agro', throwOnError = fal
         // Any update resets the processed flag so the worker can re-run, and clears
         // any previous error/status note.
         if (!created) {
+            const effectiveSource = (source && source !== 'UNKNOWN') ? source : (notification.source || source || 'agro');
             await notification.update({
                 event_json: event,
                 status: status || notification.status,
-                source: source || notification.source,
+                source: effectiveSource,
                 mid: midVal,
                 tid: tidVal,
                 amount: amountVal,

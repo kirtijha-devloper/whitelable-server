@@ -53,7 +53,7 @@ async function getAvailableBalance(userId) {
   const totalBalance = await getLatestBalance(userId);
 
   const user = await User.findByPk(userId, { attributes: ['id', 'settlement_type'] });
-  if (!user || user.settlement_type !== 'next_day_settlement') {
+  if (!user || (user.settlement_type !== 'next_day_settlement' && user.settlement_type !== 'T1')) {
     return totalBalance;
   }
 
@@ -233,7 +233,7 @@ async function createRazorpayChargeEntry({
   // If user has next_day_settlement, hold the net earnings until next day 10:30 AM
   try {
     const user = await User.findByPk(userId, { attributes: ['id', 'settlement_type'] });
-    if (user && user.settlement_type === 'next_day_settlement') {
+    if (user && (user.settlement_type === 'next_day_settlement' || user.settlement_type === 'T1')) {
       const holdAmount = transactionAmount - totalDeduction;
       if (holdAmount > 0 && creditEntry) {
         await createSettlementHold(userId, holdAmount, creditEntry.id);
@@ -651,7 +651,7 @@ async function recalculateBalance(userId) {
   // are stale (e.g. the user was previously next_day_settlement). Release them
   // so they no longer appear as "On Settlement Hold" in the dashboard.
   let releasedHolds = 0;
-  if (user.settlement_type !== 'next_day_settlement') {
+  if (user.settlement_type !== 'next_day_settlement' && user.settlement_type !== 'T1') {
     const [count] = await SettlementHold.update(
       { released: true },
       { where: { user_id: userId, released: false } }
