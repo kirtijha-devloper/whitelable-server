@@ -138,14 +138,14 @@ async function getTransactionChargeRule({
       -- scope-aware row filtering: only pull in rows that CAN apply
       AND (
             -- User-specific rule matches target merchant/user directly
-            ($1::integer IS NOT NULL AND user_id = $1)
+            ($1::integer IS NOT NULL AND user_id = $1::integer)
             -- Franchise-level or global default (no user_id)
-         OR (user_id IS NULL AND (franchaise_id = $2 OR franchaise_id IS NULL))
+         OR (user_id IS NULL AND ($2::integer IS NULL OR franchaise_id = $2::integer OR franchaise_id IS NULL))
       )
       -- dimension matching (each is optional in the rule)
-      AND (UPPER(payment_mode) = $3 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
-      AND (UPPER(card_type)    = $4 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
-      AND (UPPER(card_brand)   = $5 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
+      AND ($3::text IS NULL OR UPPER(payment_mode) = UPPER($3::text) OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
+      AND ($4::text IS NULL OR UPPER(card_type)    = UPPER($4::text)    OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
+      AND ($5::text IS NULL OR UPPER(card_brand)   = UPPER($5::text)   OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
       -- When $6 (classification) is NULL, only match rules whose classification is NULL or 'ANY'.
       -- When $6 is provided, match rules whose classification equals $6, is NULL, or is 'ANY'.
       AND (($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
@@ -158,24 +158,23 @@ async function getTransactionChargeRule({
         OR ($7::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
         OR ($7::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
       )
-      -- company_name match
-      AND (($10::text IS NOT NULL AND UPPER(company_name) = UPPER($10::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')
       -- amount slab
-      AND $8 >= min_amount
-      AND ($8 <= max_amount OR max_amount IS NULL)
+      AND $8::numeric >= min_amount
+      AND ($8::numeric <= max_amount OR max_amount IS NULL)
+      -- company_name match
+      AND (($9::text IS NOT NULL AND UPPER(company_name) = UPPER($9::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')
     ORDER BY specificity DESC
     LIMIT 1
   `;
 
   const replacementBase = [
-    userId || null,
-    franchiseId || null,
+    userId ? parseInt(userId, 10) : null,
+    franchiseId ? parseInt(franchiseId, 10) : null,
     normalizedPaymentMode,
     normalizedCardType,
     normalizedClassification,
     settlement || null,
-    amount,
-    normalizedUserRole,
+    amount != null ? parseFloat(amount) : 0,
     normalizeLookupValue(companyName)
   ];
 
