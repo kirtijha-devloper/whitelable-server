@@ -21,7 +21,9 @@ function logWorldlineNotification(body) {
         const mid  = body.mid || '-';
         const tid  = body.tid || '-';
         const stat = body.status || '-';
-        const line = `[${ts}] source=worldline rrn/txnId=${txn} status=${stat} amount=${amt} mid=${mid} tid=${tid}\n`;
+        const source = body.source || 'worldline';
+        const raw  = JSON.stringify(body);
+        const line = `[${ts}] source=${source} rrn/txnId=${txn} status=${stat} amount=${amt} mid=${mid} tid=${tid} raw=${raw}\n`;
         fs.appendFileSync(LOG_FILE, line);
     } catch (_) { /* ignore log write errors */ }
 }
@@ -52,7 +54,8 @@ async function handleWorldlineNotification(req, res) {
         // Background processing after HTTP response sent
         setImmediate(async () => {
             try {
-                await processWorldlineNotification(body, 'worldline');
+                const source = body.source || req.headers['x-source'] || 'worldline';
+                await processWorldlineNotification(body, source);
             } catch (bgErr) {
                 console.error("[Worldline Webhook Controller] Background processing error:", bgErr);
             }
