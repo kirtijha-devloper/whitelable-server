@@ -189,7 +189,31 @@ async function resolvePendingCcBillPayment() {
         };
 
         if (needsRefund && !isInvalidOutlet && row.user_id) {
-          const refundAmount = parseFloat(row.transaction_amount) || 0;
+          const allDebits = await Ledger.findAll({
+            where: {
+              reference_id: row.id,
+              transaction_type: { [Op.in]: ['bbps_payment', 'bbps_charge'] }
+            }
+          });
+
+          let paymentDebit = 0;
+          let chargeDebit = 0;
+
+          for (const entry of allDebits) {
+            const d = parseFloat(entry.debit) || 0;
+            if (entry.transaction_type === 'bbps_payment') {
+              paymentDebit += d;
+            } else if (entry.transaction_type === 'bbps_charge') {
+              chargeDebit += d;
+            }
+          }
+
+          if (paymentDebit === 0) {
+            paymentDebit = parseFloat(row.transaction_amount) || 0;
+          }
+
+          const refundAmount = paymentDebit + chargeDebit;
+
           if (refundAmount > 0) {
             const existingRefund = await Ledger.findOne({
               where: {
@@ -206,7 +230,7 @@ async function resolvePendingCcBillPayment() {
                 transactionId: externalRef || null,
                 referenceId: row.id,
                 referenceTable: 'CcBillPayments',
-                description: `Reversed — BBPS CC payment failed (${nextStatus || 'FAILED'})`,
+                description: `Reversed — BBPS CC payment failed (${nextStatus || 'FAILED'}) — Principal: ₹${paymentDebit.toFixed(2)}${chargeDebit > 0 ? `, Charge Refunded: ₹${chargeDebit.toFixed(2)}` : ''}`,
                 credit: refundAmount,
                 metadata: {
                   original_status: row.status,
@@ -214,6 +238,10 @@ async function resolvePendingCcBillPayment() {
                   provider_statuscode: nextStatuscode,
                   provider_status: nextStatus,
                   external_ref: externalRef,
+                  principal_debit: paymentDebit,
+                  charge_debit: chargeDebit,
+                  total_refund_amount: refundAmount,
+                  charge_refunded: chargeDebit > 0,
                   request: requestDetails,
                   responseSummary: summary,
                 }
