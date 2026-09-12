@@ -361,11 +361,21 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
     }
 
     // Stamp the POS operator link and settlement_type snapshot on the notification
-    const settlementTypeSnapshot = posOperator.settlement_type || 'today_settlement';
+    const { resolveEffectiveSettlement } = require("../services/settlementService");
+    const settlementResolution = await resolveEffectiveSettlement({
+      user: posOperator,
+      incomingTxnAmount: parseFloat(transactionAmount)
+    });
+
+    const settlementTypeSnapshot = settlementResolution.effectiveSettlement;
     await notification.update({
       user_id: posOperator.id,
       settlement_type: settlementTypeSnapshot
     });
+
+    if (settlementResolution.isLimitExceeded) {
+      logger.warn(`[Razorpay Webhook Worker] ⚠️ ${settlementResolution.note}. Effective settlement shifted to ${settlementTypeSnapshot}.`);
+    }
 
     logger.log(`[Razorpay Webhook Worker] Found POS operator: ${posOperator.id} (${posOperator.name || posOperator.email})`);
     logger.log(`[Razorpay Webhook Worker] Settlement type snapshot saved: ${settlementTypeSnapshot}`);
@@ -396,7 +406,7 @@ async function handleAuthorizedTransaction(txnId, event, notification) {
       cardType: paymentCardType || null,
       cardBrand: paymentCardBrand || null,
       classification: classificationFromJson, // currently typically null
-      settlement: posOperator.settlement_type || null,
+      settlement: settlementTypeSnapshot || null,
       amount: parseFloat(transactionAmount),
       companyName
     });

@@ -110,13 +110,19 @@ const User = db.define('User', {
       settlement_type: {
         type: Sequelize.STRING,
         allowNull: false,
-        defaultValue: 'today_settlement',
+        defaultValue: 'T0',
         validate: {
           isIn: {
-            args: [['today_settlement', 'next_day_settlement']],
-            msg: 'settlement_type must be either "today_settlement" or "next_day_settlement"'
+            args: [['T0', 'T1', 'today_settlement', 'next_day_settlement']],
+            msg: 'settlement_type must be either "T0", "T1", "today_settlement", or "next_day_settlement"'
           }
         }
+      },
+      t0_daily_limit: {
+        type: Sequelize.DECIMAL(12, 2),
+        allowNull: true,
+        defaultValue: null,
+        comment: 'Daily limit for T0 settlements. NULL means Unlimited.'
       },
       franchaise_id: {
         type: Sequelize.INTEGER,

@@ -15,6 +15,7 @@ const SERVICE_SETTING_KEYS = Object.freeze({
   CC_BILL_PAY: 'cc_bill_pay',
   BA_CC_BILL_PAY: 'ba_cc_bill_pay',
   CC_BILL_3: 'cc_bill_3',
+  POS_T0_SETTLEMENT: 'pos_t0_settlement',
 });
 
 const SERVICE_SETTING_KEY_LIST = Object.freeze(Object.values(SERVICE_SETTING_KEYS));
@@ -46,6 +47,7 @@ function buildDefaultUserServiceSettings(user) {
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.CC_BILL_3]: true,
+    [SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT]: true,
   };
 }
 

@@ -1,6 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId, setUserSettlementType, setAllUsersSettlementType } = require("../controllers/adminController");
+const {
+  getPosSettings,
+  updateT0Limit,
+  updateSettlementType,
+  bulkUpdateSettlementType,
+} = require("../controllers/posSettlementController");
 const { adminDirectCredit, adminDirectDebit, reconcileWallet, reconcileAllWallets } = require("../controllers/adminWalletController");
 const {
   getServiceSettings,
@@ -66,6 +72,19 @@ router.put("/users/settlement-type", validateToken, requireAdmin, setAllUsersSet
 //   Admin-only: update settlement type for a single merchant or franchise user.
 //   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
 router.put("/user/:id/settlement-type", validateToken, requireAdmin, setUserSettlementType);
+
+// ── POS Settlement Settings Admin Endpoints ────────────────────────────────
+// GET /api/admin/pos-setting
+router.get("/pos-setting", validateToken, requireAdmin, getPosSettings);
+
+// POST /api/admin/pos-setting/update-t0-limit
+router.post("/pos-setting/update-t0-limit", validateToken, requireAdmin, updateT0Limit);
+
+// POST /api/admin/pos-setting/update-settlement-type
+router.post("/pos-setting/update-settlement-type", validateToken, requireAdmin, updateSettlementType);
+
+// POST /api/admin/pos-setting/bulk-settlement
+router.post("/pos-setting/bulk-settlement", validateToken, requireAdmin, bulkUpdateSettlementType);
 
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.
