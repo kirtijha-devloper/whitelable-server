@@ -60,25 +60,27 @@ async function handleRzpNotification(req, res) {
         // Using setImmediate ensures response is sent first, then processing starts
         setImmediate(async () => {
             try {
-                // Forward notification only if an external reseller forward URL is configured in environment.
-                // Never post back to self (https://api.abheepay.com/api/razorpay-notifications/webhook)
-                // as that creates a recursive loop without auth headers and corrupts notification source to UNKNOWN.
-                const resellerUrl = process.env.RESELLER_FORWARD_URL;
-                if (resellerUrl && typeof resellerUrl === 'string' && resellerUrl.trim() && !resellerUrl.includes('/api/razorpay-notifications/webhook')) {
-                    axios.post(
-                        resellerUrl,
-                        body,
-                        {
-                            headers: { 
-                                "Content-Type": "application/json",
-                                ...(req.headers["authorization"] ? { "Authorization": req.headers["authorization"] } : {})
-                            },
-                            timeout: 5000
-                        }
-                    ).catch((err) => {
-                        console.error("[Webhook Controller] Forward notification error:", err?.message || err);
-                    });
-                }
+                // Fire-and-forget forward of the received notification to the reseller endpoint.
+                // Choose path based on source
+                const forwardUrl = source === WEBHOOK_SOURCES.EVERLIFE
+                    ? "https://api.abheepay.com/api/razorpay-notifications/webhook/everlife"
+                    : "https://api.abheepay.com/api/razorpay-notifications/webhook";
+
+                // Forward with same Authorization header so the reseller endpoint
+                // can authenticate the request correctly.
+                axios.post(
+                    forwardUrl,
+                    body,
+                    {
+                        headers: {
+                            "Content-Type": "application/json",
+                            ...(req.headers["authorization"] ? { "Authorization": req.headers["authorization"] } : {})
+                        },
+                        timeout: 5000
+                    }
+                ).catch((err) => {
+                    console.error("[Webhook Controller] Forward notification error:", err?.message || err);
+                });
 
                 // include source so service can store it
                 await processRzpNotification(body, source);
