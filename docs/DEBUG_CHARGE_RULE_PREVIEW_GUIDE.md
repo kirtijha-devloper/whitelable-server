@@ -1,5 +1,7 @@
 # Debug Charge Rule Preview API Guide (Dry-Run / Simulation)
 
+_Last updated: 2026-09-13_
+
 ## Overview
 This API endpoint allows Administrators and authorized Employees to perform a **Dry-Run (Simulation)** charge rule lookup using raw webhook transaction payloads or standard parameter fields.
 
