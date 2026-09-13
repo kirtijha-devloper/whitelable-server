@@ -630,10 +630,102 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
     }
 }
 
+/**
+ * Replay missed Razorpay notifications to api.abheepay.com
+ * Admin only — reads event_json from DB and forwards each to the API endpoint.
+ *
+ * Query params:
+ *   from  – ISO datetime (default: yesterday 6:34 PM IST)
+ *   to    – ISO datetime (default: now)
+ *   dryRun – 'true' to only count, not forward
+ */
+async function replayNotificationsToApi(req, res) {
+    try {
+        if (!req.user || req.user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Admin role required' });
+        }
+
+        // Default window: 2026-09-12 18:34:00 IST → now
+        const DEFAULT_FROM = new Date('2026-09-12T13:04:00.000Z'); // 18:34 IST = 13:04 UTC
+        const DEFAULT_TO   = new Date();
+
+        const from   = req.query.from   ? new Date(req.query.from)   : DEFAULT_FROM;
+        const to     = req.query.to     ? new Date(req.query.to)     : DEFAULT_TO;
+        const dryRun = req.query.dryRun === 'true';
+
+        if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+            return res.status(400).json({ success: false, message: 'Invalid from/to date format. Use ISO 8601.' });
+        }
+
+        // Fetch all notifications in the window
+        const notifications = await RazorpayNotification.findAll({
+            where: {
+                createdAt: { [Op.between]: [from, to] }
+            },
+            order: [['createdAt', 'ASC']]
+        });
+
+        if (dryRun) {
+            return res.status(200).json({
+                success: true,
+                dryRun: true,
+                from: from.toISOString(),
+                to: to.toISOString(),
+                count: notifications.length,
+                txnIds: notifications.map(n => ({ id: n.id, txn_id: n.txn_id, source: n.source, createdAt: n.createdAt }))
+            });
+        }
+
+        let forwarded = 0;
+        let skipped   = 0;
+        const errors  = [];
+
+        for (const notif of notifications) {
+            try {
+                const body = typeof notif.event_json === 'string'
+                    ? JSON.parse(notif.event_json)
+                    : notif.event_json;
+
+                if (!body) { skipped++; continue; }
+
+                // Determine forward URL based on source
+                const src = notif.source || 'agro_axis';
+                const forwardUrl = (src === WEBHOOK_SOURCES.EVERLIFE || src === 'everlife')
+                    ? 'https://api.abheepay.com/api/razorpay-notifications/webhook/everlife'
+                    : 'https://api.abheepay.com/api/razorpay-notifications/webhook';
+
+                await axios.post(forwardUrl, body, {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 8000
+                });
+
+                forwarded++;
+            } catch (err) {
+                errors.push({ id: notif.id, txn_id: notif.txn_id, error: err.message });
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            from: from.toISOString(),
+            to: to.toISOString(),
+            total: notifications.length,
+            forwarded,
+            skipped,
+            errors
+        });
+
+    } catch (error) {
+        console.error('[replayNotificationsToApi] Error:', error);
+        return res.status(500).json({ success: false, message: error.message || 'Internal error' });
+    }
+}
+
 module.exports = { 
     handleRzpNotification,
     listNotifications,
     getNotificationById,
     adminProcessNotification,
-    adminProcessNotificationWithCustomCharge
+    adminProcessNotificationWithCustomCharge,
+    replayNotificationsToApi
 };
