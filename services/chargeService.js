@@ -118,20 +118,19 @@ async function getTransactionChargeRule({
   const query = `
     SELECT *,
     (
-      -- scope tier weight (must strictly dominate optional dimensions, max optional sum = 63)
+      (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'franchise_merchant' THEN 64000
-        WHEN 'admin_merchant'     THEN 48000
-        WHEN 'franchise_default'  THEN 32000
-        WHEN 'admin_franchise'    THEN 16000
+        WHEN 'franchise_merchant' THEN 64
+        WHEN 'admin_merchant'     THEN 48
+        WHEN 'franchise_default'  THEN 32
+        WHEN 'admin_franchise'    THEN 16
         ELSE 0
-      END +
-      (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32 ELSE 0 END) +
-      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16 ELSE 0 END) +
-      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1 ELSE 0 END)
+      END
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
@@ -223,16 +222,16 @@ async function getAdminChargeRuleForFranchise({
   const query = `
     SELECT *,
     (
+      (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'admin_franchise' THEN 16000
+        WHEN 'admin_franchise' THEN 16
         ELSE 0
-      END +
-      (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32 ELSE 0 END) +
-      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16 ELSE 0 END) +
-      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1 ELSE 0 END)
+      END
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
