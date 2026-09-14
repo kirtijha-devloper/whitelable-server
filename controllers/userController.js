@@ -1391,6 +1391,8 @@ const approveUser = asyncHandler( async (req, res) => {
                     wallet: user.wallet,
                     settlement_hold: settlementHold,
                     available_balance: availableBalance,
+                    settlement_type: user.settlement_type || "today_settlement",
+                    t0_daily_limit: user.t0_daily_limit !== undefined && user.t0_daily_limit !== null ? parseFloat(user.t0_daily_limit) : null,
                     tpin_set: tpinSet,
                     ipay_outlet_id: user.ipay_outlet_id || null,
                     is_payout_enabled: user.is_payout_enabled,

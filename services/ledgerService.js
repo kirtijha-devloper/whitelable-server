@@ -230,13 +230,18 @@ async function createRazorpayChargeEntry({
     }
   });
 
-  // If user has next_day_settlement, hold the net earnings until next day 10:30 AM
+  // If effective settlement is T1 / next_day_settlement, hold the net earnings until next day 10:30 AM
   try {
     const user = await User.findByPk(userId, { attributes: ['id', 'settlement_type'] });
-    if (user && (user.settlement_type === 'next_day_settlement' || user.settlement_type === 'T1')) {
+    const rawSettlement = (metadata && (metadata.effective_settlement || metadata.settlement_type || metadata.settlement))
+      || (user ? user.settlement_type : 'T0');
+    const upperSettlement = String(rawSettlement || '').trim().toUpperCase();
+    const isT1 = (upperSettlement === 'T1' || upperSettlement === 'NEXT_DAY_SETTLEMENT');
+
+    if (isT1) {
       const holdAmount = transactionAmount - totalDeduction;
-      if (holdAmount > 0 && creditEntry) {
-        await createSettlementHold(userId, holdAmount, creditEntry.id);
+      if (holdAmount > 0) {
+        await createSettlementHold(userId, holdAmount, creditEntry ? creditEntry.id : null);
       }
     }
   } catch (holdErr) {

@@ -593,7 +593,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
         description: ledgerDescription,
         metadata: {
           razorpay_notification_id: notification.id,
-
+          settlement_type: settlementTypeSnapshot,
           pos_machine_id: posMachine.id,
           payment_method: paymentMethod,
           payment_card_type: paymentCardType,
