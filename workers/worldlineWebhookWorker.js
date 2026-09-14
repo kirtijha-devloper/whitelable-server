@@ -188,6 +188,13 @@ worldlineWebhookQueue.process(async (job) => {
       return;
     }
 
+    const { resolveEffectiveSettlement } = require("../services/settlementService");
+    const settlementResolution = await resolveEffectiveSettlement({
+      user: posOperator,
+      incomingTxnAmount: transactionAmount
+    });
+    const settlementTypeSnapshot = settlementResolution.effectiveSettlement;
+
     // Calculate MDR charges via ChargeService
     const paymentMode = (eventData.txn_type || 'CRDB').toUpperCase();
     const cardScheme = (notification.card_scheme || eventData.card_scheme || 'VISA').toUpperCase();
@@ -197,7 +204,7 @@ worldlineWebhookQueue.process(async (job) => {
       paymentMode: paymentMode,
       cardType: 'CREDIT',
       cardBrand: cardScheme,
-      settlement: posOperator.settlement_type || null,
+      settlement: settlementTypeSnapshot || null,
       amount: transactionAmount
     });
 
