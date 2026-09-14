@@ -2,6 +2,7 @@ const request = require('supertest');
 const express = require('express');
 const bodyParser = require('body-parser');
 const User = require('../models/User');
+const Ledger = require('../models/Ledger');
 const SettlementHold = require('../models/SettlementHold');
 const RazorpayNotification = require('../models/RazorpayNotification');
 const ledgerService = require('../services/ledgerService');
@@ -27,11 +28,11 @@ app.use('/api/user', userRoutes);
 
 describe('POS Settlement Hold & User Profile Tests', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.restoreAllMocks();
   });
 
   describe('GET /api/user/current Payload Verification', () => {
-    it('should return available_balance, settlement_hold, settlement_type, and t0_daily_limit', async () => {
+    it('should return available_balance, settlement_hold, settlement_type, and t0_daily_limit even when mode is T0', async () => {
       const mockUser = {
         id: 101,
         name: 'Test Merchant',
@@ -71,7 +72,7 @@ describe('POS Settlement Hold & User Profile Tests', () => {
     });
   });
 
-  describe('T0 Limit Auto-Shift & Hold Creation', () => {
+  describe('T0 Limit Auto-Shift & Hold Preservation', () => {
     it('should create SettlementHold when effective settlement mode is T1', async () => {
       const mockUser = {
         id: 101,
@@ -88,6 +89,14 @@ describe('POS Settlement Hold & User Profile Tests', () => {
 
       expect(resolution.effectiveSettlement).toBe('T1');
       expect(resolution.isLimitExceeded).toBe(true);
+    });
+
+    it('should calculate getAvailableBalance by subtracting unreleased holds regardless of user settlement_type', async () => {
+      jest.spyOn(Ledger, 'findOne').mockResolvedValue({ balance: 1000 });
+      jest.spyOn(SettlementHold, 'sum').mockResolvedValue(300);
+
+      const avail = await ledgerService.getAvailableBalance(101);
+      expect(avail).toBe(700);
     });
 
     it('should mark hold as released in releaseSettlementHolds cron', async () => {

@@ -42,9 +42,11 @@ async function getLatestBalance(userId) {
 /**
  * Get the available (spendable) balance for a user.
  *
- * For users with settlement_type = 'next_day_settlement', POS earnings from
- * today are held until the next day at 10:30 AM IST. This function returns
- * the ledger balance minus any unreleased settlement holds.
+/**
+ * Get the available (spendable) balance for a user.
+ *
+ * Settlement holds (from T+1 transactions or T0 limit-exceeded transactions)
+ * are subtracted from total wallet balance until released at 10:30 AM IST.
  *
  * @param {number} userId - User ID
  * @returns {Promise<number>} Available spendable balance
@@ -52,16 +54,11 @@ async function getLatestBalance(userId) {
 async function getAvailableBalance(userId) {
   const totalBalance = await getLatestBalance(userId);
 
-  const user = await User.findByPk(userId, { attributes: ['id', 'settlement_type'] });
-  if (!user || (user.settlement_type !== 'next_day_settlement' && user.settlement_type !== 'T1')) {
-    return totalBalance;
-  }
-
   const totalHeld = await SettlementHold.sum('amount', {
     where: { user_id: userId, released: false }
   }) || 0;
 
-  return totalBalance - totalHeld;
+  return Math.max(0, parseFloat((totalBalance - totalHeld).toFixed(2)));
 }
 
 /**
@@ -652,17 +649,7 @@ async function recalculateBalance(userId) {
 
   const previousWallet = parseFloat(user.wallet) || 0;
 
-  // If this is a today_settlement user, any unreleased SettlementHold records
-  // are stale (e.g. the user was previously next_day_settlement). Release them
-  // so they no longer appear as "On Settlement Hold" in the dashboard.
   let releasedHolds = 0;
-  if (user.settlement_type !== 'next_day_settlement' && user.settlement_type !== 'T1') {
-    const [count] = await SettlementHold.update(
-      { released: true },
-      { where: { user_id: userId, released: false } }
-    );
-    releasedHolds = count;
-  }
 
   // rebuildBalanceChain fixes ALL row-level balance fields AND syncs user.wallet
   const trueBalance = await rebuildBalanceChain(userId);
