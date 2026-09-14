@@ -86,19 +86,19 @@ razorpayWebhookQueue.process(async (job) => {
     // Business logic based on transaction status
     switch (status) {
       case "AUTHORIZED":
-        await handleAuthorizedTransaction(txnId, event, notification);
+        await handleAuthorizedTransaction(txnId, event, notification, src);
         break;
 
       case "FAILED":
-        await handleFailedTransaction(txnId, event, notification);
+        await handleFailedTransaction(txnId, event, notification, src);
         break;
 
       case "VOIDED":
-        await handleVoidedTransaction(txnId, event, notification);
+        await handleVoidedTransaction(txnId, event, notification, src);
         break;
 
       case "CAPTURED":
-        await handleCapturedTransaction(txnId, event, notification);
+        await handleCapturedTransaction(txnId, event, notification, src);
         break;
 
       default:
@@ -120,7 +120,8 @@ razorpayWebhookQueue.process(async (job) => {
  * Handle authorized transactions
  * Find POS operator (merchant or franchise owner) by mid/tid, calculate charges, and credit via ledger
  */
-async function handleAuthorizedTransaction(txnId, event, notification) {
+async function handleAuthorizedTransaction(txnId, event, notification, inputSrc) {
+  const src = String(inputSrc || (notification && notification.source) || (event && event.source) || '').toLowerCase();
   logger.log(`[Razorpay Webhook Worker] Processing authorized transaction: ${txnId}`);
   
   try {
