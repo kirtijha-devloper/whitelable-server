@@ -16,12 +16,6 @@ function normalizeSettlementType(type) {
 /**
  * Resolves the effective settlement mode ('T0' or 'T1') for a merchant transaction,
  * enforcing daily T0 limit rules with automatic shift to T1 if limit is exceeded.
- *
- * @param {Object} opts
- * @param {Object} opts.user - Merchant User instance or object with id, settlement_type, t0_daily_limit
- * @param {number} [opts.incomingTxnAmount=0] - Amount of the incoming transaction
- * @param {Date|string} [opts.date] - Optional date to check daily limit against (default today)
- * @returns {Promise<Object>} { effectiveSettlement: 'T0'|'T1', isLimitExceeded: boolean, todayT0Total: number, projectedTotal: number, t0Limit: number|null, note: string|null }
  */
 async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = new Date() }) {
   if (!user) {
@@ -113,7 +107,131 @@ async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = 
   };
 }
 
+/**
+ * Checks whether current time (IST / local) has passed effective cutoff time (Format HH:mm)
+ */
+function checkIsCutoffPassed(effectiveCutoff, now = new Date()) {
+  if (!effectiveCutoff) return true;
+  const parts = String(effectiveCutoff).trim().split(':');
+  if (parts.length < 2) return true;
+  const cutoffHours = parseInt(parts[0], 10);
+  const cutoffMinutes = parseInt(parts[1], 10);
+
+  let currentHours, currentMinutes;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false,
+    });
+    const formattedParts = formatter.formatToParts(now);
+    const h = formattedParts.find(p => p.type === 'hour');
+    const m = formattedParts.find(p => p.type === 'minute');
+    currentHours = parseInt(h.value, 10) % 24;
+    currentMinutes = parseInt(m.value, 10);
+  } catch (e) {
+    currentHours = now.getHours();
+    currentMinutes = now.getMinutes();
+  }
+
+  const currentTotalMins = currentHours * 60 + currentMinutes;
+  const cutoffTotalMins = cutoffHours * 60 + cutoffMinutes;
+
+  return currentTotalMins >= cutoffTotalMins;
+}
+
+/**
+ * Calculates usable main wallet balance based on cutoff rules
+ */
+async function getUsableMainWalletBalance(userId, now = new Date()) {
+  const User = require('../models/User');
+  const SystemSettlementConfig = require('../models/SystemSettlementConfig');
+
+  const user = (typeof userId === 'object' && userId !== null && userId.id)
+    ? userId
+    : await User.findByPk(userId);
+
+  if (!user) return 0;
+
+  let globalConfig;
+  try {
+    globalConfig = await SystemSettlementConfig.findOne({ where: { id: 1 } });
+  } catch (err) {
+    globalConfig = null;
+  }
+
+  const totalMainWallet = parseFloat(user.wallet) || 0;
+  const prevDaySettled = parseFloat(user.prev_day_settled_balance) || 0;
+
+  // 1. If global cutoff is OFF, full wallet balance is usable
+  if (globalConfig && !globalConfig.global_cutoff_enabled) {
+    return totalMainWallet;
+  }
+
+  // 2. Check user cutoff time vs current time
+  const effectiveCutoff = user.cutoff_timestamp || (globalConfig ? globalConfig.global_default_cutoff_time : '10:00');
+  const isCutoffPassed = checkIsCutoffPassed(effectiveCutoff, now);
+
+  // 3. Lock Rule
+  if (isCutoffPassed) {
+    // After Cutoff: Entire main wallet is unlocked & usable
+    return totalMainWallet;
+  } else {
+    // Before Cutoff: User can ONLY spend up to Previous Day Settled Funds
+    return Math.min(totalMainWallet, prevDaySettled);
+  }
+}
+
+/**
+ * Deducts amount from user wallet according to cutoff debit priority rules
+ */
+async function deductUsableBalance({ userId, amount, transaction = null, now = new Date() }) {
+  const User = require('../models/User');
+  const SystemSettlementConfig = require('../models/SystemSettlementConfig');
+
+  const user = await User.findByPk(userId, { transaction });
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const reqAmount = parseFloat(amount);
+  if (isNaN(reqAmount) || reqAmount <= 0) {
+    throw new Error('Invalid deduction amount');
+  }
+
+  const usableBalance = await getUsableMainWalletBalance(user, now);
+  if (reqAmount > usableBalance) {
+    throw new Error(`Insufficient usable balance. Available: ₹${usableBalance.toFixed(2)}, Requested: ₹${reqAmount.toFixed(2)}`);
+  }
+
+  let globalConfig;
+  try {
+    globalConfig = await SystemSettlementConfig.findOne({ where: { id: 1 }, transaction });
+  } catch (err) {
+    globalConfig = null;
+  }
+
+  const cutoffEnabled = globalConfig ? globalConfig.global_cutoff_enabled : true;
+  const effectiveCutoff = user.cutoff_timestamp || (globalConfig ? globalConfig.global_default_cutoff_time : '10:00');
+  const isCutoffPassed = checkIsCutoffPassed(effectiveCutoff, now);
+
+  user.wallet = (parseFloat(user.wallet) || 0) - reqAmount;
+
+  if (cutoffEnabled && !isCutoffPassed) {
+    const currentPrevDay = parseFloat(user.prev_day_settled_balance) || 0;
+    const deductFromPrev = Math.min(currentPrevDay, reqAmount);
+    user.prev_day_settled_balance = currentPrevDay - deductFromPrev;
+  }
+
+  await user.save({ transaction });
+  return user;
+}
+
 module.exports = {
   normalizeSettlementType,
   resolveEffectiveSettlement,
+  checkIsCutoffPassed,
+  getUsableMainWalletBalance,
+  deductUsableBalance,
 };

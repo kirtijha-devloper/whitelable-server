@@ -25,7 +25,14 @@ const { listLogFiles, downloadLogFile } = require("../controllers/logController"
 const { loginPopupUpload } = require("../middleware/loginPopupUpload");
 const validateToken = require("../middleware/validateTokenHandler");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
-const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
+const {
+  getGlobalSettlementConfig,
+  updateGlobalSettlementConfig,
+  getSettlementUsers,
+  updateUserCutoff,
+  triggerUserSettlement,
+  getSettlementAuditLogs,
+} = require("../controllers/adminSettlementConfigController");
 
 router.route("/").get(getAdminDashboard);
 
@@ -86,6 +93,25 @@ router.post("/pos-setting/update-settlement-type", validateToken, requireAdmin, 
 
 // POST /api/admin/pos-setting/bulk-settlement
 router.post("/pos-setting/bulk-settlement", validateToken, requireAdmin, bulkUpdateSettlementType);
+
+// ── Global & User Settlement Cutoff Config Endpoints ───────────────────────
+// GET /api/admin/settlement/config
+router.get("/settlement/config", validateToken, requireAdmin, getGlobalSettlementConfig);
+
+// PUT /api/admin/settlement/config
+router.put("/settlement/config", validateToken, requireAdmin, updateGlobalSettlementConfig);
+
+// GET /api/admin/settlement/users
+router.get("/settlement/users", validateToken, requireAdmin, getSettlementUsers);
+
+// PUT /api/admin/settlement/users/:id/cutoff
+router.put("/settlement/users/:id/cutoff", validateToken, requireAdmin, updateUserCutoff);
+
+// POST /api/admin/settlement/users/:id/trigger-settlement
+router.post("/settlement/users/:id/trigger-settlement", validateToken, requireAdmin, triggerUserSettlement);
+
+// GET /api/admin/settlement/audit-logs
+router.get("/settlement/audit-logs", validateToken, requireAdmin, getSettlementAuditLogs);
 
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.

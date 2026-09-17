@@ -35,6 +35,8 @@ require('./cron/resolvePendingBillAvenueCcBill');
 
 // start settlement hold releaser cron (next-day settlement)
 require('./cron/releaseSettlementHolds');
+// start daily T1 -> T0 auto-settlement cron
+require('./cron/autoSettlementCron');
 // start POS machine rental charge cron (daily billing after 30-day cycles)
 require('./cron/chargeRentals');
 

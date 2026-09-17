@@ -124,6 +124,24 @@ const User = db.define('User', {
         defaultValue: null,
         comment: 'Daily limit for T0 settlements. NULL means Unlimited.'
       },
+      cutoff_timestamp: {
+        type: Sequelize.STRING(5),
+        allowNull: true,
+        defaultValue: null,
+        comment: 'User custom cutoff timestamp (HH:mm). NULL inherits global_default_cutoff_time.'
+      },
+      t1_balance: {
+        type: Sequelize.DECIMAL(15, 2),
+        allowNull: false,
+        defaultValue: 0.00,
+        comment: 'Pending T1 funds (from card/POS transactions)'
+      },
+      prev_day_settled_balance: {
+        type: Sequelize.DECIMAL(15, 2),
+        allowNull: false,
+        defaultValue: 0.00,
+        comment: 'Usable settled funds before cutoff'
+      },
       franchaise_id: {
         type: Sequelize.INTEGER,
         allowNull: true,
