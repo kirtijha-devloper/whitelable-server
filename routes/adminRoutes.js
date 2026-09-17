@@ -25,6 +25,7 @@ const { listLogFiles, downloadLogFile } = require("../controllers/logController"
 const { loginPopupUpload } = require("../middleware/loginPopupUpload");
 const validateToken = require("../middleware/validateTokenHandler");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
+const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 const {
   getGlobalSettlementConfig,
   updateGlobalSettlementConfig,
