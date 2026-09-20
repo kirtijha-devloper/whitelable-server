@@ -45,6 +45,6 @@ jobs:
             npx sequelize db:migrate || { echo "❌ Migration failed"; exit 1; }
 
             echo "🔁 Reload PM2"
-            pm2 reload ecosystem.config.js
+            pm2 reload ecosystem.config.js --only pos-server || pm2 start ecosystem.config.js --only pos-server
 
             echo "✅ Deployment completed"
