@@ -379,3 +379,16 @@ If staging SMS doesn't arrive, read the latest OTP from the DB (SSH only):
 PGPASSWORD='<db-pass>' psql -h localhost -U posuser -d posdb_staging \
   -c "SELECT mobile, otp, purpose, expires_at FROM \"Otps\" ORDER BY id DESC LIMIT 5;"
 ```
+
+---
+
+## 11. Developer ↔ tester flow
+
+Branches: `staging` = what the tester sees (`pos-staging.abheepay.com`). `Dev2` (server) / `main` (client) = live (`pos.abheepay.com`). Never push feature work straight to a live branch.
+
+1. **Develop:** dev creates `feature/<name>` from `staging`, commits, pushes, opens a PR to `staging`.
+2. **Stage auto-deploys:** merging the PR triggers the staging workflows (~1–2 min). Dev checks Actions green, then tells the tester the staging URL + what to verify.
+3. **Test:** tester logs in at `https://pos-staging.abheepay.com` with her seeded mobiles and tests only what the PR claims. Pass → she approves the PR / marks the ticket tested. Fail → she files a bug with steps + screenshot + mobile/role used, dev fixes on a new branch back to step 1.
+4. **Release:** when staging is fully green, open a PR `staging` → `Dev2` (server) / `staging` → `main` (client). This is the release gate — require tester approval on it. Merging triggers the live workflows.
+5. **Verify live:** smoke-test `https://pos.abheepay.com` login + one critical path. Roll back by reverting the release PR if needed.
+6. **Hotfix:** same path, just faster — fix branch → `staging` → tester confirms → release PR → live. Never commit directly on `Dev2`/`main` from the VPS (`git reset --hard` there would wipe it on next deploy).
