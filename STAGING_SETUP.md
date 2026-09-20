@@ -343,3 +343,39 @@ Rollback staging:
 cd /var/www/pos-staging.abheepay.com/pos-server
 git reset --hard origin/staging~1 && pm2 reload ecosystem.config.js --only pos-server-staging
 ```
+
+---
+
+## 9. Gotchas hit during this setup (do not revert)
+
+1. **Node 14 + fresh `npm install` pulls breaking minors.** `package.json` now pins exact versions (no `^`):
+   - `"pg": "8.14.1"` — `pg@8.23.0` needs Node ≥16 (`util/types` missing on 14 → `ERROR: Please install pg package manually`).
+   - `"node-cron": "4.2.1"` — `node-cron@4.6.0` uses `??=` → `SyntaxError` on Node 14.
+   - `npm@6` (ships with Node 14) cannot read the v3 `package-lock.json`, so it ignores the lock. Until the servers move off Node 14, keep these pins exact. Next live deploy would have broken the same way.
+2. **Migration order bug:** `20260309120000-add-indexes-to-pos-charge-rules` references `franchaise_id`, but that column is added by `20260501090000-add-franchaise-to-pos-charge-rules`. Fresh DBs fail; live survived only because the column already existed. Workaround applied on staging (manual `ADD COLUMN` + `INSERT INTO "SequelizeMeta"`). Permanent fix: re-date the index migration after the column migration or make it idempotent.
+3. **Client API URL is hardcoded** in `pos-client/src/constants.js` (`BASE_SITE_URL`), not env-driven. The `staging` branch of `pos-client` points it at `https://pos-staging.abheepay.com`; `main` keeps live. A staging deploy workflow (`.github/workflows/pos-client-staging-deploy.yml`) builds with LTS Node, no `sudo` (Apache reads `dist` via `755`).
+4. **Apache `dist` ownership:** building as `posadmin` requires `dist/` owned by `posadmin` (Vite empties it on build). Keep `chmod -R 755 dist` so `www-data` can serve it.
+
+---
+
+## 10. Tester logins (staging only)
+
+Login flow is `mobile_number` + `password`, then an OTP is sent via SMS **and** email — so seed the tester's **real** mobile/email or she can't log in. Run on the VPS:
+
+```bash
+cd /var/www/pos-staging.abheepay.com/pos-server
+TESTER_PASSWORD='Tester@1234' \
+TESTER_ADMIN_MOBILE='<real-number>' TESTER_ADMIN_EMAIL='<tester-email>' \
+TESTER_FRANCHISE_MOBILE='<real-number>' TESTER_FRANCHISE_EMAIL='<tester-email>' \
+TESTER_MERCHANT_MOBILE='<real-number>' TESTER_MERCHANT_EMAIL='<tester-email>' \
+NODE_ENV=staging node scripts/seedTester.js
+```
+
+Script is idempotent (`scripts/seedTester.js`, fails fast if mobiles still contain `XXXX`). Give the tester `https://pos-staging.abheepay.com` + the three mobiles + password.
+
+If staging SMS doesn't arrive, read the latest OTP from the DB (SSH only):
+
+```bash
+PGPASSWORD='<db-pass>' psql -h localhost -U posuser -d posdb_staging \
+  -c "SELECT mobile, otp, purpose, expires_at FROM \"Otps\" ORDER BY id DESC LIMIT 5;"
+```
