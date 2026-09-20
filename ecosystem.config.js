@@ -17,6 +17,16 @@ module.exports = {
         REDIS_PORT: "6379",       // Default Redis port
         REDIS_PASSWORD: "",       // Leave empty if no password, or set your Redis password
       }
+    },
+    {
+      name: "pos-server-staging",
+      script: "server.js",
+      cwd: "/var/www/pos-staging.abheepay.com/pos-server",
+      env: {
+        NODE_ENV: "staging",
+        PORT: "5004"
+        // DB/redis come from /var/www/pos-staging.abheepay.com/pos-server/.env on the server
+      }
     }
   ]
 };
