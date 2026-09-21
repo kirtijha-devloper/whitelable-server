@@ -228,9 +228,28 @@ async function deductUsableBalance({ userId, amount, transaction = null, now = n
   return user;
 }
 
+/**
+ * Helper alias for server-side settlement mode evaluation
+ */
+async function evaluateSettlementMode(user, currentTxAmount = 0) {
+  const res = await resolveEffectiveSettlement({
+    user,
+    incomingTxnAmount: currentTxAmount
+  });
+
+  return {
+    settlement_mode: res.effectiveSettlement,
+    db_settlement_type: res.effectiveSettlement === 'T0' ? 'today_settlement' : 'next_day_settlement',
+    is_overflow: res.isLimitExceeded,
+    todayT0Total: res.todayT0Total,
+    limit: res.t0Limit
+  };
+}
+
 module.exports = {
   normalizeSettlementType,
   resolveEffectiveSettlement,
+  evaluateSettlementMode,
   checkIsCutoffPassed,
   getUsableMainWalletBalance,
   deductUsableBalance,

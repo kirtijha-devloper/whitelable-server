@@ -37,6 +37,17 @@ const {
 
 router.route("/").get(getAdminDashboard);
 
+// ── POS Setting Endpoints ──────────────────────────────────────────────────
+// GET /admin/pos-setting & GET /admin/pg-setting
+router.get("/pos-setting", validateToken, getPosSettings);
+router.get("/pg-setting", validateToken, getPosSettings);
+
+// POST /admin/pos-setting/update-t0-limit
+router.post("/pos-setting/update-t0-limit", validateToken, updateT0Limit);
+
+// POST /admin/pos-setting/update-settlement-type
+router.post("/pos-setting/update-settlement-type", validateToken, updateSettlementType);
+
 function requireAdmin(req, res, next) {
   if (req.user?.role !== "admin") {
     return res.status(403).json({ success: false, message: "Admin access only." });

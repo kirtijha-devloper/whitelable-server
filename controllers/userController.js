@@ -2046,6 +2046,7 @@ const updateUser = asyncHandler(async (req, res) => {
     const adminOnlyFields = [
       'status', 'is_approved',
       'franchaise_id', 'ipay_outlet_id', 'role', 'is_payout_enabled',
+      't0_daily_limit',
     ];
 
     const updates = {};
@@ -2063,7 +2064,14 @@ const updateUser = asyncHandler(async (req, res) => {
     if (requesterRole === 'admin') {
       for (const field of adminOnlyFields) {
         if (req.body[field] !== undefined) {
-          updates[field] = field === 'role' ? requestedRole : req.body[field];
+          if (field === 'role') {
+            updates.role = requestedRole;
+          } else if (field === 't0_daily_limit') {
+            const val = req.body.t0_daily_limit;
+            updates.t0_daily_limit = (val !== null && val !== undefined && val !== '') ? parseFloat(val) : null;
+          } else {
+            updates[field] = req.body[field];
+          }
         }
       }
       if (settlementTypeProvided) {

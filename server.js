@@ -123,6 +123,7 @@ app.use("/api/pos-machine", require("./routes/posMachineRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));
 app.use("/api/transaction", require("./routes/transactionRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
+app.use("/admin", require("./routes/adminRoutes"));
 app.use("/api/admin/employee-access-roles", require("./routes/employeeAccessRoleRoutes"));
 app.use("/api/franchaise", require("./routes/franchaiseRoutes"));
 app.use("/api/merchant", require("./routes/merchantRoutes"));
