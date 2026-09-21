@@ -183,6 +183,8 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
       username,
       
       // Alternative field names (fallback)
+      mid,        // direct mid field (some sources)
+      tid,        // direct tid field (some sources)
       mid_number,
       tid_number,
       
