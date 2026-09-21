@@ -127,7 +127,7 @@ async function processRzpNotification(event, source = 'agro', throwOnError = fal
                 {
                     // Job ID based on txnId for idempotency
                     // If same txnId is enqueued again, it will be deduplicated
-                    jobId: `rzp-webhook-${txnId}`,
+                    jobId: `rzp-webhook-${txnId}-${Date.now()}`,
                     // Priority: higher priority for critical statuses
                     priority: status === "FAILED" ? 10 : status === "AUTHORIZED" ? 5 : 1,
                 }
