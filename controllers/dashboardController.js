@@ -82,14 +82,14 @@ const getRazorpayTransactionStats = async (whereClause) => {
     RazorpayNotification.sum('amount', {
       where: {
         ...whereClause,
-        settlement_type: 'today_settlement',
+        settlement_type: { [Op.in]: ['T0', 'today_settlement'] },
         status: { [Op.in]: ['CAPTURED', 'AUTHORIZED', 'SETTLED'] }
       }
     }),
     RazorpayNotification.sum('amount', {
       where: {
         ...whereClause,
-        settlement_type: 'next_day_settlement',
+        settlement_type: { [Op.in]: ['T1', 'next_day_settlement'] },
         status: { [Op.in]: ['CAPTURED', 'AUTHORIZED', 'SETTLED'] }
       }
     })
