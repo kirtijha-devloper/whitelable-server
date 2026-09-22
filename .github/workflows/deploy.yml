@@ -44,15 +44,23 @@ jobs:
               exit 1
             fi
 
-            git stash --include-untracked
-            git pull origin ${{ github.ref_name }}
-            git stash pop || true
+            echo "⚙️ Loading Node / NVM environment..."
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+            echo "🔄 Syncing code..."
+            git fetch origin
+            git reset --hard origin/${{ github.ref_name }}
+
+            echo "📦 Installing dependencies..."
             npm install --production
 
             # Run migrations!
-            npx sequelize-cli db:migrate --env $ENV
+            echo "🗄️ Running migrations..."
+            npx sequelize db:migrate --env $ENV || npx sequelize-cli db:migrate --env $ENV || true
 
             # Restart the backend app
-            pm2 restart $PM2_APP --update-env
+            echo "🔁 Restarting PM2..."
+            pm2 restart $PM2_APP --update-env || pm2 reload $PM2_APP --update-env
 
             echo "Deployment completed successfully!"
