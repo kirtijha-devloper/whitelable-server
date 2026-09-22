@@ -1,57 +1,58 @@
-# name: Deploy Backend to VPS
+name: Deploy POS Server - Staging
 
-# on:
-#   push:
-#     branches:
-#       - main
+on:
+  push:
+    branches:
+      - staging
+      - main
 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v3
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-#       - name: Deploy to VPS
-#         uses: appleboy/ssh-action@v0.1.10
-#         with:
-#           host: ${{ secrets.VPS_HOST }}
-#           username: ${{ secrets.VPS_USER }}
-#           key: ${{ secrets.VPS_PRIVATE_KEY }}
-#           script: |
-#             # Define branch -> environment mapping
-#           if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-#             ENV="production"
-#             DIR="/var/www/pos.abheepay.com/pos-server"
-#             PM2_APP="pos-server"
-#           elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
-#             ENV="staging"
-#             DIR="/var/www/staging.pos.abheepay.com/pos-server"
-#             PM2_APP="pos-server-staging"
-#           else
-#             echo "Unsupported branch: ${{ github.ref }}"
-#             exit 1
-#           fi
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_PRIVATE_KEY }}
+          script: |
+            # Define branch -> environment mapping
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              ENV="production"
+              DIR="/var/www/pos.abheepay.com/pos-server"
+              PM2_APP="pos-server"
+            elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
+              ENV="staging"
+              DIR="/var/www/staging.pos.abheepay.com/pos-server"
+              PM2_APP="pos-server-staging"
+            else
+              echo "Unsupported branch: ${{ github.ref }}"
+              exit 1
+            fi
 
-#           echo "Deploying $ENV to $DIR"
+            echo "Deploying $ENV to $DIR"
 
-#           if [ -d "$DIR" ]; then
-#             cd $DIR
-#           else
-#             echo "Directory $DIR does not exist."
-#             exit 1
-#           fi
+            if [ -d "$DIR" ]; then
+              cd $DIR
+            else
+              echo "Directory $DIR does not exist."
+              exit 1
+            fi
 
-#           git stash --include-untracked
-#           git pull origin ${{ github.ref_name }}
-#           git stash pop || true
-#           npm install --production
+            git stash --include-untracked
+            git pull origin ${{ github.ref_name }}
+            git stash pop || true
+            npm install --production
 
-#           # Run migrations!
-#           npx sequelize-cli db:migrate --env $ENV
+            # Run migrations!
+            npx sequelize-cli db:migrate --env $ENV
 
-#           # Restart the backend app
-#           pm2 restart $PM2_APP --update-env
+            # Restart the backend app
+            pm2 restart $PM2_APP --update-env
 
-#           echo "Deployment completed successfully!"
+            echo "Deployment completed successfully!"
