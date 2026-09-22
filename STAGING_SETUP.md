@@ -382,13 +382,15 @@ PGPASSWORD='<db-pass>' psql -h localhost -U posuser -d posdb_staging \
 
 ---
 
-## 11. Developer ↔ tester flow
+## 11. Developer ↔ tester flow (direct-to-staging)
 
-Branches: `staging` = what the tester sees (`pos-staging.abheepay.com`). `Dev2` (server) / `main` (client) = live (`pos.abheepay.com`). Never push feature work straight to a live branch.
+Branches: `staging` = what everyone sees at `pos-staging.abheepay.com`. `Dev2` (server) / `main` (client) = live (`pos.abheepay.com`). Devs push straight to `staging`; live branches update only via release PRs.
 
-1. **Develop:** dev creates `feature/<name>` from `staging`, commits, pushes, opens a PR to `staging`.
-2. **Stage auto-deploys:** merging the PR triggers the staging workflows (~1–2 min). Dev checks Actions green, then tells the tester the staging URL + what to verify.
-3. **Test:** tester logs in at `https://pos-staging.abheepay.com` with her seeded mobiles and tests only what the PR claims. Pass → she approves the PR / marks the ticket tested. Fail → she files a bug with steps + screenshot + mobile/role used, dev fixes on a new branch back to step 1.
-4. **Release:** when staging is fully green, open a PR `staging` → `Dev2` (server) / `staging` → `main` (client). This is the release gate — require tester approval on it. Merging triggers the live workflows.
-5. **Verify live:** smoke-test `https://pos.abheepay.com` login + one critical path. Roll back by reverting the release PR if needed.
-6. **Hotfix:** same path, just faster — fix branch → `staging` → tester confirms → release PR → live. Never commit directly on `Dev2`/`main` from the VPS (`git reset --hard` there would wipe it on next deploy).
+1. **Develop:** dev syncs first (`git pull origin staging`), commits work, pushes to `staging` (`git push origin staging`). Small, frequent pushes — announce in team chat before pushing so two devs don't deploy over each other.
+2. **Stage auto-deploys:** the push triggers the staging workflows (~1–2 min). Dev watches Actions green.
+3. **Dev self-test:** dev manually tests their own change at `https://pos-staging.abheepay.com` first. Never hands untested work to the tester.
+4. **Handoff:** dev pings the tester (team chat + tag) with what changed and how to verify it.
+5. **Test:** tester logs in with her seeded mobiles and tests the scope. Pass → she gives written approval (ticket comment / chat / PR review). Fail → bug report with steps + screenshot + role/mobile used; dev fixes and pushes to `staging` again (back to step 2).
+6. **Release:** when everything pending is tester-approved, the release manager opens a PR `staging` → `Dev2` (server) / `staging` → `main` (client) and merges it. This triggers the live workflows.
+7. **Verify live:** smoke-test `https://pos.abheepay.com` login + one critical path. Roll back by reverting the release PR if needed.
+8. **Hotfix:** same path, expedited — fix, push to `staging`, dev self-tests, tester confirms, release PR, verify live. Never commit directly on `Dev2`/`main` or edit code on the VPS (next deploy's `reset --hard` wipes it).
