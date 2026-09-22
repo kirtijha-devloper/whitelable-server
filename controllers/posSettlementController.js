@@ -10,14 +10,21 @@ const { maskEmail } = require('../utils/masking');
  * Returns list of merchants with settlement_type, t0_daily_limit, and summary statistics.
  */
 const getPosSettings = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  const role = req.user?.role;
+  if (role !== 'admin' && role !== 'franchaise') {
+    return res.status(403).json({ success: false, message: 'Admin or Franchise access only.' });
+  }
+
+  const where = {};
+  if (role === 'franchaise') {
+    where.franchaise_id = req.user.id;
+    where.role = 'merchant';
+  } else {
+    where.role = { [Op.in]: ['merchant', 'franchaise'] };
   }
 
   const merchants = await User.findAll({
-    where: {
-      role: { [Op.in]: ['merchant', 'franchaise'] }
-    },
+    where,
     attributes: [
       'id',
       'name',
@@ -58,6 +65,41 @@ const getPosSettings = asyncHandler(async (req, res) => {
     return plain;
   });
 
+  let franchisePool = null;
+  if (role === 'franchaise') {
+    const RazorpayNotification = require('../models/RazorpayNotification');
+    const totalPool = parseFloat(req.user.t0_daily_limit) || 0;
+    const allocatedToMerchants = merchants.reduce((sum, m) => {
+      const l = parseFloat(m.t0_daily_limit);
+      return sum + (isNaN(l) ? 0 : l);
+    }, 0);
+
+    const remainingSelfLimit = Math.max(0, totalPool - allocatedToMerchants);
+
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+    const usedRaw = await RazorpayNotification.sum('amount', {
+      where: {
+        user_id: req.user.id,
+        status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED'] },
+        settlement_type: { [Op.in]: ['T0', 'today_settlement'] },
+        createdAt: { [Op.between]: [startOfDay, endOfDay] }
+      }
+    });
+    const usedToday = parseFloat(usedRaw) || 0;
+    const leftToday = Math.max(0, remainingSelfLimit - usedToday);
+
+    franchisePool = {
+      total_pool: totalPool,
+      allocated_to_merchants: allocatedToMerchants,
+      remaining_self_limit: remainingSelfLimit,
+      used_today: usedToday,
+      left_today: leftToday,
+    };
+  }
+
   return res.status(200).json({
     success: true,
     message: 'POS settlement settings fetched successfully.',
@@ -68,6 +110,7 @@ const getPosSettings = asyncHandler(async (req, res) => {
         t0_limit_configured_count: t0LimitConfiguredCount,
         total_merchants: merchants.length
       },
+      ...(franchisePool ? { franchise_pool: franchisePool } : {}),
       merchants: formattedMerchants
     }
   });
@@ -78,8 +121,9 @@ const getPosSettings = asyncHandler(async (req, res) => {
  * Body: { id: 101, t0_daily_limit: 50000 | null }
  */
 const updateT0Limit = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Admin access only.' });
+  const role = req.user?.role;
+  if (role !== 'admin' && role !== 'franchaise') {
+    return res.status(403).json({ success: false, message: 'Admin or Franchise access only.' });
   }
 
   const { id, t0_daily_limit } = req.body;
@@ -102,6 +146,13 @@ const updateT0Limit = asyncHandler(async (req, res) => {
   if (!user) {
     res.status(404);
     throw new Error('User not found');
+  }
+
+  if (role === 'franchaise') {
+    if (user.franchaise_id !== req.user.id) {
+      res.status(403);
+      throw new Error('You can only update T0 limits for merchants assigned to your franchise.');
+    }
   }
 
   user.t0_daily_limit = limitVal;

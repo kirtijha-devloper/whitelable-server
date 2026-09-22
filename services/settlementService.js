@@ -44,65 +44,93 @@ async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = 
   }
 
   // User configured as T0 -> Check T0 Daily Limit
-  const t0Limit = (user.t0_daily_limit !== undefined && user.t0_daily_limit !== null)
+  let rawLimit = (user.t0_daily_limit !== undefined && user.t0_daily_limit !== null)
     ? parseFloat(user.t0_daily_limit)
-    : null;
+    : 0;
 
-  if (t0Limit !== null && !isNaN(t0Limit) && t0Limit >= 0) {
-    const RazorpayNotification = require('../models/RazorpayNotification');
+  if (isNaN(rawLimit) || rawLimit < 0) {
+    rawLimit = 0;
+  }
 
-    const today = new Date(date);
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+  let t0Limit = rawLimit;
 
-    const sumResult = await RazorpayNotification.sum('amount', {
-      where: {
-        user_id: user.id,
-        status: {
-          [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED']
+  // For franchise users, the t0_daily_limit represents the total pool assigned by admin.
+  // The franchise's effective self-limit is: pool - sum(downstream merchants' t0_daily_limits).
+  if (user.role === 'franchaise') {
+    if (rawLimit > 0) {
+      const User = require('../models/User');
+      const downstreamMerchants = await User.findAll({
+        where: {
+          franchaise_id: user.id,
+          role: 'merchant',
+          t0_daily_limit: { [Op.not]: null }
         },
-        settlement_type: {
-          [Op.in]: ['T0', 'today_settlement']
-        },
-        createdAt: {
-          [Op.between]: [startOfDay, endOfDay]
-        }
-      }
-    });
-
-    const todayT0Total = parseFloat(sumResult) || 0;
-    const txnAmount = parseFloat(incomingTxnAmount) || 0;
-    const projectedTotal = todayT0Total + txnAmount;
-
-    if (projectedTotal > t0Limit) {
-      const note = `T0 Limit exceeded (Projected ₹${projectedTotal} > Limit ₹${t0Limit})`;
-      return {
-        effectiveSettlement: 'T1',
-        isLimitExceeded: true,
-        todayT0Total,
-        projectedTotal,
-        t0Limit,
-        note,
-      };
+        attributes: ['t0_daily_limit']
+      });
+      const allocatedToMerchants = downstreamMerchants.reduce((sum, m) => {
+        const mLimit = parseFloat(m.t0_daily_limit);
+        return sum + (isNaN(mLimit) ? 0 : mLimit);
+      }, 0);
+      t0Limit = Math.max(0, rawLimit - allocatedToMerchants);
+    } else {
+      t0Limit = 0;
     }
+  }
 
+  if (t0Limit <= 0) {
     return {
-      effectiveSettlement: 'T0',
-      isLimitExceeded: false,
-      todayT0Total,
-      projectedTotal,
-      t0Limit,
-      note: null,
+      effectiveSettlement: 'T1',
+      isLimitExceeded: true,
+      todayT0Total: 0,
+      projectedTotal: parseFloat(incomingTxnAmount) || 0,
+      t0Limit: 0,
+      note: 'T0 Daily Limit is 0 or not assigned. Shifted to T1.',
     };
   }
 
-  // Limit is null -> Unlimited T0
+  const RazorpayNotification = require('../models/RazorpayNotification');
+
+  const today = new Date(date);
+  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+  const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+  const sumResult = await RazorpayNotification.sum('amount', {
+    where: {
+      user_id: user.id,
+      status: {
+        [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED']
+      },
+      settlement_type: {
+        [Op.in]: ['T0', 'today_settlement']
+      },
+      createdAt: {
+        [Op.between]: [startOfDay, endOfDay]
+      }
+    }
+  });
+
+  const todayT0Total = parseFloat(sumResult) || 0;
+  const txnAmount = parseFloat(incomingTxnAmount) || 0;
+  const projectedTotal = todayT0Total + txnAmount;
+
+  if (projectedTotal > t0Limit) {
+    const note = `T0 Limit exceeded (Projected ₹${projectedTotal} > Limit ₹${t0Limit})`;
+    return {
+      effectiveSettlement: 'T1',
+      isLimitExceeded: true,
+      todayT0Total,
+      projectedTotal,
+      t0Limit,
+      note,
+    };
+  }
+
   return {
     effectiveSettlement: 'T0',
     isLimitExceeded: false,
-    todayT0Total: 0,
-    projectedTotal: parseFloat(incomingTxnAmount) || 0,
-    t0Limit: null,
+    todayT0Total,
+    projectedTotal,
+    t0Limit,
     note: null,
   };
 }

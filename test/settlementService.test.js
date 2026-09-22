@@ -26,16 +26,16 @@ describe('Settlement Service Unit Tests', () => {
       expect(res.isLimitExceeded).toBe(false);
     });
 
-    it('should return T0 when user is T0 and t0_daily_limit is NULL (Unlimited)', async () => {
-      const user = { id: 102, settlement_type: 'T0', t0_daily_limit: null };
-      const res = await resolveEffectiveSettlement({ user, incomingTxnAmount: 100000 });
-      expect(res.effectiveSettlement).toBe('T0');
-      expect(res.isLimitExceeded).toBe(false);
-      expect(res.t0Limit).toBeNull();
+    it('should return T1 when user is T0 and t0_daily_limit is NULL or 0 (Unassigned/Zero Limit)', async () => {
+      const user = { id: 102, role: 'merchant', settlement_type: 'T0', t0_daily_limit: null };
+      const res = await resolveEffectiveSettlement({ user, incomingTxnAmount: 1000 });
+      expect(res.effectiveSettlement).toBe('T1');
+      expect(res.isLimitExceeded).toBe(true);
+      expect(res.t0Limit).toBe(0);
     });
 
     it('should return T0 when projected total is within t0_daily_limit', async () => {
-      const user = { id: 103, settlement_type: 'T0', t0_daily_limit: 50000 };
+      const user = { id: 103, role: 'merchant', settlement_type: 'T0', t0_daily_limit: 50000 };
       jest.spyOn(RazorpayNotification, 'sum').mockResolvedValue(20000);
 
       const res = await resolveEffectiveSettlement({ user, incomingTxnAmount: 10000 });
@@ -49,7 +49,7 @@ describe('Settlement Service Unit Tests', () => {
     });
 
     it('should auto-shift to T1 when projected total exceeds t0_daily_limit', async () => {
-      const user = { id: 104, settlement_type: 'T0', t0_daily_limit: 50000 };
+      const user = { id: 104, role: 'merchant', settlement_type: 'T0', t0_daily_limit: 50000 };
       jest.spyOn(RazorpayNotification, 'sum').mockResolvedValue(45000);
 
       const res = await resolveEffectiveSettlement({ user, incomingTxnAmount: 10000 });
@@ -60,6 +60,26 @@ describe('Settlement Service Unit Tests', () => {
       expect(res.t0Limit).toBe(50000);
       expect(res.note).toContain('T0 Limit exceeded');
 
+      RazorpayNotification.sum.mockRestore();
+    });
+
+    it('should calculate franchise effective self-limit as total pool minus allocated to merchants', async () => {
+      const User = require('../models/User');
+      const franchiseUser = { id: 201, role: 'franchaise', settlement_type: 'T0', t0_daily_limit: 300 };
+      jest.spyOn(User, 'findAll').mockResolvedValue([{ t0_daily_limit: 100 }]);
+      jest.spyOn(RazorpayNotification, 'sum').mockResolvedValue(150);
+
+      // Remaining self limit is 300 - 100 = 200. Projected: 150 + 40 = 190 <= 200 => T0
+      const res1 = await resolveEffectiveSettlement({ user: franchiseUser, incomingTxnAmount: 40 });
+      expect(res1.effectiveSettlement).toBe('T0');
+      expect(res1.t0Limit).toBe(200);
+
+      // Projected: 150 + 140 = 290 > 200 => T1
+      const res2 = await resolveEffectiveSettlement({ user: franchiseUser, incomingTxnAmount: 140 });
+      expect(res2.effectiveSettlement).toBe('T1');
+      expect(res2.isLimitExceeded).toBe(true);
+
+      User.findAll.mockRestore();
       RazorpayNotification.sum.mockRestore();
     });
   });
