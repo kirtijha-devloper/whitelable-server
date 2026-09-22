@@ -1582,6 +1582,18 @@ const sendOtp = asyncHandler(async (req, res) => {
   }
 });
 
+function isMagicOtpAllowed(req) {
+  const host = String(req?.get ? req.get('host') : req?.headers?.host || '').toLowerCase();
+  // Permanently disable Magic OTP / Mobile Bypass on live production domain (pos.abheepay.com)
+  if (host.includes('pos.abheepay.com') && !host.includes('staging')) {
+    return false;
+  }
+  if (process.env.DISABLE_MAGIC_OTP === 'true') {
+    return false;
+  }
+  return true;
+}
+
   // --- backup: original verifyOtp preserved as verifyOtp_bck ---
   const verifyOtp_bck = asyncHandler(async (req, res) => {
     const { mobile_number, otp, purpose } = req.body;
@@ -1596,9 +1608,8 @@ const sendOtp = asyncHandler(async (req, res) => {
         throw new Error("Invalid purpose");
     }
 
-    const host = String(req?.get ? req.get('host') : req?.headers?.host || '').toLowerCase();
-    const isLiveProduction = host.includes('pos.abheepay.com') && !host.includes('staging');
-    const BYPASS_MOBILE_NUMBER = isLiveProduction ? null : "8873962933";
+    const allowBypass = isMagicOtpAllowed(req);
+    const BYPASS_MOBILE_NUMBER = allowBypass ? "8873962933" : null;
     const shouldBypassOtp = Boolean(BYPASS_MOBILE_NUMBER && mobile_number === BYPASS_MOBILE_NUMBER);
 
     if (!shouldBypassOtp) {
@@ -1674,18 +1685,6 @@ const sendOtp = asyncHandler(async (req, res) => {
     if (!["login", "forgot_password", "registration", "tpin"].includes(purpose)) {
         res.status(400);
         throw new Error("Invalid purpose");
-    }
-
-    function isMagicOtpAllowed(req) {
-      const host = String(req?.get ? req.get('host') : req?.headers?.host || '').toLowerCase();
-      // Permanently disable Magic OTP / Mobile Bypass on live production domain (pos.abheepay.com)
-      if (host.includes('pos.abheepay.com') && !host.includes('staging')) {
-        return false;
-      }
-      if (process.env.DISABLE_MAGIC_OTP === 'true') {
-        return false;
-      }
-      return true;
     }
 
     const allowBypass = isMagicOtpAllowed(req);
