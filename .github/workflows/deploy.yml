@@ -28,7 +28,7 @@ jobs:
               PM2_APP="pos-server"
             elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
               ENV="staging"
-              DIR="/var/www/staging.pos.abheepay.com/pos-server"
+              DIR="/var/www/pos-staging.abheepay.com/pos-server"
               PM2_APP="pos-server-staging"
             else
               echo "Unsupported branch: ${{ github.ref }}"
