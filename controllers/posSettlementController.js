@@ -155,6 +155,49 @@ const updateT0Limit = asyncHandler(async (req, res) => {
     }
   }
 
+  // Validate merchant limit against parent Franchise pool
+  const franchiseId = user.franchaise_id || (user.role === 'merchant' && role === 'franchaise' ? req.user.id : null);
+  if (user.role === 'merchant' && franchiseId) {
+    const parentFranchise = await User.findByPk(franchiseId);
+    if (parentFranchise) {
+      const franchisePool = (parentFranchise.t0_daily_limit !== null && parentFranchise.t0_daily_limit !== undefined)
+        ? parseFloat(parentFranchise.t0_daily_limit)
+        : 0;
+
+      const requestedLimit = limitVal || 0;
+
+      if (requestedLimit > 0) {
+        if (franchisePool <= 0) {
+          res.status(400);
+          throw new Error('Parent Franchise pool is 0 or Not Set. Admin must first assign a T0 pool limit to Franchise before assigning limit to merchant.');
+        }
+
+        // Calculate total allocated to OTHER merchants of this franchise
+        const otherMerchants = await User.findAll({
+          where: {
+            franchaise_id: franchiseId,
+            role: 'merchant',
+            id: { [Op.ne]: user.id },
+            t0_daily_limit: { [Op.not]: null }
+          },
+          attributes: ['t0_daily_limit']
+        });
+
+        const otherAllocated = otherMerchants.reduce((sum, m) => {
+          const l = parseFloat(m.t0_daily_limit);
+          return sum + (isNaN(l) ? 0 : l);
+        }, 0);
+
+        const availableForMerchant = Math.max(0, franchisePool - otherAllocated);
+
+        if (requestedLimit > availableForMerchant) {
+          res.status(400);
+          throw new Error(`Limit pool of Franchise (₹${franchisePool}) exceeded! Maximum limit available to assign to this merchant is ₹${availableForMerchant}.`);
+        }
+      }
+    }
+  }
+
   user.t0_daily_limit = limitVal;
   await user.save();
 
