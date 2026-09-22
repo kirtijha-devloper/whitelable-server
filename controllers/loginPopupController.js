@@ -38,11 +38,8 @@ function buildImageUrl(req, imagePath) {
   if (!cleanPath.startsWith('api/')) {
     relativePath = cleanPath.startsWith('uploads/') ? `api/${cleanPath}` : `api/uploads/${cleanPath}`;
   }
-  relativePath = `/${relativePath}`;
 
-  const baseUrl = getRequestBaseUrl(req);
-
-  return baseUrl ? `${baseUrl}${relativePath}` : relativePath;
+  return `/${relativePath}`;
 }
 
 function serializeLoginPopup(req, popupLike) {
