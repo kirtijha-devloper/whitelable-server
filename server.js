@@ -62,6 +62,12 @@ app.use(cors(corsOptions));
 
 // Explicitly handle every OPTIONS preflight before it reaches any route or
 // authentication middleware (validateToken would reject it with 401 otherwise).
+
+// ── Static file serving for uploaded assets (popup images, etc.) ─────────────
+// Must be registered before API routes so /uploads/* is served directly
+// without passing through auth middleware.
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.options('*', cors(corsOptions));
 
 // Apply express-fileupload conditionally only to routes that need it
