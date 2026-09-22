@@ -64,10 +64,11 @@ app.use(cors(corsOptions));
 // authentication middleware (validateToken would reject it with 401 otherwise).
 
 // ── Static file serving for uploaded assets (popup images, etc.) ─────────────
-// Must be registered before API routes so /uploads/* and /backend/* static files are served directly
+// Must be registered before API routes so /uploads/* and /api/uploads/* static files are served directly
 // without passing through auth middleware.
 const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/backend/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/backend/login-popups', express.static(path.join(__dirname, 'uploads/login-popups')));
 app.use('/login-popups', express.static(path.join(__dirname, 'uploads/login-popups')));
