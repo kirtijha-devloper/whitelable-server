@@ -134,6 +134,19 @@ async function evaluateDynamicSettlement({ user, transactionAmount = 0, todayT0S
   };
 }
 
+function getTodayIstDateWindow(refDate = new Date()) {
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(refDate.getTime() + istOffsetMs);
+  const year = istNow.getUTCFullYear();
+  const month = istNow.getUTCMonth();
+  const date = istNow.getUTCDate();
+
+  const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0) - istOffsetMs);
+  const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999) - istOffsetMs);
+
+  return { startOfDay, endOfDay };
+}
+
 /**
  * Resolves the effective settlement mode ('T0' or 'T1') for a merchant transaction,
  * enforcing daily T0 limit rules with automatic shift to T1 if limit is exceeded.
@@ -154,10 +167,7 @@ async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = 
   }
 
   const RazorpayNotification = require('../models/RazorpayNotification');
-
-  const today = new Date(date);
-  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-  const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+  const { startOfDay, endOfDay } = getTodayIstDateWindow(new Date(date));
 
   let todayT0Total = 0;
   try {
@@ -165,10 +175,10 @@ async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = 
       where: {
         user_id: user.id,
         status: {
-          [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED']
+          [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED', 'captured', 'success', 'authorized']
         },
         settlement_type: {
-          [Op.in]: ['T0', 'today_settlement']
+          [Op.in]: ['T0', 'today_settlement', 'TODAY_SETTLEMENT', 't0']
         },
         createdAt: {
           [Op.between]: [startOfDay, endOfDay]
@@ -233,17 +243,15 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
   const isTargetFranchise = targetRole === 'franchise' || targetRole === 'franchaise';
 
   // 1. Calculate amount utilized today by targetUser (T0 transactions executed today)
-  const today = new Date();
-  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-  const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+  const { startOfDay, endOfDay } = getTodayIstDateWindow();
 
   let targetUsedToday = 0;
   try {
     const targetUsedRaw = await RazorpayNotification.sum('amount', {
       where: {
         user_id: targetUser.id,
-        status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED'] },
-        settlement_type: { [Op.in]: ['T0', 'today_settlement'] },
+        status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED', 'captured', 'success', 'authorized'] },
+        settlement_type: { [Op.in]: ['T0', 'today_settlement', 'TODAY_SETTLEMENT', 't0'] },
         createdAt: { [Op.between]: [startOfDay, endOfDay] }
       }
     });

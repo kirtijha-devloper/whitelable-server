@@ -76,15 +76,21 @@ const getPosSettings = asyncHandler(async (req, res) => {
 
     const remainingSelfLimit = Math.max(0, totalPool - allocatedToMerchants);
 
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const now = new Date();
+    const istNow = new Date(now.getTime() + istOffsetMs);
+    const year = istNow.getUTCFullYear();
+    const month = istNow.getUTCMonth();
+    const date = istNow.getUTCDate();
+
+    const startOfDay = new Date(Date.UTC(year, month, date, 0, 0, 0, 0) - istOffsetMs);
+    const endOfDay = new Date(Date.UTC(year, month, date, 23, 59, 59, 999) - istOffsetMs);
 
     const usedRaw = await RazorpayNotification.sum('amount', {
       where: {
         user_id: req.user.id,
-        status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED'] },
-        settlement_type: { [Op.in]: ['T0', 'today_settlement'] },
+        status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED', 'captured', 'success', 'authorized'] },
+        settlement_type: { [Op.in]: ['T0', 'today_settlement', 'TODAY_SETTLEMENT', 't0'] },
         createdAt: { [Op.between]: [startOfDay, endOfDay] }
       }
     });
