@@ -83,4 +83,70 @@ describe('Settlement Service Unit Tests', () => {
       RazorpayNotification.sum.mockRestore();
     });
   });
+
+  describe('evaluateDynamicSettlement', () => {
+    const { evaluateDynamicSettlement } = require('../services/settlementService');
+    const serviceSettingsService = require('../services/serviceSettingsService');
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('should honor static DB mode when global switch is OFF', async () => {
+      jest.spyOn(serviceSettingsService, 'getServiceFlagValue').mockResolvedValue(false);
+      const user = { id: 101, settlement_type: 'T0', t0_daily_limit: 5000 };
+
+      const res = await evaluateDynamicSettlement({ user, transactionAmount: 1000 });
+      expect(res.settlementType).toBe('T0');
+      expect(res.isGlobalT0Enabled).toBe(false);
+      expect(res.reason).toContain('Global T0 switch OFF');
+    });
+
+    it('should return dynamic T1 when T0 limit is unassigned or 0 with global switch ON', async () => {
+      jest.spyOn(serviceSettingsService, 'getServiceFlagValue').mockResolvedValue(true);
+      const userUnassigned = { id: 102, settlement_type: 'T0', t0_daily_limit: null };
+
+      const res = await evaluateDynamicSettlement({ user: userUnassigned, transactionAmount: 1000 });
+      expect(res.settlementType).toBe('T1');
+      expect(res.isGlobalT0Enabled).toBe(true);
+      expect(res.reason).toContain('T0 Limit Unassigned');
+    });
+
+    it('should return dynamic T0 when limit is unlimited', async () => {
+      jest.spyOn(serviceSettingsService, 'getServiceFlagValue').mockResolvedValue(true);
+      const userUnlimited = { id: 103, settlement_type: 'T0', t0_daily_limit: 'unlimited' };
+
+      const res = await evaluateDynamicSettlement({ user: userUnlimited, transactionAmount: 50000 });
+      expect(res.settlementType).toBe('T0');
+      expect(res.isGlobalT0Enabled).toBe(true);
+    });
+
+    it('should return T0 when within limit and T1 when limit exceeded', async () => {
+      jest.spyOn(serviceSettingsService, 'getServiceFlagValue').mockResolvedValue(true);
+      const user = { id: 104, settlement_type: 'T0', t0_daily_limit: 10000 };
+
+      const resWithin = await evaluateDynamicSettlement({ user, transactionAmount: 5000, todayT0Sum: 2000 });
+      expect(resWithin.settlementType).toBe('T0');
+
+      const resExceeded = await evaluateDynamicSettlement({ user, transactionAmount: 9000, todayT0Sum: 2000 });
+      expect(resExceeded.settlementType).toBe('T1');
+      expect(resExceeded.isLimitExceeded).toBe(true);
+    });
+
+    it('should allow reducing merchant limit from 5000 to 2000 when merchant has used 0 today', async () => {
+      const { validateMerchantT0Limit } = require('../services/settlementService');
+      const merchantUser = { id: 303, role: 'merchant', franchaise_id: null, t0_daily_limit: 5000 };
+      // Merchant utilized today: 0
+      jest.spyOn(RazorpayNotification, 'sum').mockResolvedValue(0);
+
+      // Reducing to 2000, 1000, or 0 should succeed when used today is 0
+      await expect(
+        validateMerchantT0Limit({ targetUser: merchantUser, requestedLimit: 2000, requesterUser: { role: 'admin' } })
+      ).resolves.not.toThrow();
+
+      await expect(
+        validateMerchantT0Limit({ targetUser: merchantUser, requestedLimit: 0, requesterUser: { role: 'admin' } })
+      ).resolves.not.toThrow();
+    });
+  });
 });

@@ -639,6 +639,22 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
   };
 }
 
+/**
+ * Gets boolean flag value for a global service setting key
+ */
+async function getServiceFlagValue(serviceKey, defaultValue = true) {
+  try {
+    const ServiceSetting = require('../models/ServiceSetting');
+    const record = await ServiceSetting.findOne({ where: { service_key: serviceKey } });
+    if (record) {
+      return record.is_enabled !== false;
+    }
+    return defaultValue;
+  } catch (err) {
+    return defaultValue;
+  }
+}
+
 module.exports = {
   SERVICE_SETTING_KEYS,
   SERVICE_SETTING_KEY_LIST,
@@ -659,4 +675,5 @@ module.exports = {
   buildServiceDisabledPayload,
   assertServiceEnabledOrRespond,
   getServiceToggleAuditLogs,
+  getServiceFlagValue,
 };

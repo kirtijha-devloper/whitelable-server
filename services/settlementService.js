@@ -13,51 +13,60 @@ function normalizeSettlementType(type) {
   return 'T0';
 }
 
+const serviceSettingsService = require('./serviceSettingsService');
+
 /**
- * Resolves the effective settlement mode ('T0' or 'T1') for a merchant transaction,
- * enforcing daily T0 limit rules with automatic shift to T1 if limit is exceeded.
+ * Dynamic Settlement Evaluator
+ * Evaluates dynamic settlement mode ('T0' or 'T1') based on:
+ * 1. Global Service Flag ("pos_t0_settlement")
+ * 2. Assigned user limit (user.t0_daily_limit)
+ * 3. Incoming transaction amount & today's cumulative T0 total
  */
-async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = new Date() }) {
+async function evaluateDynamicSettlement({ user, transactionAmount = 0, todayT0Sum = 0 }) {
+  const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
+  const amount = Number(transactionAmount) || 0;
+  const currentT0Sum = Number(todayT0Sum) || 0;
+
   if (!user) {
     return {
-      effectiveSettlement: 'T0',
+      settlementType: "T0",
+      appliedRate: "T0",
+      isGlobalT0Enabled: true,
       isLimitExceeded: false,
-      todayT0Total: 0,
-      projectedTotal: parseFloat(incomingTxnAmount) || 0,
-      t0Limit: null,
-      note: null,
+      reason: "No user provided -> Default T0"
     };
   }
 
-  const rawSettlement = user.settlement_type || 'T0';
-  const settlementMode = normalizeSettlementType(rawSettlement);
+  const staticMode = normalizeSettlementType(user.settlement_type);
 
-  if (settlementMode === 'T1') {
+  // 1. IF Global Switch is OFF OR User static DB mode is T1:
+  if (!isGlobalT0Enabled || staticMode === 'T1') {
+    const effectiveMode = staticMode;
     return {
-      effectiveSettlement: 'T1',
+      settlementType: effectiveMode,
+      appliedRate: effectiveMode,
+      isGlobalT0Enabled,
       isLimitExceeded: false,
-      todayT0Total: 0,
-      projectedTotal: parseFloat(incomingTxnAmount) || 0,
-      t0Limit: user.t0_daily_limit !== undefined && user.t0_daily_limit !== null ? parseFloat(user.t0_daily_limit) : null,
-      note: 'User set to T1 settlement',
+      reason: !isGlobalT0Enabled
+        ? `Global T0 switch OFF. Used static DB mode (${effectiveMode}).`
+        : 'User set to T1 settlement'
     };
   }
 
-  // User configured as T0 -> Check T0 Daily Limit
-  let rawLimit = (user.t0_daily_limit !== undefined && user.t0_daily_limit !== null)
-    ? parseFloat(user.t0_daily_limit)
-    : 0;
+  // 2. IF Global Switch is ON and User is T0 mode: evaluate limits
+  const rawLimit = user.t0_daily_limit;
+  const isLimitAssigned =
+    rawLimit !== null &&
+    rawLimit !== undefined &&
+    rawLimit !== "" &&
+    String(rawLimit).toLowerCase() !== "unlimited";
 
-  if (isNaN(rawLimit) || rawLimit < 0) {
-    rawLimit = 0;
-  }
+  let t0Limit = isLimitAssigned ? Number(rawLimit) : null;
 
-  let t0Limit = rawLimit;
-
-  // For franchise users, the t0_daily_limit represents the total pool assigned by admin.
-  // The franchise's effective self-limit is: pool - sum(downstream merchants' t0_daily_limits).
+  // Franchise self-limit adjustment
   if (user.role === 'franchaise') {
-    if (rawLimit > 0) {
+    const rawNum = parseFloat(user.t0_daily_limit) || 0;
+    if (rawNum > 0) {
       const User = require('../models/User');
       const downstreamMerchants = await User.findAll({
         where: {
@@ -71,20 +80,76 @@ async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = 
         const mLimit = parseFloat(m.t0_daily_limit);
         return sum + (isNaN(mLimit) ? 0 : mLimit);
       }, 0);
-      t0Limit = Math.max(0, rawLimit - allocatedToMerchants);
+      t0Limit = Math.max(0, rawNum - allocatedToMerchants);
     } else {
       t0Limit = 0;
     }
   }
 
-  if (t0Limit <= 0) {
+  // Unlimited limit -> Dynamic T0
+  if (typeof rawLimit === 'string' && rawLimit.toLowerCase() === 'unlimited') {
     return {
-      effectiveSettlement: 'T1',
+      settlementType: "T0",
+      appliedRate: "T0",
+      isGlobalT0Enabled: true,
+      isLimitExceeded: false,
+      t0Limit: null,
+      reason: "Unlimited T0 Limit -> Dynamic T0"
+    };
+  }
+
+  // Unassigned limit or ₹0 limit -> Dynamic T1
+  if (!isLimitAssigned || t0Limit === 0 || isNaN(t0Limit)) {
+    return {
+      settlementType: "T1",
+      appliedRate: "T1",
+      isGlobalT0Enabled: true,
       isLimitExceeded: true,
+      t0Limit: t0Limit !== null ? t0Limit : 0,
+      reason: !isLimitAssigned ? "T0 Limit Unassigned -> Dynamic T1" : "T0 Daily Limit is 0 or not assigned. Shifted to T1."
+    };
+  }
+
+  // Check projected total against assigned limit
+  const projectedTotal = currentT0Sum + amount;
+  if (amount > t0Limit || projectedTotal > t0Limit) {
+    return {
+      settlementType: "T1",
+      appliedRate: "T1",
+      isGlobalT0Enabled: true,
+      isLimitExceeded: true,
+      t0Limit,
+      reason: `T0 Limit exceeded (Projected ₹${projectedTotal} > Limit ₹${t0Limit})`
+    };
+  }
+
+  // Within limit -> Dynamic T0
+  return {
+    settlementType: "T0",
+    appliedRate: "T0",
+    isGlobalT0Enabled: true,
+    isLimitExceeded: false,
+    t0Limit,
+    reason: "Within T0 Limit -> Dynamic T0"
+  };
+}
+
+/**
+ * Resolves the effective settlement mode ('T0' or 'T1') for a merchant transaction,
+ * enforcing daily T0 limit rules with automatic shift to T1 if limit is exceeded.
+ */
+async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = new Date() }) {
+  if (!user) {
+    return {
+      effectiveSettlement: 'T0',
+      settlementType: 'T0',
+      appliedRate: 'T0',
+      isGlobalT0Enabled: true,
+      isLimitExceeded: false,
       todayT0Total: 0,
       projectedTotal: parseFloat(incomingTxnAmount) || 0,
-      t0Limit: 0,
-      note: 'T0 Daily Limit is 0 or not assigned. Shifted to T1.',
+      t0Limit: null,
+      note: null,
     };
   }
 
@@ -94,45 +159,201 @@ async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = 
   const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
   const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
 
-  const sumResult = await RazorpayNotification.sum('amount', {
-    where: {
-      user_id: user.id,
-      status: {
-        [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED']
-      },
-      settlement_type: {
-        [Op.in]: ['T0', 'today_settlement']
-      },
-      createdAt: {
-        [Op.between]: [startOfDay, endOfDay]
+  let todayT0Total = 0;
+  try {
+    const sumResult = await RazorpayNotification.sum('amount', {
+      where: {
+        user_id: user.id,
+        status: {
+          [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED']
+        },
+        settlement_type: {
+          [Op.in]: ['T0', 'today_settlement']
+        },
+        createdAt: {
+          [Op.between]: [startOfDay, endOfDay]
+        }
       }
-    }
-  });
-
-  const todayT0Total = parseFloat(sumResult) || 0;
-  const txnAmount = parseFloat(incomingTxnAmount) || 0;
-  const projectedTotal = todayT0Total + txnAmount;
-
-  if (projectedTotal > t0Limit) {
-    const note = `T0 Limit exceeded (Projected ₹${projectedTotal} > Limit ₹${t0Limit})`;
-    return {
-      effectiveSettlement: 'T1',
-      isLimitExceeded: true,
-      todayT0Total,
-      projectedTotal,
-      t0Limit,
-      note,
-    };
+    });
+    todayT0Total = parseFloat(sumResult) || 0;
+  } catch (err) {
+    todayT0Total = 0;
   }
 
+  const txnAmount = parseFloat(incomingTxnAmount) || 0;
+
+  const dynResult = await evaluateDynamicSettlement({
+    user,
+    transactionAmount: txnAmount,
+    todayT0Sum: todayT0Total
+  });
+
+  const effectiveSettlement = dynResult.settlementType;
+
   return {
-    effectiveSettlement: 'T0',
-    isLimitExceeded: false,
+    effectiveSettlement,
+    settlementType: effectiveSettlement,
+    appliedRate: dynResult.appliedRate,
+    isGlobalT0Enabled: dynResult.isGlobalT0Enabled,
+    isLimitExceeded: Boolean(dynResult.isLimitExceeded),
     todayT0Total,
-    projectedTotal,
-    t0Limit,
-    note: null,
+    projectedTotal: todayT0Total + txnAmount,
+    t0Limit: dynResult.t0Limit !== undefined && dynResult.t0Limit !== null ? dynResult.t0Limit : 0,
+    note: dynResult.reason,
   };
+}
+
+/**
+ * Validates requested T0 daily limit for a user (Franchise or Merchant)
+ * 1. Ensures requested limit is NOT less than the user's total committed/utilized limit:
+ *    - For Franchise: min limit = (allocated to merchants) + (utilized today by franchise)
+ *    - For Merchant: min limit = (utilized today by merchant)
+ * 2. If target user is a Merchant, ensures requested limit does NOT exceed parent Franchise's available pool:
+ *    - available pool = Franchise pool - (allocated to other merchants) - (utilized today by parent franchise)
+ * Throws an error with status/statusCode 400 if validation fails.
+ */
+async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUser }) {
+  if (!targetUser) return;
+
+  const User = require('../models/User');
+  const RazorpayNotification = require('../models/RazorpayNotification');
+
+  let requestedLimitVal = 0;
+  if (requestedLimit !== null && requestedLimit !== undefined && requestedLimit !== '') {
+    requestedLimitVal = parseFloat(requestedLimit);
+    if (isNaN(requestedLimitVal) || requestedLimitVal < 0) {
+      const err = new Error('t0_daily_limit must be a valid non-negative number or null');
+      err.status = 400;
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  const targetRole = String(targetUser.role || '').toLowerCase();
+  const isTargetFranchise = targetRole === 'franchise' || targetRole === 'franchaise';
+
+  // 1. Calculate amount utilized today by targetUser (T0 transactions executed today)
+  const today = new Date();
+  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+  const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+  let targetUsedToday = 0;
+  try {
+    const targetUsedRaw = await RazorpayNotification.sum('amount', {
+      where: {
+        user_id: targetUser.id,
+        status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED'] },
+        settlement_type: { [Op.in]: ['T0', 'today_settlement'] },
+        createdAt: { [Op.between]: [startOfDay, endOfDay] }
+      }
+    });
+    targetUsedToday = parseFloat(targetUsedRaw) || 0;
+  } catch (err) {
+    targetUsedToday = 0;
+  }
+
+  // 2. Calculate amount allocated to downstream merchants if targetUser is a Franchise
+  let allocatedToMerchants = 0;
+  if (isTargetFranchise) {
+    const downstreamMerchants = await User.findAll({
+      where: {
+        franchaise_id: targetUser.id,
+        role: { [Op.in]: ['merchant', 'user'] },
+        t0_daily_limit: { [Op.not]: null }
+      },
+      attributes: ['t0_daily_limit']
+    });
+
+    allocatedToMerchants = downstreamMerchants.reduce((sum, m) => {
+      const l = parseFloat(m.t0_daily_limit);
+      return sum + (isNaN(l) ? 0 : l);
+    }, 0);
+  }
+
+  // 3. Minimum allowable limit for targetUser
+  const minRequiredLimit = allocatedToMerchants + targetUsedToday;
+
+  if (requestedLimitVal < minRequiredLimit) {
+    let msg = '';
+    if (isTargetFranchise) {
+      const details = [];
+      if (allocatedToMerchants > 0) details.push(`Allocated to merchants: ₹${allocatedToMerchants}`);
+      if (targetUsedToday > 0) details.push(`Utilized today: ₹${targetUsedToday}`);
+      msg = `Franchise limit cannot be set lower than ₹${minRequiredLimit} as it is already utilized/allocated (${details.join(', ')}).`;
+    } else {
+      msg = `Merchant limit cannot be set lower than ₹${targetUsedToday} as ₹${targetUsedToday} has already been utilized today.`;
+    }
+    const err = new Error(msg);
+    err.status = 400;
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // 4. If targetUser is a Merchant, validate against Parent Franchise pool
+  const requesterRole = String(requesterUser?.role || '').toLowerCase();
+  const isFranchiseRequester = requesterRole === 'franchise' || requesterRole === 'franchaise';
+
+  let franchiseId = targetUser.franchaise_id;
+  if (!franchiseId && isFranchiseRequester && !isTargetFranchise) {
+    franchiseId = requesterUser.id;
+  }
+
+  if (franchiseId && !isTargetFranchise) {
+    const parentFranchise = await User.findByPk(franchiseId);
+    if (parentFranchise) {
+      const franchisePool = (parentFranchise.t0_daily_limit !== null && parentFranchise.t0_daily_limit !== undefined)
+        ? parseFloat(parentFranchise.t0_daily_limit)
+        : 0;
+
+      if (franchisePool <= 0 && requestedLimitVal > 0) {
+        const err = new Error('Parent Franchise pool is 0 or Not Set. Admin must first assign a T0 pool limit to Franchise before assigning limit to merchant.');
+        err.status = 400;
+        err.statusCode = 400;
+        throw err;
+      }
+
+      // Calculate sum of t0_daily_limit for all OTHER merchants under this franchise
+      const otherMerchants = await User.findAll({
+        where: {
+          franchaise_id: franchiseId,
+          role: { [Op.in]: ['merchant', 'user'] },
+          id: { [Op.ne]: targetUser.id },
+          t0_daily_limit: { [Op.not]: null }
+        },
+        attributes: ['t0_daily_limit']
+      });
+
+      const otherAllocated = otherMerchants.reduce((sum, m) => {
+        const l = parseFloat(m.t0_daily_limit);
+        return sum + (isNaN(l) ? 0 : l);
+      }, 0);
+
+      // Sum of transactions used by parent Franchise itself today
+      let parentUsedToday = 0;
+      try {
+        const parentUsedRaw = await RazorpayNotification.sum('amount', {
+          where: {
+            user_id: parentFranchise.id,
+            status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED'] },
+            settlement_type: { [Op.in]: ['T0', 'today_settlement'] },
+            createdAt: { [Op.between]: [startOfDay, endOfDay] }
+          }
+        });
+        parentUsedToday = parseFloat(parentUsedRaw) || 0;
+      } catch (err) {
+        parentUsedToday = 0;
+      }
+
+      const availableForMerchant = Math.max(0, franchisePool - otherAllocated - parentUsedToday);
+
+      if (requestedLimitVal > availableForMerchant) {
+        const err = new Error(`Limit pool of Franchise (₹${franchisePool}) exceeded! Maximum limit available to assign to this merchant is ₹${availableForMerchant}.` + (parentUsedToday > 0 ? ` (Franchise utilized ₹${parentUsedToday} today)` : ''));
+        err.status = 400;
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+  }
 }
 
 /**
@@ -258,7 +479,9 @@ async function deductUsableBalance({ userId, amount, transaction = null, now = n
 
 module.exports = {
   normalizeSettlementType,
+  evaluateDynamicSettlement,
   resolveEffectiveSettlement,
+  validateMerchantT0Limit,
   checkIsCutoffPassed,
   getUsableMainWalletBalance,
   deductUsableBalance,

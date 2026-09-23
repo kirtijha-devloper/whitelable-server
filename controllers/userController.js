@@ -6,6 +6,7 @@ const EmployeeAccessRole = require('../models/EmployeeAccessRole');
 const db = require('../config/database');
 const UsernameSequence = require('../models/UsernameSequence');
 const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
+const { validateMerchantT0Limit } = require('../services/settlementService');
 
 function extractClientIp(req) {
   if (!req) return '127.0.0.1';
@@ -2080,6 +2081,25 @@ const updateUser = asyncHandler(async (req, res) => {
     } else if (settlementTypeProvided && isEmployee(req.user)
         && hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SETTLEMENT_UPDATE)) {
       updates.settlement_type = req.body.settlement_type;
+    }
+
+    // ── Handle T0 Daily Limit update with Franchise Pool validation ─────
+    if (req.body.t0_daily_limit !== undefined) {
+      let newLimit = null;
+      if (req.body.t0_daily_limit !== null && req.body.t0_daily_limit !== '' && req.body.t0_daily_limit !== undefined) {
+        newLimit = parseFloat(req.body.t0_daily_limit);
+        if (isNaN(newLimit) || newLimit < 0) {
+          return res.status(400).json({ success: false, message: 't0_daily_limit must be a valid non-negative number or null' });
+        }
+      }
+
+      await validateMerchantT0Limit({
+        targetUser,
+        requestedLimit: newLimit,
+        requesterUser: req.user,
+      });
+
+      updates.t0_daily_limit = newLimit;
     }
 
     // ── File uploads (Cloudinary) ─────────────────────────────────────────
