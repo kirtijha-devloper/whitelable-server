@@ -80,7 +80,53 @@ async function resolvePendingBillAvenueCcBill() {
         const txnRefIdToUse = record.transaction_ref_id ? String(record.transaction_ref_id).trim() : null;
 
         if (!reqIdToUse && !txnRefIdToUse) {
-          auditLog(`${LOG_PREFIX}: skipping id=${record.id} (no requestId or transaction_ref_id)`);
+          const createdAtDate = new Date(record.createdAt || record.created_at || Date.now());
+          const ageHours = (Date.now() - createdAtDate.getTime()) / (1000 * 60 * 60);
+
+          if (ageHours >= 24) {
+            auditLog(`${LOG_PREFIX}: marking id=${record.id} as failed (>24h old and no requestId/transaction_ref_id, age=${ageHours.toFixed(1)}h)`);
+            record.status = 'failed';
+            record.response_code = 'AUTO_FAILED_24H';
+            const existingResp = (typeof record.response === 'object' && record.response !== null) ? record.response : {};
+            record.response = {
+              ...existingResp,
+              cronAutoFailedReason: 'Marked failed by cron: older than 24 hours without requestId or transaction_ref_id',
+              cronAutoFailedAt: new Date().toISOString(),
+            };
+            await record.save();
+
+            // Reverse ledger debit on failure if not already reversed
+            const refundAmount = parseFloat(record.transaction_amount) || 0;
+            if (refundAmount > 0 && record.user_id) {
+              const existingRefund = await Ledger.findOne({
+                where: {
+                  transaction_type: 'billavenue_payment_reversal',
+                  reference_id: record.id,
+                  reference_table: 'BillAvenuePayments',
+                },
+              });
+
+              if (!existingRefund) {
+                await ledgerService.createLedgerEntry({
+                  userId: record.user_id,
+                  transactionType: 'billavenue_payment_reversal',
+                  transactionId: record.transaction_ref_id || null,
+                  referenceId: record.id,
+                  referenceTable: 'BillAvenuePayments',
+                  description: `Reversed — BillAvenue payment auto-failed (>24h without ref ID)`,
+                  credit: refundAmount,
+                  metadata: {
+                    biller_id: record.biller_id,
+                    response_code: 'AUTO_FAILED_24H',
+                    cron_auto_failed: true,
+                  },
+                });
+                auditLog(`${LOG_PREFIX}: reversed wallet debit for id=${record.id} amount=₹${refundAmount}`);
+              }
+            }
+          } else {
+            auditLog(`${LOG_PREFIX}: skipping id=${record.id} (no requestId or transaction_ref_id, age=${ageHours.toFixed(1)}h < 24h)`);
+          }
           continue;
         }
 
