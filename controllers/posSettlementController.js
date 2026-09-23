@@ -123,8 +123,59 @@ const getPosSettings = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Helper to resolve user by multiple possible identifiers:
+ * id, user_id, userId, ID, User ID, phone, mobile, mobile_number, user_code, email
+ */
+async function resolveUserForT0Limit(rawId) {
+  if (rawId === null || rawId === undefined || rawId === '') return null;
+
+  const cleanId = String(rawId).trim();
+  if (!cleanId) return null;
+
+  // 1. If numeric integer, try User.findByPk first
+  const numId = Number(cleanId);
+  if (!isNaN(numId) && Number.isInteger(numId) && numId > 0) {
+    const userByPk = await User.findByPk(numId);
+    if (userByPk) return userByPk;
+  }
+
+  // 2. Otherwise try matching id as string, mobile_number, phone, user_code, email
+  const userByQuery = await User.findOne({
+    where: {
+      [Op.or]: [
+        { id: cleanId },
+        { mobile_number: cleanId },
+        { phone: cleanId },
+        { user_code: cleanId },
+        { email: cleanId }
+      ]
+    }
+  });
+
+  return userByQuery;
+}
+
+/**
+ * Helper to parse t0_daily_limit from various possible input keys
+ */
+function parseLimitVal(rawLimit) {
+  if (rawLimit === null || rawLimit === undefined || rawLimit === '') {
+    return null;
+  }
+  if (typeof rawLimit === 'string' && rawLimit.toLowerCase() === 'unlimited') {
+    return 'unlimited';
+  }
+  const parsed = parseFloat(rawLimit);
+  if (isNaN(parsed) || parsed < 0) {
+    throw new Error('t0_daily_limit must be a valid non-negative number, null, or unlimited');
+  }
+  return parsed;
+}
+
+/**
  * POST /api/admin/pos-setting/update-t0-limit
- * Body: { id: 101, t0_daily_limit: 50000 | null }
+ * Single Body: { id | user_id | phone: 101, t0_daily_limit | amount | limit: 50000 | null }
+ * Bulk Body: Array of objects OR { items | updates | data | rows: [...] }
  */
 const updateT0Limit = asyncHandler(async (req, res) => {
   const role = req.user?.role;
@@ -132,23 +183,98 @@ const updateT0Limit = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Admin or Franchise access only.' });
   }
 
-  const { id, t0_daily_limit } = req.body;
+  // Check if body is an array or contains an array of updates
+  const items = Array.isArray(req.body)
+    ? req.body
+    : (Array.isArray(req.body?.items)
+      ? req.body.items
+      : (Array.isArray(req.body?.updates)
+        ? req.body.updates
+        : (Array.isArray(req.body?.data)
+          ? req.body.data
+          : (Array.isArray(req.body?.rows) ? req.body.rows : null))));
 
-  if (!id) {
-    res.status(400);
-    throw new Error('User id is required');
-  }
-
-  let limitVal = null;
-  if (t0_daily_limit !== null && t0_daily_limit !== undefined && t0_daily_limit !== '') {
-    limitVal = parseFloat(t0_daily_limit);
-    if (isNaN(limitVal) || limitVal < 0) {
-      res.status(400);
-      throw new Error('t0_daily_limit must be a valid non-negative number or null');
+  // --- BULK ARRAY UPDATE ---
+  if (items) {
+    if (items.length === 0) {
+      return res.status(400).json({ success: false, message: 'No items provided for bulk update' });
     }
+
+    const results = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const row of items) {
+      const rawId = row.id ?? row.user_id ?? row.userId ?? row['User ID'] ?? row['User Id'] ?? row['user_id'] ?? row.ID ?? row.phone ?? row.mobile ?? row.mobile_number ?? row.number ?? row['Mobile Number'] ?? row['Phone'];
+      const rawLimit = row.t0_daily_limit ?? row.amount ?? row.limit ?? row.t0Limit ?? row['T0 Limit'] ?? row['Amount'] ?? row['Limit'] ?? row['limit'] ?? row['t0_limit'];
+
+      try {
+        if (rawId === null || rawId === undefined || String(rawId).trim() === '') {
+          failedCount++;
+          results.push({ row, success: false, message: 'User identifier missing' });
+          continue;
+        }
+
+        const user = await resolveUserForT0Limit(rawId);
+        if (!user) {
+          failedCount++;
+          results.push({ row, identifier: rawId, success: false, message: 'User not found' });
+          continue;
+        }
+
+        if (role === 'franchaise' && user.franchaise_id !== req.user.id) {
+          failedCount++;
+          results.push({ row, identifier: rawId, success: false, message: 'Merchant not assigned to your franchise' });
+          continue;
+        }
+
+        const limitVal = parseLimitVal(rawLimit);
+
+        await validateMerchantT0Limit({
+          targetUser: user,
+          requestedLimit: limitVal,
+          requesterUser: req.user
+        });
+
+        user.t0_daily_limit = limitVal;
+        await user.save();
+
+        successCount++;
+        results.push({
+          row,
+          id: user.id,
+          name: user.name,
+          mobile_number: user.mobile_number,
+          t0_daily_limit: user.t0_daily_limit !== null ? String(user.t0_daily_limit) : null,
+          success: true
+        });
+      } catch (err) {
+        failedCount++;
+        results.push({ row, identifier: rawId, success: false, message: err.message });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Bulk update complete. Updated ${successCount} user(s), ${failedCount} failed.`,
+      data: {
+        updated_count: successCount,
+        failed_count: failedCount,
+        results
+      }
+    });
   }
 
-  const user = await User.findByPk(id);
+  // --- SINGLE UPDATE ---
+  const rawId = req.body.id ?? req.body.user_id ?? req.body.userId ?? req.body['User ID'] ?? req.body['User Id'] ?? req.body.phone ?? req.body.mobile ?? req.body.mobile_number;
+  const rawLimit = req.body.t0_daily_limit ?? req.body.amount ?? req.body.limit ?? req.body.t0Limit ?? req.body['T0 Limit'] ?? req.body['Amount'];
+
+  if (rawId === null || rawId === undefined || String(rawId).trim() === '') {
+    res.status(400);
+    throw new Error('User id, user_id, or phone is required');
+  }
+
+  const user = await resolveUserForT0Limit(rawId);
   if (!user) {
     res.status(404);
     throw new Error('User not found');
@@ -160,6 +286,8 @@ const updateT0Limit = asyncHandler(async (req, res) => {
       throw new Error('You can only update T0 limits for merchants assigned to your franchise.');
     }
   }
+
+  const limitVal = parseLimitVal(rawLimit);
 
   // Validate merchant limit against parent Franchise pool & current utilization
   await validateMerchantT0Limit({
@@ -176,6 +304,7 @@ const updateT0Limit = asyncHandler(async (req, res) => {
     message: 'T0 daily limit updated successfully',
     data: {
       id: user.id,
+      user_id: user.id,
       t0_daily_limit: user.t0_daily_limit !== null ? String(user.t0_daily_limit) : null
     }
   });

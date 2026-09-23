@@ -117,6 +117,48 @@ describe('POS Settlement Admin Endpoints Tests', () => {
       expect(res.body.success).toBe(true);
       expect(mockUser.t0_daily_limit).toBeNull();
     });
+
+    it('should update t0_daily_limit using user_id and amount keys', async () => {
+      const mockUser = {
+        id: 102,
+        t0_daily_limit: null,
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      jest.spyOn(User, 'findByPk').mockResolvedValue(mockUser);
+
+      const res = await request(app)
+        .post('/api/admin/pos-setting/update-t0-limit')
+        .send({ user_id: 102, amount: 60000 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(mockUser.t0_daily_limit).toBe(60000);
+    });
+
+    it('should support bulk excel upload array with user_id and amount', async () => {
+      const mockUser1 = { id: 101, t0_daily_limit: null, save: jest.fn().mockResolvedValue(true) };
+      const mockUser2 = { id: 102, t0_daily_limit: null, save: jest.fn().mockResolvedValue(true) };
+
+      jest.spyOn(User, 'findByPk').mockImplementation(async (id) => {
+        if (id === 101) return mockUser1;
+        if (id === 102) return mockUser2;
+        return null;
+      });
+
+      const res = await request(app)
+        .post('/api/admin/pos-setting/update-t0-limit')
+        .send([
+          { user_id: 101, amount: 50000 },
+          { user_id: 102, amount: 75000 }
+        ]);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.updated_count).toBe(2);
+      expect(mockUser1.t0_daily_limit).toBe(50000);
+      expect(mockUser2.t0_daily_limit).toBe(75000);
+    });
   });
 
   describe('POST /api/admin/pos-setting/update-settlement-type', () => {
