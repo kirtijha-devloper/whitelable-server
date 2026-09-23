@@ -10,11 +10,15 @@ const ALLOWED_TARGET_ROLES = new Set(['admin', 'employee', 'merchant', 'franchai
 const SAFE_UPLOAD_ROOT = path.resolve(LOGIN_POPUP_UPLOAD_DIR);
 
 function getRequestBaseUrl(req) {
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  let protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
   const host = req.get('host');
 
   if (!host) {
     return '';
+  }
+
+  if (req.headers['x-forwarded-proto'] === 'https' || host.includes('abheepay.com')) {
+    protocol = 'https';
   }
 
   return `${protocol}://${host}`;
@@ -29,10 +33,13 @@ function buildImageUrl(req, imagePath) {
     return imagePath;
   }
 
-  const normalizedPath = `/${String(imagePath).replace(/\\/g, '/')}`;
-  const baseUrl = getRequestBaseUrl(req);
+  const cleanPath = String(imagePath).replace(/\\/g, '/').replace(/^\/+/, '');
+  let relativePath = cleanPath;
+  if (!cleanPath.startsWith('api/')) {
+    relativePath = cleanPath.startsWith('uploads/') ? `api/${cleanPath}` : `api/uploads/${cleanPath}`;
+  }
 
-  return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+  return `/${relativePath}`;
 }
 
 function serializeLoginPopup(req, popupLike) {
