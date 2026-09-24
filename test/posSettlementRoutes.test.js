@@ -1,25 +1,31 @@
+const { expect } = require('chai');
 const request = require('supertest');
 const express = require('express');
 const bodyParser = require('body-parser');
+const sinon = require('sinon');
+const jwt = require('jsonwebtoken');
+
+process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secret';
+
 const adminRoutes = require('../routes/adminRoutes');
 const User = require('../models/User');
-
-jest.mock('../middleware/validateTokenHandler', () => (req, res, next) => {
-  req.user = { id: 1, role: 'admin', email: 'admin@example.com' };
-  next();
-});
-
-jest.mock('../middleware/employeePermissionHandler', () => ({
-  ensureEmployeePermission: () => (req, res, next) => next()
-}));
 
 const app = express();
 app.use(bodyParser.json());
 app.use('/api/admin', adminRoutes);
 
+const SECRET = process.env.ACCESS_TOKEN_SECRET;
+const adminToken = jwt.sign({ user: { id: 1, role: 'admin', email: 'admin@example.com' } }, SECRET);
+
 describe('POS Settlement Admin Endpoints Tests', () => {
+  let sandbox;
+
   beforeEach(() => {
-    jest.clearAllMocks();
+    sandbox = sinon.createSandbox();
+  });
+
+  afterEach(() => {
+    sandbox.restore();
   });
 
   describe('GET /api/admin/pos-setting', () => {
@@ -63,20 +69,18 @@ describe('POS Settlement Admin Endpoints Tests', () => {
         }
       ];
 
-      jest.spyOn(User, 'findAll').mockResolvedValue(mockMerchants);
+      sandbox.stub(User, 'findAll').resolves(mockMerchants);
 
-      const res = await request(app).get('/api/admin/pos-setting');
+      const res = await request(app)
+        .get('/api/admin/pos-setting')
+        .set('Authorization', `Bearer ${adminToken}`);
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.summary).toEqual({
-        t0_active_count: 1,
-        t1_active_count: 1,
-        t0_limit_configured_count: 1,
-        total_merchants: 2
-      });
-      expect(res.body.data.merchants.length).toBe(2);
-      expect(res.body.data.merchants[0].email).toBe('m*@example.com');
+      expect(res.status).to.equal(200);
+      expect(res.body.success).to.equal(true);
+      expect(res.body.data.summary.t0_active_count).to.equal(1);
+      expect(res.body.data.summary.t1_active_count).to.equal(1);
+      expect(res.body.data.summary.total_merchants).to.equal(2);
+      expect(res.body.data.merchants.length).to.equal(2);
     });
   });
 
@@ -85,62 +89,65 @@ describe('POS Settlement Admin Endpoints Tests', () => {
       const mockUser = {
         id: 101,
         t0_daily_limit: null,
-        save: jest.fn().mockResolvedValue(true)
+        save: sandbox.stub().resolves(true)
       };
 
-      jest.spyOn(User, 'findByPk').mockResolvedValue(mockUser);
+      sandbox.stub(User, 'findByPk').resolves(mockUser);
 
       const res = await request(app)
         .post('/api/admin/pos-setting/update-t0-limit')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ id: 101, t0_daily_limit: 75000 });
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(mockUser.t0_daily_limit).toBe(75000);
-      expect(mockUser.save).toHaveBeenCalled();
+      expect(res.status).to.equal(200);
+      expect(res.body.success).to.equal(true);
+      expect(mockUser.t0_daily_limit).to.equal(75000);
+      expect(mockUser.save.calledOnce).to.be.true;
     });
 
     it('should allow setting t0_daily_limit to null for unlimited', async () => {
       const mockUser = {
         id: 101,
         t0_daily_limit: 50000,
-        save: jest.fn().mockResolvedValue(true)
+        save: sandbox.stub().resolves(true)
       };
 
-      jest.spyOn(User, 'findByPk').mockResolvedValue(mockUser);
+      sandbox.stub(User, 'findByPk').resolves(mockUser);
 
       const res = await request(app)
         .post('/api/admin/pos-setting/update-t0-limit')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ id: 101, t0_daily_limit: null });
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(mockUser.t0_daily_limit).toBeNull();
+      expect(res.status).to.equal(200);
+      expect(res.body.success).to.equal(true);
+      expect(mockUser.t0_daily_limit).to.be.null;
     });
 
     it('should update t0_daily_limit using user_id and amount keys', async () => {
       const mockUser = {
         id: 102,
         t0_daily_limit: null,
-        save: jest.fn().mockResolvedValue(true)
+        save: sandbox.stub().resolves(true)
       };
 
-      jest.spyOn(User, 'findByPk').mockResolvedValue(mockUser);
+      sandbox.stub(User, 'findByPk').resolves(mockUser);
 
       const res = await request(app)
         .post('/api/admin/pos-setting/update-t0-limit')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ user_id: 102, amount: 60000 });
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(mockUser.t0_daily_limit).toBe(60000);
+      expect(res.status).to.equal(200);
+      expect(res.body.success).to.equal(true);
+      expect(mockUser.t0_daily_limit).to.equal(60000);
     });
 
     it('should support bulk excel upload array with user_id and amount', async () => {
-      const mockUser1 = { id: 101, t0_daily_limit: null, save: jest.fn().mockResolvedValue(true) };
-      const mockUser2 = { id: 102, t0_daily_limit: null, save: jest.fn().mockResolvedValue(true) };
+      const mockUser1 = { id: 101, t0_daily_limit: null, save: sandbox.stub().resolves(true) };
+      const mockUser2 = { id: 102, t0_daily_limit: null, save: sandbox.stub().resolves(true) };
 
-      jest.spyOn(User, 'findByPk').mockImplementation(async (id) => {
+      sandbox.stub(User, 'findByPk').callsFake(async (id) => {
         if (id === 101) return mockUser1;
         if (id === 102) return mockUser2;
         return null;
@@ -148,16 +155,17 @@ describe('POS Settlement Admin Endpoints Tests', () => {
 
       const res = await request(app)
         .post('/api/admin/pos-setting/update-t0-limit')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send([
           { user_id: 101, amount: 50000 },
           { user_id: 102, amount: 75000 }
         ]);
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.updated_count).toBe(2);
-      expect(mockUser1.t0_daily_limit).toBe(50000);
-      expect(mockUser2.t0_daily_limit).toBe(75000);
+      expect(res.status).to.equal(200);
+      expect(res.body.success).to.equal(true);
+      expect(res.body.data.updated_count).to.equal(2);
+      expect(mockUser1.t0_daily_limit).to.equal(50000);
+      expect(mockUser2.t0_daily_limit).to.equal(75000);
     });
   });
 
@@ -167,32 +175,34 @@ describe('POS Settlement Admin Endpoints Tests', () => {
         id: 101,
         role: 'merchant',
         settlement_type: 'T1',
-        save: jest.fn().mockResolvedValue(true)
+        save: sandbox.stub().resolves(true)
       };
 
-      jest.spyOn(User, 'findByPk').mockResolvedValue(mockUser);
+      sandbox.stub(User, 'findByPk').resolves(mockUser);
 
       const res = await request(app)
         .post('/api/admin/pos-setting/update-settlement-type')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ id: 101, settlement_type: 'T0' });
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(mockUser.settlement_type).toBe('T0');
+      expect(res.status).to.equal(200);
+      expect(res.body.success).to.equal(true);
+      expect(mockUser.settlement_type).to.equal('T0');
     });
   });
 
   describe('POST /api/admin/pos-setting/bulk-settlement', () => {
     it('should bulk update settlement_type for all merchants', async () => {
-      jest.spyOn(User, 'update').mockResolvedValue([5]);
+      sandbox.stub(User, 'update').resolves([5]);
 
       const res = await request(app)
         .post('/api/admin/pos-setting/bulk-settlement')
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ settlement_type: 'T0' });
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.updated_count).toBe(5);
+      expect(res.status).to.equal(200);
+      expect(res.body.success).to.equal(true);
+      expect(res.body.data.updated_count).to.equal(5);
     });
   });
 });

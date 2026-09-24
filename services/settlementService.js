@@ -64,14 +64,15 @@ async function evaluateDynamicSettlement({ user, transactionAmount = 0, todayT0S
   let t0Limit = isLimitAssigned ? Number(rawLimit) : null;
 
   // Franchise self-limit adjustment
-  if (user.role === 'franchaise') {
+  const roleLower = String(user.role || '').toLowerCase();
+  if (roleLower === 'franchaise' || roleLower === 'franchise') {
     const rawNum = parseFloat(user.t0_daily_limit) || 0;
     if (rawNum > 0) {
       const User = require('../models/User');
       const downstreamMerchants = await User.findAll({
         where: {
           franchaise_id: user.id,
-          role: 'merchant',
+          role: { [Op.in]: ['merchant', 'user'] },
           t0_daily_limit: { [Op.not]: null }
         },
         attributes: ['t0_daily_limit']
@@ -224,6 +225,19 @@ async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = 
  */
 async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUser }) {
   if (!targetUser) return;
+
+  const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
+  const isUserDailyLimitEnabled = await serviceSettingsService.getServiceFlagValue("user_daily_limit", true);
+
+  if (!isGlobalT0Enabled || !isUserDailyLimitEnabled) {
+    const disabledKey = !isGlobalT0Enabled ? 'pos_t0_settlement' : 'user_daily_limit';
+    const err = new Error('POS Settlement / Daily Limit service is globally disabled. T0 limit changes are not allowed while disabled.');
+    err.status = 403;
+    err.statusCode = 403;
+    err.code = 'SERVICE_DISABLED';
+    err.service_key = disabledKey;
+    throw err;
+  }
 
   const User = require('../models/User');
   const RazorpayNotification = require('../models/RazorpayNotification');

@@ -644,10 +644,9 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
  */
 async function getServiceFlagValue(serviceKey, defaultValue = true) {
   try {
-    const ServiceSetting = require('../models/ServiceSetting');
-    const record = await ServiceSetting.findOne({ where: { service_key: serviceKey } });
-    if (record) {
-      return record.is_enabled !== false;
+    const map = await getServiceSettingsMap();
+    if (map && map[serviceKey] !== undefined) {
+      return map[serviceKey].is_enabled !== false;
     }
     return defaultValue;
   } catch (err) {

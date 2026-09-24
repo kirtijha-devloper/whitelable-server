@@ -15,6 +15,11 @@ const getPosSettings = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Admin or Franchise access only.' });
   }
 
+  const serviceSettingsService = require('../services/serviceSettingsService');
+  const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
+  const isUserDailyLimitEnabled = await serviceSettingsService.getServiceFlagValue("user_daily_limit", true);
+  const isGlobalEnabled = isGlobalT0Enabled && isUserDailyLimitEnabled;
+
   const where = {};
   if (role === 'franchaise') {
     where.franchaise_id = req.user.id;
@@ -114,7 +119,10 @@ const getPosSettings = asyncHandler(async (req, res) => {
         t0_active_count: t0ActiveCount,
         t1_active_count: t1ActiveCount,
         t0_limit_configured_count: t0LimitConfiguredCount,
-        total_merchants: merchants.length
+        total_merchants: merchants.length,
+        is_global_t0_enabled: isGlobalEnabled,
+        is_pos_t0_settlement_enabled: isGlobalT0Enabled,
+        is_user_daily_limit_enabled: isUserDailyLimitEnabled,
       },
       ...(franchisePool ? { franchise_pool: franchisePool } : {}),
       merchants: formattedMerchants
@@ -181,6 +189,20 @@ const updateT0Limit = asyncHandler(async (req, res) => {
   const role = req.user?.role;
   if (role !== 'admin' && role !== 'franchaise') {
     return res.status(403).json({ success: false, message: 'Admin or Franchise access only.' });
+  }
+
+  const serviceSettingsService = require('../services/serviceSettingsService');
+  const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
+  const isUserDailyLimitEnabled = await serviceSettingsService.getServiceFlagValue("user_daily_limit", true);
+
+  if (!isGlobalT0Enabled || !isUserDailyLimitEnabled) {
+    const disabledKey = !isGlobalT0Enabled ? 'pos_t0_settlement' : 'user_daily_limit';
+    return res.status(403).json({
+      success: false,
+      message: 'POS Settlement / Daily Limit service is globally disabled. T0 daily limit changes are not allowed while disabled.',
+      code: 'SERVICE_DISABLED',
+      service_key: disabledKey
+    });
   }
 
   // Check if body is an array or contains an array of updates
@@ -319,6 +341,18 @@ const updateSettlementType = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Admin access only.' });
   }
 
+  const serviceSettingsService = require('../services/serviceSettingsService');
+  const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
+
+  if (!isGlobalT0Enabled) {
+    return res.status(403).json({
+      success: false,
+      message: 'POS T0 Settlement Evaluator is globally disabled. Settlement type changes are not allowed while disabled.',
+      code: 'SERVICE_DISABLED',
+      service_key: 'pos_t0_settlement'
+    });
+  }
+
   const { id, settlement_type } = req.body;
 
   if (!id) {
@@ -382,6 +416,18 @@ const updateSettlementType = asyncHandler(async (req, res) => {
 const bulkUpdateSettlementType = asyncHandler(async (req, res) => {
   if (req.user?.role !== 'admin') {
     return res.status(403).json({ success: false, message: 'Admin access only.' });
+  }
+
+  const serviceSettingsService = require('../services/serviceSettingsService');
+  const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
+
+  if (!isGlobalT0Enabled) {
+    return res.status(403).json({
+      success: false,
+      message: 'POS T0 Settlement Evaluator is globally disabled. Bulk settlement type changes are not allowed while disabled.',
+      code: 'SERVICE_DISABLED',
+      service_key: 'pos_t0_settlement'
+    });
   }
 
   const { settlement_type } = req.body;
