@@ -192,6 +192,25 @@ async function createRazorpayChargeEntry({
   description = null,
   metadata = null
 }) {
+  // Hard Idempotency Guard: Prevent duplicate ledger credit/debit for the same transaction
+  if (merchantTransactionChargeId || razorpayTransactionId) {
+    const { Op } = require('sequelize');
+    const existingCredit = await Ledger.findOne({
+      where: {
+        transaction_type: 'pos_credit',
+        [Op.or]: [
+          merchantTransactionChargeId ? { reference_id: merchantTransactionChargeId, reference_table: 'MerchantTransactionCharges' } : null,
+          razorpayTransactionId ? { transaction_id: razorpayTransactionId } : null
+        ].filter(Boolean)
+      }
+    });
+
+    if (existingCredit) {
+      console.warn(`[ledgerService] ⚠️ Duplicate pos_credit blocked for razorpayTransactionId: ${razorpayTransactionId}, merchantTransactionChargeId: ${merchantTransactionChargeId}`);
+      return { creditEntry: existingCredit, alreadyExists: true };
+    }
+  }
+
   // First, credit the full transaction amount
   const creditEntry = await createLedgerEntry({
     userId,
