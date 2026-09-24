@@ -39,21 +39,21 @@ async function evaluateDynamicSettlement({ user, transactionAmount = 0, todayT0S
 
   const staticMode = normalizeSettlementType(user.settlement_type);
 
-  // 1. IF Global Switch is OFF OR User static DB mode is T1:
-  if (!isGlobalT0Enabled || staticMode === 'T1') {
-    const effectiveMode = staticMode;
+  // 1. IF Global Switch is OFF: return static DB settlement_type as-is, no limit evaluation
+  if (!isGlobalT0Enabled) {
     return {
-      settlementType: effectiveMode,
-      appliedRate: effectiveMode,
-      isGlobalT0Enabled,
+      settlementType: staticMode,
+      appliedRate: staticMode,
+      isGlobalT0Enabled: false,
       isLimitExceeded: false,
-      reason: !isGlobalT0Enabled
-        ? `Global T0 switch OFF. Used static DB mode (${effectiveMode}).`
-        : 'User set to T1 settlement'
+      reason: `Global POS Settlement Evaluator is OFF. Using static DB mode (${staticMode}) without limit rules.`
     };
   }
 
-  // 2. IF Global Switch is ON and User is T0 mode: evaluate limits
+  // 2. IF Global Switch is ON: ALWAYS run dynamic limit evaluation regardless of user.settlement_type
+  // user.settlement_type in DB is irrelevant — limit rules alone decide T0 vs T1
+
+  // Global switch is ON: evaluate limits dynamically regardless of DB settlement_type
   const rawLimit = user.t0_daily_limit;
   const isLimitAssigned =
     rawLimit !== null &&
