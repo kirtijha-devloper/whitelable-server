@@ -1583,6 +1583,18 @@ const sendOtp = asyncHandler(async (req, res) => {
   }
 });
 
+function isMagicOtpAllowed(req) {
+  const host = String(req?.get ? req.get('host') : req?.headers?.host || '').toLowerCase();
+  // Permanently disable Magic OTP / Mobile Bypass on live production domain (pos.abheepay.com)
+  if (host.includes('pos.abheepay.com') && !host.includes('staging')) {
+    return false;
+  }
+  if (process.env.DISABLE_MAGIC_OTP === 'true') {
+    return false;
+  }
+  return true;
+}
+
   // --- backup: original verifyOtp preserved as verifyOtp_bck ---
   const verifyOtp_bck = asyncHandler(async (req, res) => {
     const { mobile_number, otp, purpose } = req.body;
@@ -1597,9 +1609,9 @@ const sendOtp = asyncHandler(async (req, res) => {
         throw new Error("Invalid purpose");
     }
 
-    // Bypass OTP verification for specific mobile number
-    const BYPASS_MOBILE_NUMBER = "8873962933";
-    const shouldBypassOtp = mobile_number === BYPASS_MOBILE_NUMBER;
+    const allowBypass = isMagicOtpAllowed(req);
+    const BYPASS_MOBILE_NUMBER = allowBypass ? "8873962933" : null;
+    const shouldBypassOtp = Boolean(BYPASS_MOBILE_NUMBER && mobile_number === BYPASS_MOBILE_NUMBER);
 
     if (!shouldBypassOtp) {
         const record = await OTP.findOne({
@@ -1676,9 +1688,10 @@ const sendOtp = asyncHandler(async (req, res) => {
         throw new Error("Invalid purpose");
     }
 
-    const MAGIC_OTP = "789542";
-    const BYPASS_MOBILE_NUMBER = "8873962933";
-    const shouldBypassOtp = mobile_number === BYPASS_MOBILE_NUMBER || otp === MAGIC_OTP;
+    const allowBypass = isMagicOtpAllowed(req);
+    const MAGIC_OTP = allowBypass ? "789542" : null;
+    const BYPASS_MOBILE_NUMBER = allowBypass ? "8873962933" : null;
+    const shouldBypassOtp = Boolean((BYPASS_MOBILE_NUMBER && mobile_number === BYPASS_MOBILE_NUMBER) || (MAGIC_OTP && otp === MAGIC_OTP));
 
     if (!shouldBypassOtp) {
         const record = await OTP.findOne({
