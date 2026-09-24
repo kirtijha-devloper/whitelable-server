@@ -508,8 +508,17 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
 
     let merchantTransactionCharge = existingChargeRecord;
     if (existingChargeRecord) {
-      if (notification.processing_status === 'completed') {
-        logger.log(`[Razorpay Webhook Worker] Transaction charge record already exists for txn: ${txnId}`);
+      const Ledger = require("../models/Ledger");
+      const existingLedger = await Ledger.findOne({
+        where: {
+          transaction_type: 'pos_credit',
+          reference_id: existingChargeRecord.id,
+          reference_table: 'MerchantTransactionCharges'
+        }
+      });
+
+      if (existingLedger || notification.processing_status === 'completed') {
+        logger.log(`[Razorpay Webhook Worker] ⚡ Transaction charge record (ID: ${existingChargeRecord.id}) and ledger entries already exist for txn: ${txnId}. Skipping duplicate processing.`);
         await notification.update({
           processed: true,
           processing_status: 'completed',
@@ -518,7 +527,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
         return;
       }
 
-      logger.log(`[Razorpay Webhook Worker] Transaction charge record exists for txn: ${txnId} but notification status is ${notification.processing_status}. Continuing to repair ledger entries if needed.`);
+      logger.log(`[Razorpay Webhook Worker] Transaction charge record exists for txn: ${txnId} but ledger entry missing. Repairing...`);
     }
 
     // Step 6: If merchant belongs to a franchise, credit the franchise its net earning

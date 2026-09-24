@@ -130,24 +130,8 @@ async function processRzpNotification(event, source = 'agro', throwOnError = fal
             }
         });
 
-        // Also attempt enqueue if queue is active (dual safety / idempotency guarded)
-        try {
-            await razorpayWebhookQueue.add(
-                {
-                    txnId,
-                    status,
-                    event,
-                    notificationId: notification.id,
-                },
-                {
-                    jobId: `rzp-webhook-${txnId}-${Date.now()}`,
-                    priority: status === "FAILED" ? 10 : status === "AUTHORIZED" ? 5 : 1,
-                }
-            );
-        } catch (queueError) {
-            // Log queue error but don't throw - data is already stored & direct async processing triggered
-            console.warn(`[Webhook Service] Queue enqueue skipped/failed for txn: ${txnId}`);
-        }
+        // Queue enqueue removed to prevent dual-processing race conditions.
+        // Direct setImmediate handles background execution safely.
 
     } catch (error) {
         console.error("[Webhook Service] ❌ Failed to process notification", error);
