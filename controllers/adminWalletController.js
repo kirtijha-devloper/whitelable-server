@@ -73,6 +73,14 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
 
   // Validate input
   const { user_id, amount, reason = "" } = req.body;
+  const idempotencyKey = req.body.idempotency_key || req.headers['x-idempotency-key'];
+
+  if (!idempotencyKey) {
+    return res.status(400).json({
+      success: false,
+      message: "idempotency_key is required."
+    });
+  }
 
   if (!user_id || isNaN(parseInt(user_id))) {
     return res.status(400).json({ 
@@ -209,6 +217,14 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
 
   // Validate input
   const { user_id, amount, reason = "" } = req.body;
+  const idempotencyKey = req.body.idempotency_key || req.headers['x-idempotency-key'];
+
+  if (!idempotencyKey) {
+    return res.status(400).json({
+      success: false,
+      message: "idempotency_key is required."
+    });
+  }
 
   if (!user_id || isNaN(parseInt(user_id))) {
     return res.status(400).json({ 
