@@ -193,6 +193,35 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
     }
   }
 
+  // Bulk-sync user_service_settings across all merchant and franchise users
+  const targetUsers = await User.findAll({
+    where: { role: { [Op.in]: ['merchant', 'franchaise'] } },
+    attributes: ['id'],
+    ...transactionOpts,
+  });
+
+  if (targetUsers.length > 0 && entries.length > 0) {
+    const now = new Date();
+    const userServiceRows = [];
+    for (const [serviceKey, isEnabled] of entries) {
+      const isEnabledBool = Boolean(isEnabled);
+      for (const u of targetUsers) {
+        userServiceRows.push({
+          user_id: u.id,
+          service_key: serviceKey,
+          is_enabled: isEnabledBool,
+          updated_by: performingUserId ?? null,
+          updated_at: now,
+        });
+      }
+    }
+
+    await UserServiceSetting.bulkCreate(userServiceRows, {
+      updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at'],
+      ...transactionOpts,
+    });
+  }
+
   return getServiceSettingsMap();
 }
 
@@ -339,6 +368,12 @@ function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings)
     [SERVICE_SETTING_KEYS.CC_BILL_3]:
       resolvedSettings[SERVICE_SETTING_KEYS.CC_BILL_3].is_enabled
       && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.CC_BILL_3],
+    [SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT]:
+      resolvedSettings[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT].is_enabled
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT],
+    [SERVICE_SETTING_KEYS.USER_DAILY_LIMIT]:
+      resolvedSettings[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT].is_enabled
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT],
   };
 }
 
