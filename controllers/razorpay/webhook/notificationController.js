@@ -176,7 +176,7 @@ const listNotifications = asyncHandler(async (req, res) => {
         }
 
         if(settlement_type) {
-            where.settlement_type = {[Op.like] : `%${settlement_type}%`}
+            where.settlement_type = settlement_type
         }
 
         if (processing_status) {
