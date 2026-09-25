@@ -1246,6 +1246,17 @@ const processSingleNotificationRow = asyncHandler(async (req, res) => {
     try {
       const { handleAuthorizedTransaction } = require('../workers/razorpayWebhookWorker');
       await handleAuthorizedTransaction(existing.txn_id, existing.event_json, existing);
+      
+      const updatedExisting = await RazorpayNotification.findByPk(existing.id);
+      if (updatedExisting && updatedExisting.processing_status !== 'completed') {
+        return res.status(200).json({
+          success: false,
+          status: 'failed',
+          message: updatedExisting.processing_error || 'Transaction needs admin review',
+          txnId: event.txnId
+        });
+      }
+
       return res.status(200).json({
         success: true,
         status: 'processed',
@@ -1286,6 +1297,16 @@ const processSingleNotificationRow = asyncHandler(async (req, res) => {
     await handleAuthorizedTransaction(notification.txn_id, notification.event_json, notification);
 
     const updatedNotification = await RazorpayNotification.findByPk(notification.id);
+
+    if (updatedNotification && updatedNotification.processing_status !== 'completed') {
+      return res.status(200).json({
+        success: false,
+        status: 'failed',
+        message: updatedNotification.processing_error || 'Transaction needs admin review',
+        txnId: event.txnId,
+        notification: updatedNotification
+      });
+    }
 
     return res.status(200).json({
       success: true,
