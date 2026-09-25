@@ -56,6 +56,14 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
+function requireAdminOrFranchise(req, res, next) {
+  if (req.user?.role !== "admin" && req.user?.role !== "franchaise") {
+    return res.status(403).json({ success: false, message: "Admin or Franchise access only." });
+  }
+
+  return next();
+}
+
 // GET /api/admin/merchants/unassigned
 //   Returns merchants with no franchise (franchaise_id IS NULL)
 //   Query: page, limit, status, search
@@ -93,12 +101,12 @@ router.put("/users/settlement-type", validateToken, requireAdmin, setAllUsersSet
 //   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
 router.put("/user/:id/settlement-type", validateToken, requireAdmin, setUserSettlementType);
 
-// ── POS Settlement Settings Admin Endpoints ────────────────────────────────
+// ── POS Settlement Settings Admin/Franchise Endpoints ──────────────────────
 // GET /api/admin/pos-setting
-router.get("/pos-setting", validateToken, requireAdmin, getPosSettings);
+router.get("/pos-setting", validateToken, requireAdminOrFranchise, getPosSettings);
 
 // POST /api/admin/pos-setting/update-t0-limit
-router.post("/pos-setting/update-t0-limit", validateToken, requireAdmin, updateT0Limit);
+router.post("/pos-setting/update-t0-limit", validateToken, requireAdminOrFranchise, updateT0Limit);
 
 // POST /api/admin/pos-setting/update-settlement-type
 router.post("/pos-setting/update-settlement-type", validateToken, requireAdmin, updateSettlementType);

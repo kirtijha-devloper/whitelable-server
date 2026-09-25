@@ -9,6 +9,7 @@ const branchxRoutes = require('../routes/payments/branchxRoutes');
 const vimoRoutes = require('../routes/vimoRoutes');
 const bbpsCCBillRoutes = require('../routes/cc/bbps/bbpsCCBillRoutes');
 const billAvenueRoutes = require('../routes/cc/billAvenue/billAvenueRoutes');
+const adminRoutes = require('../routes/adminRoutes');
 const ServiceSetting = require('../models/ServiceSetting');
 const UserServiceSetting = require('../models/UserServiceSetting');
 const User = require('../models/User');
@@ -20,6 +21,7 @@ app.use('/api/payment/v2', branchxRoutes);
 app.use('/api/vimo', vimoRoutes);
 app.use('/api/bbps-cc', bbpsCCBillRoutes);
 app.use('/api/bill-avenue', billAvenueRoutes);
+app.use('/api/admin', adminRoutes);
 app.use((err, req, res, _next) => {
   res.status(res.statusCode && res.statusCode !== 200 ? res.statusCode : 500)
     .json({ message: err.message });
@@ -27,6 +29,7 @@ app.use((err, req, res, _next) => {
 
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const merchantToken = jwt.sign({ user: { id: 2, role: 'merchant', name: 'Merchant' } }, SECRET);
+const adminToken = jwt.sign({ user: { id: 1, role: 'admin', name: 'Admin' } }, SECRET);
 
 function makeDisabledSetting(serviceKey) {
   return [{
@@ -195,5 +198,36 @@ describe('Service toggle enforcement', () => {
     expect(res.status).to.equal(403);
     expect(res.body.code).to.equal('SERVICE_DISABLED');
     expect(res.body.service_key).to.equal('cc_bill_3');
+  });
+
+  it('blocks T0 daily limit Excel upload & changes when pos_t0_settlement is disabled globally', async () => {
+    ServiceSetting.findAll = async () => makeDisabledSetting('pos_t0_settlement');
+
+    const res = await request(app)
+      .post('/api/admin/pos-setting/update-t0-limit')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send([
+        { user_id: 101, amount: 50000 },
+        { user_id: 102, amount: 75000 }
+      ]);
+
+    expect(res.status).to.equal(403);
+    expect(res.body.code).to.equal('SERVICE_DISABLED');
+    expect(res.body.service_key).to.equal('pos_t0_settlement');
+  });
+
+  it('blocks T0 daily limit Excel upload & changes when user_daily_limit is disabled globally', async () => {
+    ServiceSetting.findAll = async () => makeDisabledSetting('user_daily_limit');
+
+    const res = await request(app)
+      .post('/api/admin/pos-setting/update-t0-limit')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send([
+        { user_id: 101, amount: 50000 }
+      ]);
+
+    expect(res.status).to.equal(403);
+    expect(res.body.code).to.equal('SERVICE_DISABLED');
+    expect(res.body.service_key).to.equal('user_daily_limit');
   });
 });

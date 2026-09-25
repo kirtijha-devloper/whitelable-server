@@ -42,26 +42,30 @@ function makeFakeTxn() {
 }
 
 // ── Stub registry ─────────────────────────────────────────────────────────────
-let stubs = {};
+const originalStubs = {
+  dbTransaction: db.transaction,
+  userFindByPk: User.findByPk,
+  userFindOne: User.findOne,
+  userUpdate: User.update,
+  ledgerFindOne: Ledger.findOne,
+  ledgerCreate: Ledger.create,
+};
 
 beforeEach(() => {
-  stubs = {
-    dbTransaction:   db.transaction,
-    userFindByPk:    User.findByPk,
-    userFindOne:     User.findOne,
-    userUpdate:      User.update,
-    ledgerFindOne:   Ledger.findOne,
-    ledgerCreate:    Ledger.create,
-  };
+  User.findByPk = async () => ({ id: 42, name: 'Merchant A', role: 'merchant', wallet: 1000, status: 'active', start_ledger: true });
+  User.findOne = async () => ({ id: 42, name: 'Merchant A', role: 'merchant', wallet: 1000, status: 'active', start_ledger: true });
+  Ledger.findOne = async () => null;
+  Ledger.create = async (data) => ({ id: 77, ...data, createdAt: new Date() });
+  User.update = async () => [1];
 });
 
 afterEach(() => {
-  db.transaction   = stubs.dbTransaction;
-  User.findByPk    = stubs.userFindByPk;
-  User.findOne     = stubs.userFindOne;
-  User.update      = stubs.userUpdate;
-  Ledger.findOne   = stubs.ledgerFindOne;
-  Ledger.create    = stubs.ledgerCreate;
+  db.transaction = originalStubs.dbTransaction;
+  User.findByPk = originalStubs.userFindByPk;
+  User.findOne = originalStubs.userFindOne;
+  User.update = originalStubs.userUpdate;
+  Ledger.findOne = originalStubs.ledgerFindOne;
+  Ledger.create = originalStubs.ledgerCreate;
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,6 +221,7 @@ describe('POST /api/admin/wallet/credit', () => {
   it('returns 404 when target user does not exist or is not merchant/franchisee', async () => {
     Ledger.findOne = async () => null;
     User.findOne   = async () => null;
+    User.findByPk  = async () => null;
 
     const res = await request(app)
       .post('/api/admin/wallet/credit')
@@ -229,6 +234,12 @@ describe('POST /api/admin/wallet/credit', () => {
   it('returns 422 when target user account is inactive', async () => {
     Ledger.findOne = async () => null;
     User.findOne   = async () => ({
+      id: 42, name: 'Blocked User', role: 'merchant', wallet: 0, status: 'inactive',
+    });
+    User.findByPk  = async () => ({
+      id: 42, name: 'Blocked User', role: 'merchant', wallet: 0, status: 'inactive',
+    });
+    User.findByPk  = async () => ({
       id: 42, name: 'Blocked User', role: 'merchant', wallet: 0, status: 'inactive',
     });
 
@@ -276,8 +287,11 @@ describe('POST /api/admin/wallet/credit', () => {
     };
 
     Ledger.findOne = async () => existingLedger;
+    User.findOne   = async () => ({
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: 1500, status: 'active', start_ledger: true,
+    });
     User.findByPk  = async () => ({
-      id: 42, name: 'Merchant A', role: 'merchant', wallet: 1500, start_ledger: true,
+      id: 42, name: 'Merchant A', role: 'merchant', wallet: 1500, status: 'active', start_ledger: true,
     });
 
     const res = await request(app)
@@ -378,6 +392,7 @@ describe('POST /api/admin/wallet/debit', () => {
   it('returns 404 when target user does not exist or is not merchant/franchisee', async () => {
     Ledger.findOne = async () => null;
     User.findOne   = async () => null;
+    User.findByPk  = async () => null;
 
     const res = await request(app)
       .post('/api/admin/wallet/debit')
@@ -389,6 +404,9 @@ describe('POST /api/admin/wallet/debit', () => {
   it('returns 422 when target user account is inactive', async () => {
     Ledger.findOne = async () => null;
     User.findOne   = async () => ({
+      id: 42, name: 'Blocked User', role: 'merchant', wallet: 500, status: 'suspended',
+    });
+    User.findByPk  = async () => ({
       id: 42, name: 'Blocked User', role: 'merchant', wallet: 500, status: 'suspended',
     });
 

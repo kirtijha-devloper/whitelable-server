@@ -39,18 +39,12 @@ const logger = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Worker to process Razorpay webhook business logic
- * This runs after the notification has been stored in the database
- * 
- * Production-ready features:
- * - Automatic retries with exponential backoff
- * - Error handling and logging
- * - Idempotency checks
+ * Execute business logic for a notification directly or via queue
  */
-razorpayWebhookQueue.process(async (job) => {
-  const { txnId, status, event } = job.data;
+async function executeRzpNotificationProcessing(data) {
+  const { txnId, status, event } = data || {};
 
-  logger.log(`[Razorpay Webhook Worker] Processing business logic for txn: ${txnId}, status: ${status}`);
+  logger.log(`[Razorpay Webhook Worker Direct Async] Processing business logic for txn: ${txnId}, status: ${status}`);
 
   // we'll resolve the actual source after we fetch the notification record below
   let src = WEBHOOK_SOURCES.AGRO_AXIS;
@@ -69,6 +63,12 @@ razorpayWebhookQueue.process(async (job) => {
     src = notification.source || (event && event.source) || WEBHOOK_SOURCES.AGRO_AXIS;
 
     logger.log(`[Razorpay Webhook Worker] Notification found in database for txn: ${txnId} (source=${src})`);
+
+    // If the notification is already completed, exit early (idempotency safety check)
+    if (notification.processing_status === 'completed') {
+      logger.log(`[Razorpay Webhook Worker] Txn ${txnId} is already marked completed. Skipping.`);
+      return { success: true, txnId, status, alreadyCompleted: true };
+    }
 
     // If the webhook arrived with invalid/missing auth, we still keep the record for auditing
     // but we do not attempt normal transaction processing.
@@ -103,7 +103,6 @@ razorpayWebhookQueue.process(async (job) => {
 
       default:
         logger.log(`[Razorpay Webhook Worker] Unhandled status: ${status} for txn: ${txnId}`);
-        // You can add more status handlers here as needed
     }
 
     logger.log(`[Razorpay Webhook Worker] ✅ Successfully processed txn: ${txnId}`);
@@ -111,9 +110,15 @@ razorpayWebhookQueue.process(async (job) => {
 
   } catch (error) {
     logger.error(`[Razorpay Webhook Worker] ❌ Error processing txn: ${txnId}`, error);
-    // Re-throw to trigger Bull's retry mechanism
     throw error;
   }
+}
+
+/**
+ * Worker to process Razorpay webhook business logic from Bull queue
+ */
+razorpayWebhookQueue.process(async (job) => {
+  return await executeRzpNotificationProcessing(job.data);
 });
 
 /**
@@ -183,6 +188,8 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
       username,
       
       // Alternative field names (fallback)
+      mid,        // direct mid field (some sources)
+      tid,        // direct tid field (some sources)
       mid_number,
       tid_number,
       
@@ -502,8 +509,17 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
 
     let merchantTransactionCharge = existingChargeRecord;
     if (existingChargeRecord) {
-      if (notification.processing_status === 'completed') {
-        logger.log(`[Razorpay Webhook Worker] Transaction charge record already exists for txn: ${txnId}`);
+      const Ledger = require("../models/Ledger");
+      const existingLedger = await Ledger.findOne({
+        where: {
+          transaction_type: 'pos_credit',
+          reference_id: existingChargeRecord.id,
+          reference_table: 'MerchantTransactionCharges'
+        }
+      });
+
+      if (existingLedger || notification.processing_status === 'completed') {
+        logger.log(`[Razorpay Webhook Worker] ⚡ Transaction charge record (ID: ${existingChargeRecord.id}) and ledger entries already exist for txn: ${txnId}. Skipping duplicate processing.`);
         await notification.update({
           processed: true,
           processing_status: 'completed',
@@ -512,7 +528,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
         return;
       }
 
-      logger.log(`[Razorpay Webhook Worker] Transaction charge record exists for txn: ${txnId} but notification status is ${notification.processing_status}. Continuing to repair ledger entries if needed.`);
+      logger.log(`[Razorpay Webhook Worker] Transaction charge record exists for txn: ${txnId} but ledger entry missing. Repairing...`);
     }
 
     // Step 6: If merchant belongs to a franchise, credit the franchise its net earning
@@ -687,8 +703,9 @@ async function handleCapturedTransaction(txnId, event, notification) {
   // - Update accounting records
 }
 
-// Export for potential testing or manual triggering
+// Export for direct async processing, testing, or manual triggering
 module.exports = {
+  executeRzpNotificationProcessing,
   handleAuthorizedTransaction,
   handleFailedTransaction,
   handleVoidedTransaction,

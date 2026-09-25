@@ -112,33 +112,26 @@ async function processRzpNotification(event, source = 'agro', throwOnError = fal
         console.log(`[Webhook Service] Notification ${created ? 'created' : 'updated'}:`, txnId);
 
         /**
-         * Step 2 — Enqueue business logic processing
-         * This runs asynchronously in a separate worker process
-         * The queue handles retries, failures, and monitoring
+         * Step 2 — Direct Asynchronous Business Logic Processing (Instant setImmediate)
+         * Runs immediately in background without queue latency or Redis drop dependency.
          */
-        try {
-            await razorpayWebhookQueue.add(
-                {
+        setImmediate(async () => {
+            try {
+                const { executeRzpNotificationProcessing } = require("../../workers/razorpayWebhookWorker.js");
+                await executeRzpNotificationProcessing({
                     txnId,
                     status,
                     event,
-                    notificationId: notification.id,
-                },
-                {
-                    // Job ID based on txnId for idempotency
-                    // If same txnId is enqueued again, it will be deduplicated
-                    jobId: `rzp-webhook-${txnId}-${Date.now()}`,
-                    // Priority: higher priority for critical statuses
-                    priority: status === "FAILED" ? 10 : status === "AUTHORIZED" ? 5 : 1,
-                }
-            );
+                    notificationId: notification.id
+                });
+                console.log(`[Webhook Service] ✅ Direct async business logic completed for txn: ${txnId}`);
+            } catch (directError) {
+                console.error(`[Webhook Service] ⚠️ Direct async processing error for txn: ${txnId}`, directError?.message || directError);
+            }
+        });
 
-            console.log(`[Webhook Service] ✅ Enqueued business logic processing for txn: ${txnId}`);
-        } catch (queueError) {
-            // Log queue error but don't throw - data is already stored
-            console.error(`[Webhook Service] ⚠️ Failed to enqueue job for txn: ${txnId}`, queueError);
-            // In production, you might want to send an alert here
-        }
+        // Queue enqueue removed to prevent dual-processing race conditions.
+        // Direct setImmediate handles background execution safely.
 
     } catch (error) {
         console.error("[Webhook Service] ❌ Failed to process notification", error);
