@@ -1,10 +1,10 @@
 name: Deploy POS Server - Staging
 
+# DEPRECATED duplicate: live deploys use pos-server-deploy.yml (PR merge into Dev2 only),
+# staging deploys use pos-server-staging-deploy.yml (push to staging).
+# This workflow is kept manual-only so a VS Code push to main can NEVER auto-deploy live.
 on:
-  push:
-    branches:
-      - staging
-      - main
+  workflow_dispatch:
 
 jobs:
   deploy:

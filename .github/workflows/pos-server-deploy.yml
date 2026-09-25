@@ -1,12 +1,17 @@
 name: Deploy POS Server
 
 on:
-  push:
+  pull_request:
     branches:
-      - Dev2   # deploy branch
+      - Dev2   # live deploy only when a PR is merged into Dev2
+    types:
+      - closed
+  workflow_dispatch: # manual rollback by admin only
 
 jobs:
   deploy:
+    # Run on PR merge into Dev2, or on manual dispatch. Direct pushes to Dev2 do NOT deploy.
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'Dev2')
     runs-on: ubuntu-latest
 
     steps:

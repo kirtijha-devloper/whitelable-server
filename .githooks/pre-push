@@ -1,0 +1,17 @@
+#!/bin/sh
+# Block direct push to live branches from VS Code / CLI.
+# Live deploys ONLY via PR merge into Dev2 (pos-server-deploy.yml).
+# Install once per clone: git config core.hooksPath .githooks
+# Bypass (release manager only): git push --no-verify
+
+while read local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/Dev2|refs/heads/dev2|refs/heads/main)
+      echo "BLOCKED: direct push to $remote_ref is disabled."
+      echo "Push to 'staging' instead, then open a PR staging -> Dev2."
+      echo "Release manager bypass: git push --no-verify"
+      exit 1
+      ;;
+  esac
+done
+exit 0

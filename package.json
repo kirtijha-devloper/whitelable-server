@@ -11,7 +11,8 @@
     "seed:fix-sequences": "node scripts/fixSequences.js",
     "seed:billers": "node scripts/seed36Billers.js",
     "webhook:upi": "node scripts/testWebhook.js upi",
-    "webhook:card": "node scripts/testWebhook.js card"
+    "webhook:card": "node scripts/testWebhook.js card",
+    "protect-branches": "git config core.hooksPath .githooks && echo hooks installed"
   },
   "author": "",
   "license": "ISC",
