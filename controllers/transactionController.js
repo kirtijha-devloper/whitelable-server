@@ -366,11 +366,11 @@ const XLSX = require("xlsx");
 const { processRzpNotification } = require("../services/razorpay/webhookService");
 
 function parseUploadedFileToRows(filePath) {
-  const workbook = XLSX.readFile(filePath, { cellDates: true, raw: false });
+  const workbook = XLSX.readFile(filePath, { cellDates: true });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) return [];
   const worksheet = workbook.Sheets[firstSheetName];
-  return XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+  return XLSX.utils.sheet_to_json(worksheet, { defval: "", raw: true });
 }
 
 function mapPaytmRow(r, normalizedRow, provider, index) {
