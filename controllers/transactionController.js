@@ -583,23 +583,52 @@ function mapYesBankRow(r, normalizedRow, provider, index) {
 }
 
 function mapTeleringRow(r, normalizedRow, provider, index) {
-  const mid = String(normalizedRow['MID'] || '').replace(/'/g, '').trim();
-  const tid = String(normalizedRow['TID'] || '').replace(/'/g, '').trim();
-  const rrn = String(normalizedRow['RRN'] || '').replace(/'/g, '').trim();
+  const mid = String(
+    normalizedRow['MID'] ||
+    normalizedRow['MID_NUMBER'] ||
+    normalizedRow['MERCHANT_ID'] ||
+    normalizedRow['MID_NO'] ||
+    ''
+  ).replace(/'/g, '').trim();
+
+  const tid = String(
+    normalizedRow['TID'] ||
+    normalizedRow['TID_NUMBER'] ||
+    normalizedRow['TERMINAL_ID'] ||
+    normalizedRow['TID_NO'] ||
+    ''
+  ).replace(/'/g, '').trim();
+
+  const rrn = String(
+    normalizedRow['RRN'] ||
+    normalizedRow['RR_NUMBER'] ||
+    normalizedRow['RRN_NUMBER'] ||
+    normalizedRow['REF_NO'] ||
+    normalizedRow['REFERENCE_NUMBER'] ||
+    ''
+  ).replace(/'/g, '').trim();
+
   let txnId = rrn;
 
   if (!txnId) {
     txnId = `TEL-${tid || mid || 'UNKNOWN'}-${Date.now()}-${index}`;
   }
 
-  const rawAmt = normalizedRow['TRANSACTION_AMOUNT'] || 0;
+  const rawAmt = normalizedRow['TRANSACTION_AMOUNT'] !== undefined && normalizedRow['TRANSACTION_AMOUNT'] !== null && normalizedRow['TRANSACTION_AMOUNT'] !== ''
+    ? normalizedRow['TRANSACTION_AMOUNT']
+    : (normalizedRow['AMOUNT'] !== undefined && normalizedRow['AMOUNT'] !== null && normalizedRow['AMOUNT'] !== ''
+      ? normalizedRow['AMOUNT']
+      : (normalizedRow['TXN_AMOUNT'] !== undefined && normalizedRow['TXN_AMOUNT'] !== null && normalizedRow['TXN_AMOUNT'] !== ''
+        ? normalizedRow['TXN_AMOUNT']
+        : (normalizedRow['NET_AMOUNT'] || normalizedRow['TOTAL_AMOUNT'] || normalizedRow['AMT'] || normalizedRow['PURCHASE_AMOUNT'] || 0)));
+
   const amount = parseFloat(String(rawAmt).replace(/'/g, '').replace(/,/g, '')) || 0;
 
-  const paymentCardBrand = String(normalizedRow['SCHEME'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
-  const paymentCardType = String(normalizedRow['CARD_TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
+  const paymentCardBrand = String(normalizedRow['SCHEME'] || normalizedRow['CARD_BRAND'] || normalizedRow['BRAND'] || 'VISA').replace(/'/g, '').trim().toUpperCase();
+  const paymentCardType = String(normalizedRow['CARD_TYPE'] || normalizedRow['TYPE'] || 'CREDIT').replace(/'/g, '').trim().toUpperCase();
   const cardSubType = null;
 
-  const rawStatus = String(normalizedRow['TRANSACTION_STATUS'] || normalizedRow['RESPONSE_MESSAGE'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
+  const rawStatus = String(normalizedRow['TRANSACTION_STATUS'] || normalizedRow['STATUS'] || normalizedRow['RESPONSE_MESSAGE'] || 'SUCCESS').replace(/'/g, '').trim().toUpperCase();
 
   let status = 'FAILED';
   const isStatusSuccess = rawStatus.includes('SUCCESS') || rawStatus.includes('APPROVED') || rawStatus === 'SETTLED';
@@ -611,7 +640,7 @@ function mapTeleringRow(r, normalizedRow, provider, index) {
     status = 'FAILED';
   }
 
-  const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || new Date();
+  const rawDate = normalizedRow['TRANSACTION_DATE_TIME'] || normalizedRow['TXN_DATE_TIME'] || normalizedRow['DATE_TIME'] || normalizedRow['TRANSACTION_DATE'] || normalizedRow['DATE'] || new Date();
   const postingDate = parseDateAsIst(rawDate);
   const isDateValid = postingDate instanceof Date && !isNaN(postingDate.getTime());
 
