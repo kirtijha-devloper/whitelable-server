@@ -8,14 +8,18 @@ const {
   getAllFileUpload, 
   getFilteredTransactions,
   previewCSV,
-  uploadPinelabNotifications
+  uploadPinelabNotifications,
+  processSingleNotificationRow
 } = require("../controllers/transactionController");
+
+const validateToken = require("../middleware/validateTokenHandler");
 
 const router = express.Router();
 
 router.post("/upload-csv", upload.single("file"), uploadCSV);
 router.post("/upload-csv-preview", upload.single("file"), previewCSV);
 router.post("/upload-pinelab-notifications", upload.single("file"), uploadPinelabNotifications);
+router.post("/process-single-notification", validateToken, processSingleNotificationRow);
 
 router.route("/").get( getAllTransaction );
 

@@ -1173,6 +1173,109 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
   }
 });
 
+const processSingleNotificationRow = asyncHandler(async (req, res) => {
+  const { row, provider = 'telering', index = 0 } = req.body || {};
+  if (!row) {
+    return res.status(400).json({ success: false, message: "Row payload is required" });
+  }
+
+  const providerLower = String(provider || 'telering').trim().toLowerCase();
+  const { event, isSettlement } = mapRowToNotificationEvent(row, providerLower, index);
+
+  if (isSettlement) {
+    return res.status(200).json({
+      success: true,
+      status: 'skipped',
+      message: 'Settlement record skipped',
+      txnId: event?.txnId || null
+    });
+  }
+
+  if (!event || !event.txnId || event.status === 'FAILED') {
+    const skipReason = !event?.txnId ? 'Missing transaction ID' : 'Status is FAILED';
+    return res.status(200).json({
+      success: true,
+      status: 'failed',
+      message: skipReason,
+      txnId: event?.txnId || null
+    });
+  }
+
+  // Idempotency check: Check if notification already exists in RazorpayNotification table
+  const existing = await RazorpayNotification.findOne({ where: { txn_id: event.txnId } });
+  if (existing) {
+    if (existing.processing_status === 'completed' || existing.processed) {
+      return res.status(200).json({
+        success: true,
+        status: 'duplicate',
+        message: 'Duplicate transaction (Already completed)',
+        txnId: event.txnId
+      });
+    }
+
+    // Existing but pending/unprocessed -> process synchronously now
+    try {
+      const { handleAuthorizedTransaction } = require('../workers/razorpayWebhookWorker');
+      await handleAuthorizedTransaction(existing.txn_id, existing.event_json, existing);
+      return res.status(200).json({
+        success: true,
+        status: 'processed',
+        message: 'Transaction processed successfully',
+        txnId: event.txnId
+      });
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        status: 'failed',
+        message: err.message || 'Failed to process transaction',
+        txnId: event.txnId
+      });
+    }
+  }
+
+  // Create new notification record and process synchronously
+  try {
+    const notification = await RazorpayNotification.create({
+      txn_id: event.txnId,
+      event: event.event,
+      source: providerLower,
+      amount: event.amount,
+      currency: event.currency || 'INR',
+      status: event.status,
+      mid: event.mid,
+      tid: event.tid,
+      posting_date: event.posting_date,
+      payment_mode: event.paymentMode,
+      event_json: event,
+      processed: false,
+      processing_status: 'pending',
+      processing_error: null,
+      processed_at: null
+    });
+
+    const { handleAuthorizedTransaction } = require('../workers/razorpayWebhookWorker');
+    await handleAuthorizedTransaction(notification.txn_id, notification.event_json, notification);
+
+    const updatedNotification = await RazorpayNotification.findByPk(notification.id);
+
+    return res.status(200).json({
+      success: true,
+      status: 'inserted',
+      message: 'Transaction inserted and processed successfully',
+      txnId: event.txnId,
+      notification: updatedNotification
+    });
+  } catch (err) {
+    console.error(`[processSingleNotificationRow] Error processing txn ${event.txnId}:`, err);
+    return res.status(500).json({
+      success: false,
+      status: 'failed',
+      message: err.message || 'Error processing transaction',
+      txnId: event.txnId
+    });
+  }
+});
+
 module.exports = {
   uploadCSV,
   getAllTransaction,
@@ -1181,7 +1284,9 @@ module.exports = {
   getFilteredTransactions,
   previewCSV,
   uploadPinelabNotifications,
-  mapRowToNotificationEvent
+  mapRowToNotificationEvent,
+  processSingleNotificationRow
 };
+
 
 
