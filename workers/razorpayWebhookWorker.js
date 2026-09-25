@@ -371,6 +371,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
     });
 
     const settlementTypeSnapshot = settlementResolution.effectiveSettlement;
+
     await notification.update({
       user_id: posOperator.id,
       settlement_type: settlementTypeSnapshot

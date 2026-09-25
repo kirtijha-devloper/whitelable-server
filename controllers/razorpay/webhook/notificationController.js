@@ -122,7 +122,11 @@ const listNotifications = asyncHandler(async (req, res) => {
             startDate,  
             endDate,
             page = 1, 
-            limit = 10 
+            limit = 10,
+            settlement_type,
+            processing_status,
+            processed,
+            source
         } = req.query;
 
         const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -167,8 +171,20 @@ const listNotifications = asyncHandler(async (req, res) => {
         }
 
         // source filter (razorpay vs everlife)
-        if (req.query.source) {
-            where.source = buildSourceFilter(req.query.source);
+        if (source) {
+            where.source = buildSourceFilter(source);
+        }
+
+        if(settlement_type) {
+            where.settlement_type = settlement_type
+        }
+
+        if (processing_status) {
+            where.processing_status = {[Op.like] : `%${processing_status}%`}
+        }
+
+        if(processed) {
+            where.processed = processed
         }
 
         let formattedNotifications = [];
