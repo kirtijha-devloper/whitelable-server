@@ -1244,8 +1244,14 @@ const processSingleNotificationRow = asyncHandler(async (req, res) => {
 
     // Existing but pending/unprocessed -> process synchronously now
     try {
+      const adminContext = {
+        admin_id: req.user ? req.user.id : (req.admin ? req.admin.id : null),
+        ip_address: req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress || req.ip || null,
+        user_agent: req.headers['user-agent'] || null
+      };
+
       const { handleAuthorizedTransaction } = require('../workers/razorpayWebhookWorker');
-      await handleAuthorizedTransaction(existing.txn_id, existing.event_json, existing);
+      await handleAuthorizedTransaction(existing.txn_id, existing.event_json, existing, providerLower, adminContext);
       
       const updatedExisting = await RazorpayNotification.findByPk(existing.id);
       if (updatedExisting && updatedExisting.processing_status !== 'completed') {
@@ -1293,8 +1299,14 @@ const processSingleNotificationRow = asyncHandler(async (req, res) => {
       processed_at: null
     });
 
+    const adminContext = {
+      admin_id: req.user ? req.user.id : (req.admin ? req.admin.id : null),
+      ip_address: req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress || req.ip || null,
+      user_agent: req.headers['user-agent'] || null
+    };
+
     const { handleAuthorizedTransaction } = require('../workers/razorpayWebhookWorker');
-    await handleAuthorizedTransaction(notification.txn_id, notification.event_json, notification);
+    await handleAuthorizedTransaction(notification.txn_id, notification.event_json, notification, providerLower, adminContext);
 
     const updatedNotification = await RazorpayNotification.findByPk(notification.id);
 

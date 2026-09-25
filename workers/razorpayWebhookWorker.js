@@ -120,7 +120,7 @@ razorpayWebhookQueue.process(async (job) => {
  * Handle authorized transactions
  * Find POS operator (merchant or franchise owner) by mid/tid, calculate charges, and credit via ledger
  */
-async function handleAuthorizedTransaction(txnId, event, notification, inputSrc) {
+async function handleAuthorizedTransaction(txnId, event, notification, inputSrc, adminContext = null) {
   const src = String(inputSrc || (notification && notification.source) || (event && event.source) || '').toLowerCase();
   logger.log(`[Razorpay Webhook Worker] Processing authorized transaction: ${txnId}`);
   
@@ -362,6 +362,8 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
       });
       return;
     }
+
+    const userBalanceBefore = parseFloat(posOperator.wallet) || 0;
 
     // Stamp the POS operator link and settlement_type snapshot on the notification
     const { resolveEffectiveSettlement } = require("../services/settlementService");
@@ -619,6 +621,28 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc)
     } catch (ledgerError) {
       logger.error(`[Razorpay Webhook Worker] ⚠️ Error creating ledger entry for txn: ${txnId}`, ledgerError);
       // Don't throw - ledger is for tracking, transaction is already processed
+    }
+
+    if (adminContext && adminContext.admin_id) {
+      try {
+        await posOperator.reload();
+        const ServiceToggleAuditLog = require("../models/ServiceToggleAuditLog");
+        await ServiceToggleAuditLog.create({
+          user_id: adminContext.admin_id,
+          affected_user_id: posOperator.id,
+          service_key: 'telering_manual',
+          previous_state: false,
+          new_state: true,
+          action: 'UPLOAD',
+          balance_before: userBalanceBefore,
+          balance_after: parseFloat(posOperator.wallet) || 0,
+          ip_address: adminContext.ip_address || null,
+          user_agent: adminContext.user_agent || null
+        });
+        logger.log(`[Razorpay Webhook Worker] ✅ System log created for manual telering upload (Admin: ${adminContext.admin_id}, User: ${posOperator.id})`);
+      } catch (logErr) {
+        logger.warn(`[Razorpay Webhook Worker] ⚠️ Failed to create system log for manual upload: ${logErr.message}`);
+      }
     }
 
     // NOTE: Franchise earning is already accounted for in Step 6 via the
