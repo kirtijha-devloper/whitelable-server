@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Complaint = require('../models/Complaint');
 const User = require('../models/User');
+const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
 const validateToken = require("../middleware/validateTokenHandler");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
@@ -25,6 +26,23 @@ router.post('/submit', async (req, res) => {
       category: category || 'General',
       status: 'pending',
     });
+
+    try {
+      if (ServiceToggleAuditLog) {
+        await ServiceToggleAuditLog.create({
+          user_id,
+          affected_user_id: user_id,
+          service_key: 'complaint_ticket',
+          previous_state: false,
+          new_state: true,
+          action: 'SUBMIT',
+          ip_address: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+          user_agent: req.headers['user-agent'] || '',
+        });
+      }
+    } catch (e) {
+      console.warn('Audit log creation warning:', e.message);
+    }
 
     const userDetails = await User.findByPk(user_id, {
       attributes: ['id', 'name', 'email', 'mobile_number', 'role'],
@@ -76,6 +94,31 @@ router.put('/:id/status', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.COMPLAIN
     }
 
     await complaint.save();
+
+    try {
+      if (ServiceToggleAuditLog) {
+        const actionType = finalReply
+          ? 'ADMIN_REPLY'
+          : status === 'closed'
+          ? 'CLOSED'
+          : status === 'resolved'
+          ? 'RESOLVED'
+          : 'STATUS_UPDATE';
+
+        await ServiceToggleAuditLog.create({
+          user_id: req.user.id,
+          affected_user_id: complaint.user_id,
+          service_key: 'complaint_ticket',
+          previous_state: false,
+          new_state: true,
+          action: actionType,
+          ip_address: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+          user_agent: req.headers['user-agent'] || '',
+        });
+      }
+    } catch (e) {
+      console.warn('Audit log creation warning:', e.message);
+    }
 
     const userDetails = await User.findByPk(complaint.user_id, {
       attributes: ['id', 'name', 'email', 'mobile_number', 'role'],
