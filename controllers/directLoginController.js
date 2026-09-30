@@ -170,7 +170,9 @@ function isAllowedTestUser(targetUser) {
 }
 
 function canManageDirectLoginTokens(user) {
-  return normalizeRole(user?.role) === 'admin'
+  const role = normalizeRole(user?.role);
+  return role === 'admin'
+    || role === 'super_franchise'
     || hasPermission(user, EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE);
 }
 
@@ -203,6 +205,10 @@ function getImpersonatableRolesForOwner(owner) {
 
   if (ownerRole === 'admin') {
     return ADMIN_IMPERSONATABLE_ROLES;
+  }
+
+  if (ownerRole === 'super_franchise') {
+    return ['merchant', 'franchaise', 'franchise'];
   }
 
   if (ownerRole === 'employee' && hasPermission(owner, EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE)) {
@@ -409,15 +415,32 @@ const directLogin = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── 4b. Enforce Primary Admin vs Rest of Admins/Employees restriction ─────
+  // ── 4b. Enforce Primary Admin vs Rest of Admins/Employees/Super Franchise restriction ─────
   // Primary admins can impersonate ANY user.
+  // Super franchises can impersonate ANY user under their hierarchy.
   // Rest of admins and employees can ONLY impersonate designated test users.
   const isOwnerPrimaryAdmin = isPrimaryAdmin(tokenOwner);
-  if (!isOwnerPrimaryAdmin && !isAllowedTestUser(targetUser)) {
+  const isOwnerSuperFranchise = tokenOwner.role === 'super_franchise';
+
+  if (!isOwnerPrimaryAdmin && !isOwnerSuperFranchise && !isAllowedTestUser(targetUser)) {
     return res.status(403).json({
       success: false,
-      message: 'Only primary admins can log in as any user. Rest of admins and employees can only log in as designated test users.',
+      message: 'Only primary admins and super franchises can log in as their designated users.',
     });
+  }
+
+  if (isOwnerSuperFranchise) {
+    const targetSfId = Number(targetUser.super_franchise_id);
+    const ownerId = Number(tokenOwner.id);
+    const targetId = Number(targetUser.id);
+    const isTargetUnderSuperFranchise = targetSfId === ownerId || targetId === ownerId;
+
+    if (!isTargetUnderSuperFranchise) {
+      return res.status(403).json({
+        success: false,
+        message: 'Super Franchise can only log in as users under their hierarchy.',
+      });
+    }
   }
 
   // ── 5. Mark this (token, user_id) as used ───────────────────────────────
