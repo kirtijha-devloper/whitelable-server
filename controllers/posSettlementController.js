@@ -11,8 +11,8 @@ const { maskEmail } = require('../utils/masking');
  */
 const getPosSettings = asyncHandler(async (req, res) => {
   const role = req.user?.role;
-  if (role !== 'admin' && role !== 'franchaise') {
-    return res.status(403).json({ success: false, message: 'Admin or Franchise access only.' });
+  if (role !== 'admin' && role !== 'super_franchise' && role !== 'franchaise' && role !== 'franchise') {
+    return res.status(403).json({ success: false, message: 'Admin, Super Franchise, or Franchise access only.' });
   }
 
   const serviceSettingsService = require('../services/serviceSettingsService');
@@ -21,11 +21,14 @@ const getPosSettings = asyncHandler(async (req, res) => {
   const isGlobalEnabled = isGlobalT0Enabled && isUserDailyLimitEnabled;
 
   const where = {};
-  if (role === 'franchaise') {
+  if (role === 'super_franchise') {
+    where.super_franchise_id = req.user.id;
+    where.role = { [Op.in]: ['merchant', 'franchaise', 'franchise'] };
+  } else if (role === 'franchaise' || role === 'franchise') {
     where.franchaise_id = req.user.id;
     where.role = 'merchant';
   } else {
-    where.role = { [Op.in]: ['merchant', 'franchaise'] };
+    where.role = { [Op.in]: ['merchant', 'franchaise', 'franchise'] };
   }
 
   const merchants = await User.findAll({
@@ -187,8 +190,8 @@ function parseLimitVal(rawLimit) {
  */
 const updateT0Limit = asyncHandler(async (req, res) => {
   const role = req.user?.role;
-  if (role !== 'admin' && role !== 'franchaise') {
-    return res.status(403).json({ success: false, message: 'Admin or Franchise access only.' });
+  if (role !== 'admin' && role !== 'super_franchise' && role !== 'franchaise' && role !== 'franchise') {
+    return res.status(403).json({ success: false, message: 'Admin, Super Franchise, or Franchise access only.' });
   }
 
   const serviceSettingsService = require('../services/serviceSettingsService');
@@ -244,7 +247,13 @@ const updateT0Limit = asyncHandler(async (req, res) => {
           continue;
         }
 
-        if (role === 'franchaise' && user.franchaise_id !== req.user.id) {
+        if (role === 'super_franchise' && user.super_franchise_id !== req.user.id && user.id !== req.user.id) {
+          failedCount++;
+          results.push({ row, identifier: rawId, success: false, message: 'User not assigned to your super franchise' });
+          continue;
+        }
+
+        if ((role === 'franchaise' || role === 'franchise') && user.franchaise_id !== req.user.id) {
           failedCount++;
           results.push({ row, identifier: rawId, success: false, message: 'Merchant not assigned to your franchise' });
           continue;
@@ -302,7 +311,12 @@ const updateT0Limit = asyncHandler(async (req, res) => {
     throw new Error('User not found');
   }
 
-  if (role === 'franchaise') {
+  if (role === 'super_franchise') {
+    if (user.super_franchise_id !== req.user.id && user.id !== req.user.id) {
+      res.status(403);
+      throw new Error('You can only update T0 limits for users assigned to your super franchise.');
+    }
+  } else if (role === 'franchaise' || role === 'franchise') {
     if (user.franchaise_id !== req.user.id) {
       res.status(403);
       throw new Error('You can only update T0 limits for merchants assigned to your franchise.');

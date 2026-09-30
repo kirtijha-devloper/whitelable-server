@@ -460,7 +460,9 @@ const getUsers = asyncHandler(async (req, res) => {
         const where = {};
 
         // Role-based access control
-        if (userRole === 'franchaise') {
+        if (userRole === 'super_franchise') {
+            where.super_franchise_id = userId;
+        } else if (userRole === 'franchaise' || userRole === 'franchise') {
             // Franchise can only see their own merchants
             where.franchaise_id = userId;
         }
@@ -615,7 +617,9 @@ const searchUsers = asyncHandler(async (req, res) => {
         const offset = (parseInt(page) - 1) * parseInt(limit);
         const where = {};
 
-        if (userRole === 'franchaise') {
+        if (userRole === 'super_franchise') {
+            where.super_franchise_id = userId;
+        } else if (userRole === 'franchaise' || userRole === 'franchise') {
             where.franchaise_id = userId;
         }
 

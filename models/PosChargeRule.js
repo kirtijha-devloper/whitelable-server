@@ -107,4 +107,10 @@ const PosChargeRule = db.define('PosChargeRule', {
   tableName: 'pos_charge_rules'
 });
 
+PosChargeRule.associate = function(models) {
+  PosChargeRule.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
+  PosChargeRule.belongsTo(models.User, { foreignKey: 'franchaise_id', as: 'franchise' });
+  PosChargeRule.belongsTo(models.User, { foreignKey: 'super_franchise_id', as: 'super_franchise' });
+};
+
 module.exports = PosChargeRule;

@@ -141,7 +141,11 @@ const getUsers = asyncHandler(async (req, res) => {
     if (userRole === "admin" || isEmployeeUser) {
       where.role = "franchaise";
       if (status) where.status = status;
-    } else if (userRole === "franchaise") {
+    } else if (userRole === "super_franchise") {
+      where.role = "franchaise";
+      where.super_franchise_id = req.user.id;
+      if (status) where.status = status;
+    } else if (userRole === "franchaise" || userRole === "franchise") {
       // Franchise can only see themselves
       where.id = req.user.id;
       if (status) where.status = status;

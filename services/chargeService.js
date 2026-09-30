@@ -128,10 +128,14 @@ async function getTransactionChargeRule({
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'franchise_merchant' THEN 64
-        WHEN 'admin_merchant'     THEN 48
-        WHEN 'franchise_default'  THEN 32
-        WHEN 'admin_franchise'    THEN 16
+        WHEN 'super_franchise_merchant'  THEN 80
+        WHEN 'franchise_merchant'        THEN 64
+        WHEN 'admin_merchant'            THEN 48
+        WHEN 'super_franchise_franchise' THEN 40
+        WHEN 'super_franchise_default'   THEN 36
+        WHEN 'franchise_default'         THEN 32
+        WHEN 'admin_super_franchise'     THEN 24
+        WHEN 'admin_franchise'           THEN 16
         ELSE 0
       END
     ) AS specificity

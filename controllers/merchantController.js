@@ -125,9 +125,13 @@ const getUsers = asyncHandler(async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const where = {};
 
-    if (req.user.role === "franchaise") {
+    if (req.user.role === "franchaise" || req.user.role === "franchise") {
       const userId = req.user.id;
       if (userId) where.franchaise_id = userId;
+      if (status) where.status = status;
+    } else if (req.user.role === "super_franchise") {
+      where.role = "merchant";
+      where.super_franchise_id = req.user.id;
       if (status) where.status = status;
     } else {
       // For admin or other roles, show all merchants

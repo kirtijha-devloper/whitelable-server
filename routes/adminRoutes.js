@@ -57,8 +57,9 @@ function requireAdmin(req, res, next) {
 }
 
 function requireAdminOrFranchise(req, res, next) {
-  if (req.user?.role !== "admin" && req.user?.role !== "franchaise") {
-    return res.status(403).json({ success: false, message: "Admin or Franchise access only." });
+  const role = req.user?.role;
+  if (role !== "admin" && role !== "super_franchise" && role !== "franchaise" && role !== "franchise") {
+    return res.status(403).json({ success: false, message: "Admin, Super Franchise, or Franchise access only." });
   }
 
   return next();

@@ -191,4 +191,11 @@ const User = db.define('User', {
         }
 })
 
+User.associate = function(models) {
+  User.belongsTo(models.User, { foreignKey: 'franchaise_id', as: 'franchise_details' });
+  User.belongsTo(models.User, { foreignKey: 'super_franchise_id', as: 'super_franchise_details' });
+  User.hasMany(models.User, { foreignKey: 'franchaise_id', as: 'merchants' });
+  User.hasMany(models.User, { foreignKey: 'super_franchise_id', as: 'franchises' });
+};
+
 module.exports = User;

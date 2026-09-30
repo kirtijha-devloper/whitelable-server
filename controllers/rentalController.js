@@ -28,10 +28,10 @@ const createRental = asyncHandler(async (req, res) => {
     const role   = req.user.role;
     const userId = req.user.id;
 
-    if (role !== 'admin' && role !== 'franchaise') {
+    if (role !== 'admin' && role !== 'super_franchise' && role !== 'franchaise' && role !== 'franchise') {
       return res.status(403).json({
         success: false,
-        message: 'Only admin or franchise can create rental rates'
+        message: 'Only admin, super franchise, or franchise can create rental rates'
       });
     }
 
@@ -44,18 +44,21 @@ const createRental = asyncHandler(async (req, res) => {
       });
     }
 
-    let franchaise_id;
+    let franchaise_id = null;
+    let super_franchise_id = null;
     let targetType;
 
     if (role === 'admin') {
-      if (!target_user_type || !['franchise', 'merchant'].includes(target_user_type)) {
+      if (!target_user_type || !['super_franchise', 'franchise', 'merchant'].includes(target_user_type)) {
         return res.status(400).json({
           success: false,
-          message: 'target_user_type is required for admin ("franchise" or "merchant")'
+          message: 'target_user_type is required for admin ("super_franchise", "franchise" or "merchant")'
         });
       }
-      franchaise_id = null;
-      targetType    = target_user_type;
+      targetType = target_user_type;
+    } else if (role === 'super_franchise') {
+      super_franchise_id = userId;
+      targetType = target_user_type || 'franchise';
     } else {
       // Franchise always sets the rate for their merchants
       franchaise_id = userId;
@@ -65,7 +68,8 @@ const createRental = asyncHandler(async (req, res) => {
     // One rate per scope
     const existing = await Rental.findOne({
       where: {
-        franchaise_id: franchaise_id === null ? null : franchaise_id,
+        super_franchise_id: super_franchise_id || null,
+        franchaise_id: franchaise_id || null,
         target_user_type: targetType
       }
     });
@@ -73,6 +77,8 @@ const createRental = asyncHandler(async (req, res) => {
     if (existing) {
       const scope = role === 'admin'
         ? `admin rate for ${targetType}s`
+        : role === 'super_franchise'
+        ? `super franchise rate for ${targetType}s`
         : 'your franchise merchant rate';
       return res.status(400).json({
         success: false,
@@ -81,6 +87,7 @@ const createRental = asyncHandler(async (req, res) => {
     }
 
     const rental = await Rental.create({
+      super_franchise_id,
       franchaise_id,
       target_user_type: targetType,
       amount: parseFloat(amount),
@@ -116,12 +123,14 @@ const getRental = asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'Rental not found' });
     }
 
-    // Franchise can only view their own rate
-    if (role === 'franchaise' && rental.franchaise_id !== userId) {
+    if (role === 'super_franchise' && rental.super_franchise_id !== userId) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    // Merchants do not have direct access to rate configs
+    if ((role === 'franchaise' || role === 'franchise') && rental.franchaise_id !== userId) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
     if (role === 'merchant') {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
@@ -147,9 +156,16 @@ const listRentals = asyncHandler(async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const where  = {};
 
-    // Franchise only sees their own rate; admin sees everything
-    if (role === 'franchaise') {
-      where.franchaise_id = userId;
+    if (role === 'super_franchise') {
+      where[Op.or] = [
+        { super_franchise_id: userId },
+        { super_franchise_id: null, franchaise_id: null }
+      ];
+    } else if (role === 'franchaise' || role === 'franchise') {
+      where[Op.or] = [
+        { franchaise_id: userId },
+        { franchaise_id: null }
+      ];
     }
 
     if (status) where.status = status;
@@ -197,8 +213,11 @@ const updateRental = asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'Rental not found' });
     }
 
-    // Franchise can only update their own rate
-    if (role === 'franchaise' && rental.franchaise_id !== userId) {
+    if (role === 'super_franchise' && rental.super_franchise_id !== userId) {
+      return res.status(403).json({ success: false, message: 'You can only update your own rental rate' });
+    }
+
+    if ((role === 'franchaise' || role === 'franchise') && rental.franchaise_id !== userId) {
       return res.status(403).json({ success: false, message: 'You can only update your own rental rate' });
     }
 
@@ -237,8 +256,11 @@ const deleteRental = asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'Rental not found' });
     }
 
-    // Franchise can only delete their own rate
-    if (role === 'franchaise' && rental.franchaise_id !== userId) {
+    if (role === 'super_franchise' && rental.super_franchise_id !== userId) {
+      return res.status(403).json({ success: false, message: 'You can only delete your own rental rate' });
+    }
+
+    if ((role === 'franchaise' || role === 'franchise') && rental.franchaise_id !== userId) {
       return res.status(403).json({ success: false, message: 'You can only delete your own rental rate' });
     }
 

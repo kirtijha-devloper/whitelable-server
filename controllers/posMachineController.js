@@ -123,10 +123,19 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
 
     // Role-based access - filter by logged-in user
-    if (userRole === "franchaise" || userRole === "merchant") {
+    if (userRole === "super_franchise") {
+      const downstreamUsers = await User.findAll({
+        where: { super_franchise_id: userId },
+        attributes: ['id']
+      });
+      const userIds = [userId, ...downstreamUsers.map(u => u.id)];
+      where[Op.or] = [
+        { super_franchise_id: userId },
+        { assigned_to: { [Op.in]: userIds } }
+      ];
+    } else if (userRole === "franchaise" || userRole === "franchise" || userRole === "merchant") {
       where.assigned_to = userId;
     }
-    // Admin can see all (no additional filter)
 
     // Get total count and paginated results
     const { count, rows: posMachines } = await PosMachine.findAndCountAll({
