@@ -989,7 +989,7 @@ const registerUser = asyncHandler(async (req, res) => {
         }
 
         if (requesterRole === 'super_franchise') {
-            if (normalizedRole !== 'franchise' && normalizedRole !== 'merchant') {
+            if (normalizedRole !== 'franchise' && normalizedRole !== 'franchaise' && normalizedRole !== 'merchant') {
                 return res.status(403).json({
                     success: false,
                     message: 'Super Franchise users can create franchise or merchant users only.',
