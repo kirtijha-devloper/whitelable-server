@@ -18,16 +18,21 @@ const PosChargeRule = db.define('PosChargeRule', {
     allowNull: true,
     comment: 'franchise-specific rule; null for none'
   },
+  super_franchise_id: {
+    type: Sequelize.INTEGER,
+    allowNull: true,
+    comment: 'super-franchise-specific rule; null for none'
+  },
   created_by: {
     type: Sequelize.INTEGER,
     allowNull: true,
     comment: 'user id who created this record (used for permissions/filtering)'
   },
   scope: {
-    type: Sequelize.STRING(30),
+    type: Sequelize.STRING(50),
     allowNull: false,
     defaultValue: 'admin_default',
-    comment: 'Rule tier: admin_default | admin_franchise | admin_merchant | franchise_default | franchise_merchant'
+    comment: 'Rule tier: admin_default | admin_super_franchise | super_franchise_franchise | super_franchise_default | admin_franchise | admin_merchant | franchise_default | franchise_merchant'
   },
   payment_mode: {
     type: Sequelize.STRING,

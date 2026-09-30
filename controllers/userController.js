@@ -105,6 +105,7 @@ function prefixForRole(role) {
   switch (role) {
     case 'merchant': return 'APM';
     case 'franchaise': return 'APF';
+    case 'super_franchise': return 'APSF';
     case 'admin': return 'APA';
     case 'employee': return 'APE';
     default: return 'APX';
@@ -349,6 +350,71 @@ async function buildFranchiseSummaryMap(users) {
   }));
 }
 
+async function buildFranchiseCountMap(users) {
+  const superFranchiseUserIds = [...new Set(
+    (Array.isArray(users) ? users : [])
+      .map((user) => toPlainUser(user))
+      .filter((user) => normalizeRole(user?.role) === 'super_franchise' && user?.id)
+      .map((user) => Number(user.id))
+  )];
+
+  if (superFranchiseUserIds.length === 0) {
+    return new Map();
+  }
+
+  const franchiseCounts = await User.findAll({
+    where: {
+      role: { [Op.in]: ['franchaise', 'franchise'] },
+      super_franchise_id: {
+        [Op.in]: superFranchiseUserIds,
+      },
+    },
+    attributes: [
+      'super_franchise_id',
+      [fn('COUNT', col('id')), 'franchise_count'],
+    ],
+    group: ['super_franchise_id'],
+  });
+
+  return new Map(franchiseCounts.map((row) => {
+    const sfId = Number(row?.get ? row.get('super_franchise_id') : row.super_franchise_id);
+    const count = Number.parseInt(row?.get ? row.get('franchise_count') : row.franchise_count, 10) || 0;
+    return [sfId, count];
+  }));
+}
+
+async function buildSuperFranchiseSummaryMap(users) {
+  const superFranchiseIds = [...new Set(
+    (Array.isArray(users) ? users : [])
+      .map((user) => toPlainUser(user))
+      .filter((user) => user?.super_franchise_id)
+      .map((user) => Number(user.super_franchise_id))
+  )];
+
+  if (superFranchiseIds.length === 0) {
+    return new Map();
+  }
+
+  const superFranchises = await User.findAll({
+    where: {
+      id: { [Op.in]: superFranchiseIds },
+      role: 'super_franchise',
+    },
+    attributes: ['id', 'name', 'abheepay_id'],
+  });
+
+  return new Map(superFranchises.map((sf) => {
+    const plain = toPlainUser(sf);
+    return [
+      Number(plain.id),
+      {
+        name: plain.name || null,
+        abheepay_id: plain.abheepay_id || null,
+      },
+    ];
+  }));
+}
+
 function maskMobileNumber(mobile) {
   if (!mobile) return "";
   const str = String(mobile).trim();
@@ -438,12 +504,16 @@ const getUsers = asyncHandler(async (req, res) => {
           employeeAccessRoleMap,
           merchantCountMap,
           franchiseSummaryMap,
+          franchiseCountMap,
+          superFranchiseSummaryMap,
           serviceSettingsMap,
           userServiceSettingsMap,
         ] = await Promise.all([
           buildEmployeeAccessRoleMap(users),
           buildMerchantCountMap(users),
           buildFranchiseSummaryMap(users),
+          buildFranchiseCountMap(users),
+          buildSuperFranchiseSummaryMap(users),
           getServiceSettingsMap(),
           getUserServiceSettingsMapForUsers(users),
         ]);
@@ -467,8 +537,14 @@ const getUsers = asyncHandler(async (req, res) => {
             merchant_count: normalizedListedRole === 'franchaise'
               ? (merchantCountMap.get(Number(u.id)) || 0)
               : null,
+            franchise_count: normalizedListedRole === 'super_franchise'
+              ? (franchiseCountMap.get(Number(u.id)) || 0)
+              : null,
             franchise_details: normalizedListedRole === 'merchant'
               ? (franchiseSummaryMap.get(Number(u.franchaise_id)) || null)
+              : null,
+            super_franchise_details: u.super_franchise_id
+              ? (superFranchiseSummaryMap.get(Number(u.super_franchise_id)) || null)
               : null,
             user_service_settings: userServiceSettings,
             service_flags: getEffectiveServiceFlags(u, serviceSettingsMap, userServiceSettings),
@@ -865,6 +941,7 @@ const registerUser = asyncHandler(async (req, res) => {
         const requesterRole = normalizeRole(req.user?.role);
         const requesterIsAdmin = requesterRole === 'admin';
         const requesterCanCreateUsers = requesterIsAdmin
+            || requesterRole === 'super_franchise'
             || requesterRole === 'franchaise'
             || hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_CREATE);
 
@@ -882,7 +959,7 @@ const registerUser = asyncHandler(async (req, res) => {
             });
         }
 
-        const allowedRoles = ['merchant', 'franchise', 'admin', 'employee'];
+        const allowedRoles = ['merchant', 'franchise', 'super_franchise', 'admin', 'employee'];
         if (!allowedRoles.includes(role)) {
             return res.status(400).json({
                 success: false,
@@ -905,6 +982,22 @@ const registerUser = asyncHandler(async (req, res) => {
                 success: false,
                 message: 'You do not have permission to create users.',
             });
+        }
+
+        if (requesterRole === 'super_franchise') {
+            if (normalizedRole !== 'franchise' && normalizedRole !== 'merchant') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Super Franchise users can create franchise or merchant users only.',
+                });
+            }
+
+            if (permissionsFieldProvided || parsedEmployeeAccessRoleId.provided) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only admins can assign employee access roles.',
+                });
+            }
         }
 
         if (requesterRole === 'franchaise') {
@@ -1012,6 +1105,9 @@ const registerUser = asyncHandler(async (req, res) => {
             });
         }
 
+        const assignedFranchiseId = req.body.franchaise_id || (req.user && normalizeRole(req.user.role) === 'franchaise' && normalizedRole === 'merchant' ? req.user.id : null);
+        const assignedSuperFranchiseId = req.body.super_franchise_id || (req.user && normalizeRole(req.user.role) === 'super_franchise' ? req.user.id : (req.user && normalizeRole(req.user.role) === 'franchaise' ? req.user.super_franchise_id : null));
+
         const hashPassword = await bcrypt.hash(password, 10);
 
         // abheepay_id is the same as the generated username (token) for this user.
@@ -1074,7 +1170,8 @@ const registerUser = asyncHandler(async (req, res) => {
                         employee_access_role_id: employeeAccessRole ? employeeAccessRole.id : null,
                         company_or_shop_name: company_or_shop_name || null,
                         username,
-                        ...(req.user && req.user.role === 'franchaise' && normalizedRole === 'merchant' && { franchaise_id: req.user.id }),
+                        franchaise_id: assignedFranchiseId || (req.user && normalizeRole(req.user.role) === 'franchaise' && normalizedRole === 'merchant' ? req.user.id : null),
+                        super_franchise_id: assignedSuperFranchiseId || (req.user && normalizeRole(req.user.role) === 'super_franchise' ? req.user.id : (req.user && normalizeRole(req.user.role) === 'franchaise' ? req.user.super_franchise_id : null)),
                     }, { transaction: t });
                     break;
                 } catch (createErr) {
@@ -2333,6 +2430,77 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
   }
 });
 
+const promoteUserToSuperFranchise = asyncHandler(async (req, res) => {
+  const requesterRole = normalizeRole(req.user?.role);
+
+  if (requesterRole !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Admin role required to promote user to super franchise.' });
+  }
+
+  const targetId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    return res.status(400).json({ success: false, message: 'Valid user ID is required.' });
+  }
+
+  const targetUser = await User.findByPk(targetId);
+  if (!targetUser) {
+    return res.status(404).json({ success: false, message: 'User not found.' });
+  }
+
+  const normalizedTargetRole = normalizeRole(targetUser.role);
+  if (normalizedTargetRole === 'super_franchise') {
+    return res.status(400).json({ success: false, message: 'User is already a super franchise.' });
+  }
+
+  if (normalizedTargetRole === 'admin') {
+    return res.status(400).json({ success: false, message: 'Cannot promote admin user.' });
+  }
+
+  const trx = await db.transaction();
+  try {
+    let newUsername = null;
+    if (targetUser.username && /^(APM|APF)(\d{5})$/.test(targetUser.username)) {
+      const candidate = targetUser.username.replace(/^(APM|APF)/, 'APSF');
+      const conflict = await User.findOne({
+        where: {
+          id: { [Op.ne]: targetUser.id },
+          [Op.or]: [{ username: candidate }, { abheepay_id: candidate }],
+        },
+        transaction: trx,
+      });
+      if (!conflict) {
+        newUsername = candidate;
+      }
+    }
+
+    if (!newUsername) {
+      newUsername = await allocateUsernameForRole('super_franchise', trx);
+    }
+
+    targetUser.role = 'super_franchise';
+    targetUser.username = newUsername;
+    targetUser.abheepay_id = newUsername;
+    targetUser.franchaise_id = null;
+    targetUser.super_franchise_id = null;
+    targetUser.is_approved = true;
+    targetUser.status = 'active';
+
+    await targetUser.save({ transaction: trx });
+    await trx.commit();
+
+    const { password: _pw, ...safeUser } = serializeUserWithResolvedAccessRole(targetUser, null);
+    return res.status(200).json({
+      success: true,
+      message: 'User promoted to Super Franchise successfully.',
+      data: safeUser,
+    });
+  } catch (error) {
+    await trx.rollback();
+    console.error('promoteUserToSuperFranchise error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to promote user.' });
+  }
+});
+
 /**
  * PUT /api/user/:id/enable-ledger
  * Admin or employee with ledger.manage. Enables ledger tracking for the specified user (start_ledger = true).
@@ -2374,4 +2542,4 @@ const enableLedger = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, searchUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, promoteEmployeeToAdmin, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger }
+module.exports = { registerUser, loginUser, currentUser, approveUser, getUsers, searchUsers, getUserByID, userCount, updatePassword, updateUser, promoteUserToFranchise, promoteUserToSuperFranchise, promoteEmployeeToAdmin, updateUserStatus, updateFranchaiseID, sendOtp, sendOtp_bck, verifyOtp, verifyOtp_bck, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger }

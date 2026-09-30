@@ -231,6 +231,19 @@ function isAdmin(user) {
   return normalizeRole(user?.role) === 'admin';
 }
 
+function isSuperFranchise(user) {
+  return normalizeRole(user?.role) === 'super_franchise';
+}
+
+function isFranchise(user) {
+  const role = normalizeRole(user?.role);
+  return role === 'franchaise' || role === 'franchise';
+}
+
+function isMerchant(user) {
+  return normalizeRole(user?.role) === 'merchant';
+}
+
 function isEmployee(user) {
   return normalizeRole(user?.role) === 'employee';
 }
@@ -279,13 +292,26 @@ function isSelfTarget(requester, targetUser) {
 }
 
 function isOwnMerchantTarget(requester, targetUser) {
-  return normalizeRole(requester?.role) === 'franchaise'
-    && normalizeRole(targetUser?.role) === 'merchant'
+  return isFranchise(requester)
+    && isMerchant(targetUser)
     && Number(targetUser?.franchaise_id) === Number(requester?.id);
+}
+
+function isOwnFranchiseTarget(requester, targetUser) {
+  return isSuperFranchise(requester)
+    && isFranchise(targetUser)
+    && Number(targetUser?.super_franchise_id) === Number(requester?.id);
 }
 
 function canFranchiseAccessTarget(requester, targetUser) {
   return isSelfTarget(requester, targetUser) || isOwnMerchantTarget(requester, targetUser);
+}
+
+function canSuperFranchiseAccessTarget(requester, targetUser) {
+  if (isSelfTarget(requester, targetUser)) return true;
+  if (isOwnFranchiseTarget(requester, targetUser)) return true;
+  if (isMerchant(targetUser) && Number(targetUser?.super_franchise_id) === Number(requester?.id)) return true;
+  return false;
 }
 
 module.exports = {
@@ -298,11 +324,16 @@ module.exports = {
   buildEmployeeAccessRoleSummary,
   getResolvedPermissions,
   isAdmin,
+  isSuperFranchise,
+  isFranchise,
+  isMerchant,
   isEmployee,
   hasPermission,
   hasAnyPermission,
   getEffectiveRole,
   isSelfTarget,
   isOwnMerchantTarget,
+  isOwnFranchiseTarget,
   canFranchiseAccessTarget,
+  canSuperFranchiseAccessTarget,
 };

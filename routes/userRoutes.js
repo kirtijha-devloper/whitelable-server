@@ -2,7 +2,7 @@ const express = require("express");
 
 const router = express.Router();
 
-const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, searchUsers, updatePassword, updateUser, promoteUserToFranchise, promoteEmployeeToAdmin, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger} = require("../controllers/userController");
+const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, searchUsers, updatePassword, updateUser, promoteUserToFranchise, promoteUserToSuperFranchise, promoteEmployeeToAdmin, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger} = require("../controllers/userController");
 const { getActiveLoginPopups } = require("../controllers/loginPopupController");
 const validateToken = require("../middleware/validateTokenHandler");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
@@ -61,6 +61,8 @@ router.put("/update-password", validateToken, updatePassword);
 router.put("/:id", validateToken, updateUser);
 router.post("/:id/promote-to-franchise", validateToken, promoteUserToFranchise);
 router.put("/:id/promote-to-franchise", validateToken, promoteUserToFranchise); // fallback for PUT calls
+router.post("/:id/promote-to-super-franchise", validateToken, promoteUserToSuperFranchise);
+router.put("/:id/promote-to-super-franchise", validateToken, promoteUserToSuperFranchise); // fallback for PUT calls
 router.post("/:id/promote-to-admin", validateToken, promoteEmployeeToAdmin);
 router.put("/:id/promote-to-admin", validateToken, promoteEmployeeToAdmin); // fallback for PUT calls
 

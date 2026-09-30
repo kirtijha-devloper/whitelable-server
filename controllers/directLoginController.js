@@ -61,8 +61,8 @@ const DIRECT_LOGIN_OWNER_ATTRIBUTES = [
   'status',
   'employee_access_role_id',
 ];
-const ADMIN_IMPERSONATABLE_ROLES = ['merchant', 'franchaise', 'franchise', 'employee'];
-const EMPLOYEE_IMPERSONATABLE_ROLES = ['merchant', 'franchaise', 'franchise'];
+const ADMIN_IMPERSONATABLE_ROLES = ['merchant', 'franchaise', 'franchise', 'super_franchise', 'employee'];
+const EMPLOYEE_IMPERSONATABLE_ROLES = ['merchant', 'franchaise', 'franchise', 'super_franchise'];
 
 // ---------------------------------------------------------------------------
 // Helpers

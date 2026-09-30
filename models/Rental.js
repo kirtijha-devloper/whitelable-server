@@ -14,6 +14,10 @@ const Rental = db.define('Rental', {
     type: Sequelize.INTEGER,
     allowNull: true
   },
+  super_franchise_id: {
+    type: Sequelize.INTEGER,
+    allowNull: true
+  },
   // Who this rate is charged to:
   //   'franchise' – admin charges franchises at this rate
   //   'merchant'  – admin charges standalone merchants, OR franchise charges their merchants

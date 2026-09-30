@@ -134,6 +134,7 @@ app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/admin", require("./routes/adminRoutes"));
 app.use("/api/admin/employee-access-roles", require("./routes/employeeAccessRoleRoutes"));
 app.use("/api/franchaise", require("./routes/franchaiseRoutes"));
+app.use("/api/super-franchise", require("./routes/superFranchiseRoutes"));
 app.use("/api/merchant", require("./routes/merchantRoutes"));
 app.use('/api/payment/v1', require('./routes/payments/sddsRoutes'));
 app.use('/api/payment/v2', require('./routes/payments/branchxRoutes'));

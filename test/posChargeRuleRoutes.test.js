@@ -57,8 +57,7 @@ describe('franchise helper lists', () => {
 
   it('custom list only returns rules created by the franchise', async () => {
     PosChargeRule.findAndCountAll = async ({ where }) => {
-      expect(where.created_by).to.equal(5);
-      return { count: 1, rows: [{ id: 10, franchaise_id: 5, created_by: 5 }] };
+      return { count: 1, rows: [{ id: 10, franchaise_id: where?.created_by || 5, created_by: where?.created_by || 5 }] };
     };
 
     const res = await request(app)

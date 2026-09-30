@@ -56,6 +56,9 @@ function getCardBrandCandidates(cardBrand) {
 
 const VALID_SCOPES = [
   'admin_default',
+  'admin_super_franchise',
+  'super_franchise_franchise',
+  'super_franchise_default',
   'admin_franchise',
   'admin_merchant',
   'franchise_default',
@@ -313,18 +316,25 @@ function calculateCharge(amount, rule) {
 /**
  * Derive the correct scope value from the caller's role and the target ids.
  *
- * @param {string}      callerRole    'admin' | 'franchaise' | 'franchise'
- * @param {number|null} userId        target merchant id (null → default rule)
- * @param {number|null} franchiseId   target franchise id
- * @returns {string}                  one of VALID_SCOPES
+ * @param {string}      callerRole        'admin' | 'super_franchise' | 'franchaise' | 'franchise'
+ * @param {number|null} userId            target merchant id (null → default rule)
+ * @param {number|null} franchiseId       target franchise id
+ * @param {number|null} superFranchiseId  target super franchise id
+ * @returns {string}                      one of VALID_SCOPES
  */
-function deriveScope(callerRole, userId, franchiseId) {
-  const isAdmin = callerRole === 'admin';
+function deriveScope(callerRole, userId, franchiseId, superFranchiseId) {
+  const normalizedCaller = callerRole === 'franchise' ? 'franchaise' : callerRole;
 
-  if (isAdmin) {
-    if (userId)      return 'admin_merchant';
+  if (normalizedCaller === 'admin') {
+    if (userId) return 'admin_merchant';
     if (franchiseId) return 'admin_franchise';
+    if (superFranchiseId) return 'admin_super_franchise';
     return 'admin_default';
+  }
+
+  if (normalizedCaller === 'super_franchise') {
+    if (franchiseId) return 'super_franchise_franchise';
+    return 'super_franchise_default';
   }
 
   // franchise caller

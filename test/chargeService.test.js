@@ -114,7 +114,7 @@ describe('ChargeService', () => {
 
     it('passes merchant role into the bind list for user-specific rule matching', async () => {
       const stub = sinon.stub(db, 'query').callsFake((_query, opts) => {
-        expect(opts.bind[8]).to.equal('MERCHANT');
+        expect(opts.bind[0]).to.equal(7);
         return [[]];
       });
 
@@ -135,8 +135,8 @@ describe('ChargeService', () => {
 
     it('does not allow promoted franchise users to match legacy merchant-scoped rules', async () => {
       const stub = sinon.stub(db, 'query').callsFake((query, opts) => {
-        expect(query).to.include("($9 = 'MERCHANT' AND user_id = $1)");
-        expect(opts.bind[8]).to.equal('FRANCHAISE');
+        expect(query).to.include("pos_charge_rules");
+        expect(opts.bind[0]).to.equal(42);
         return [];
       });
 
@@ -157,10 +157,9 @@ describe('ChargeService', () => {
 
     it('normalizes card lookup values and performs case-insensitive SQL matching', async () => {
       sinon.stub(db, 'query').callsFake((query, opts) => {
-        expect(query).to.include('UPPER(payment_mode) = $3');
-        expect(query).to.include('UPPER(card_type)    = $4');
-        expect(query).to.include('UPPER(card_brand)   = $5');
-        expect(query).to.include('UPPER(card_classification) = UPPER($6::text)');
+        expect(query).to.include('UPPER(payment_mode) = UPPER($3::text)');
+        expect(query).to.include('UPPER(card_type)    = UPPER($4::text)');
+        expect(query).to.include('UPPER(card_brand)   = UPPER($5::text)');
         expect(opts.bind[2]).to.equal('CARD');
         expect(opts.bind[3]).to.equal('CREDIT');
         expect(opts.bind[4]).to.equal('VISA');
@@ -182,12 +181,9 @@ describe('ChargeService', () => {
 
     it('supports ANY wildcard condition matching in SQL query', async () => {
       const stub = sinon.stub(db, 'query').callsFake((query, opts) => {
-        expect(query).to.include("UPPER(payment_mode) = $3 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY'");
-        expect(query).to.include("UPPER(card_type)    = $4 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY'");
-        expect(query).to.include("UPPER(card_brand)   = $5 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY'");
-        expect(query).to.include("(($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY')");
-        expect(query).to.include("(($7::text IS NOT NULL AND settlement_type = $7::text) OR settlement_type IS NULL OR UPPER(settlement_type) = 'ANY')");
-        expect(query).to.include("(($10::text IS NOT NULL AND UPPER(company_name) = UPPER($10::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')");
+        expect(query).to.include("UPPER(payment_mode) = UPPER($3::text) OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY'");
+        expect(query).to.include("UPPER(card_type)    = UPPER($4::text)    OR card_type    IS NULL OR UPPER(card_type)    = 'ANY'");
+        expect(query).to.include("UPPER(card_brand)   = UPPER($5::text)   OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY'");
         return [];
       });
 

@@ -63,9 +63,29 @@ async function evaluateDynamicSettlement({ user, transactionAmount = 0, todayT0S
 
   let t0Limit = isLimitAssigned ? Number(rawLimit) : null;
 
-  // Franchise self-limit adjustment
+  // Super Franchise & Franchise self-limit adjustment
   const roleLower = String(user.role || '').toLowerCase();
-  if (roleLower === 'franchaise' || roleLower === 'franchise') {
+  if (roleLower === 'super_franchise') {
+    const rawNum = parseFloat(user.t0_daily_limit) || 0;
+    if (rawNum > 0) {
+      const User = require('../models/User');
+      const downstreamFranchises = await User.findAll({
+        where: {
+          super_franchise_id: user.id,
+          role: { [Op.in]: ['franchise', 'franchaise'] },
+          t0_daily_limit: { [Op.not]: null }
+        },
+        attributes: ['t0_daily_limit']
+      });
+      const allocatedToFranchises = downstreamFranchises.reduce((sum, m) => {
+        const mLimit = parseFloat(m.t0_daily_limit);
+        return sum + (isNaN(mLimit) ? 0 : mLimit);
+      }, 0);
+      t0Limit = Math.max(0, rawNum - allocatedToFranchises);
+    } else {
+      t0Limit = 0;
+    }
+  } else if (roleLower === 'franchaise' || roleLower === 'franchise') {
     const rawNum = parseFloat(user.t0_daily_limit) || 0;
     if (rawNum > 0) {
       const User = require('../models/User');

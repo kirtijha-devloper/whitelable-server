@@ -150,6 +150,10 @@ const User = db.define('User', {
         //   key: 'id'
         // }
       },
+      super_franchise_id: {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+      },
       company_or_shop_name: {
         type: Sequelize.STRING,
         allowNull: true,
