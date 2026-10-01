@@ -120,7 +120,7 @@ const EMPLOYEE_PERMISSION_VALUES = Object.freeze(Object.values(EMPLOYEE_PERMISSI
 const EMPLOYEE_PERMISSION_SET = new Set(EMPLOYEE_PERMISSION_VALUES);
 
 function normalizeRole(role) {
-  return role === 'franchise' ? 'franchaise' : role;
+  return role === 'franchise' ? 'franchaise' : role === 'super_franchise' ? 'super_franchise' : role;
 }
 
 function normalizePermissions(permissions) {

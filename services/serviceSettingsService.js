@@ -22,7 +22,7 @@ const SERVICE_SETTING_KEYS = Object.freeze({
 const SERVICE_SETTING_KEY_LIST = Object.freeze(Object.values(SERVICE_SETTING_KEYS));
 const SERVICE_SETTING_KEY_SET = new Set(SERVICE_SETTING_KEY_LIST);
 
-const USER_SERVICE_TARGET_ROLES = Object.freeze(['merchant', 'franchaise']);
+const USER_SERVICE_TARGET_ROLES = Object.freeze(['merchant', 'franchaise','super_franchise']);
 const USER_SERVICE_TARGET_ROLE_SET = new Set(USER_SERVICE_TARGET_ROLES);
 
 function buildDefaultServiceSettingsMap() {
@@ -587,7 +587,7 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
   // Find all merchant and franchise users
   const targetUsers = await User.findAll({
     where: {
-      role: { [Op.in]: ['merchant', 'franchaise'] },
+      role: { [Op.in]: ['merchant', 'franchaise', 'super_franchise'] },
     },
     attributes: ['id', 'role', 'status', 'is_payout_enabled', 'settlement_type'],
   });
@@ -604,7 +604,7 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
     await User.update(
       { settlement_type: newSettlementType },
       {
-        where: { role: { [Op.in]: ['merchant', 'franchaise'] } },
+        where: { role: { [Op.in]: ['merchant', 'franchaise', 'super_franchise'] } },
         ...transactionOpts,
       }
     );
