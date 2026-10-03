@@ -7,6 +7,7 @@ const db = require('../config/database');
 const {
   createRentalChargeEntry,
   createRentalCreditEntry,
+  createSuperFranchiseEarningEntry,
 } = require('../services/ledgerService');
 
 /**
@@ -53,10 +54,13 @@ async function chargeRentals() {
 
   // Load admin rates (one for franchises, one for standalone merchants)
   const adminFranchiseRate = await Rental.findOne({
-    where: { franchaise_id: null, target_user_type: 'franchise', status: 'active' }
+    where: { franchaise_id: null, super_franchise_id: null, target_user_type: 'franchise', status: 'active' }
   });
   const adminMerchantRate = await Rental.findOne({
-    where: { franchaise_id: null, target_user_type: 'merchant', status: 'active' }
+    where: { franchaise_id: null, super_franchise_id: null, target_user_type: 'merchant', status: 'active' }
+  });
+  const adminSuperFranchiseRate = await Rental.findOne({
+    where: { franchaise_id: null, super_franchise_id: null, target_user_type: 'super_franchise', status: 'active' }
   });
 
   // Cache per-franchise rates to avoid redundant DB queries
@@ -137,16 +141,43 @@ async function chargeRentals() {
           }, { transaction });
         }
 
-        // Step 3: debit franchise by admin's franchise rate
-        if (adminFranchiseRate) {
-          const platformAmount = parseFloat(adminFranchiseRate.amount);
+        // Step 3: debit franchise by super franchise's rate (if under SF) or admin's franchise rate
+        const User = require('../models/User');
+        const franchiseUser = await User.findByPk(franchise_id, { transaction });
+        let effectiveFranchiseRate = adminFranchiseRate;
+        if (franchiseUser && franchiseUser.super_franchise_id) {
+          const sfOwnFranchiseRate = await Rental.findOne({
+            where: { super_franchise_id: franchiseUser.super_franchise_id, target_user_type: 'franchise', status: 'active' }
+          });
+          if (sfOwnFranchiseRate) {
+            effectiveFranchiseRate = sfOwnFranchiseRate;
+          }
+        }
+
+        if (effectiveFranchiseRate) {
+          const platformAmount = parseFloat(effectiveFranchiseRate.amount);
           await createRentalChargeEntry({
             userId:      franchise_id,
             billingId,
             amount:      platformAmount,
-            description: `POS rental platform fee: ₹${platformAmount}`,
-            metadata:    { ...baseMetadata, charged_by: 'admin' }
+            description: `POS rental fee: ₹${platformAmount}`,
+            metadata:    { ...baseMetadata, charged_by: franchiseUser?.super_franchise_id ? 'super_franchise' : 'admin' }
           }, { transaction });
+
+          // Step 3b: if franchise belongs to a super franchise, credit SF the spread
+          if (franchiseUser && franchiseUser.super_franchise_id && adminSuperFranchiseRate) {
+            const sfAmount = parseFloat(adminSuperFranchiseRate.amount);
+            const sfEarning = platformAmount - sfAmount;
+            if (sfEarning > 0) {
+              await createRentalCreditEntry({
+                userId:      franchiseUser.super_franchise_id,
+                billingId,
+                amount:      sfEarning,
+                description: `POS rental SF earning from franchise #${franchise_id}: ₹${sfEarning}`,
+                metadata:    { ...baseMetadata, franchise_id, charged_by: 'admin' }
+              }, { transaction });
+            }
+          }
         }
 
       } else if (assigned_to_role === 'merchant' && !franchise_id) {
@@ -164,8 +195,49 @@ async function chargeRentals() {
 
       } else if (assigned_to_role === 'franchaise') {
         // ── Case C: franchise holds the machine directly ────────────────────
-        if (adminFranchiseRate) {
-          const amount = parseFloat(adminFranchiseRate.amount);
+        const User = require('../models/User');
+        const franchiseUser = await User.findByPk(assigned_to, { transaction });
+        let effectiveFranchiseRate = adminFranchiseRate;
+
+        if (franchiseUser && franchiseUser.super_franchise_id) {
+          const sfOwnFranchiseRate = await Rental.findOne({
+            where: { super_franchise_id: franchiseUser.super_franchise_id, target_user_type: 'franchise', status: 'active' }
+          });
+          if (sfOwnFranchiseRate) {
+            effectiveFranchiseRate = sfOwnFranchiseRate;
+          }
+        }
+
+        if (effectiveFranchiseRate) {
+          const amount = parseFloat(effectiveFranchiseRate.amount);
+          await createRentalChargeEntry({
+            userId:      assigned_to,
+            billingId,
+            amount,
+            description: `POS rental charge: ₹${amount}`,
+            metadata:    baseMetadata
+          }, { transaction });
+
+          // If franchise belongs to a super franchise, credit SF the spread
+          if (franchiseUser && franchiseUser.super_franchise_id && adminSuperFranchiseRate) {
+            const sfAmount = parseFloat(adminSuperFranchiseRate.amount);
+            const sfEarning = amount - sfAmount;
+            if (sfEarning > 0) {
+              await createRentalCreditEntry({
+                userId:      franchiseUser.super_franchise_id,
+                billingId,
+                amount:      sfEarning,
+                description: `POS rental SF earning from franchise #${assigned_to}: ₹${sfEarning}`,
+                metadata:    { ...baseMetadata, charged_by: 'admin' }
+              }, { transaction });
+            }
+          }
+        }
+
+      } else if (assigned_to_role === 'super_franchise') {
+        // ── Case D: super franchise holds the machine directly ──────────────
+        if (adminSuperFranchiseRate) {
+          const amount = parseFloat(adminSuperFranchiseRate.amount);
           await createRentalChargeEntry({
             userId:      assigned_to,
             billingId,

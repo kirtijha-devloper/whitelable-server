@@ -518,13 +518,26 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
         const gstAmount = chargeResult.gstAmount || 0;
         const netAmount = parseFloat((transactionAmount - chargeAmount - gstAmount).toFixed(2));
 
-        // Franchise handling (admin charge for franchise)
+        // Super franchise resolution
+        let superFranchiseChargeAmount = 0;
+        let superFranchiseEarning = 0;
+        let resolvedSuperFranchiseId = null;
+        if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
+            const User = require('../../../models/User');
+            const franchiseUser = await User.findByPk(posOperator.franchaise_id);
+            resolvedSuperFranchiseId = franchiseUser ? franchiseUser.super_franchise_id : null;
+        } else if ((posOperator.role === 'franchaise' || posOperator.role === 'franchise') && posOperator.super_franchise_id) {
+            resolvedSuperFranchiseId = posOperator.super_franchise_id;
+        }
+
+        // Franchise handling (charge for franchise)
         let franchiseChargeAmount = 0;
         let franchiseEarning = 0;
 
         if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
             const franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
                 franchiseId: posOperator.franchaise_id,
+                superFranchiseId: resolvedSuperFranchiseId,
                 paymentMode,
                 cardType: paymentCardType,
                 cardBrand: paymentCardBrand,
@@ -540,6 +553,26 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                 franchiseChargeAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
             }
             franchiseEarning = parseFloat((chargeAmount - franchiseChargeAmount).toFixed(2));
+        }
+
+        if (resolvedSuperFranchiseId) {
+            const sfRule = await ChargeService.getAdminChargeRuleForSuperFranchise({
+                superFranchiseId: resolvedSuperFranchiseId,
+                paymentMode,
+                cardType: paymentCardType,
+                cardBrand: paymentCardBrand,
+                classification: classificationFromJson,
+                settlement: posOperator.settlement_type || null,
+                amount: transactionAmount
+            });
+
+            if (sfRule) {
+                superFranchiseChargeAmount = ChargeService.calculateCharge(transactionAmount, sfRule).charge;
+            } else {
+                const DEFAULT_MDR = 2.5;
+                superFranchiseChargeAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
+            }
+            superFranchiseEarning = parseFloat((franchiseChargeAmount - superFranchiseChargeAmount).toFixed(2));
         }
 
         const merchantTransactionCharge = await MerchantTransactionCharge.create({
@@ -611,6 +644,29 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                 });
             } catch (earnError) {
                 console.error('[adminProcessNotificationWithCustomCharge] Franchise earning entry failed:', earnError);
+            }
+        }
+
+        // Super franchise earning credit
+        if (resolvedSuperFranchiseId && superFranchiseEarning > 0) {
+            try {
+                await ledgerService.createSuperFranchiseEarningEntry({
+                    userId: resolvedSuperFranchiseId,
+                    razorpayTransactionId: notification.txn_id,
+                    amount: superFranchiseEarning,
+                    description: `SF earning on Razorpay txn ${notification.txn_id} | RRN: ${rrNumber || 'N/A'}`,
+                    metadata: {
+                        merchant_id: posOperator.id,
+                        franchise_id: posOperator.franchaise_id || posOperator.id,
+                        transaction_amount: transactionAmount,
+                        charge_amount: chargeAmount,
+                        franchise_charge: franchiseChargeAmount,
+                        super_franchise_charge: superFranchiseChargeAmount,
+                        charge_rate: effectiveChargePercent
+                    }
+                });
+            } catch (earnError) {
+                console.error('[adminProcessNotificationWithCustomCharge] Super franchise earning entry failed:', earnError);
             }
         }
 

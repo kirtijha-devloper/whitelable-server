@@ -427,6 +427,24 @@ async function createFranchiseEarningEntry({
   });
 }
 
+// convenience wrapper for super franchise earnings
+async function createSuperFranchiseEarningEntry({
+  userId,
+  razorpayTransactionId,
+  amount,
+  description = null,
+  metadata = null,
+}) {
+  return await createLedgerEntry({
+    userId,
+    transactionType: 'pos_super_franchise_earning',
+    transactionId: razorpayTransactionId,
+    description: description || `Super franchise earning on txn: ${razorpayTransactionId} — ₹${amount}`,
+    credit: amount,
+    metadata,
+  });
+}
+
 /**
  * Create a ledger debit entry for a rental charge.
  *
@@ -691,6 +709,7 @@ module.exports = {
   createWalletTransactionEntry,
   createCommissionEntry,
   createFranchiseEarningEntry,
+  createSuperFranchiseEarningEntry,
   createRentalChargeEntry,
   createRentalCreditEntry,
   createPayoutEntry,

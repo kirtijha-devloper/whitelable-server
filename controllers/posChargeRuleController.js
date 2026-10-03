@@ -107,6 +107,13 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       return res.status(403).json({ success: false, message: 'Cannot set rule for another super franchise' });
     }
     effectiveSuperFranchise = req.user.id;
+
+    if (franchaise_id) {
+      const targetFranchise = await User.findByPk(franchaise_id);
+      if (!targetFranchise || String(targetFranchise.super_franchise_id) !== String(req.user.id)) {
+        return res.status(403).json({ success: false, message: 'Franchise does not belong to your super franchise' });
+      }
+    }
   }
 
   if (req.user.role === 'franchaise' || req.user.role === 'franchise') {

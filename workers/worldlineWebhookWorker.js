@@ -223,12 +223,24 @@ worldlineWebhookQueue.process(async (job) => {
     const gstAmount = chargeResult.gstAmount || 0;
     const netAmount = parseFloat((transactionAmount - chargeAmount - gstAmount).toFixed(2));
 
+    // Super franchise earning calculation resolution
+    let superFranchiseChargeAmount = 0;
+    let superFranchiseEarning = 0;
+    let resolvedSuperFranchiseId = null;
+    if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
+      const franchiseUser = await User.findByPk(posOperator.franchaise_id);
+      resolvedSuperFranchiseId = franchiseUser ? franchiseUser.super_franchise_id : null;
+    } else if ((posOperator.role === 'franchaise' || posOperator.role === 'franchise') && posOperator.super_franchise_id) {
+      resolvedSuperFranchiseId = posOperator.super_franchise_id;
+    }
+
     // Franchise earning calculation if applicable
     let franchiseChargeAmount = 0;
     let franchiseEarning = 0;
     if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
       const franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
         franchiseId: posOperator.franchaise_id,
+        superFranchiseId: resolvedSuperFranchiseId,
         paymentMode: paymentMode,
         cardType: 'CREDIT',
         cardBrand: cardScheme,
@@ -243,6 +255,26 @@ worldlineWebhookQueue.process(async (job) => {
         franchiseChargeAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
       }
       franchiseEarning = parseFloat((chargeAmount - franchiseChargeAmount).toFixed(2));
+    }
+
+    if (resolvedSuperFranchiseId) {
+      const sfRule = await ChargeService.getAdminChargeRuleForSuperFranchise({
+        superFranchiseId: resolvedSuperFranchiseId,
+        paymentMode: paymentMode,
+        cardType: 'CREDIT',
+        cardBrand: cardScheme,
+        settlement: posOperator.settlement_type || null,
+        amount: transactionAmount
+      });
+
+      if (sfRule) {
+        superFranchiseChargeAmount = ChargeService.calculateCharge(transactionAmount, sfRule).charge;
+      } else {
+        const DEFAULT_MDR = 2.5;
+        superFranchiseChargeAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
+      }
+      superFranchiseEarning = parseFloat((franchiseChargeAmount - superFranchiseChargeAmount).toFixed(2));
+      logger.log(`[Worldline Webhook Worker] Super franchise charge: ${superFranchiseChargeAmount}, earning: ${superFranchiseEarning}`);
     }
 
     // Create MerchantTransactionCharge
@@ -306,6 +338,28 @@ worldlineWebhookQueue.process(async (job) => {
         });
       } catch (earnError) {
         logger.error(`[Worldline Webhook Worker] Franchise earning entry failed: ${earnError.message}`);
+      }
+    }
+
+    // Handle super franchise earning entry if present
+    if (resolvedSuperFranchiseId && superFranchiseEarning > 0) {
+      try {
+        await ledgerService.createSuperFranchiseEarningEntry({
+          userId: resolvedSuperFranchiseId,
+          razorpayTransactionId: txnId,
+          amount: superFranchiseEarning,
+          description: `SF earning on Worldline POS txn ${txnId} | RRN: ${notification.rrn || 'N/A'}`,
+          metadata: {
+            merchant_id: posOperator.id,
+            franchise_id: posOperator.franchaise_id || posOperator.id,
+            transaction_amount: transactionAmount,
+            charge_amount: chargeAmount,
+            franchise_charge: franchiseChargeAmount,
+            super_franchise_charge: superFranchiseChargeAmount
+          }
+        });
+      } catch (earnError) {
+        logger.error(`[Worldline Webhook Worker] Super franchise earning entry failed: ${earnError.message}`);
       }
     }
 

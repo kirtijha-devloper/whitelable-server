@@ -42,6 +42,11 @@ const PosRentalBilling = db.define('PosRentalBilling', {
     type: Sequelize.INTEGER,
     allowNull: true
   },
+  // Set when the franchise/merchant belongs to a super franchise
+  super_franchise_id: {
+    type: Sequelize.INTEGER,
+    allowNull: true
+  },
   rental_start_date: {
     type: Sequelize.DATEONLY,
     allowNull: false
