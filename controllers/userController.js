@@ -751,7 +751,7 @@ const updateUserStatus = asyncHandler(async (req, res) => {
 
   if (
     requesterRole !== 'admin'
-    && requesterRole !== 'franchaise'
+    && requesterRole !== 'franchaise' && requesterRole !== "super_franchise"
     && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_STATUS_UPDATE)
   ) {
     res.status(403);
