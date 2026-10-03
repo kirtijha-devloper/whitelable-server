@@ -539,6 +539,85 @@ const assignPosMachineToMerchant = asyncHandler(async (req, res) => {
         updatedCount
     });
 });
+const assignPosMachineToSuperFranchise = asyncHandler(async (req, res) => {
+    // body should contain pos machine id and super franchise user id
+    const posMachineId = req.body.id;
+    const superFranchiseId = req.body.user_id;
+
+    if (!posMachineId || !superFranchiseId) {
+        res.status(400);
+        throw new Error("All fields are mandatory !");
+    }
+
+    // only admin or franchisee can perform this
+    if (req.user.role === "super_franchise") {
+        res.status(403);
+        throw new Error("You are not allowed to assign.");
+    }
+
+    const superFranchiseUser = await User.findByPk(superFranchiseId);
+    if (!superFranchiseUser) {
+        res.status(404);
+        throw new Error("Super franchise not found.");
+    }
+
+    if (superFranchiseUser.role !== "super_franchise") {
+        res.status(400);
+        throw new Error("Please select correct super franchise.");
+    }
+
+    // Franchise can only reassign machines that belong to them
+    const posMachine = await PosMachine.findByPk(posMachineId);
+    if (!posMachine) {
+        res.status(404);
+        throw new Error("POS machine not found.");
+    }
+
+    if (req.user.role === "franchaise" || req.user.role === "super_franchise") {
+        if (!superFranchiseUser.franchaise_id || superFranchiseUser.franchaise_id !== req.user.id) {
+            res.status(400);
+            throw new Error("Please select correct merchant.");
+        }
+        if (!posMachine.assigned_to || posMachine.assigned_to !== req.user.id) {
+            res.status(400);
+            throw new Error("Cannot reassign a POS machine that does not belong to you.");
+        }
+    }
+
+    // assign the POS machine
+    const previousAssignedTo = posMachine.assigned_to;
+    const [updatedCount] = await PosMachine.update(
+        { assigned_to: superFranchiseId, status: "active" },
+        { where: { id: posMachineId } }
+    );
+
+    if (updatedCount === 0) {
+        res.status(404);
+        throw new Error("POS machine not found or could not be updated.");
+    }
+
+    // mark super franchise as having a POS assigned
+    superFranchiseUser.is_pos_asigned = true;
+    await superFranchiseUser.save();
+
+    // audit log
+    await PosMachineAssignmentLog.create({
+      pos_machine_id: posMachineId,
+      action: previousAssignedTo ? 'reassign' : 'assign',
+      assigned_from_user_id: previousAssignedTo,
+      assigned_to_user_id: superFranchiseId,
+      performed_by_user_id: req.user.id,
+      details: { previous_assigned_to: previousAssignedTo, new_assigned_to: superFranchiseId }
+    });
+
+    // Start / restart the 30-day rental billing cycle for this super franchise
+    await upsertRentalBilling(posMachineId, superFranchiseUser);
+
+    res.status(200).json({
+        message: `POS Machine ${posMachineId} assigned to super franchise ${superFranchiseId}`,
+        updatedCount
+    });
+});
 
 const getPosMachineList = asyncHandler(async (req, res) => {
     try {
@@ -924,8 +1003,10 @@ module.exports = {
   markAsReturnInitiated,
   assignPosMachineToUserID,
   assignPosMachineToMerchant,
+  assignPosMachineToSuperFranchise,
   getPosMachineList,
   getPosMachinesByUserId,
   updatePosMachine,
-  bulkCreatePosMachines
+  bulkCreatePosMachines,
+  assignPosMachineToSuperFranchise
 }

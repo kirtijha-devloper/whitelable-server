@@ -18,7 +18,8 @@ const {
   getPosMachineList,
   getPosMachinesByUserId,
   updatePosMachine,
-  bulkCreatePosMachines
+  bulkCreatePosMachines,
+  assignPosMachineToSuperFranchise
 } = require("../controllers/posMachineController");
 
 const validateToken = require("../middleware/validateTokenHandler");
@@ -93,6 +94,11 @@ router.post("/assign-to-merchant", ensureEmployeePermission(EMPLOYEE_PERMISSIONS
   message: "You do not have permission to manage stock POS data.",
   elevateRole: "admin",
 }), assignPosMachineToMerchant); // route to assign single machine to merchant
+
+router.post("/assign-to-super-franchise", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
+  message: "You do not have permission to manage stock POS data.",
+  elevateRole: "admin",
+}), assignPosMachineToSuperFranchise); // route to assign single machine to super franchise
 
 // ⚠️ TEMPORARY – delete ALL POS machines. Remove before production.
 router.delete("/all", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
