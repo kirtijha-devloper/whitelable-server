@@ -101,7 +101,7 @@ async function seed() {
       { email: 'test.franchise@example.com' },
       {
         name: 'Test Franchise',
-        mobile_number: '9000000001',
+        mobile_number: '9953272379',
         password: hashedPassword,
         role: 'franchaise',
         status: 'active',
