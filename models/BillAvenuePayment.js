@@ -83,9 +83,9 @@ BillAvenuePayment.associate = (models) => {
   if (models.User) {
     BillAvenuePayment.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
   }
-};
   if (models.Company) {
     BillAvenuePayment.belongsTo(models.Company, { foreignKey: 'company_id', targetKey: 'company_id', as: 'company' });
   }
+};
 
 module.exports = BillAvenuePayment;

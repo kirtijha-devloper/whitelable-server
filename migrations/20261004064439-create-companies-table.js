@@ -25,6 +25,12 @@ module.exports = {
         onDelete: 'CASCADE',
       },
 
+      domain_name: {
+        allowNull: false,
+        unique: true,
+        type: Sequelize.STRING,
+      },
+
       company_id: {
         allowNull: false,
         unique: true,
@@ -131,6 +137,8 @@ module.exports = {
       },
 
     });
+
+    await queryInterface.addIndex("Companies", ["domain_name"]);
   },
 
   async down(queryInterface, Sequelize) {
