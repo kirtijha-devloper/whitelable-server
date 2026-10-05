@@ -53,6 +53,11 @@ describe('Employee access role admin routes', () => {
     const usersModule = res.body.data.permissions.find((module) => module.module === 'users');
     expect(usersModule.permissions.map((permission) => permission.slug)).to.include(EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE);
     expect(usersModule.permissions.map((permission) => permission.slug)).to.include(EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE);
+    const settlementModule = res.body.data.permissions.find((module) => module.module === 'settlement');
+    expect(settlementModule.permissions.map((permission) => permission.slug)).to.include.members([
+      EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
+      EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+    ]);
   });
 
   it('rejects non-admin access', async () => {

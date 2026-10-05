@@ -117,22 +117,49 @@ router.post("/pos-setting/bulk-settlement", validateToken, requireAdmin, bulkUpd
 
 // ── Global & User Settlement Cutoff Config Endpoints ───────────────────────
 // GET /api/admin/settlement/config
-router.get("/settlement/config", validateToken, requireAdmin, getGlobalSettlementConfig);
+router.get("/settlement/config", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+], {
+  message: "You do not have permission to view settlement settings.",
+  elevateRole: "admin",
+}), requireAdmin, getGlobalSettlementConfig);
 
 // PUT /api/admin/settlement/config
-router.put("/settlement/config", validateToken, requireAdmin, updateGlobalSettlementConfig);
+router.put("/settlement/config", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+  message: "You do not have permission to manage settlement settings.",
+  elevateRole: "admin",
+}), requireAdmin, updateGlobalSettlementConfig);
 
 // GET /api/admin/settlement/users
-router.get("/settlement/users", validateToken, requireAdmin, getSettlementUsers);
+router.get("/settlement/users", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+], {
+  message: "You do not have permission to view settlement data.",
+  elevateRole: "admin",
+}), requireAdmin, getSettlementUsers);
 
 // PUT /api/admin/settlement/users/:id/cutoff
-router.put("/settlement/users/:id/cutoff", validateToken, requireAdmin, updateUserCutoff);
+router.put("/settlement/users/:id/cutoff", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+  message: "You do not have permission to manage settlement settings.",
+  elevateRole: "admin",
+}), requireAdmin, updateUserCutoff);
 
 // POST /api/admin/settlement/users/:id/trigger-settlement
-router.post("/settlement/users/:id/trigger-settlement", validateToken, requireAdmin, triggerUserSettlement);
+router.post("/settlement/users/:id/trigger-settlement", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+  message: "You do not have permission to trigger settlements.",
+  elevateRole: "admin",
+}), requireAdmin, triggerUserSettlement);
 
 // GET /api/admin/settlement/audit-logs
-router.get("/settlement/audit-logs", validateToken, requireAdmin, getSettlementAuditLogs);
+router.get("/settlement/audit-logs", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+], {
+  message: "You do not have permission to view settlement audit logs.",
+  elevateRole: "admin",
+}), requireAdmin, getSettlementAuditLogs);
 
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.

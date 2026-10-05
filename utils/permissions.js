@@ -22,6 +22,8 @@ const EMPLOYEE_PERMISSIONS = Object.freeze({
   COMPLAINTS_MANAGE: 'complaints.manage',
   RATE_SETTINGS_READ: 'rate.settings.read',
   RATE_SETTINGS_MANAGE: 'rate.settings.manage',
+  SETTLEMENT_READ: 'settlement.read',
+  SETTLEMENT_MANAGE: 'settlement.manage',
   RAZORPAY_NOTIFICATIONS_LIST: 'razorpay.notifications.list',
   RAZORPAY_NOTIFICATIONS_READ: 'razorpay.notifications.read',
   SYSTEM_LOGS_READ: 'system.logs.read',
@@ -97,6 +99,14 @@ const EMPLOYEE_PERMISSION_CATALOG = Object.freeze([
     permissions: [
       { slug: EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, label: 'View Rate Settings' },
       { slug: EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, label: 'Manage Rate Settings' },
+    ],
+  },
+  {
+    module: 'settlement',
+    label: 'Settlement',
+    permissions: [
+      { slug: EMPLOYEE_PERMISSIONS.SETTLEMENT_READ, label: 'View Settlement' },
+      { slug: EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, label: 'Manage Settlement' },
     ],
   },
   {
