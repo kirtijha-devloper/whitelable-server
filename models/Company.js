@@ -9,6 +9,12 @@ const Company = db.define('Company', {
     type: Sequelize.INTEGER
   },
 
+  domain_name: {
+    allowNull: false,
+    unique: true,
+    type: Sequelize.STRING
+  },
+
   user_id: {
     allowNull: false,
     type: Sequelize.INTEGER
@@ -114,9 +120,15 @@ const Company = db.define('Company', {
     type: Sequelize.DATE,
     defaultValue: Sequelize.NOW
   }
-}, {
+},{
   tableName: 'Companies',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    {
+      unique: true,
+      fields: ['domain_name']
+    }
+  ]
 });
 
 Company.associate = function(models) {
