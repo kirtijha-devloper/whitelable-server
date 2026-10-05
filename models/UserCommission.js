@@ -12,6 +12,15 @@ const UserCommission = db.define('UserCommission', {
     type: Sequelize.INTEGER,
     allowNull: false
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   commission_default_id: {
     type: Sequelize.INTEGER,
     allowNull: false

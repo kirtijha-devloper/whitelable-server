@@ -25,6 +25,15 @@ const UserServiceSetting = db.define('UserServiceSetting', {
     type: Sequelize.INTEGER,
     allowNull: false,
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id',
+    },
+    comment: 'Company / white-label tenant identifier',
+  },
   service_key: {
     type: Sequelize.STRING(100),
     allowNull: false,
@@ -65,5 +74,17 @@ const UserServiceSetting = db.define('UserServiceSetting', {
     },
   ],
 });
+
+UserServiceSetting.associate = function(models) {
+  UserServiceSetting.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user',
+  });
+  UserServiceSetting.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company',
+  });
+};
 
 module.exports = UserServiceSetting;

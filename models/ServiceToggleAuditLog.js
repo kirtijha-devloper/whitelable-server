@@ -13,6 +13,15 @@ const ServiceToggleAuditLog = db.define('ServiceToggleAuditLog', {
     allowNull: false,
     comment: 'ID of the Admin or Employee performing the toggle',
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id',
+    },
+    comment: 'Company / white-label tenant identifier',
+  },
   affected_user_id: {
     type: Sequelize.INTEGER,
     allowNull: true,

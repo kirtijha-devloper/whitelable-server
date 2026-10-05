@@ -14,6 +14,15 @@ const UserPayoutCharge = db.define('UserPayoutCharge', {
     type: Sequelize.INTEGER,
     allowNull: false,
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id',
+    },
+    comment: 'Company / white-label tenant identifier',
+  },
   from_amount: {
     type: Sequelize.DECIMAL(10, 2),
     allowNull: false,
@@ -54,5 +63,17 @@ const UserPayoutCharge = db.define('UserPayoutCharge', {
   timestamps: true,
   tableName: 'UserPayoutCharges',
 });
+
+UserPayoutCharge.associate = function(models) {
+  UserPayoutCharge.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user',
+  });
+  UserPayoutCharge.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company',
+  });
+};
 
 module.exports = UserPayoutCharge;

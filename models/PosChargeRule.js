@@ -13,6 +13,15 @@ const PosChargeRule = db.define('PosChargeRule', {
     allowNull: true,
     comment: 'merchant-specific rule; null means global'
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   franchaise_id: {
     type: Sequelize.INTEGER,
     allowNull: true,
@@ -109,6 +118,7 @@ const PosChargeRule = db.define('PosChargeRule', {
 
 PosChargeRule.associate = function(models) {
   PosChargeRule.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
+  PosChargeRule.belongsTo(models.Company, { foreignKey: 'company_id', targetKey: 'company_id', as: 'company' });
   PosChargeRule.belongsTo(models.User, { foreignKey: 'franchaise_id', as: 'franchise' });
   PosChargeRule.belongsTo(models.User, { foreignKey: 'super_franchise_id', as: 'super_franchise' });
 };

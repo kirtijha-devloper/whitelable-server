@@ -16,6 +16,14 @@ const CcBillPayment = db.define('CcBillPayment', {
       key: 'id',
     },
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id',
+    },
+  },
   biller_id: {
     type: Sequelize.STRING,
     allowNull: false,

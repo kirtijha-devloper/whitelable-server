@@ -13,6 +13,17 @@ module.exports = {
         type: Sequelize.INTEGER,
         allowNull: false
       },
+      company_id: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        references: {
+          model: 'Companies',
+          key: 'company_id'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
+        comment: 'Company / white-label tenant identifier'
+      },
       pos_charge_default_id: {
         type: Sequelize.INTEGER,
         allowNull: false

@@ -16,6 +16,15 @@ const UserPosCharge = db.define('UserPosCharge', {
     allowNull: false,
     comment: 'The merchant this override applies to'
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   pos_charge_default_id: {
     type: Sequelize.INTEGER,
     allowNull: false,

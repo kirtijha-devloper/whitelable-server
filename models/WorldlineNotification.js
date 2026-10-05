@@ -96,6 +96,12 @@ const WorldlineNotification = db.define('WorldlineNotification', {
     defaultValue: null,
     field: 'user_id'
   },
+  company_id: {
+    type: Sequelize.STRING(255),
+    allowNull: true,
+    field: 'company_id',
+    comment: 'Company / white-label tenant identifier'
+  },
   pos_machine_id: {
     type: Sequelize.INTEGER,
     allowNull: true,
@@ -146,6 +152,13 @@ WorldlineNotification.associate = function (models) {
   WorldlineNotification.belongsTo(models.User, {
     foreignKey: 'user_id',
     as: 'user',
+    constraints: false
+  });
+
+  WorldlineNotification.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company',
     constraints: false
   });
 

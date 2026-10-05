@@ -100,6 +100,12 @@ const RazorpayNotification = db.define('RazorpayNotification', {
     field: 'user_id',
     comment: 'FK → Users.id (merchant). NULL when POS machine has no assigned user.'
   },
+  company_id: {
+    type: Sequelize.STRING(255),
+    allowNull: true,
+    field: 'company_id',
+    comment: 'Company / white-label tenant identifier'
+  },
   pos_machine_id: {
     type: Sequelize.INTEGER,
     allowNull: true,
@@ -159,6 +165,13 @@ RazorpayNotification.associate = function (models) {
     foreignKey: 'user_id',
     as: 'user',
     constraints: false   // nullable FK — no DB-level constraint needed
+  });
+
+  RazorpayNotification.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company',
+    constraints: false
   });
 
   RazorpayNotification.belongsTo(models.PosMachine, {

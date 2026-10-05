@@ -115,6 +115,9 @@ const Company = db.define('Company', {
     type: Sequelize.DATE,
     defaultValue: Sequelize.NOW
   }
+}, {
+  tableName: 'Companies',
+  timestamps: true
 });
 
 Company.associate = function(models) {

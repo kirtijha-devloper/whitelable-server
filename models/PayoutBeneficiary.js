@@ -17,6 +17,15 @@ const PayoutBeneficiary = db.define('PayoutBeneficiary', {
     type: Sequelize.INTEGER,
     allowNull: false
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   name: {
     type: Sequelize.STRING(255),
     allowNull: false
@@ -62,5 +71,17 @@ const PayoutBeneficiary = db.define('PayoutBeneficiary', {
   timestamps: false,
   tableName: 'payout_beneficiaries'
 });
+
+PayoutBeneficiary.associate = function(models) {
+  PayoutBeneficiary.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+  PayoutBeneficiary.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company'
+  });
+};
 
 module.exports = PayoutBeneficiary;

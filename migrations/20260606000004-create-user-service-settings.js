@@ -22,6 +22,17 @@ module.exports = {
         onUpdate: 'CASCADE',
         onDelete: 'CASCADE',
       },
+      company_id: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        references: {
+          model: 'Companies',
+          key: 'company_id',
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
+        comment: 'Company / white-label tenant identifier',
+      },
       service_key: {
         type: Sequelize.STRING(100),
         allowNull: false,

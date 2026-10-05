@@ -14,6 +14,17 @@ module.exports = {
         type: Sequelize.INTEGER,
         allowNull: false
       },
+      company_id: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        references: {
+          model: 'Companies',
+          key: 'company_id'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
+        comment: 'Company / white-label tenant identifier'
+      },
       name: {
         type: Sequelize.STRING(255),
         allowNull: false
@@ -73,6 +84,17 @@ module.exports = {
       user_id: {
         type: Sequelize.INTEGER,
         allowNull: false
+      },
+      company_id: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        references: {
+          model: 'Companies',
+          key: 'company_id'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
+        comment: 'Company / white-label tenant identifier'
       },
       amount: {
         type: Sequelize.NUMERIC(14, 2),

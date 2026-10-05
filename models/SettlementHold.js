@@ -13,6 +13,15 @@ const SettlementHold = db.define('SettlementHold', {
     allowNull: false,
     comment: 'User whose POS earnings are held'
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   ledger_id: {
     type: Sequelize.INTEGER,
     allowNull: true,
@@ -64,6 +73,12 @@ SettlementHold.associate = function (models) {
   SettlementHold.belongsTo(models.User, {
     foreignKey: 'user_id',
     as: 'user',
+    constraints: false
+  });
+  SettlementHold.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company',
     constraints: false
   });
   SettlementHold.belongsTo(models.Ledger, {

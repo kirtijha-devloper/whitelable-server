@@ -19,6 +19,15 @@ const ChargeSlab = db.define('ChargeSlab', {
     type: Sequelize.INTEGER,
     allowNull: true // optional: per-user-specific slabs
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   created_by: {
     type: Sequelize.INTEGER,
     allowNull: false

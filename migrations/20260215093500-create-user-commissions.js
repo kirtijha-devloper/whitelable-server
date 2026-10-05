@@ -15,6 +15,17 @@ module.exports = {
         references: { model: 'Users', key: 'id' },
         onDelete: 'CASCADE'
       },
+      company_id: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        references: {
+          model: 'Companies',
+          key: 'company_id'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
+        comment: 'Company / white-label tenant identifier'
+      },
       commission_default_id: {
         type: Sequelize.INTEGER,
         allowNull: false,

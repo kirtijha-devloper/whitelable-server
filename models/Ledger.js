@@ -12,6 +12,15 @@ const Ledger = db.define('Ledger', {
     type: Sequelize.INTEGER,
     allowNull: false
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   transaction_type: {
     type: Sequelize.STRING,
     allowNull: false,

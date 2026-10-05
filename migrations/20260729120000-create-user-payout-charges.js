@@ -13,6 +13,17 @@ module.exports = {
         type: Sequelize.INTEGER,
         allowNull: false,
       },
+      company_id: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        references: {
+          model: 'Companies',
+          key: 'company_id',
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
+        comment: 'Company / white-label tenant identifier',
+      },
       from_amount: {
         type: Sequelize.DECIMAL(10, 2),
         allowNull: false,

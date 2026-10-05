@@ -16,6 +16,14 @@ const BillAvenueBillFetch = db.define('BillAvenueBillFetch', {
       key: 'id',
     },
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id',
+    },
+  },
   biller_id: {
     type: Sequelize.STRING,
     allowNull: false,
@@ -52,5 +60,13 @@ const BillAvenueBillFetch = db.define('BillAvenueBillFetch', {
 }, {
   tableName: 'BillAvenueBillFetches',
 });
+
+BillAvenueBillFetch.associate = function(models) {
+  BillAvenueBillFetch.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company',
+  });
+};
 
 module.exports = BillAvenueBillFetch;

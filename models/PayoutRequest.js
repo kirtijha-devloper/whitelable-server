@@ -16,6 +16,15 @@ const PayoutRequest = db.define('PayoutRequest', {
     type: Sequelize.INTEGER,
     allowNull: false
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   amount: {
     type: Sequelize.NUMERIC(14, 2),
     allowNull: false
@@ -110,5 +119,17 @@ const PayoutRequest = db.define('PayoutRequest', {
   timestamps: false,
   tableName: 'payout_requests'
 });
+
+PayoutRequest.associate = function(models) {
+  PayoutRequest.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+  PayoutRequest.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company'
+  });
+};
 
 module.exports = PayoutRequest;

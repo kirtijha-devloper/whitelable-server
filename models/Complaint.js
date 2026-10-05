@@ -6,6 +6,15 @@ const Complaint = db.define('Complaint', {
       type: Sequelize.INTEGER,
       allowNull: false,
     },
+    company_id: {
+      type: Sequelize.STRING,
+      allowNull: true,
+      references: {
+        model: 'Companies',
+        key: 'company_id',
+      },
+      comment: 'Company / white-label tenant identifier',
+    },
     subject: {
       type: Sequelize.STRING,
       allowNull: true,
@@ -31,5 +40,17 @@ const Complaint = db.define('Complaint', {
   }, {
     timestamps: true,
   });
+
+Complaint.associate = function(models) {
+  Complaint.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user',
+  });
+  Complaint.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company',
+  });
+};
 
 module.exports = Complaint;

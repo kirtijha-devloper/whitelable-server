@@ -43,6 +43,15 @@ const WalletTransaction = db.define('WalletTransaction', {
     key: 'id'
   }
 },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   createdAt: {
     allowNull: false,
     type: Sequelize.DATE,
@@ -58,6 +67,11 @@ WalletTransaction.associate = function(models) {
   WalletTransaction.belongsTo(models.User, {
     foreignKey: 'user_id',
     as: 'user'
+  });
+  WalletTransaction.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company'
   });
   WalletTransaction.belongsTo(models.User, {
     foreignKey: 'requested_by',

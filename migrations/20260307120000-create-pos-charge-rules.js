@@ -14,6 +14,17 @@ module.exports = {
         allowNull: true,
         comment: 'Merchant ID; NULL means global rule'
       },
+      company_id: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        references: {
+          model: 'Companies',
+          key: 'company_id'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
+        comment: 'Company / white-label tenant identifier'
+      },
       payment_mode: {
         type: Sequelize.STRING,
         allowNull: false,

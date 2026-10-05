@@ -23,6 +23,15 @@ const PayoutReferenceLog = db.define('PayoutReferenceLog', {
     type: Sequelize.INTEGER,
     allowNull: true
   },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    references: {
+      model: 'Companies',
+      key: 'company_id'
+    },
+    comment: 'Company / white-label tenant identifier'
+  },
   created_at: {
     type: Sequelize.DATE,
     defaultValue: Sequelize.literal('NOW()')
@@ -31,5 +40,17 @@ const PayoutReferenceLog = db.define('PayoutReferenceLog', {
   timestamps: false,
   tableName: 'payout_reference_logs'
 });
+
+PayoutReferenceLog.associate = function(models) {
+  PayoutReferenceLog.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user'
+  });
+  PayoutReferenceLog.belongsTo(models.Company, {
+    foreignKey: 'company_id',
+    targetKey: 'company_id',
+    as: 'company'
+  });
+};
 
 module.exports = PayoutReferenceLog;
