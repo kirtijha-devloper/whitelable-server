@@ -14,6 +14,17 @@ module.exports = {
         type: Sequelize.INTEGER,
       },
 
+      user_id: {
+        allowNull: false,
+        type: Sequelize.INTEGER,
+        references: {
+          model: 'Users',
+          key: 'id',
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
+      },
+
       company_id: {
         allowNull: false,
         unique: true,

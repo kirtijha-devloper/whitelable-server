@@ -9,6 +9,11 @@ const Company = db.define('Company', {
     type: Sequelize.INTEGER
   },
 
+  user_id: {
+    allowNull: false,
+    type: Sequelize.INTEGER
+  },
+
   company_id: {
     allowNull: false,
     unique: true,
@@ -78,12 +83,6 @@ const Company = db.define('Company', {
   gst_number: {
     allowNull: true,
     type: Sequelize.STRING
-  },
-
-  admin_list: {
-    allowNull: true,
-    type: Sequelize.JSONB,
-    defaultValue: []
   },
 
   payout_limit: {
