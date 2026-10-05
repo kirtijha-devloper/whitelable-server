@@ -169,7 +169,7 @@ function buildLoginToken(user) {
         ipay_outlet_id: user.ipay_outlet_id || null,
       }
     },
-    process.env.ACCESS_TOKEN_SECRET,
+    process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "supersecretjwtsecretkey12345",
     { expiresIn: "5h" }
   );
 }
