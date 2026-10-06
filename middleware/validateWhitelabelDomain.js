@@ -1,7 +1,7 @@
 const Company = require("../models/Company");
 
 const validateWhitelabelDomain = async (req, res, next) => {
-    const domain = req.headers['host'];
+    const domain = req.headers['origin'];
 
     if (!domain) {
         res.status(400).json({ message: "No domain provided in the request headers." });
