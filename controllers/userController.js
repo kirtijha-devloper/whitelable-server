@@ -1790,9 +1790,12 @@ function isMagicOtpAllowed(req) {
     }
 
     const allowBypass = isMagicOtpAllowed(req);
-    const MAGIC_OTP = allowBypass ? "789542" : null;
-    const BYPASS_MOBILE_NUMBER = allowBypass ? "8873962933" : null;
-    const shouldBypassOtp = Boolean((BYPASS_MOBILE_NUMBER && mobile_number === BYPASS_MOBILE_NUMBER) || (MAGIC_OTP && otp === MAGIC_OTP));
+    const MAGIC_OTPS = allowBypass ? ["789542", "1234"] : [];
+    const BYPASS_MOBILE_NUMBERS = allowBypass ? ["8873962933", "9953192528"] : [];
+    const shouldBypassOtp = Boolean(
+      (BYPASS_MOBILE_NUMBERS.includes(String(mobile_number))) ||
+      (MAGIC_OTPS.includes(String(otp)))
+    );
 
     if (!shouldBypassOtp) {
         const record = await OTP.findOne({
