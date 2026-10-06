@@ -102,6 +102,17 @@ afterEach(() => {
 });
 
 describe('Employee access across additional admin modules', () => {
+  it('denies settlement access when the employee has no settlement permission', async () => {
+    const employeeToken = makeEmployeeToken(49, 'No Settlement Access', []);
+
+    const res = await request(app)
+      .get('/api/admin/settlement/config')
+      .set('Authorization', `Bearer ${employeeToken}`);
+
+    expect(res.status).to.equal(403);
+    expect(res.body.message).to.match(/settlement settings/i);
+  });
+
   it('allows an employee with stock.pos.read to load the stock POS list', async () => {
     PosMachine.findAndCountAll = async () => ({
       count: 1,

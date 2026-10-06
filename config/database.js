@@ -14,7 +14,7 @@ if (process.env.NODE_ENV === 'test') {
 } else {
   // Validate required DB env vars and provide a clear error if missing
   const requiredVars = ['DB_NAME', 'DB_USER', 'DB_PASS', 'DB_HOST', 'DB_DIALECT'];
-  const missing = requiredVars.filter((v) => !process.env[v]);
+  const missing = requiredVars.filter((v) => process.env[v] === undefined);
   if (missing.length) {
     throw new Error(`Missing required DB env vars: ${missing.join(', ')}. Check your .env or PM2 config.`);
   }

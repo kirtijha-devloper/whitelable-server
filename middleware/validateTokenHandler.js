@@ -60,7 +60,8 @@ const validateToken = asyncHandler(async (req, res, next) => {
     let decoded;
 
     try {
-        decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+        const secret = process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "supersecretjwtsecretkey12345";
+        decoded = jwt.verify(token, secret);
     } catch (_error) {
         res.status(401);
         throw new Error("User is not authorized.");

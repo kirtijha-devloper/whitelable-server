@@ -29,6 +29,7 @@ const PayoutCharge = require('../models/PayoutCharge');
 const Rental = require('../models/Rental');
 const ServiceSetting = require('../models/ServiceSetting');
 const UserServiceSetting = require('../models/UserServiceSetting');
+const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
 const ledgerService = require('../services/ledgerService');
 const db = require('../config/database');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
@@ -68,6 +69,10 @@ const employeeLedgerToken = makeEmployeeToken([EMPLOYEE_PERMISSIONS.LEDGER_MANAG
 const employeeSettlementToken = makeEmployeeToken([
   EMPLOYEE_PERMISSIONS.USERS_UPDATE,
   EMPLOYEE_PERMISSIONS.USERS_SETTLEMENT_UPDATE,
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+]);
+const employeeSettlementManageOnlyToken = makeEmployeeToken([
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
 ]);
 const noPermissionEmployeeToken = makeEmployeeToken([]);
 
@@ -93,6 +98,7 @@ beforeEach(() => {
     rentalFindAll: Rental.findAll,
     serviceSettingFindAll: ServiceSetting.findAll,
     userServiceSettingFindAll: UserServiceSetting.findAll,
+    serviceToggleAuditLogCreate: ServiceToggleAuditLog.create,
     ledgerGetAvailableBalance: ledgerService.getAvailableBalance,
     dbTransaction: db.transaction,
   };
@@ -115,6 +121,7 @@ afterEach(() => {
   Rental.findAll = stubs.rentalFindAll;
   ServiceSetting.findAll = stubs.serviceSettingFindAll;
   UserServiceSetting.findAll = stubs.userServiceSettingFindAll;
+  ServiceToggleAuditLog.create = stubs.serviceToggleAuditLogCreate;
   ledgerService.getAvailableBalance = stubs.ledgerGetAvailableBalance;
   db.transaction = stubs.dbTransaction;
 });
@@ -709,6 +716,7 @@ describe('Employee role on user routes', () => {
       }
     };
     User.findByPk = async () => targetUser;
+    ServiceToggleAuditLog.create = async () => ({});
 
     const res = await request(app)
       .put('/api/user/55')
@@ -717,6 +725,37 @@ describe('Employee role on user routes', () => {
 
     expect(res.status).to.equal(200);
     expect(res.body.success).to.equal(true);
+    expect(res.body.data.settlement_type).to.equal('next_day_settlement');
+  });
+
+  it('allows settlement.manage without users.update to change only settlement fields', async () => {
+    const targetUser = {
+      id: 58,
+      role: 'merchant',
+      settlement_type: 'today_settlement',
+      update: async function (updates) {
+        Object.assign(this, updates);
+      },
+      reload: async function () {
+        return this;
+      },
+      toJSON() {
+        return {
+          id: this.id,
+          role: this.role,
+          settlement_type: this.settlement_type,
+        };
+      },
+    };
+    User.findByPk = async () => targetUser;
+    ServiceToggleAuditLog.create = async () => ({});
+
+    const res = await request(app)
+      .put('/api/user/58')
+      .set('Authorization', `Bearer ${employeeSettlementManageOnlyToken}`)
+      .send({ settlement_type: 'next_day_settlement' });
+
+    expect(res.status).to.equal(200);
     expect(res.body.data.settlement_type).to.equal('next_day_settlement');
   });
 
@@ -747,7 +786,19 @@ describe('Employee role on user routes', () => {
       .send({ settlement_type: 'next_day_settlement' });
 
     expect(res.status).to.equal(403);
-    expect(res.body.message).to.match(/permission to update settlement type/i);
+    expect(res.body.message).to.match(/permission to manage settlement settings/i);
+  });
+
+  it('rejects employee T0 limit updates without settlement.manage', async () => {
+    User.findByPk = async () => ({ id: 57, role: 'merchant' });
+
+    const res = await request(app)
+      .put('/api/user/57')
+      .set('Authorization', `Bearer ${employeeUpdateToken}`)
+      .send({ t0_daily_limit: 50000 });
+
+    expect(res.status).to.equal(403);
+    expect(res.body.message).to.match(/permission to manage settlement settings/i);
   });
 
   it('rejects employee attempts to change role or access controls', async () => {

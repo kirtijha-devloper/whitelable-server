@@ -37,17 +37,6 @@ const {
 
 router.route("/").get(getAdminDashboard);
 
-// ── POS Setting Endpoints ──────────────────────────────────────────────────
-// GET /admin/pos-setting & GET /admin/pg-setting
-router.get("/pos-setting", validateToken, getPosSettings);
-router.get("/pg-setting", validateToken, getPosSettings);
-
-// POST /admin/pos-setting/update-t0-limit
-router.post("/pos-setting/update-t0-limit", validateToken, updateT0Limit);
-
-// POST /admin/pos-setting/update-settlement-type
-router.post("/pos-setting/update-settlement-type", validateToken, updateSettlementType);
-
 function requireAdmin(req, res, next) {
   if (req.user?.role !== "admin") {
     return res.status(403).json({ success: false, message: "Admin access only." });
@@ -64,6 +53,19 @@ function requireAdminOrFranchise(req, res, next) {
 
   return next();
 }
+
+const requireSettlementRead = ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+], {
+  message: "You do not have permission to view settlement data.",
+  elevateRole: "admin",
+});
+
+const requireSettlementManage = ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+  message: "You do not have permission to manage settlement settings.",
+  elevateRole: "admin",
+});
 
 // GET /api/admin/merchants/unassigned
 //   Returns merchants with no franchise (franchaise_id IS NULL)
@@ -95,44 +97,72 @@ router.put("/user/:id/ipay-outlet", validateToken, setUserIpayOutletId);
 // PUT /api/admin/users/settlement-type
 //   Admin-only: update settlement type for all merchant and franchise users.
 //   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
-router.put("/users/settlement-type", validateToken, requireAdmin, setAllUsersSettlementType);
+router.put("/users/settlement-type", validateToken, requireSettlementManage, requireAdmin, setAllUsersSettlementType);
 
 // PUT /api/admin/user/:id/settlement-type
 //   Admin-only: update settlement type for a single merchant or franchise user.
 //   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
-router.put("/user/:id/settlement-type", validateToken, requireAdmin, setUserSettlementType);
+router.put("/user/:id/settlement-type", validateToken, requireSettlementManage, requireAdmin, setUserSettlementType);
 
 // ── POS Settlement Settings Admin/Franchise Endpoints ──────────────────────
-// GET /api/admin/pos-setting
-router.get("/pos-setting", validateToken, requireAdminOrFranchise, getPosSettings);
+// GET /api/admin/pos-setting and its legacy fallback
+router.get("/pos-setting", validateToken, requireSettlementRead, requireAdminOrFranchise, getPosSettings);
+router.get("/pg-setting", validateToken, requireSettlementRead, requireAdminOrFranchise, getPosSettings);
 
 // POST /api/admin/pos-setting/update-t0-limit
-router.post("/pos-setting/update-t0-limit", validateToken, requireAdminOrFranchise, updateT0Limit);
+router.post("/pos-setting/update-t0-limit", validateToken, requireSettlementManage, requireAdminOrFranchise, updateT0Limit);
 
 // POST /api/admin/pos-setting/update-settlement-type
-router.post("/pos-setting/update-settlement-type", validateToken, requireAdmin, updateSettlementType);
+router.post("/pos-setting/update-settlement-type", validateToken, requireSettlementManage, requireAdmin, updateSettlementType);
 
 // POST /api/admin/pos-setting/bulk-settlement
-router.post("/pos-setting/bulk-settlement", validateToken, requireAdmin, bulkUpdateSettlementType);
+router.post("/pos-setting/bulk-settlement", validateToken, requireSettlementManage, requireAdmin, bulkUpdateSettlementType);
 
 // ── Global & User Settlement Cutoff Config Endpoints ───────────────────────
 // GET /api/admin/settlement/config
-router.get("/settlement/config", validateToken, requireAdmin, getGlobalSettlementConfig);
+router.get("/settlement/config", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+], {
+  message: "You do not have permission to view settlement settings.",
+  elevateRole: "admin",
+}), requireAdmin, getGlobalSettlementConfig);
 
 // PUT /api/admin/settlement/config
-router.put("/settlement/config", validateToken, requireAdmin, updateGlobalSettlementConfig);
+router.put("/settlement/config", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+  message: "You do not have permission to manage settlement settings.",
+  elevateRole: "admin",
+}), requireAdmin, updateGlobalSettlementConfig);
 
 // GET /api/admin/settlement/users
-router.get("/settlement/users", validateToken, requireAdmin, getSettlementUsers);
+router.get("/settlement/users", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+], {
+  message: "You do not have permission to view settlement data.",
+  elevateRole: "admin",
+}), requireAdmin, getSettlementUsers);
 
 // PUT /api/admin/settlement/users/:id/cutoff
-router.put("/settlement/users/:id/cutoff", validateToken, requireAdmin, updateUserCutoff);
+router.put("/settlement/users/:id/cutoff", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+  message: "You do not have permission to manage settlement settings.",
+  elevateRole: "admin",
+}), requireAdmin, updateUserCutoff);
 
 // POST /api/admin/settlement/users/:id/trigger-settlement
-router.post("/settlement/users/:id/trigger-settlement", validateToken, requireAdmin, triggerUserSettlement);
+router.post("/settlement/users/:id/trigger-settlement", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+  message: "You do not have permission to trigger settlements.",
+  elevateRole: "admin",
+}), requireAdmin, triggerUserSettlement);
 
 // GET /api/admin/settlement/audit-logs
-router.get("/settlement/audit-logs", validateToken, requireAdmin, getSettlementAuditLogs);
+router.get("/settlement/audit-logs", validateToken, ensureEmployeePermission([
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
+  EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
+], {
+  message: "You do not have permission to view settlement audit logs.",
+  elevateRole: "admin",
+}), requireAdmin, getSettlementAuditLogs);
 
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.

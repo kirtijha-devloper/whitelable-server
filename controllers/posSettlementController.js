@@ -28,7 +28,7 @@ const getPosSettings = asyncHandler(async (req, res) => {
     where.franchaise_id = req.user.id;
     where.role = 'merchant';
   } else {
-    where.role = { [Op.in]: ['merchant', 'franchaise', 'franchise'] };
+    where.role = { [Op.in]: ['merchant', 'user', 'franchaise', 'franchise', 'super_franchise'] };
   }
 
   const merchants = await User.findAll({
@@ -36,27 +36,33 @@ const getPosSettings = asyncHandler(async (req, res) => {
     attributes: [
       'id',
       'name',
+      'username',
       'email',
+      'mobile_number',
+      'abheepay_id',
       'role',
       'status',
       'settlement_type',
       't0_daily_limit',
       'franchaise_id',
+      'super_franchise_id',
       'createdAt',
       'updatedAt'
     ],
-    order: [['id', 'ASC']]
+    order: req.user?.original_role === 'employee'
+      ? [['createdAt', 'DESC']]
+      : [['id', 'ASC']]
   });
 
   let t0ActiveCount = 0;
   let t1ActiveCount = 0;
   let t0LimitConfiguredCount = 0;
 
-  const formattedMerchants = merchants.map((m) => {
+  const formattedCustomers = merchants.map((m) => {
     const plain = m.toJSON ? m.toJSON() : { ...m };
     const normalizedType = normalizeSettlementType(plain.settlement_type);
 
-    if (plain.status === 'active') {
+    if (plain.role !== 'super_franchise' && plain.status === 'active') {
       if (normalizedType === 'T0') {
         t0ActiveCount += 1;
       } else {
@@ -64,7 +70,7 @@ const getPosSettings = asyncHandler(async (req, res) => {
       }
     }
 
-    if (plain.t0_daily_limit !== null && plain.t0_daily_limit !== undefined) {
+    if (plain.role !== 'super_franchise' && plain.t0_daily_limit !== null && plain.t0_daily_limit !== undefined) {
       t0LimitConfiguredCount += 1;
     }
 
@@ -72,12 +78,19 @@ const getPosSettings = asyncHandler(async (req, res) => {
     plain.email = maskEmail(plain.email);
     return plain;
   });
+  const formattedMerchants = formattedCustomers.filter((customer) =>
+    ['merchant', 'franchaise', 'franchise'].includes(String(customer.role || '').toLowerCase())
+  );
+  const settlementMerchants = merchants.filter((merchant) => {
+    const roleName = String(merchant.role || '').toLowerCase();
+    return roleName !== 'super_franchise' && roleName !== 'superfranchise';
+  });
 
   let franchisePool = null;
   if (role === 'franchaise') {
     const RazorpayNotification = require('../models/RazorpayNotification');
     const totalPool = parseFloat(req.user.t0_daily_limit) || 0;
-    const allocatedToMerchants = merchants.reduce((sum, m) => {
+    const allocatedToMerchants = settlementMerchants.reduce((sum, m) => {
       const l = parseFloat(m.t0_daily_limit);
       return sum + (isNaN(l) ? 0 : l);
     }, 0);
@@ -122,13 +135,15 @@ const getPosSettings = asyncHandler(async (req, res) => {
         t0_active_count: t0ActiveCount,
         t1_active_count: t1ActiveCount,
         t0_limit_configured_count: t0LimitConfiguredCount,
-        total_merchants: merchants.length,
+        total_merchants: formattedMerchants.length,
+        total_customers: formattedCustomers.length,
         is_global_t0_enabled: isGlobalEnabled,
         is_pos_t0_settlement_enabled: isGlobalT0Enabled,
         is_user_daily_limit_enabled: isUserDailyLimitEnabled,
       },
       ...(franchisePool ? { franchise_pool: franchisePool } : {}),
-      merchants: formattedMerchants
+      merchants: formattedMerchants,
+      customers: formattedCustomers,
     }
   });
 });

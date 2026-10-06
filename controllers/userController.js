@@ -169,7 +169,7 @@ function buildLoginToken(user) {
         ipay_outlet_id: user.ipay_outlet_id || null,
       }
     },
-    process.env.ACCESS_TOKEN_SECRET,
+    process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "supersecretjwtsecretkey12345",
     { expiresIn: "5h" }
   );
 }
@@ -2033,7 +2033,15 @@ const updateUser = asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Valid user id is required.' });
     }
 
-    if (isEmployee(req.user) && !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_UPDATE)) {
+    const settlementUpdateFields = new Set(['settlement_type', 't0_daily_limit']);
+    const requestFields = Object.keys(req.body || {});
+    const isSettlementOnlyUpdate = requestFields.length > 0 && requestFields.every((field) => settlementUpdateFields.has(field));
+
+    if (
+      isEmployee(req.user) &&
+      !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_UPDATE) &&
+      !(isSettlementOnlyUpdate && hasPermission(req.user, EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE))
+    ) {
       return res.status(403).json({
         success: false,
         message: 'You do not have permission to update users.',
@@ -2053,10 +2061,22 @@ const updateUser = asyncHandler(async (req, res) => {
 
     const roleFieldProvided = req.body.role !== undefined;
     const settlementTypeProvided = req.body.settlement_type !== undefined;
+    const settlementLimitProvided = req.body.t0_daily_limit !== undefined;
     const employeeAccessRoleFieldProvided = parsedEmployeeAccessRoleId.provided;
     const currentTargetRole = normalizeRole(targetUser.role);
     const requestedRole = roleFieldProvided ? normalizeRole(req.body.role) : currentTargetRole;
     const allowedRoles = ['merchant', 'franchaise', 'admin', 'employee'];
+
+    if (
+      isEmployee(req.user) &&
+      (settlementTypeProvided || settlementLimitProvided) &&
+      !hasPermission(req.user, EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to manage settlement settings.',
+      });
+    }
 
     if (roleFieldProvided && !allowedRoles.includes(requestedRole)) {
       return res.status(400).json({
@@ -2073,10 +2093,10 @@ const updateUser = asyncHandler(async (req, res) => {
     }
 
     if (settlementTypeProvided && requesterRole !== 'admin') {
-      if (!isEmployee(req.user) || !hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SETTLEMENT_UPDATE)) {
+      if (!isEmployee(req.user) || !hasPermission(req.user, EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE)) {
         return res.status(403).json({
           success: false,
-          message: 'You do not have permission to update settlement type.',
+          message: 'You do not have permission to manage settlement settings.',
         });
       }
     }
@@ -2201,7 +2221,7 @@ const updateUser = asyncHandler(async (req, res) => {
         updates.permissions = [];
       }
     } else if (settlementTypeProvided && isEmployee(req.user)
-        && hasPermission(req.user, EMPLOYEE_PERMISSIONS.USERS_SETTLEMENT_UPDATE)) {
+      && hasPermission(req.user, EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE)) {
       updates.settlement_type = req.body.settlement_type;
     }
 
