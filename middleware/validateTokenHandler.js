@@ -19,6 +19,7 @@ const AUTH_USER_ATTRIBUTES = [
   'ipay_outlet_id',
   'permissions',
   'employee_access_role_id',
+  'company_id',
 ];
 
 function buildAuthUser(userLike) {
@@ -38,6 +39,7 @@ function buildAuthUser(userLike) {
     role: normalizeRole(userLike.role || 'merchant'),
     status: userLike.status || 'active',
     ipay_outlet_id: userLike.ipay_outlet_id || null,
+    company_id: userLike.company_id || null,
     employee_access_role_id: userLike.employee_access_role_id || normalizedEmployeeAccessRole?.id || null,
     employee_access_role: normalizedEmployeeAccessRole,
     permissions: getResolvedPermissions({

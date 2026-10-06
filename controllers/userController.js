@@ -167,6 +167,7 @@ function buildLoginToken(user) {
         mobile_number: user.mobile_number,
         role: normalizeRole(user.role),
         ipay_outlet_id: user.ipay_outlet_id || null,
+        company_id: user.company_id || null,
       }
     },
     process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "supersecretjwtsecretkey12345",
@@ -1173,6 +1174,7 @@ const registerUser = asyncHandler(async (req, res) => {
                         permissions: [],
                         employee_access_role_id: employeeAccessRole ? employeeAccessRole.id : null,
                         company_or_shop_name: company_or_shop_name || null,
+                        company_id: req.user?.company_id || req.body.company_id || null,
                         username,
                         franchaise_id: assignedFranchiseId || (req.user && normalizeRole(req.user.role) === 'franchaise' && normalizedRole === 'merchant' ? req.user.id : null),
                         super_franchise_id: assignedSuperFranchiseId || (req.user && normalizeRole(req.user.role) === 'super_franchise' ? req.user.id : (req.user && normalizeRole(req.user.role) === 'franchaise' ? req.user.super_franchise_id : null)),
@@ -1505,6 +1507,7 @@ const approveUser = asyncHandler( async (req, res) => {
                         ...currentUserPayload,
                         employee_access_role: currentEmployeeAccessRolePayload,
                     }),
+                    company_id: user.company_id || null,
 
                     id: user.id
             });

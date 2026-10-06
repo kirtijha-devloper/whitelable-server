@@ -228,6 +228,7 @@ function issueUserJwt(user) {
         mobile_number: user.mobile_number,
         role: user.role,
         ipay_outlet_id: user.ipay_outlet_id || null,
+        company_id: user.company_id || null,
       },
     },
     process.env.ACCESS_TOKEN_SECRET,
