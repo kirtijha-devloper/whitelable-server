@@ -9,6 +9,8 @@ process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-secre
 
 const adminRoutes = require('../routes/adminRoutes');
 const User = require('../models/User');
+const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
+const serviceSettingsService = require('../services/serviceSettingsService');
 
 const app = express();
 app.use(bodyParser.json());
@@ -16,6 +18,22 @@ app.use('/api/admin', adminRoutes);
 
 const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const adminToken = jwt.sign({ user: { id: 1, role: 'admin', email: 'admin@example.com' } }, SECRET);
+const makeEmployeeToken = (id, permissions) => jwt.sign({
+  user: {
+    id,
+    role: 'employee',
+    employee_access_role: {
+      id,
+      name: 'Settlement Role',
+      slug: 'settlement-role',
+      status: 'active',
+      permissions,
+    },
+  },
+}, SECRET);
+const settlementReadToken = makeEmployeeToken(2, ['settlement.read']);
+const settlementManageToken = makeEmployeeToken(3, ['settlement.manage']);
+const noSettlementPermissionToken = makeEmployeeToken(4, []);
 
 describe('POS Settlement Admin Endpoints Tests', () => {
   let sandbox;
@@ -66,10 +84,46 @@ describe('POS Settlement Admin Endpoints Tests', () => {
             settlement_type: 'T1',
             t0_daily_limit: null,
           })
+        },
+        {
+          id: 103,
+          name: 'Super Franchise',
+          email: 'sf@example.com',
+          role: 'super_franchise',
+          status: 'active',
+          settlement_type: 'T1',
+          t0_daily_limit: 90000,
+          toJSON: () => ({
+            id: 103,
+            name: 'Super Franchise',
+            email: 'sf@example.com',
+            role: 'super_franchise',
+            status: 'active',
+            settlement_type: 'T1',
+            t0_daily_limit: 90000,
+          }),
+        },
+        {
+          id: 104,
+          name: 'Legacy User Account',
+          email: 'legacy@example.com',
+          role: 'user',
+          status: 'active',
+          settlement_type: 'T0',
+          t0_daily_limit: 25000,
+          toJSON: () => ({
+            id: 104,
+            name: 'Legacy User Account',
+            email: 'legacy@example.com',
+            role: 'user',
+            status: 'active',
+            settlement_type: 'T0',
+            t0_daily_limit: 25000,
+          }),
         }
       ];
 
-      sandbox.stub(User, 'findAll').resolves(mockMerchants);
+      const findAllStub = sandbox.stub(User, 'findAll').resolves(mockMerchants);
 
       const res = await request(app)
         .get('/api/admin/pos-setting')
@@ -77,10 +131,99 @@ describe('POS Settlement Admin Endpoints Tests', () => {
 
       expect(res.status).to.equal(200);
       expect(res.body.success).to.equal(true);
-      expect(res.body.data.summary.t0_active_count).to.equal(1);
+      expect(res.body.data.summary.t0_active_count).to.equal(2);
       expect(res.body.data.summary.t1_active_count).to.equal(1);
       expect(res.body.data.summary.total_merchants).to.equal(2);
+      expect(res.body.data.summary.total_customers).to.equal(4);
       expect(res.body.data.merchants.length).to.equal(2);
+      expect(res.body.data.customers.map((customer) => customer.id)).to.deep.equal([101, 102, 103, 104]);
+      expect(findAllStub.firstCall.args[0].order).to.deep.equal([['id', 'ASC']]);
+    });
+
+    it('allows settlement.read employees to read the complete Settlement response from both URLs', async () => {
+      const mockCustomers = [
+        { id: 101, name: 'Merchant 1', role: 'merchant', status: 'active', settlement_type: 'T0', t0_daily_limit: 50000 },
+        { id: 102, name: 'Merchant 2', role: 'franchaise', status: 'active', settlement_type: 'T1', t0_daily_limit: null },
+        { id: 103, name: 'Super Franchise', role: 'super_franchise', status: 'active', settlement_type: 'T1', t0_daily_limit: 90000 },
+        { id: 104, name: 'Legacy User Account', role: 'user', status: 'active', settlement_type: 'T0', t0_daily_limit: 25000 },
+      ];
+      const findAllStub = sandbox.stub(User, 'findAll').resolves(mockCustomers);
+      sandbox.stub(serviceSettingsService, 'getServiceFlagValue').resolves(true);
+
+      for (const token of [settlementReadToken, settlementManageToken]) {
+        for (const path of ['/api/admin/pos-setting', '/api/admin/pg-setting']) {
+          const res = await request(app)
+            .get(path)
+            .set('Authorization', `Bearer ${token}`);
+
+          expect(res.status).to.equal(200);
+          expect(res.body.success).to.equal(true);
+          expect(res.body.data.summary.total_merchants).to.equal(2);
+          expect(res.body.data.summary.total_customers).to.equal(4);
+          expect(res.body.data.customers.map((customer) => customer.id)).to.deep.equal([101, 102, 103, 104]);
+          expect(res.body.data.customers[0]).to.include({ settlement_type: 'T0', t0_daily_limit: 50000 });
+          expect(findAllStub.lastCall.args[0].order).to.deep.equal([['createdAt', 'DESC']]);
+        }
+      }
+    });
+
+    it('denies employees without Settlement permissions', async () => {
+      const res = await request(app)
+        .get('/api/admin/pos-setting')
+        .set('Authorization', `Bearer ${noSettlementPermissionToken}`);
+
+      expect(res.status).to.equal(403);
+      expect(res.body.message).to.match(/permission to view settlement/i);
+    });
+
+    it('keeps settlement.read employees read-only on all POS mutation routes', async () => {
+      const routes = [
+        ['/api/admin/pos-setting/update-t0-limit', { id: 101, t0_daily_limit: 60000 }],
+        ['/api/admin/pos-setting/update-settlement-type', { id: 101, settlement_type: 'T1' }],
+        ['/api/admin/pos-setting/bulk-settlement', { settlement_type: 'T1' }],
+      ];
+
+      for (const [path, body] of routes) {
+        const res = await request(app)
+          .post(path)
+          .set('Authorization', `Bearer ${settlementReadToken}`)
+          .send(body);
+
+        expect(res.status).to.equal(403);
+        expect(res.body.message).to.match(/permission to manage settlement/i);
+      }
+    });
+
+    it('allows settlement.manage employees to update T0 limits and settlement modes', async () => {
+      const mockUser = {
+        id: 101,
+        role: 'merchant',
+        franchaise_id: null,
+        t0_daily_limit: null,
+        settlement_type: 'T1',
+        save: sandbox.stub().resolves(true),
+      };
+      sandbox.stub(User, 'findByPk').resolves(mockUser);
+      sandbox.stub(User, 'update').resolves([1]);
+      sandbox.stub(ServiceToggleAuditLog, 'create').resolves({});
+      sandbox.stub(serviceSettingsService, 'getServiceFlagValue').resolves(true);
+
+      const limitRes = await request(app)
+        .post('/api/admin/pos-setting/update-t0-limit')
+        .set('Authorization', `Bearer ${settlementManageToken}`)
+        .send({ id: 101, t0_daily_limit: 60000 });
+      const modeRes = await request(app)
+        .post('/api/admin/pos-setting/update-settlement-type')
+        .set('Authorization', `Bearer ${settlementManageToken}`)
+        .send({ id: 101, settlement_type: 'T0' });
+      const bulkRes = await request(app)
+        .post('/api/admin/pos-setting/bulk-settlement')
+        .set('Authorization', `Bearer ${settlementManageToken}`)
+        .send({ settlement_type: 'T1' });
+
+      expect(limitRes.status).to.equal(200);
+      expect(modeRes.status).to.equal(200);
+      expect(bulkRes.status).to.equal(200);
     });
   });
 
