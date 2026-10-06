@@ -5,6 +5,8 @@ const User = require("../models/User");
 const Company = require("../models/Company");
 const PosMachine = require("../models/posMachine");
 const db = require("../config/database");
+const UsernameSequence = require("../models/UsernameSequence");
+const CompanyName = require("../models/CompanyName");
 
 /**
  * Helper to decrypt or decode ID if sent in encrypted / encoded string format
@@ -204,95 +206,304 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
     name,
     email,
     mobile_number,
+    mobile_number_country_code = "+91",
     password,
     domain_name,
     company_name,
     company_or_shop_name,
+    company_id,
     settlement_type = "today_settlement",
+    gender,
+    dob,
+    address1,
+    address2,
+    city,
+    district,
+    state,
+    country = "India",
+    pincode,
+    aadhar_number,
+    pan_number,
+    gst_number,
+    payout_limit,
+    bill_payment_limit,
   } = req.body;
 
+  console.log("Received createSuperAdmin request body:", req.body);
+
+  // 1. Mandatory Fields Validation
+  const finalCompanyName = String(company_name || company_or_shop_name || "").trim();
   const missingFields = [];
-  if (!email) missingFields.push("email");
-  if (!password) missingFields.push("password");
-  if (!mobile_number) missingFields.push("mobile_number");
-  if (!domain_name) missingFields.push("domain_name");
+  if (!name || !String(name).trim()) missingFields.push("name");
+  if (!email || !String(email).trim()) missingFields.push("email");
+  if (!password || !String(password).trim()) missingFields.push("password");
+  if (!mobile_number || !String(mobile_number).trim()) missingFields.push("mobile_number");
+  if (!domain_name || !String(domain_name).trim()) missingFields.push("domain_name");
+  if (!finalCompanyName) missingFields.push("company_name");
 
   if (missingFields.length > 0) {
     res.status(400);
     throw new Error(`Missing required fields: ${missingFields.join(", ")}`);
   }
 
-  const existingEmail = await User.findOne({ where: { email } });
+  // 2. Format Validations
+  const cleanEmail = String(email).trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(cleanEmail)) {
+    res.status(400);
+    throw new Error("Invalid email address format.");
+  }
+
+  const cleanMobile = String(mobile_number).replace(/\D/g, "").slice(-10);
+  if (cleanMobile.length !== 10 || !/^[6-9]\d{9}$/.test(cleanMobile)) {
+    res.status(400);
+    throw new Error("Mobile number must be a valid 10-digit Indian mobile number.");
+  }
+
+  if (String(password).length < 8) {
+    res.status(400);
+    throw new Error("Password must be at least 8 characters long.");
+  }
+
+  const cleanDomain = String(domain_name)
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "");
+  if (!cleanDomain || cleanDomain.length < 3) {
+    res.status(400);
+    throw new Error("Invalid domain name format.");
+  }
+
+  const cleanAadhaar = aadhar_number ? String(aadhar_number).replace(/\D/g, "").slice(0, 12) : null;
+  if (cleanAadhaar && cleanAadhaar.length !== 12) {
+    res.status(400);
+    throw new Error("Aadhaar number must contain exactly 12 digits.");
+  }
+
+  const cleanPan = pan_number ? String(pan_number).trim().toUpperCase() : null;
+  if (cleanPan && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(cleanPan)) {
+    res.status(400);
+    throw new Error("PAN number must be formatted as 5 letters, 4 digits, and 1 letter (e.g. ABCDE1234F).");
+  }
+
+  const cleanGst = gst_number ? String(gst_number).trim().toUpperCase() : null;
+  if (cleanGst && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(cleanGst)) {
+    res.status(400);
+    throw new Error("GST number must be a valid 15-character GSTIN format.");
+  }
+
+  const cleanPincode = pincode ? String(pincode).replace(/\D/g, "").slice(0, 6) : null;
+  if (cleanPincode && cleanPincode.length !== 6) {
+    res.status(400);
+    throw new Error("Pincode must contain exactly 6 digits.");
+  }
+
+  const cleanCompanyId = company_id ? String(company_id).trim().toUpperCase() : null;
+  if (cleanCompanyId && !/^[A-Z0-9_-]+$/.test(cleanCompanyId)) {
+    res.status(400);
+    throw new Error("Company ID must only contain uppercase letters, numbers, underscores, and hyphens.");
+  }
+
+  // 3. Uniqueness Pre-flight Checks
+  if (cleanCompanyId) {
+    const existingCompanyId = await Company.findOne({ where: { company_id: cleanCompanyId } });
+    if (existingCompanyId) {
+      res.status(409);
+      throw new Error(`Company ID '${cleanCompanyId}' is already registered to another company.`);
+    }
+  }
+
+  const existingEmail = await User.findOne({ where: { email: cleanEmail } });
   if (existingEmail) {
     res.status(409);
     throw new Error("A user with this email already exists.");
   }
 
-  const cleanDomain = String(domain_name).trim().toLowerCase().replace(/^https?:\/\//, "");
+  const existingMobile = await User.findOne({ where: { mobile_number: cleanMobile } });
+  if (existingMobile) {
+    res.status(409);
+    throw new Error("A user with this mobile number already exists.");
+  }
+
   const existingDomain = await Company.findOne({ where: { domain_name: cleanDomain } });
   if (existingDomain) {
     res.status(409);
     throw new Error(`Domain '${cleanDomain}' is already registered to another company.`);
   }
 
+  if (cleanAadhaar) {
+    const existingAadhaar = await User.findOne({ where: { aadhar_number: cleanAadhaar } });
+    if (existingAadhaar) {
+      res.status(409);
+      throw new Error("A user with this Aadhaar number already exists.");
+    }
+  }
+
+  if (cleanPan) {
+    const existingPan = await User.findOne({ where: { pan_number: cleanPan } });
+    if (existingPan) {
+      res.status(409);
+      throw new Error("A user with this PAN number already exists.");
+    }
+  }
+
+  // 4. KYC Document Uploads to Cloudinary (mimicking franchise KYC flow)
+  const panFile = req.files?.pan_photo;
+  const aadharFile = req.files?.aadhar_photo;
+  const aadharBkFile = req.files?.aadhar_back_photo;
+  const shopFile = req.files?.shop_photo;
+  const bankPassbookFile = req.files?.bank_passbook;
+
+  let panUrl = null;
+  let aadharUrl = null;
+  let aadharBkUrl = null;
+  let shopUrl = null;
+  let bankPassbookUrl = null;
+
+  try {
+    const uploadPromises = [
+      panFile ? cloudinary.uploader.upload(panFile.tempFilePath, { folder: "admin_kyc" }) : null,
+      aadharFile ? cloudinary.uploader.upload(aadharFile.tempFilePath, { folder: "admin_kyc" }) : null,
+      aadharBkFile ? cloudinary.uploader.upload(aadharBkFile.tempFilePath, { folder: "admin_kyc" }) : null,
+      shopFile ? cloudinary.uploader.upload(shopFile.tempFilePath, { folder: "admin_kyc" }) : null,
+      bankPassbookFile ? cloudinary.uploader.upload(bankPassbookFile.tempFilePath, { folder: "admin_kyc" }) : null,
+    ];
+    [panUrl, aadharUrl, aadharBkUrl, shopUrl, bankPassbookUrl] = await Promise.all(uploadPromises);
+  } catch (uploadErr) {
+    console.error("KYC Document upload error:", uploadErr);
+    res.status(500);
+    throw new Error(`Failed to upload KYC documents: ${uploadErr.message}`);
+  }
+
   const hashPassword = await bcrypt.hash(password, 10);
+  const companyId = cleanCompanyId || `COMP_${Date.now()}`;
 
-  // Generate unique username with APA prefix
-  const lastUser = await User.findOne({
-    where: { role: "admin" },
-    order: [["id", "DESC"]],
-  });
-  const nextNum = lastUser ? lastUser.id + 1 : 1;
-  const username = `APA${String(nextNum).padStart(5, "0")}`;
-  const companyId = `COMP_${Date.now()}`;
-  const finalCompanyName = company_name || company_or_shop_name || `${name || "Admin"}'s Company`;
-
+  // 5. ATOMIC 3-TABLE TRANSACTION (Users, Companies, company_names)
   const transaction = await db.transaction();
 
   try {
+    // 5a. Allocate consecutive APA username using UsernameSequence with DB row lock
+    const [seq] = await UsernameSequence.findOrCreate({
+      where: { prefix: "APA" },
+      defaults: { current_value: 0 },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    let nextVal = Number(seq.current_value) || 0;
+    let username;
+    while (true) {
+      nextVal += 1;
+      username = `APA${String(nextVal).padStart(5, "0")}`;
+      const exists = await User.findOne({
+        where: { username },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!exists) {
+        seq.current_value = nextVal;
+        await seq.save({ transaction });
+        break;
+      }
+    }
+
+    // 5b. Step 1: Create in Users table (company_id: null initially to satisfy Companies.user_id FK)
     const newUser = await User.create(
       {
-        name: name || finalCompanyName,
-        email,
-        mobile_number,
+        name: String(name).trim(),
+        email: cleanEmail,
+        mobile_number: cleanMobile,
+        mobile_number_country_code: String(mobile_number_country_code || "+91").trim(),
         password: hashPassword,
         role: "admin",
         username,
-        company_id: companyId,
+        abheepay_id: username,
+        gender: gender || null,
+        dob: dob || null,
+        address1: address1 || null,
+        address2: address2 || null,
+        city: city || null,
+        district: district || null,
+        state: state || null,
+        country: country || "India",
+        pincode: cleanPincode || null,
+        aadhar_number: cleanAadhaar || null,
+        pan_number: cleanPan || null,
+        pan_number_url: panUrl?.secure_url || null,
+        aadhar_number_url: aadharUrl?.secure_url || null,
+        aadhar_back_number_url: aadharBkUrl?.secure_url || null,
+        shop_with_photo_url: shopUrl?.secure_url || null,
+        bank_passbook_url: bankPassbookUrl?.secure_url || null,
+        cleanCompanyId,
         company_or_shop_name: finalCompanyName,
-        settlement_type,
+        settlement_type: settlement_type || "today_settlement",
         status: "active",
+        is_approved: true,
       },
       { transaction }
     );
 
+    // 5c. Step 2: Create in Companies table (mapped to newUser.id and companyId)
     const newCompany = await Company.create(
       {
         domain_name: cleanDomain,
         user_id: newUser.id,
         company_id: companyId,
         company_name: finalCompanyName,
+        director_name: String(name).trim() || finalCompanyName,
+        email: cleanEmail,
+        mobile_number: cleanMobile,
+        address1: address1 || null,
+        address2: address2 || null,
+        city: city || null,
+        district: district || null,
+        state: state || null,
+        country: country || "India",
+        pincode: cleanPincode || null,
+        pan_number: cleanPan || null,
+        gst_number: cleanGst || null,
+        payout_limit: payout_limit ? Number(payout_limit) : 0,
+        bill_payment_limit: bill_payment_limit ? Number(bill_payment_limit) : 0,
         status: "active",
       },
       { transaction }
     );
 
+    // 5d. Step 3: Link User with company_id now that Company is created
+    newUser.company_id = companyId;
+    await newUser.save({ transaction });
+
+    // 5e. Step 4: Create or link in company_names table (CompanyName model)
+    const [companyNameRecord] = await CompanyName.findOrCreate({
+      where: { name: finalCompanyName },
+      defaults: {
+        name: finalCompanyName,
+        created_by: req.user?.id || newUser.id,
+        updated_by: req.user?.id || newUser.id,
+      },
+      transaction,
+    });
+
+    // 5f. Commit all 3 tables atomically
     await transaction.commit();
 
     const plain = newUser.toJSON ? newUser.toJSON() : { ...newUser };
     delete plain.password;
     plain.company = newCompany;
+    plain.company_name = companyNameRecord;
 
     res.status(201).json({
       success: true,
-      message: "Admin and Company created successfully",
+      message: "Admin user, Company, and Company Name created and mapped successfully",
       data: plain,
     });
   } catch (error) {
+    // If any step fails, rollback EVERYTHING (all 3 tables)
     await transaction.rollback();
-    console.error("Create Admin error:", error);
-    res.status(500);
-    throw new Error(error.message || "Failed to create Admin and Company.");
+    console.error("Create Admin transaction error (rolled back):", error);
+    res.status(res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
+    throw new Error(error.message || "Failed to create Admin, Company, and Company Name records.");
   }
 });
 
@@ -315,6 +526,19 @@ const updateAdmin = asyncHandler(async (req, res) => {
     name,
     email,
     mobile_number,
+    gender,
+    dob,
+    address1,
+    address2,
+    city,
+    district,
+    state,
+    country,
+    pincode,
+    aadhar_number,
+    pan_number,
+    gst_number,
+    settlement_type,
     status,
     company_name,
     company_or_shop_name,
@@ -322,29 +546,66 @@ const updateAdmin = asyncHandler(async (req, res) => {
     password,
   } = req.body;
 
+  const finalCompanyName = company_name || company_or_shop_name;
+
   if (name !== undefined) admin.name = name;
   if (email !== undefined) admin.email = email;
   if (mobile_number !== undefined) admin.mobile_number = mobile_number;
+  if (gender !== undefined) admin.gender = gender;
+  if (dob !== undefined) admin.dob = dob;
+  if (address1 !== undefined) admin.address1 = address1;
+  if (address2 !== undefined) admin.address2 = address2;
+  if (city !== undefined) admin.city = city;
+  if (district !== undefined) admin.district = district;
+  if (state !== undefined) admin.state = state;
+  if (country !== undefined) admin.country = country;
+  if (pincode !== undefined) admin.pincode = pincode;
+  if (aadhar_number !== undefined) admin.aadhar_number = aadhar_number;
+  if (pan_number !== undefined) admin.pan_number = pan_number;
+  if (settlement_type !== undefined) admin.settlement_type = settlement_type;
   if (status !== undefined) admin.status = status;
-  if (company_or_shop_name !== undefined || company_name !== undefined) {
-    admin.company_or_shop_name = company_name || company_or_shop_name;
+  if (finalCompanyName !== undefined) {
+    admin.company_or_shop_name = finalCompanyName;
   }
 
-  if (password) {
+  if (password && String(password).trim().length >= 8) {
     admin.password = await bcrypt.hash(password, 10);
   }
 
   await admin.save();
 
-  if (admin.company_id && (company_name || domain_name || status)) {
+  if (admin.company_id) {
     const company = await Company.findOne({ where: { company_id: admin.company_id } });
     if (company) {
-      if (company_name) company.company_name = company_name;
+      if (finalCompanyName) company.company_name = finalCompanyName;
+      if (name) company.director_name = name;
+      if (email) company.email = email;
+      if (mobile_number) company.mobile_number = mobile_number;
+      if (address1 !== undefined) company.address1 = address1;
+      if (address2 !== undefined) company.address2 = address2;
+      if (city !== undefined) company.city = city;
+      if (district !== undefined) company.district = district;
+      if (state !== undefined) company.state = state;
+      if (country !== undefined) company.country = country;
+      if (pincode !== undefined) company.pincode = pincode;
+      if (pan_number !== undefined) company.pan_number = pan_number;
+      if (gst_number !== undefined) company.gst_number = gst_number;
       if (domain_name) {
         company.domain_name = String(domain_name).trim().toLowerCase().replace(/^https?:\/\//, "");
       }
       if (status) company.status = status;
       await company.save();
+    }
+
+    if (finalCompanyName) {
+      await CompanyName.findOrCreate({
+        where: { name: finalCompanyName },
+        defaults: {
+          name: finalCompanyName,
+          created_by: req.user?.id || admin.id,
+          updated_by: req.user?.id || admin.id,
+        },
+      });
     }
   }
 
