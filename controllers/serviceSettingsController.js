@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const db = require('../config/database');
 const User = require('../models/User');
+const ServiceSetting = require('../models/ServiceSetting');
 const {
   SERVICE_SETTING_KEY_LIST,
   isUserServiceTargetRole,
@@ -12,7 +13,99 @@ const {
 } = require('../services/serviceSettingsService');
 const { normalizeRole } = require('../utils/permissions');
 
-const SERVICE_SETTING_KEY_SET = new Set(SERVICE_SETTING_KEY_LIST);
+const DEFAULT_SERVICES_METADATA = [
+  {
+    key: 'vimo_payout',
+    label: 'Vimo Payout',
+    category: 'Payout & Banking',
+    description: 'Vimo Native Payout Gateway Integration',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'branchx_payout',
+    label: 'BranchX Payout',
+    category: 'Payout & Banking',
+    description: 'BranchX Direct Payout Service',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'sevenpay_payout',
+    label: 'SevenPay Payout',
+    category: 'Payout & Banking',
+    description: 'SevenPay Payout Gateway Integration',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'ndia5_payout',
+    label: 'Ndia5 Payout',
+    category: 'Payout & Banking',
+    description: 'NDIA5 Direct Bank Settlement Gateway',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'cc_bill_pay',
+    label: 'Credit Card Bill Pay',
+    category: 'Bill Payments & BBPS',
+    description: 'Direct Credit Card Bill Payment Engine',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'ba_cc_bill_pay',
+    label: 'BillAvenue CC Bill Pay',
+    category: 'Bill Payments & BBPS',
+    description: 'BillAvenue BBPS Credit Card Bill Payment',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'cc_bill_3',
+    label: 'CC Bill Pay 3.0',
+    category: 'Bill Payments & BBPS',
+    description: 'High-speed CC Settlement Engine v3',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'mx_payout',
+    label: 'MeroRecharge Payout',
+    category: 'Payout & Banking',
+    description: 'MeroRecharge MX Payout Integration',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'pos_t0_settlement',
+    label: 'POS T0 Instant Settlement',
+    category: 'POS & Hardware',
+    description: 'Instant same-day T0 POS Settlement',
+    target_roles: ['admin', 'franchise', 'merchant', 'super_franchise'],
+  },
+  {
+    key: 'user_daily_limit',
+    label: 'User Daily Transaction Limit',
+    category: 'Security & Limits',
+    description: 'Daily transaction volume limit per user',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'pos_inventory',
+    label: 'POS Inventory & Rentals',
+    category: 'POS & Hardware',
+    description: 'POS Machine Inventory & Terminal Management',
+    target_roles: ['admin', 'franchise', 'merchant', 'super_franchise'],
+  },
+  {
+    key: 'aadhaar_pay',
+    label: 'Aadhaar Pay',
+    category: 'Payout & Banking',
+    description: 'Biometric Aadhaar withdrawal service',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+  {
+    key: 'qr_payments',
+    label: 'QR & Soundbox Payments',
+    category: 'POS & Hardware',
+    description: '4G Soundbox & Standee QR payments',
+    target_roles: ['admin', 'franchise', 'merchant'],
+  },
+];
 
 function getValidatedServiceSettingsPayload(body) {
   const payload = body && typeof body === 'object' && !Array.isArray(body)
@@ -20,21 +113,6 @@ function getValidatedServiceSettingsPayload(body) {
     : {};
 
   const entries = Object.entries(payload);
-  const unknownKeys = entries
-    .map(([key]) => key)
-    .filter((key) => !SERVICE_SETTING_KEY_SET.has(key));
-
-  if (unknownKeys.length > 0) {
-    return {
-      error: {
-        status: 400,
-        body: {
-          success: false,
-          message: `Unknown service setting key(s): ${unknownKeys.join(', ')}`,
-        },
-      },
-    };
-  }
 
   const invalidTypeKeys = entries
     .filter(([, value]) => typeof value !== 'boolean')
@@ -102,6 +180,143 @@ function extractRequestContext(req) {
 
   return { ip_address: ip_address || '127.0.0.1', user_agent };
 }
+
+/**
+ * GET /super-admin/services & GET /admin/service-settings
+ * Returns all services with status & metadata array
+ */
+const getServicesListController = asyncHandler(async (_req, res) => {
+  const dbServices = await ServiceSetting.findAll();
+  const dbMap = new Map();
+
+  dbServices.forEach((s) => {
+    dbMap.set(s.service_key, s.toJSON ? s.toJSON() : s);
+  });
+
+  const merged = DEFAULT_SERVICES_METADATA.map((meta) => {
+    const dbRecord = dbMap.get(meta.key);
+    return {
+      key: meta.key,
+      service_key: meta.key,
+      label: dbRecord?.label || meta.label,
+      category: dbRecord?.category || meta.category,
+      description: dbRecord?.description || meta.description,
+      is_enabled: dbRecord ? dbRecord.is_enabled !== false : true,
+      target_roles: dbRecord?.target_roles || meta.target_roles,
+    };
+  });
+
+  // Include any extra custom services created in DB
+  dbServices.forEach((s) => {
+    if (!DEFAULT_SERVICES_METADATA.some((m) => m.key === s.service_key)) {
+      merged.push({
+        key: s.service_key,
+        service_key: s.service_key,
+        label: s.label || s.service_key,
+        category: s.category || 'General',
+        description: s.description || '',
+        is_enabled: s.is_enabled !== false,
+        target_roles: s.target_roles || ['admin', 'franchise', 'merchant'],
+      });
+    }
+  });
+
+  return res.status(200).json({
+    success: true,
+    data: merged,
+  });
+});
+
+/**
+ * PUT /super-admin/services/:key/status & PUT /super-admin/services/status
+ * Updates status of a single service (or batch)
+ */
+const updateServiceStatusController = asyncHandler(async (req, res) => {
+  const serviceKey = req.params.key || req.body.service_key || req.body.key;
+  const isEnabled = req.body.is_enabled;
+
+  if (!serviceKey || typeof isEnabled !== 'boolean') {
+    return res.status(400).json({
+      success: false,
+      message: 'service_key and boolean is_enabled are required.',
+    });
+  }
+
+  const context = extractRequestContext(req);
+  await upsertServiceSettings({ [serviceKey]: isEnabled }, req.user?.id || null, context);
+
+  let record = await ServiceSetting.findOne({ where: { service_key: serviceKey } });
+  if (!record) {
+    const meta = DEFAULT_SERVICES_METADATA.find((m) => m.key === serviceKey) || {};
+    record = await ServiceSetting.create({
+      service_key: serviceKey,
+      label: meta.label || serviceKey,
+      category: meta.category || 'General',
+      description: meta.description || '',
+      is_enabled: isEnabled,
+      target_roles: meta.target_roles || ['admin', 'franchise', 'merchant'],
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: `Service '${serviceKey}' status updated to ${isEnabled ? 'enabled' : 'disabled'}.`,
+    data: {
+      key: serviceKey,
+      service_key: serviceKey,
+      is_enabled: isEnabled,
+      label: record.label || serviceKey,
+      category: record.category,
+    },
+  });
+});
+
+/**
+ * POST /super-admin/services/create
+ * Creates a new custom service
+ */
+const createServiceController = asyncHandler(async (req, res) => {
+  const { key, service_key, label, category = 'General', description = '', is_enabled = true, target_roles = ['admin', 'franchise', 'merchant'] } = req.body;
+  const finalKey = key || service_key;
+
+  if (!finalKey || !label) {
+    return res.status(400).json({
+      success: false,
+      message: 'Service key and label are required.',
+    });
+  }
+
+  const existing = await ServiceSetting.findOne({ where: { service_key: finalKey } });
+  if (existing) {
+    existing.label = label;
+    existing.category = category;
+    existing.description = description;
+    existing.is_enabled = Boolean(is_enabled);
+    existing.target_roles = target_roles;
+    await existing.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Service '${finalKey}' updated successfully.`,
+      data: existing,
+    });
+  }
+
+  const created = await ServiceSetting.create({
+    service_key: finalKey,
+    label,
+    category,
+    description,
+    is_enabled: Boolean(is_enabled),
+    target_roles,
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: `Service '${finalKey}' created successfully.`,
+    data: created,
+  });
+});
 
 const getServiceSettings = asyncHandler(async (_req, res) => {
   const data = await getServiceSettingsMap();
@@ -269,4 +484,7 @@ module.exports = {
   updateUserServiceSettings,
   bulkUpdateUserServiceSettings,
   getServiceToggleAuditLogsController,
+  getServicesListController,
+  updateServiceStatusController,
+  createServiceController,
 };

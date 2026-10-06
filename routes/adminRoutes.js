@@ -14,6 +14,9 @@ const {
   updateUserServiceSettings,
   bulkUpdateUserServiceSettings,
   getServiceToggleAuditLogsController,
+  getServicesListController,
+  updateServiceStatusController,
+  createServiceController,
 } = require("../controllers/serviceSettingsController");
 const {
   createLoginPopup,
@@ -185,6 +188,10 @@ router.post("/wallet/reconcile-all", validateToken, ensureEmployeePermission([
   message: "You do not have permission to manage wallet operations.",
   elevateRole: "admin",
 }), reconcileAllWallets);
+
+router.get("/services", validateToken, getServicesListController);
+router.put("/services/:key/status", validateToken, updateServiceStatusController);
+router.post("/services/create", validateToken, createServiceController);
 
 router.get("/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
   message: "You do not have permission to view service settings.",

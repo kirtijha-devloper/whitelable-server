@@ -25,17 +25,7 @@ module.exports = {
         allowNull: true,
         comment: 'Transaction status: SUCCESS, FAILED, VOIDED, etc.'
       },
-      company_id: {
-        type: Sequelize.STRING,
-        allowNull: true,
-        references: {
-          model: 'Companies',
-          key: 'company_id'
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'SET NULL',
-        comment: 'Company / white-label tenant identifier'
-      },
+
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE,
