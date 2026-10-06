@@ -16,7 +16,7 @@ const validateWhitelabelDomain = async (req, res, next) => {
         if (originHeader) {
             originHost = new URL(originHeader).host;
         }
-    } catch (_) {}
+    } catch (_) { }
     const originWithoutPort = originHost.split(':')[0];
 
     const possibleDomains = [
