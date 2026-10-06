@@ -9,18 +9,54 @@ const {
   updateAdminStatus,
   getSuperAdminPosInventory,
 } = require("../controllers/superAdminController");
+const {
+  getPosInventory,
+  addPosInventory,
+  getQrInventory,
+  addQrInventory,
+  getPgInventory,
+  addPgInventory,
+} = require("../controllers/inventoryController");
+const {
+  getServicesListController,
+  updateServiceStatusController,
+  createServiceController,
+  getServiceSettings,
+  updateServiceSettings,
+} = require("../controllers/serviceSettingsController");
 
-const routes = express.Router();
 const router = express.Router();
+
+// ── Service Management APIs ──────────────────────────────────────────────────
+router.get("/services", validateToken, validateWhitelabelDomain, getServicesListController);
+router.get("/service-settings", validateToken, validateWhitelabelDomain, getServicesListController);
+router.put("/services/:key/status", validateToken, validateWhitelabelDomain, updateServiceStatusController);
+router.put("/services/status", validateToken, validateWhitelabelDomain, updateServiceStatusController);
+router.post("/services/create", validateToken, validateWhitelabelDomain, createServiceController);
+router.post("/services", validateToken, validateWhitelabelDomain, createServiceController);
+
+// ── Inventory APIs ────────────────────────────────────────────────────────────
+// POS Inventory
+router.get("/getPosInventory", validateToken, validateWhitelabelDomain, getPosInventory);
+router.get("/inventory/pos", validateToken, validateWhitelabelDomain, getPosInventory);
+router.post("/addPosInventory", validateToken, validateWhitelabelDomain, addPosInventory);
+router.post("/inventory/pos", validateToken, validateWhitelabelDomain, addPosInventory);
+
+// QR Inventory
+router.get("/getQrInventory", validateToken, validateWhitelabelDomain, getQrInventory);
+router.get("/inventory/qr", validateToken, validateWhitelabelDomain, getQrInventory);
+router.post("/addQrInventory", validateToken, validateWhitelabelDomain, addQrInventory);
+router.post("/inventory/qr", validateToken, validateWhitelabelDomain, addQrInventory);
+
+// PG Inventory
+router.get("/getPgInventory", validateToken, validateWhitelabelDomain, getPgInventory);
+router.get("/inventory/pg", validateToken, validateWhitelabelDomain, getPgInventory);
+router.post("/addPgInventory", validateToken, validateWhitelabelDomain, addPgInventory);
+router.post("/inventory/pg", validateToken, validateWhitelabelDomain, addPgInventory);
 
 // ── Super Admin Admins Listing ────────────────────────────────────────────────
 router.get("/getAllAdmins", validateToken, validateWhitelabelDomain, getSuperAdminData);
 router.get("/admin", validateToken, validateWhitelabelDomain, getSuperAdminData);
-router.get("/", validateToken, validateWhitelabelDomain, getSuperAdminData);
-
-module.exports = routes;
-// ── Super Admin POS Inventory ────────────────────────────────────────────────
-router.get("/getPosInventory", validateToken, validateWhitelabelDomain, getSuperAdminPosInventory);
 
 // ── Super Admin Create Admin & Company ───────────────────────────────────────
 router.post("/createAdmin", validateToken, validateWhitelabelDomain, createSuperAdmin);
@@ -33,5 +69,7 @@ router.get("/admin/:id", validateToken, validateWhitelabelDomain, getAdminDetail
 
 // ── Super Admin Update Admin Profile & Company ───────────────────────────────
 router.put("/admin/:id", validateToken, validateWhitelabelDomain, updateAdmin);
+
+router.get("/", validateToken, validateWhitelabelDomain, getSuperAdminData);
 
 module.exports = router;

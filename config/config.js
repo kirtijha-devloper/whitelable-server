@@ -13,6 +13,12 @@ const defaultPort = process.env.DB_PORT ? Number(process.env.DB_PORT) : (default
 //   password: (dbPass || "pos@_2525") ? '****' : undefined
 // });
 
+const sslOptions = (process.env.DB_SSL === 'true' || (process.env.DB_HOST && process.env.DB_HOST.includes('neon.tech'))) ? {
+  dialectOptions: {
+    ssl: { require: true, rejectUnauthorized: false }
+  }
+} : {};
+
 module.exports = {
   development: {
     username: process.env.DB_USER || "postgres",
@@ -21,6 +27,7 @@ module.exports = {
     host: process.env.DB_HOST || '127.0.0.1',
     port: defaultPort,
     dialect: defaultDialect,
+    ...sslOptions,
   },
   staging: {
     username: process.env.DB_USER,
@@ -29,6 +36,7 @@ module.exports = {
     host: process.env.DB_HOST,
     port: defaultPort,
     dialect: defaultDialect,
+    ...sslOptions,
   },
   production: {
     username: process.env.DB_USER,
@@ -37,6 +45,7 @@ module.exports = {
     host: process.env.DB_HOST,
     port: defaultPort,
     dialect: defaultDialect,
+    ...sslOptions,
   },
   test: {
     dialect: 'sqlite',

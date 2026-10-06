@@ -12,6 +12,9 @@ const SERVICE_SETTING_ALLOWED_KEYS = [
   'mx_payout',
   'pos_t0_settlement',
   'user_daily_limit',
+  'pos_inventory',
+  'aadhaar_pay',
+  'qr_payments',
 ];
 
 const ServiceSetting = db.define('ServiceSetting', {
@@ -25,17 +28,28 @@ const ServiceSetting = db.define('ServiceSetting', {
     type: Sequelize.STRING(100),
     allowNull: false,
     unique: true,
-    validate: {
-      isIn: {
-        args: [SERVICE_SETTING_ALLOWED_KEYS],
-        msg: `service_key must be one of: ${SERVICE_SETTING_ALLOWED_KEYS.join(', ')}`,
-      },
-    },
+  },
+  label: {
+    type: Sequelize.STRING(150),
+    allowNull: true,
+  },
+  category: {
+    type: Sequelize.STRING(100),
+    allowNull: true,
+    defaultValue: 'General',
+  },
+  description: {
+    type: Sequelize.TEXT,
+    allowNull: true,
   },
   is_enabled: {
     type: Sequelize.BOOLEAN,
     allowNull: false,
     defaultValue: true,
+  },
+  target_roles: {
+    type: Sequelize.JSON,
+    allowNull: true,
   },
   updated_by: {
     type: Sequelize.INTEGER,
