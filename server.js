@@ -100,6 +100,10 @@ app.use((req, res, next) => {
   if (req.method === 'PUT' && req.path.match(/^\/api\/user\/\d+$/)) {
     return fileUploadMiddleware(req, res, next);
   }
+  // allow file uploads when creating/updating super-admin as well
+  if (req.path.includes('/super-admin')) {
+    return fileUploadMiddleware(req, res, next);
+  }
   next();
 });
 
@@ -132,6 +136,7 @@ app.use("/api/user", require("./routes/userRoutes"));
 app.use("/api/transaction", require("./routes/transactionRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/admin", require("./routes/adminRoutes"));
+app.use("/api/super-admin", require("./routes/superAdminRoutes"));
 app.use("/super-admin", require("./routes/superAdminRoutes"));
 app.use("/api/admin/employee-access-roles", require("./routes/employeeAccessRoleRoutes"));
 app.use("/api/franchaise", require("./routes/franchaiseRoutes"));
