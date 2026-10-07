@@ -1427,5 +1427,10 @@ module.exports = {
   getBbpsReport,
   getAllTransactionsReport,
   getUserReport,
-  getAllRazorpayNotifications
+  getAllRazorpayNotifications,
+  getTransactionReports,
+  getCommissionReports,
+  getServiceWiseReport,
+  recordCommission
 };
+

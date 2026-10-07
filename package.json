@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "seed:commissions": "node scripts/seedCommissions.js",
     "seed:test": "node scripts/seedTestData.js",
+    "seed:super-admin": "node scripts/seedSuperAdminTestDatasets.js",
     "seed:fix-sequences": "node scripts/fixSequences.js",
     "seed:billers": "node scripts/seed36Billers.js",
     "webhook:upi": "node scripts/testWebhook.js upi",

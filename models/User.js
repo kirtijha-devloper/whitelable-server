@@ -220,6 +220,18 @@ User.associate = function (models) {
     targetKey: "company_id",
     as: "company",
   });
+  if (models.Commission) {
+    User.hasMany(models.Commission, {
+      foreignKey: "user_id",
+      as: "commissions",
+    });
+  }
+  if (models.Transaction) {
+    User.hasMany(models.Transaction, {
+      foreignKey: "user_id",
+      as: "transactions",
+    });
+  }
 };
 
 module.exports = User;

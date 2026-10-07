@@ -180,8 +180,13 @@ app.use('/payout/credxpay', require('./routes/credxpay/payout'));
 // app.use('/api/vimo/beneficiaries', require('./routes/credxpay/beneficiary')); // deprecated in favor of Vimo native beneficiaries
 app.use('/payout/credxpay/callback', require('./routes/credxpay/webhook'));
 app.use('/api/complaint', require('./routes/complaintRoutes'));
-app.use('/api/report', require('./routes/reportRoutes'));
 app.use('/api/kyc', require('./routes/kycRoutes'));
+app.use('/api/report', require('./routes/reportRoutes'));
+app.use('/api/reports', require('./routes/reportRoutes'));
+app.use('/reports', require('./routes/reportRoutes'));
+app.use('/api/service-charges', require('./routes/serviceChargeRoutes'));
+app.use('/api/super-admin/service-charges', require('./routes/serviceChargeRoutes'));
+app.use('/api/admin/service-charges', require('./routes/serviceChargeRoutes'));
 app.use('/api/razorpay', require('./routes/razorpay/webhook/notificationRoutes'));
 app.use('/api/worldline', require('./routes/worldline/webhook/notificationRoutes'));
 app.use('/api/worldline-notifications', require('./routes/worldline/webhook/notificationRoutes'));

@@ -24,8 +24,12 @@ const {
   getServiceSettings,
   updateServiceSettings,
 } = require("../controllers/serviceSettingsController");
+const serviceChargeRoutes = require("./serviceChargeRoutes");
 
 const router = express.Router();
+
+// ── Service Charges (Platform Slab / Pricing Rules) ──────────────────────────
+router.use("/service-charges", serviceChargeRoutes);
 
 // ── Service Management APIs ──────────────────────────────────────────────────
 router.get("/services", validateToken, validateWhitelabelDomain, getServicesListController);

@@ -39,6 +39,7 @@ const {
 } = require("../controllers/adminSettlementConfigController");
 
 router.route("/").get(getAdminDashboard);
+router.use("/service-charges", require("./serviceChargeRoutes"));
 
 function requireAdmin(req, res, next) {
   if (req.user?.role !== "admin") {
