@@ -29,4 +29,12 @@ Object.values(models).forEach((m) => {
 // eslint-disable-next-line no-console
 console.log('Model associations initialized');
 
+// Ensure company_logo column exists on Companies table safely
+const db = require('../config/database');
+db.query('ALTER TABLE "Companies" ADD COLUMN IF NOT EXISTS "company_logo" VARCHAR(500);')
+  .catch((err) => {
+    // Non-fatal if already exists or dialect difference
+    console.warn('[Schema Init Warning] Could not ensure company_logo column:', err.message || err);
+  });
+
 module.exports = models;
