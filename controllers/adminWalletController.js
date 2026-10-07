@@ -74,6 +74,12 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
   // Validate input
   const { user_id, amount, reason = "" } = req.body;
   const idempotencyKey = req.body.idempotency_key || req.headers['x-idempotency-key'];
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
 
   if (!idempotencyKey) {
     return res.status(400).json({
@@ -147,7 +153,8 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
         admin_id: req.user.id,
         admin_name: req.user.name,
         reason: reason
-      })
+      }),
+      company_id : companyId
     }, { transaction });
 
     // Update user balance
@@ -165,6 +172,7 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
       balance_after: newBalance,
       ip_address: extractClientIp(req),
       user_agent: req.headers['user-agent'] || null,
+      company_id : companyId
     }, { transaction });
 
     // Commit transaction
@@ -218,6 +226,13 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
   // Validate input
   const { user_id, amount, reason = "" } = req.body;
   const idempotencyKey = req.body.idempotency_key || req.headers['x-idempotency-key'];
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
 
   if (!idempotencyKey) {
     return res.status(400).json({
@@ -299,7 +314,8 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
         admin_id: req.user.id,
         admin_name: req.user.name,
         reason: reason
-      })
+      }),
+      company_id : companyId,
     }, { transaction });
 
     // Update user balance
@@ -317,6 +333,7 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
       balance_after: newBalance,
       ip_address: extractClientIp(req),
       user_agent: req.headers['user-agent'] || null,
+      company_id : companyId
     }, { transaction });
 
     // Commit transaction

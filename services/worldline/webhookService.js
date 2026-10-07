@@ -6,7 +6,7 @@ const worldlineWebhookQueue = require("../../queues/worldlineWebhookQueue");
  * Step 1: Store/Upsert notification in DB
  * Step 2: Enqueue background job to worldlineWebhookQueue
  */
-async function processWorldlineNotification(event, source = 'worldline') {
+async function processWorldlineNotification(event, source = 'worldline', companyId = null) {
     try {
         if (!event || typeof event !== 'object') {
             console.error("[Worldline Webhook Service] ❌ Invalid event data:", event);
@@ -52,7 +52,8 @@ async function processWorldlineNotification(event, source = 'worldline') {
             urn: urn,
             billing_number: event.billing_number || null,
             event_json: event,
-            source: source
+            source: source,
+            company_id: companyId
         };
 
         const [notification, created] = await WorldlineNotification.findOrCreate({
@@ -80,7 +81,8 @@ async function processWorldlineNotification(event, source = 'worldline') {
                 processed: false,
                 processing_status: 'pending',
                 processing_error: null,
-                processed_at: null
+                processed_at: null,
+                ...(companyId ? { company_id: companyId } : {})
             });
         }
 

@@ -13,13 +13,14 @@ const {
 } = require("../controllers/transactionController");
 
 const validateToken = require("../middleware/validateTokenHandler");
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 
 const router = express.Router();
 
 router.post("/upload-csv", upload.single("file"), uploadCSV);
 router.post("/upload-csv-preview", upload.single("file"), previewCSV);
 router.post("/upload-pinelab-notifications", upload.single("file"), uploadPinelabNotifications);
-router.post("/process-single-notification", validateToken, processSingleNotificationRow);
+router.post("/process-single-notification", validateToken, validateWhitelabelDomain, processSingleNotificationRow);
 
 router.route("/").get( getAllTransaction );
 

@@ -1,11 +1,13 @@
 const express = require('express');
 const payoutController = require('../../controllers/credxpay/payoutController');
 const validateToken = require('../../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../../middleware/validateWhitelabelDomain');
 
 const router = express.Router();
 
 // apply JWT auth
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // routes are mounted under /payout/credxpay
 router.use('/', payoutController);

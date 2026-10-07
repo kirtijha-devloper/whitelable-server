@@ -1,6 +1,7 @@
 const express = require('express');
 const vimoController = require('../controllers/vimoController');
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
@@ -18,6 +19,7 @@ router.post('/callback', vimoController.handleCallback);
 router.post('/payout/limit-check', vimoController.checkBeneficiaryLimit);
 
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 router.post('/auth/token', vimoController.fetchTokenStatus);
 router.get('/auth/token', vimoController.fetchTokenStatus); // support GET for frontend convenience

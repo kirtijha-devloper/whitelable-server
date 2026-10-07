@@ -58,6 +58,17 @@ async function getNextPayoutReference(opts = {}) {
   const next = await reserveNextSequence({ service: DEFAULT_SERVICE, ...opts });
   const reference = formatReference(next, opts.provider);
 
+  let companyId = opts.companyId || opts.company_id || null;
+  if (!companyId && opts.userId) {
+    try {
+      const User = require('../models/User');
+      const user = await User.findByPk(opts.userId, { attributes: ['id', 'company_id'] });
+      if (user && user.company_id) {
+        companyId = user.company_id;
+      }
+    } catch (_) {}
+  }
+
   // Record who generated this reference so transactions can be traced
   // even if the corresponding PayoutTransaction record was never committed.
   await PayoutReferenceLog.create({
@@ -65,6 +76,7 @@ async function getNextPayoutReference(opts = {}) {
     sequence_number: next,
     provider: opts.provider || null,
     user_id: opts.userId || null,
+    company_id: companyId,
   });
 
   return reference;

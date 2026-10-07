@@ -340,6 +340,13 @@ router.post('/delete-beneficiary', async (req, res) => {
 router.post('/transfer-imps', async (req, res) => {
   let pending_transaction;
   try {
+    const companyId = req.company;
+
+    if(!companyId){
+      console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+      return res.status(400).json({message : "No Domain Name is registered"});
+    }
+
     const userId = req.user?.id || 11
     const userRole = req.user?.role || 'merchant'
     const token = req.body.sddsToken
@@ -398,7 +405,8 @@ router.post('/transfer-imps', async (req, res) => {
       status: "pending",
       reason: `IMPS to ${beneficiary.bank_account_holder_name}`,
       requested_by: beneficiary.id,
-      source: "imps"
+      source: "imps",
+      company_id : companyId,
     });
     const currentDate = getCurrentDate();
 
@@ -418,6 +426,7 @@ router.post('/transfer-imps', async (req, res) => {
     const data = await sddsService.transferIMPS({payload, token});
     // NOTE: createLedgerEntry() below syncs user.wallet as its last step — no manual update needed here.
     pending_transaction.status = "completed"
+    pending_transaction.company_id = companyId;
     await pending_transaction.save()
 
     const completedWalletTx = await WalletTransaction.create({
@@ -428,7 +437,8 @@ router.post('/transfer-imps', async (req, res) => {
       requested_by: beneficiary.id,
       approved_by: beneficiary.remitter_id,
       source: "imps",
-      reference_id: data.data.paymentrefno // need to think what shuold be passed
+      reference_id: data.data.paymentrefno, // need to think what shuold be passed
+      company_id : companyId,
     });
 
     // Write ledger entry for direct IMPS transfer debit

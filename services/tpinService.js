@@ -26,7 +26,7 @@ async function hasActiveTpin(userId) {
   return !!record;
 }
 
-async function replaceTpin(userId, plainTpin, expiresAt) {
+async function replaceTpin(userId, plainTpin, expiresAt, companyId = null) {
   await Tpin.destroy({ where: { user_id: userId } });
   const hashTpin = await bcrypt.hash(String(plainTpin), 10);
 
@@ -34,6 +34,7 @@ async function replaceTpin(userId, plainTpin, expiresAt) {
     user_id: userId,
     tpin: hashTpin,
     expires_at: expiresAt,
+    company_id: companyId,
   });
 }
 

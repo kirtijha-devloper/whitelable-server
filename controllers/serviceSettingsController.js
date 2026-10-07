@@ -178,7 +178,11 @@ function extractRequestContext(req) {
     ? String(req.headers['user-agent']).substring(0, 500)
     : null;
 
-  return { ip_address: ip_address || '127.0.0.1', user_agent };
+  return {
+    ip_address: ip_address || '127.0.0.1',
+    user_agent,
+    company_id: req.company || null,
+  };
 }
 
 /**
@@ -231,15 +235,25 @@ const getServicesListController = asyncHandler(async (_req, res) => {
  * PUT /super-admin/services/:key/status & PUT /super-admin/services/status
  * Updates status of a single service (or batch)
  */
+
+
+
 const updateServiceStatusController = asyncHandler(async (req, res) => {
   const serviceKey = req.params.key || req.body.service_key || req.body.key;
   const isEnabled = req.body.is_enabled;
-
+  
   if (!serviceKey || typeof isEnabled !== 'boolean') {
     return res.status(400).json({
       success: false,
       message: 'service_key and boolean is_enabled are required.',
     });
+  }
+  
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
   }
 
   const context = extractRequestContext(req);
@@ -255,6 +269,7 @@ const updateServiceStatusController = asyncHandler(async (req, res) => {
       description: meta.description || '',
       is_enabled: isEnabled,
       target_roles: meta.target_roles || ['admin', 'franchise', 'merchant'],
+      company_id : companyId
     });
   }
 
@@ -285,7 +300,7 @@ const createServiceController = asyncHandler(async (req, res) => {
       message: 'Service key and label are required.',
     });
   }
-
+  
   const existing = await ServiceSetting.findOne({ where: { service_key: finalKey } });
   if (existing) {
     existing.label = label;
@@ -294,12 +309,19 @@ const createServiceController = asyncHandler(async (req, res) => {
     existing.is_enabled = Boolean(is_enabled);
     existing.target_roles = target_roles;
     await existing.save();
-
+    
     return res.status(200).json({
       success: true,
       message: `Service '${finalKey}' updated successfully.`,
       data: existing,
     });
+  }
+  
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
   }
 
   const created = await ServiceSetting.create({
@@ -309,6 +331,7 @@ const createServiceController = asyncHandler(async (req, res) => {
     description,
     is_enabled: Boolean(is_enabled),
     target_roles,
+    company_id : companyId
   });
 
   return res.status(201).json({
@@ -328,6 +351,13 @@ const getServiceSettings = asyncHandler(async (_req, res) => {
 });
 
 const updateServiceSettings = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const { payload, error } = getValidatedServiceSettingsPayload(req.body);
 
   if (error) {
@@ -350,6 +380,13 @@ const updateServiceSettings = asyncHandler(async (req, res) => {
 });
 
 const updateUserServiceSettings = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const requesterRole = normalizeRole(req.user?.role);
 
   if (requesterRole !== 'admin') {
@@ -440,6 +477,13 @@ const getServiceToggleAuditLogsController = asyncHandler(async (req, res) => {
 });
 
 const bulkUpdateUserServiceSettings = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const requesterRole = normalizeRole(req.user?.role);
 
   if (requesterRole !== 'admin') {

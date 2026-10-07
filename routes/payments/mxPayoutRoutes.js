@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../../middleware/validateWhitelabelDomain');
 const mxPayoutController = require('../../controllers/payments/mxPayoutController');
 const { handleMxCallback } = require('../../controllers/payments/mxWebhookController');
 
@@ -8,6 +9,7 @@ const { handleMxCallback } = require('../../controllers/payments/mxWebhookContro
 router.post('/payout/callback', handleMxCallback);
 
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 router.get('/payout/reference', mxPayoutController.getPayoutReference);
 router.post('/beneficiaries', mxPayoutController.createBeneficiary);

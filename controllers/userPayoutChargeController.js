@@ -52,6 +52,13 @@ const createUserPayoutCharge = asyncHandler(async (req, res) => {
     });
   }
 
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const rule = await UserPayoutCharge.create({
     user_id,
     from_amount: numFrom,
@@ -60,6 +67,7 @@ const createUserPayoutCharge = asyncHandler(async (req, res) => {
     rate_type,
     is_active: is_active !== undefined ? is_active : true,
     description: description || null,
+    company_id : companyId,
   });
 
   return res.status(201).json({ success: true, data: rule });
@@ -99,6 +107,13 @@ const getUserPayoutChargeById = asyncHandler(async (req, res) => {
 
 // ── Update a rule ─────────────────────────────────────────────────────────────
 const updateUserPayoutCharge = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const rule = await UserPayoutCharge.findByPk(req.params.id);
   if (!rule) {
     return res.status(404).json({ success: false, message: 'User payout charge rule not found' });
@@ -111,7 +126,7 @@ const updateUserPayoutCharge = asyncHandler(async (req, res) => {
   }
 
   const newFrom = from_amount !== undefined ? parseFloat(from_amount) : parseFloat(rule.from_amount);
-  const newTo   = to_amount   !== undefined ? parseFloat(to_amount)   : parseFloat(rule.to_amount);
+  const newTo = to_amount !== undefined ? parseFloat(to_amount) : parseFloat(rule.to_amount);
 
   if (newFrom >= newTo) {
     return res.status(400).json({ success: false, message: 'from_amount must be strictly less than to_amount' });
@@ -125,13 +140,14 @@ const updateUserPayoutCharge = asyncHandler(async (req, res) => {
     });
   }
 
-  if (from_amount  !== undefined) rule.from_amount  = newFrom;
-  if (to_amount    !== undefined) rule.to_amount    = newTo;
-  if (rate         !== undefined) rule.rate         = parseFloat(rate);
-  if (rate_type    !== undefined) rule.rate_type    = rate_type;
-  if (is_active    !== undefined) rule.is_active    = is_active;
-  if (description  !== undefined) rule.description  = description;
+  if (from_amount !== undefined) rule.from_amount = newFrom;
+  if (to_amount !== undefined) rule.to_amount = newTo;
+  if (rate !== undefined) rule.rate = parseFloat(rate);
+  if (rate_type !== undefined) rule.rate_type = rate_type;
+  if (is_active !== undefined) rule.is_active = is_active;
+  if (description !== undefined) rule.description = description;
 
+  rule.company_id = companyId;
   await rule.save();
   return res.status(200).json({ success: true, data: rule });
 });

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
@@ -18,6 +19,7 @@ const {
 const { myChargesDebug, debugPreviewPayload } = require('../controllers/posChargeRuleDebugController');
 
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // create / update / list / delete rules
 router.post('/', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {

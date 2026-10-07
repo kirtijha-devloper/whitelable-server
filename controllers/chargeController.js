@@ -57,6 +57,13 @@ const getSlabsById = asyncHandler(async (req, res) => {
 
 // ✅ Create a charge slab
 const createChargeSlab = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const {
     charge_type_category,
     charge_type_id, // optional
@@ -111,7 +118,8 @@ console.log("charge TEST 01", isOverlapping)
       min_amount: min_amount || null,
       max_amount: max_amount || null,
       flat_fee: flat_fee || null,
-      percent_fee: percent_fee || null
+      percent_fee: percent_fee || null,
+      company_id : companyId,
       });
   console.log("charge TEST")
 
@@ -143,6 +151,13 @@ const getSlabsByCategory = asyncHandler(async (req, res) => {
 
 // ✅ Update slab
 const updateChargeSlab = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const { id } = req.params;
   const updates = req.body;
 
@@ -152,7 +167,10 @@ const updateChargeSlab = asyncHandler(async (req, res) => {
     throw new Error("Charge slab not found");
   }
 
-  await slab.update(updates);
+  await slab.update({
+    ...updates,
+    company_id : companyId,
+  });
 
   res.status(200).json({ message: "Charge Slab updated", slab });
 });

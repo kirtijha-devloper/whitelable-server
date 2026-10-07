@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
@@ -12,6 +13,7 @@ const {
 
 // all routes require authentication
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // admin-write, all-read
 router.post('/', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
