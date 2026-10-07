@@ -68,7 +68,7 @@ async function getAvailableBalance(userId) {
  * @param {number}  amount     - Net amount to hold
  * @param {number}  [ledgerId] - FK to the credit ledger entry
  */
-async function createSettlementHold(userId, amount, ledgerId = null) {
+async function createSettlementHold(userId, amount, ledgerId = null, companyId = null) {
   const now = new Date();
 
   // IST is UTC+5:30 — compute the current IST date
@@ -80,13 +80,17 @@ async function createSettlementHold(userId, amount, ledgerId = null) {
   const releaseIST = new Date(holdDate + 'T10:30:00+05:30');
   releaseIST.setDate(releaseIST.getDate() + 1);
 
+  const targetUser = await User.findByPk(userId, { attributes: ['id', 'company_id'] });
+  const effectiveCompanyId = companyId || (targetUser ? targetUser.company_id : null);
+
   await SettlementHold.create({
     user_id: userId,
     ledger_id: ledgerId,
     amount,
     hold_date: holdDate,
     release_at: releaseIST,
-    released: false
+    released: false,
+    company_id: effectiveCompanyId
   });
 }
 
@@ -125,7 +129,7 @@ async function createLedgerEntry({
   metadata = null
 }, opts = {}) {
   // Check if ledger tracking is enabled for this user
-  const userCheck = await User.findByPk(userId, { attributes: ['id', 'start_ledger'], ...opts });
+  const userCheck = await User.findByPk(userId, { attributes: ['id', 'start_ledger', 'company_id'], ...opts });
   if (!userCheck || !userCheck.start_ledger) {
     // Ledger tracking not enabled — skip silently
     return null;
@@ -151,6 +155,8 @@ async function createLedgerEntry({
     metadataString = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
   }
 
+  const effectiveCompanyId = opts.company_id || opts.companyId || (userCheck ? userCheck.company_id : null);
+
   // Persist ledger entry
   const ledgerEntry = await Ledger.create({
     user_id: userId,
@@ -163,7 +169,8 @@ async function createLedgerEntry({
     debit: parseFloat(debit) || 0,
     credit: parseFloat(credit) || 0,
     balance: balanceAfter,
-    metadata: metadataString
+    metadata: metadataString,
+    company_id: effectiveCompanyId
   }, opts);
 
   // Keep user.wallet in sync with the ledger

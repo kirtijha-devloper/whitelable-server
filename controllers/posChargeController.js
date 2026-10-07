@@ -192,6 +192,13 @@ const deleteDefaultPosCharge = asyncHandler(async (req, res) => {
  * - franchaise: can set for their own merchants only; must reference existing pos_charge_default_id
  */
 const createUserPosCharge = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const role = req.user.role;
   if (!['admin', 'franchaise'].includes(role)) {
     res.status(403);
@@ -288,7 +295,8 @@ const createUserPosCharge = asyncHandler(async (req, res) => {
     pos_charge_default_id: defaultRecord.id,
     percent_fee: overridePercent,
     is_active: typeof is_active === 'boolean' ? is_active : true,
-    created_by: req.user.id
+    created_by: req.user.id,
+    company_id : companyId,
   });
 
   res.status(201).json({ message: 'User POS charge linked', link, defaultPosCharge: defaultRecord });
@@ -351,6 +359,13 @@ const getUserPosCharges = asyncHandler(async (req, res) => {
  * - franchaise: can update only for their merchants
  */
 const updateUserPosCharge = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const role = req.user.role;
   if (!['admin', 'franchaise'].includes(role)) {
     res.status(403);
@@ -385,6 +400,7 @@ const updateUserPosCharge = asyncHandler(async (req, res) => {
 
   if (typeof is_active === 'boolean') rec.is_active = is_active;
 
+  rec.company_id = companyId;
   await rec.save();
 
   const updated = await UserPosCharge.findByPk(rec.id, {

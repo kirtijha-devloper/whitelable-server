@@ -333,7 +333,7 @@ async function _normalizeId(id) {
     return stripped === "" ? digits : stripped;
 }
 
-async function _resolvePosContext(notification) {
+async function _resolvePosContext(notification, companyId = null) {
     const eventData = typeof notification.event_json === 'string' ? JSON.parse(notification.event_json) : notification.event_json;
     const merchantId = notification.mid || eventData.mid || eventData.mid_number;
     const terminalId = notification.tid || eventData.tid || eventData.tid_number;
@@ -418,7 +418,11 @@ async function _resolvePosContext(notification) {
         throw new Error(`Assigned user not found for POS machine ${posMachine.id}`);
     }
 
-    await notification.update({ pos_machine_id: posMachine.id, user_id: posOperator.id });
+    const updatePayload = { pos_machine_id: posMachine.id, user_id: posOperator.id };
+    if (companyId) {
+        updatePayload.company_id = companyId;
+    }
+    await notification.update(updatePayload);
 
     return {
         eventData,
@@ -438,6 +442,13 @@ async function _resolvePosContext(notification) {
 
 async function adminProcessNotification(req, res) {
     try {
+        const companyId = req.company;
+
+        if(!companyId){
+            console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+            return res.status(400).json({message : "No Domain Name is registered"});
+        }
+
         if (!req.user || req.user.role !== 'admin') {
             res.status(403).json({ success: false, message: 'Admin role required' });
             return;
@@ -453,6 +464,8 @@ async function adminProcessNotification(req, res) {
             return res.status(400).json({ success: false, message: 'Notification already processed' });
         }
 
+        await notification.update({ company_id: companyId });
+
         await handleAuthorizedTransaction(notification.txn_id, notification.event_json, notification);
 
         const reloaded = await RazorpayNotification.findByPk(id);
@@ -465,6 +478,13 @@ async function adminProcessNotification(req, res) {
 
 async function adminProcessNotificationWithCustomCharge(req, res) {
     try {
+        const companyId = req.company;
+
+        if(!companyId){
+            console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+            return res.status(400).json({message : "No Domain Name is registered"});
+        }
+
         if (!req.user || req.user.role !== 'admin') {
             res.status(403).json({ success: false, message: 'Admin role required' });
             return;
@@ -498,7 +518,7 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             classificationFromJson,
             rrNumber,
             customerName
-        } = await _resolvePosContext(notification);
+        } = await _resolvePosContext(notification, companyId);
 
         const existingCharge = await MerchantTransactionCharge.findOne({ where: { razorpay_transaction_id: notification.txn_id } });
         if (existingCharge) {
@@ -600,7 +620,8 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             processed: true,
             processing_status: 'completed',
             processed_at: new Date(),
-            processing_error: null
+            processing_error: null,
+            company_id : companyId,
         });
 
         await ledgerService.createRazorpayChargeEntry({
@@ -690,7 +711,8 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                         processed: false,
                         processing_status: 'needs_admin',
                         processing_error: error.message || String(error),
-                        processed_at: new Date()
+                        processed_at: new Date(),
+                        company_id : companyId,
                     });
                 }
             }

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const {
   createCompanyName,
   getCompanyNames,
@@ -10,6 +11,7 @@ const {
 
 // all routes require authentication
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // admin-write, all-read
 router.post('/', createCompanyName);

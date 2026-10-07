@@ -16,11 +16,13 @@ const {
 } = require('../../../controllers/cc/bbps/bbpsCCBillController');
 
 const validateToken = require('../../../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../../../middleware/validateWhitelabelDomain');
 const { ensureEmployeePermission } = require('../../../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../../../utils/permissions');
 
 // All routes protected by JWT
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // GET  /api/bbps-cc/categories          – All BBPS utility categories
 router.get('/categories', getCategories);

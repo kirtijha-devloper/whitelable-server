@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { initiateKyc, validateKycOtp, getKycInfo } = require('../controllers/kycController');
 
 /**
@@ -24,8 +25,8 @@ const { initiateKyc, validateKycOtp, getKycInfo } = require('../controllers/kycC
  *   Verifies the OTP with InstantPay signup/validate.
  *   On success, saves the returned outletId to users.ipay_outlet_id.
  */
-router.get('/info', validateToken, getKycInfo);
-router.post('/initiate', validateToken, initiateKyc);
-router.post('/validate-otp', validateToken, validateKycOtp);
+router.get('/info', validateToken, validateWhitelabelDomain, getKycInfo);
+router.post('/initiate', validateToken, validateWhitelabelDomain, initiateKyc);
+router.post('/validate-otp', validateToken, validateWhitelabelDomain, validateKycOtp);
 
 module.exports = router;

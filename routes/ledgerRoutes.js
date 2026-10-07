@@ -5,9 +5,11 @@ const { listStatement, getLedgerEntries, getLedgerEntryDetails, manualRefundLedg
 
 const router = express.Router();
 const validateToken = require("../middleware/validateTokenHandler");
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
-router.use(validateToken)
+router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 router.get("/statement/list", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.LEDGER_READ, {
   message: "You do not have permission to view ledger data.",

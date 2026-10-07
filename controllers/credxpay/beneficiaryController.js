@@ -10,6 +10,14 @@ router.post('/', asyncHandler(async (req, res) => {
   if (!user_id || !name || !account_number || !ifsc_code || !bank_name) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
+
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const ben = await PayoutBeneficiary.create({
     user_id,
     name,
@@ -20,7 +28,8 @@ router.post('/', asyncHandler(async (req, res) => {
     state: state || null,
     mobile: mobile || null,
     email: email || null,
-    is_verified: false
+    is_verified: false,
+    company_id : companyId,
   });
   res.json({ success: true, data: ben });
 }));
@@ -34,12 +43,22 @@ router.get('/:user_id', asyncHandler(async (req, res) => {
 
 // update beneficiary
 router.put('/:id', asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const id = req.params.id;
   const ben = await PayoutBeneficiary.findByPk(id);
   if (!ben) {
     return res.status(404).json({ success: false, message: 'Beneficiary not found' });
   }
-  await ben.update(req.body);
+  await ben.update({
+    ...req.body,
+    company_id : companyId,
+  });
   res.json({ success: true, data: ben });
 }));
 

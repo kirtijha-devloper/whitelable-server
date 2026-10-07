@@ -4,14 +4,23 @@ const Complaint = require('../models/Complaint');
 const User = require('../models/User');
 const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
 const validateToken = require("../middleware/validateTokenHandler");
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // Submit new complaint/ticket
 router.post('/submit', async (req, res) => {
   try {
+    const companyId = req.company;
+
+    if(!companyId){
+      console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+      return res.status(400).json({message : "No Domain Name is registered"});
+    }
+
     const { message, subject, category } = req.body;
     const user_id = req.user.id;
 
@@ -25,6 +34,7 @@ router.post('/submit', async (req, res) => {
       subject: subject || 'Help Request',
       category: category || 'General',
       status: 'pending',
+      company_id : companyId,
     });
 
     try {
@@ -38,6 +48,7 @@ router.post('/submit', async (req, res) => {
           action: 'SUBMIT',
           ip_address: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
           user_agent: req.headers['user-agent'] || '',
+          company_id : companyId,
         });
       }
     } catch (e) {
@@ -72,6 +83,13 @@ router.put('/:id/status', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.COMPLAIN
   elevateRole: 'admin',
 }), async (req, res) => {
   try {
+    const companyId = req.company;
+
+    if(!companyId){
+      console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+      return res.status(400).json({message : "No Domain Name is registered"});
+    }
+
     const { id } = req.params;
     const { status, reply, admin_reply } = req.body;
     const allowedStatuses = ['pending', 'in_progress', 'resolved', 'closed'];
@@ -93,6 +111,7 @@ router.put('/:id/status', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.COMPLAIN
       complaint.admin_reply = finalReply;
     }
 
+    complaint.company_id = companyId;
     await complaint.save();
 
     try {
@@ -114,6 +133,7 @@ router.put('/:id/status', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.COMPLAIN
           action: actionType,
           ip_address: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
           user_agent: req.headers['user-agent'] || '',
+          company_id : companyId,
         });
       }
     } catch (e) {

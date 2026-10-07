@@ -28,6 +28,7 @@ const TABLES_WITH_USER_ID = [
   'worldline_notifications',
 ];
 
+
 module.exports = {
   async up(queryInterface, Sequelize) {
     for (const tableName of TABLES_WITH_USER_ID) {

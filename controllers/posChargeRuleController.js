@@ -83,6 +83,13 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     is_active,
     company_name
   } = req.body;
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   // we will also record who created this rule for later filtering/permissions
   const creatorId = req.user && req.user.id ? req.user.id : null;
 
@@ -218,7 +225,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       gst_required: Boolean(gst_required),
       gst_percent: gst_percent !== undefined && gst_percent !== null ? gst_percent : 0,
       is_active: typeof is_active === 'boolean' ? is_active : true,
-      created_by: creatorId
+      created_by: creatorId,
+      company_id : companyId,
     });
   } catch (err) {
     fileLog(`CREATE error: ${err.message}`);
@@ -588,6 +596,13 @@ const listMerchantChargeRules = asyncHandler(async (req, res) => {
 // update rule
 const updatePosChargeRule = asyncHandler(async (req, res) => {
   fileLog(`UPDATE request id=${req.params.id} body=${JSON.stringify(req.body)}`);
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const { id } = req.params;
   if (!id) return res.status(400).json({ success: false, message: 'id required' });
 
@@ -753,6 +768,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
   if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
   if (req.body.company_name !== undefined) updateData.company_name = req.body.company_name || null;
+  updateData.company_id = companyId;
   await rec.update(updateData);
   fileLog(`UPDATE success id=${rec.id}`);
   res.status(200).json({ success: true, message: 'Rule updated', record: rec });

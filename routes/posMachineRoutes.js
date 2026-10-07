@@ -23,11 +23,13 @@ const {
 } = require("../controllers/posMachineController");
 
 const validateToken = require("../middleware/validateTokenHandler");
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 
 // 🛡️ Protect routes below this line (if needed)
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // 🔍 Get all + paginated list
 router.get("/", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_READ, {
