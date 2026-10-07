@@ -25,6 +25,7 @@ const validateWhitelabelDomain = async (req, res, next) => {
         originWithoutPort
     ].filter(Boolean);
 
+
     // 1. Try exact match from candidate domain names
     let company = await Company.findOne({
         where: {
@@ -57,28 +58,19 @@ const validateWhitelabelDomain = async (req, res, next) => {
     }
 
     // 3. Super admin global fallback if company record isn't tied to exact dev port
-    if (!company && req.user?.role === 'super_admin') {
+    if (!company && (req.user?.role === 'super_admin' || req.user?.role === 'admin')) {
         company = await Company.findOne();
     }
 
     if (!company) {
-        return res.status(400).json({ success: false, message: "Domain is not registered" });
+        res.status(400).json({ success: false, message: "Invalid whitelabel domain." });
+        return;
     }
-
-    // 4. Match domain company_id with company_id validated by validateTokenHandler
-    if (req.user) {
-        if (req.user.role === 'super_admin') {
-            // Super Admin has global platform-wide access
-            req.company = company.company_id;
-            return next();
-        }
-
-        const tokenCompanyId = req.user.company_id;
-        if (!tokenCompanyId || tokenCompanyId !== company.company_id) {
-            return res.status(400).json({
-                success: false,
-                message: "Domain is not registered"
-            });
+    
+    if(req.user) {
+        const companyIdUser = req.user.company_id;
+        if (companyIdUser !== company?.company_id) {
+            return res.status(403).json({ success: false, message: "User does not belong to the whitelabel domain." });
         }
     }
 
