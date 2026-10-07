@@ -155,8 +155,11 @@ async function generateUniqueCompanyId(companyName, cleanCompanyId, transaction)
  * Helper to decrypt or decode ID if sent in encrypted / encoded string format
  */
 function tryDecryptId(rawId) {
-  if (!rawId || typeof rawId !== "string") return rawId;
-  const trimmed = rawId.trim();
+  if (!rawId) return rawId;
+  let trimmed = String(rawId).trim();
+  try {
+    trimmed = decodeURIComponent(trimmed).trim();
+  } catch (_) {}
 
   // Try project AES decryption helper
   try {
@@ -192,15 +195,23 @@ async function findAdminUser(identifier) {
   const numericId = Number(resolved);
   if (Number.isFinite(numericId) && numericId > 0) {
     const user = await User.findOne({
-      where: { id: numericId, role: "admin" },
+      where: {
+        id: numericId,
+        role: { [Op.in]: ["admin", "super_admin", "Admin", "SUPER_ADMIN"] },
+      },
       include: [{ model: Company, as: "company", required: false }],
     });
     if (user) return user;
+
+    // Fallback: search by PK directly
+    const fallbackUser = await User.findByPk(numericId, {
+      include: [{ model: Company, as: "company", required: false }],
+    });
+    if (fallbackUser) return fallbackUser;
   }
 
   const user = await User.findOne({
     where: {
-      role: "admin",
       [Op.or]: [
         { abheepay_id: String(resolved) },
         { username: String(resolved) },
@@ -669,7 +680,7 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
 
 /**
  * PUT /api/super-admin/admin/:id & PUT /api/super-admin/:id
- * Update Admin user details & associated Company info
+ * Surgically update ONLY the provided and changed fields on Admin and Company
  */
 const updateAdmin = asyncHandler(async (req, res) => {
   checkSuperAdminAccess(req, res);
@@ -680,6 +691,15 @@ const updateAdmin = asyncHandler(async (req, res) => {
   if (!admin) {
     res.status(404);
     throw new Error("Admin user not found.");
+  }
+
+  // Resolve associated company if present
+  let company = admin.company || null;
+  if (!company && admin.company_id) {
+    company = await Company.findOne({ where: { company_id: admin.company_id } });
+  }
+  if (!company) {
+    company = await Company.findOne({ where: { user_id: admin.id } });
   }
 
   const {
@@ -706,130 +726,297 @@ const updateAdmin = asyncHandler(async (req, res) => {
     password,
   } = req.body;
 
-  const finalCompanyName = company_name || company_or_shop_name;
+  const uploadedLocalFiles = [];
+  const userUpdates = {};
+  const companyUpdates = {};
 
-  const transaction = await db.transaction();
+  // 1. SURGICAL USER DIFF CHECKS (only update if provided and different from DB)
+  if (name !== undefined && name !== null && String(name).trim() && String(name).trim() !== (admin.name || "")) {
+    userUpdates.name = String(name).trim();
+  }
 
-  try {
-    if (name !== undefined) admin.name = name;
-    if (email !== undefined) admin.email = email;
-    if (mobile_number !== undefined) admin.mobile_number = mobile_number;
-    if (gender !== undefined) admin.gender = gender;
-    if (dob !== undefined) admin.dob = dob;
-    if (address1 !== undefined) admin.address1 = address1;
-    if (address2 !== undefined) admin.address2 = address2;
-    if (city !== undefined) admin.city = city;
-    if (district !== undefined) admin.district = district;
-    if (state !== undefined) admin.state = state;
-    if (country !== undefined) admin.country = country;
-    if (pincode !== undefined) admin.pincode = pincode;
-    if (aadhar_number !== undefined) admin.aadhar_number = aadhar_number;
-    if (pan_number !== undefined) admin.pan_number = pan_number;
-    if (settlement_type !== undefined) admin.settlement_type = settlement_type;
-    if (status !== undefined) admin.status = status;
-    if (finalCompanyName !== undefined) {
-      admin.company_or_shop_name = finalCompanyName;
-    }
-
-    if (password && String(password).trim().length >= 8) {
-      admin.password = await bcrypt.hash(password, 10);
-    }
-
-    const uploadedLocalFiles = [];
-
-    if (req.files?.company_logo) {
-      const updatedLogo = await uploadOrSaveFile(req.files.company_logo, "company_logos");
-      if (updatedLogo) {
-        if (typeof updatedLogo === "string" && (updatedLogo.startsWith("/uploads/") || updatedLogo.startsWith("uploads/"))) {
-          uploadedLocalFiles.push(updatedLogo);
-        }
-        admin.shop_with_photo_url = updatedLogo;
-      }
-    }
-
-    await admin.save({ transaction });
-
-    if (admin.company_id) {
-      const company = await Company.findOne({
-        where: { company_id: admin.company_id },
-        transaction,
-        lock: transaction.LOCK.UPDATE,
+  if (email !== undefined && email !== null && String(email).trim()) {
+    const cleanEmail = String(email).trim().toLowerCase();
+    if (cleanEmail !== (admin.email || "").toLowerCase()) {
+      const emailConflict = await User.findOne({
+        where: { email: cleanEmail, id: { [Op.ne]: admin.id } },
       });
+      if (emailConflict) {
+        res.status(409);
+        throw new Error(`Email '${cleanEmail}' is already registered to another user.`);
+      }
+      userUpdates.email = cleanEmail;
+    }
+  }
 
-      if (company) {
-        if (finalCompanyName) company.company_name = finalCompanyName;
-        if (name) company.director_name = name;
-        if (email) company.email = email;
-        if (mobile_number) company.mobile_number = mobile_number;
-        if (address1 !== undefined) company.address1 = address1;
-        if (address2 !== undefined) company.address2 = address2;
-        if (city !== undefined) company.city = city;
-        if (district !== undefined) company.district = district;
-        if (state !== undefined) company.state = state;
-        if (country !== undefined) company.country = country;
-        if (pincode !== undefined) company.pincode = pincode;
-        if (pan_number !== undefined) company.pan_number = pan_number;
-        if (gst_number !== undefined) company.gst_number = gst_number;
-        if (domain_name) {
-          const cleanDomain = sanitizeDomainName(domain_name);
-          if (cleanDomain && cleanDomain !== company.domain_name) {
-            // Check domain uniqueness pre-flight
-            const domainConflict = await Company.findOne({
-              where: {
-                domain_name: cleanDomain,
-                company_id: { [Op.ne]: admin.company_id },
-              },
-              transaction,
-            });
-            if (domainConflict) {
-              res.status(409);
-              throw new Error(`Domain '${cleanDomain}' is already registered to another company.`);
-            }
-            company.domain_name = cleanDomain;
-          }
+  if (mobile_number !== undefined && mobile_number !== null && String(mobile_number).trim()) {
+    const cleanMobile = String(mobile_number).replace(/\D/g, "").slice(-10);
+    if (cleanMobile.length === 10 && cleanMobile !== (admin.mobile_number || "")) {
+      const mobileConflict = await User.findOne({
+        where: { mobile_number: cleanMobile, id: { [Op.ne]: admin.id } },
+      });
+      if (mobileConflict) {
+        res.status(409);
+        throw new Error(`Mobile number '${cleanMobile}' is already registered to another user.`);
+      }
+      userUpdates.mobile_number = cleanMobile;
+    }
+  }
+
+  if (gender !== undefined && gender !== null && String(gender).trim() && String(gender).trim() !== (admin.gender || "")) {
+    userUpdates.gender = String(gender).trim();
+  }
+
+  if (dob !== undefined && dob !== null && dob !== "" && dob !== "null") {
+    const parsedDob = new Date(dob);
+    if (!isNaN(parsedDob.getTime())) {
+      const existingDobStr = admin.dob ? new Date(admin.dob).toISOString().slice(0, 10) : "";
+      const newDobStr = parsedDob.toISOString().slice(0, 10);
+      if (newDobStr !== existingDobStr) {
+        userUpdates.dob = parsedDob;
+      }
+    }
+  }
+
+  if (address1 !== undefined && address1 !== null && String(address1).trim() && String(address1).trim() !== (admin.address1 || "")) {
+    userUpdates.address1 = String(address1).trim();
+  }
+  if (address2 !== undefined && address2 !== null && String(address2).trim() && String(address2).trim() !== (admin.address2 || "")) {
+    userUpdates.address2 = String(address2).trim();
+  }
+  if (city !== undefined && city !== null && String(city).trim() && String(city).trim() !== (admin.city || "")) {
+    userUpdates.city = String(city).trim();
+  }
+  if (district !== undefined && district !== null && String(district).trim() && String(district).trim() !== (admin.district || "")) {
+    userUpdates.district = String(district).trim();
+  }
+  if (state !== undefined && state !== null && String(state).trim() && String(state).trim() !== (admin.state || "")) {
+    userUpdates.state = String(state).trim();
+  }
+  if (country !== undefined && country !== null && String(country).trim() && String(country).trim() !== (admin.country || "")) {
+    userUpdates.country = String(country).trim();
+  }
+  if (pincode !== undefined && pincode !== null && String(pincode).trim()) {
+    const cleanPin = String(pincode).replace(/\D/g, "").slice(0, 6);
+    if (cleanPin && cleanPin !== (admin.pincode || "")) {
+      userUpdates.pincode = cleanPin;
+    }
+  }
+
+  if (aadhar_number !== undefined && aadhar_number !== null && String(aadhar_number).trim()) {
+    const cleanAadhaar = String(aadhar_number).replace(/\D/g, "").slice(0, 12);
+    if (cleanAadhaar && cleanAadhaar !== (admin.aadhar_number || "")) {
+      const aadharConflict = await User.findOne({
+        where: { aadhar_number: cleanAadhaar, id: { [Op.ne]: admin.id } },
+      });
+      if (aadharConflict) {
+        res.status(409);
+        throw new Error("A user with this Aadhaar number already exists.");
+      }
+      userUpdates.aadhar_number = cleanAadhaar;
+    }
+  }
+
+  if (pan_number !== undefined && pan_number !== null && String(pan_number).trim()) {
+    const cleanPan = String(pan_number).replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10);
+    if (cleanPan && cleanPan !== (admin.pan_number || "")) {
+      userUpdates.pan_number = cleanPan;
+    }
+  }
+
+  const finalCompanyName = String(company_name || company_or_shop_name || "").trim();
+  if (finalCompanyName && finalCompanyName !== (admin.company_or_shop_name || "")) {
+    userUpdates.company_or_shop_name = finalCompanyName;
+  }
+
+  if (settlement_type !== undefined && settlement_type !== null && settlement_type !== admin.settlement_type) {
+    if (["T0", "T1", "today_settlement", "next_day_settlement"].includes(settlement_type)) {
+      userUpdates.settlement_type = settlement_type;
+    }
+  }
+
+  if (status !== undefined && status !== null && String(status).trim() && status !== admin.status) {
+    userUpdates.status = status;
+  }
+
+  if (password && typeof password === "string" && password.trim().length >= 8) {
+    userUpdates.password = await bcrypt.hash(password.trim(), 10);
+  }
+
+  // File uploads
+  let newLogoUrl = null;
+  if (req.files?.company_logo) {
+    const logoRes = await uploadOrSaveFile(req.files.company_logo, "company_logos");
+    if (logoRes) {
+      newLogoUrl = logoRes;
+      if (typeof logoRes === "string" && (logoRes.startsWith("/uploads/") || logoRes.startsWith("uploads/"))) {
+        uploadedLocalFiles.push(logoRes);
+      }
+      userUpdates.shop_with_photo_url = logoRes;
+    }
+  } else if (req.body.company_logo && typeof req.body.company_logo === "string" && req.body.company_logo !== admin.shop_with_photo_url) {
+    newLogoUrl = req.body.company_logo;
+    userUpdates.shop_with_photo_url = req.body.company_logo;
+  }
+
+  if (req.files?.pan_card) {
+    const res = await uploadOrSaveFile(req.files.pan_card, "admin_kyc");
+    if (res) {
+      if (typeof res === "string" && (res.startsWith("/uploads/") || res.startsWith("uploads/"))) uploadedLocalFiles.push(res);
+      userUpdates.pan_number_url = res;
+    }
+  }
+  if (req.files?.aadhar_front) {
+    const res = await uploadOrSaveFile(req.files.aadhar_front, "admin_kyc");
+    if (res) {
+      if (typeof res === "string" && (res.startsWith("/uploads/") || res.startsWith("uploads/"))) uploadedLocalFiles.push(res);
+      userUpdates.aadhar_number_url = res;
+    }
+  }
+  if (req.files?.aadhar_back) {
+    const res = await uploadOrSaveFile(req.files.aadhar_back, "admin_kyc");
+    if (res) {
+      if (typeof res === "string" && (res.startsWith("/uploads/") || res.startsWith("uploads/"))) uploadedLocalFiles.push(res);
+      userUpdates.aadhar_back_number_url = res;
+    }
+  }
+  if (req.files?.bank_passbook) {
+    const res = await uploadOrSaveFile(req.files.bank_passbook, "admin_kyc");
+    if (res) {
+      if (typeof res === "string" && (res.startsWith("/uploads/") || res.startsWith("uploads/"))) uploadedLocalFiles.push(res);
+      userUpdates.bank_passbook_url = res;
+    }
+  }
+  if (req.files?.shop_with_photo) {
+    const res = await uploadOrSaveFile(req.files.shop_with_photo, "admin_kyc");
+    if (res) {
+      if (typeof res === "string" && (res.startsWith("/uploads/") || res.startsWith("uploads/"))) uploadedLocalFiles.push(res);
+      userUpdates.shop_with_photo_url = res;
+    }
+  }
+
+  // 2. SURGICAL COMPANY DIFF CHECKS
+  if (company) {
+    if (finalCompanyName && finalCompanyName !== (company.company_name || "")) {
+      companyUpdates.company_name = finalCompanyName;
+    }
+    if (userUpdates.name && userUpdates.name !== (company.director_name || "")) {
+      companyUpdates.director_name = userUpdates.name;
+    } else if (name !== undefined && name !== null && String(name).trim() && String(name).trim() !== (company.director_name || "")) {
+      companyUpdates.director_name = String(name).trim();
+    }
+    if (userUpdates.email && userUpdates.email !== (company.email || "")) {
+      companyUpdates.email = userUpdates.email;
+    }
+    if (userUpdates.mobile_number && userUpdates.mobile_number !== (company.mobile_number || "")) {
+      companyUpdates.mobile_number = userUpdates.mobile_number;
+    }
+    if (userUpdates.address1 && userUpdates.address1 !== (company.address1 || "")) {
+      companyUpdates.address1 = userUpdates.address1;
+    }
+    if (userUpdates.address2 && userUpdates.address2 !== (company.address2 || "")) {
+      companyUpdates.address2 = userUpdates.address2;
+    }
+    if (userUpdates.city && userUpdates.city !== (company.city || "")) {
+      companyUpdates.city = userUpdates.city;
+    }
+    if (userUpdates.district && userUpdates.district !== (company.district || "")) {
+      companyUpdates.district = userUpdates.district;
+    }
+    if (userUpdates.state && userUpdates.state !== (company.state || "")) {
+      companyUpdates.state = userUpdates.state;
+    }
+    if (userUpdates.country && userUpdates.country !== (company.country || "")) {
+      companyUpdates.country = userUpdates.country;
+    }
+    if (userUpdates.pincode && userUpdates.pincode !== (company.pincode || "")) {
+      companyUpdates.pincode = userUpdates.pincode;
+    }
+    if (userUpdates.pan_number && userUpdates.pan_number !== (company.pan_number || "")) {
+      companyUpdates.pan_number = userUpdates.pan_number;
+    }
+    if (gst_number !== undefined && gst_number !== null && String(gst_number).trim()) {
+      const cleanGst = String(gst_number).replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 15);
+      if (cleanGst && cleanGst !== (company.gst_number || "")) {
+        companyUpdates.gst_number = cleanGst;
+      }
+    }
+    if (newLogoUrl && newLogoUrl !== (company.company_logo || "")) {
+      companyUpdates.company_logo = newLogoUrl;
+    }
+    if (userUpdates.status && userUpdates.status !== company.status) {
+      companyUpdates.status = userUpdates.status;
+    }
+
+    if (domain_name && String(domain_name).trim()) {
+      const cleanDomain = sanitizeDomainName(domain_name);
+      if (cleanDomain && cleanDomain !== (company.domain_name || "")) {
+        const domainConflict = await Company.findOne({
+          where: { domain_name: cleanDomain, id: { [Op.ne]: company.id } },
+        });
+        if (domainConflict) {
+          res.status(409);
+          throw new Error(`Domain '${cleanDomain}' is already registered to another company.`);
         }
-        if (admin.shop_with_photo_url) {
-          company.company_logo = admin.shop_with_photo_url;
-        }
-        if (status) company.status = status;
-        await company.save({ transaction });
+        companyUpdates.domain_name = cleanDomain;
+      }
+    }
+  }
+
+  // 3. ATOMICALLY APPLY ONLY NECESSARY UPDATES
+  const hasUserUpdates = Object.keys(userUpdates).length > 0;
+  const hasCompanyUpdates = company && Object.keys(companyUpdates).length > 0;
+
+  if (hasUserUpdates || hasCompanyUpdates) {
+    const transaction = await db.transaction();
+    try {
+      if (hasUserUpdates) {
+        await User.update(userUpdates, {
+          where: { id: admin.id },
+          transaction,
+        });
       }
 
-      if (finalCompanyName) {
+      if (hasCompanyUpdates) {
+        await Company.update(companyUpdates, {
+          where: { id: company.id },
+          transaction,
+        });
+      }
+
+      if (companyUpdates.company_name || userUpdates.company_or_shop_name) {
+        const targetCompName = companyUpdates.company_name || userUpdates.company_or_shop_name;
         await CompanyName.findOrCreate({
-          where: { name: finalCompanyName },
+          where: { name: targetCompName },
           defaults: {
-            name: finalCompanyName,
+            name: targetCompName,
             created_by: req.user?.id || admin.id,
             updated_by: req.user?.id || admin.id,
           },
           transaction,
         });
       }
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      deleteLocalFiles(uploadedLocalFiles);
+      console.error("Update Admin transaction error (rolled back):", error);
+      res.status(res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
+      throw new Error(error.message || "Failed to update Admin records.");
     }
-
-    // Commit both User and Company updates atomically
-    await transaction.commit();
-
-    const updatedAdmin = await findAdminUser(admin.id);
-    const plain = updatedAdmin.toJSON ? updatedAdmin.toJSON() : { ...updatedAdmin };
-    delete plain.password;
-
-    res.status(200).json({
-      success: true,
-      message: "Admin and Company updated successfully",
-      data: plain,
-    });
-  } catch (error) {
-    await transaction.rollback();
-
-    // Clean up any files that were saved locally during this failed update
-    deleteLocalFiles(uploadedLocalFiles);
-
-    console.error("Update Admin transaction error (rolled back):", error);
-    res.status(res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
-    throw new Error(error.message || "Failed to update Admin and Company records.");
   }
+
+  // 4. Return fresh admin data
+  const reloadedAdmin = await findAdminUser(admin.id);
+  const plain = reloadedAdmin.toJSON ? reloadedAdmin.toJSON() : { ...reloadedAdmin };
+  delete plain.password;
+
+  res.status(200).json({
+    success: true,
+    message: "Admin updated successfully",
+    data: plain,
+  });
 });
 
 /**
@@ -856,9 +1043,17 @@ const updateAdminStatus = asyncHandler(async (req, res) => {
   admin.status = status;
   await admin.save();
 
-  if (admin.company_id) {
-    await Company.update({ status }, { where: { company_id: admin.company_id } });
-  }
+  await Company.update(
+    { status },
+    {
+      where: {
+        [Op.or]: [
+          { user_id: admin.id },
+          ...(admin.company_id ? [{ company_id: admin.company_id }] : []),
+        ],
+      },
+    }
+  );
 
   res.status(200).json({
     success: true,
