@@ -1922,12 +1922,19 @@ function isMagicOtpAllowed(req) {
 });
 
 const generateTpin = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const userId = req.user.id;
   const userTpin = req.body.tpin;
 
   const tpin = userTpin || Math.floor(100000 + Math.random() * 900000);
   const expires_at = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000); // 15 days
-  await replaceTpin(userId, tpin, expires_at);
+  await replaceTpin(userId, tpin, expires_at, companyId);
 
   res.json({ message: "T-PIN created/updated successfully", tpin });
 });
@@ -2304,6 +2311,13 @@ const updateUser = asyncHandler(async (req, res) => {
     await targetUser.update(updates);
     
     if (updates.settlement_type && updates.settlement_type !== prevSettlementType) {
+      const companyId = req.company;
+
+      if(!companyId){
+        console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+        return res.status(400).json({message : "No Domain Name is registered"});
+      }
+
       const isTodayNew = updates.settlement_type === 'today_settlement';
       const isTodayPrev = prevSettlementType === 'today_settlement';
   
@@ -2316,6 +2330,7 @@ const updateUser = asyncHandler(async (req, res) => {
         action: isTodayNew ? 'T0' : 'T+1',
         ip_address: extractClientIp(req),
         user_agent: req.headers ? (req.headers['user-agent'] || null) : null,
+        company_id : companyId,
       });
     }
 

@@ -13,10 +13,12 @@ const {
 } = require("../controllers/walletTransactionController");
 
 const validateToken = require("../middleware/validateTokenHandler");
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 router.post("/request", ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.WALLET_CREDIT,

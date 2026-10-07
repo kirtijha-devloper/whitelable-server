@@ -25,9 +25,11 @@ const {
 } = require('../../../controllers/cc/billAvenue/ccBill3Controller');
 
 const validateToken = require('../../../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../../../middleware/validateWhitelabelDomain');
 
 // All routes protected by JWT
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // GET  /api/bill-avenue/billers              – Biller list, optional ?category=<value>
 router.get('/billers', getBillers);

@@ -382,6 +382,13 @@ const updateSettlementType = asyncHandler(async (req, res) => {
     });
   }
 
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const { id, settlement_type } = req.body;
 
   if (!id) {
@@ -421,6 +428,7 @@ const updateSettlementType = asyncHandler(async (req, res) => {
         action: normalized === 'T0' ? 'ENABLE' : 'DISABLE',
         ip_address: req.ip || '127.0.0.1',
         user_agent: req.headers ? req.headers['user-agent'] : null,
+        company_id : companyId,
       });
     } catch (_) {
       // Ignore audit log failure

@@ -50,46 +50,47 @@ const getTodayRange = () => {
   return { start, end };
 };
 
-const getAdminDashboard = asyncHandler( async (req, res) => {
-    const { start, end } = getTodayRange();
+const getAdminDashboard = asyncHandler(async (req, res) => {
+  const { start, end } = getTodayRange();
   try {
-      const activeMachineCount = await PosMachine.count({ where: { status: 'active' } });
-      const deactiveMachineCount = await PosMachine.count({ where: { status: 'in_active' } });
-      const activeMerchantCount = await User.count({ where: { role: "merchant", status: 'active' } });
-      const activeFranchaiseCount = await User.count({ where: { role: "franchaise", status: 'active' } });
-      
-      // const todayPosTransactions = await Transaction.sum('amount', {
-      //     where: {
-      //     type: 'POS',
-      //     createdAt: { [Op.between]: [start, end] },
-      //     },
-      // });
-      
-      res.status(200).json({
-        message: 'Admin Dashboard Data Fetched Successfully',
-        data: {
-          posMachines: {
-            active: activeMachineCount,
-            inactive: deactiveMachineCount,
-          },
-          merchants: {
-            count: activeMerchantCount
-          },
-          franchaises: {
-            count:activeFranchaiseCount
-          }}
-  });
+    const activeMachineCount = await PosMachine.count({ where: { status: 'active' } });
+    const deactiveMachineCount = await PosMachine.count({ where: { status: 'in_active' } });
+    const activeMerchantCount = await User.count({ where: { role: "merchant", status: 'active' } });
+    const activeFranchaiseCount = await User.count({ where: { role: "franchaise", status: 'active' } });
+
+    // const todayPosTransactions = await Transaction.sum('amount', {
+    //     where: {
+    //     type: 'POS',
+    //     createdAt: { [Op.between]: [start, end] },
+    //     },
+    // });
+
+    res.status(200).json({
+      message: 'Admin Dashboard Data Fetched Successfully',
+      data: {
+        posMachines: {
+          active: activeMachineCount,
+          inactive: deactiveMachineCount,
+        },
+        merchants: {
+          count: activeMerchantCount
+        },
+        franchaises: {
+          count: activeFranchaiseCount
+        }
+      }
+    });
   } catch (error) {
-      console.error('Error fetching admin dashboard data:', error);
-      res.status(500).json({
+    console.error('Error fetching admin dashboard data:', error);
+    res.status(500).json({
       success: false,
       message: error.message || "Something went wrong",
     });
-    }
+  }
 });
 
 
-    
+
 
 
 /**
@@ -109,12 +110,12 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: "Admin access only." });
   }
 
-  const page   = Math.max(1, parseInt(req.query.page)  || 1);
-  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
   const offset = (page - 1) * limit;
 
   const where = {
-    role:          "merchant",
+    role: "merchant",
     franchaise_id: null,
   };
 
@@ -125,8 +126,8 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
   if (req.query.search) {
     const term = `%${req.query.search}%`;
     where[Op.or] = [
-      { name:          { [Op.like]: term } },
-      { email:         { [Op.like]: term } },
+      { name: { [Op.like]: term } },
+      { email: { [Op.like]: term } },
       { mobile_number: { [Op.like]: term } },
     ];
   }
@@ -138,7 +139,7 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
       "status", "wallet", "is_approved", "is_pos_asigned",
       "abheepay_id", "createdAt",
     ],
-    order:  [["createdAt", "DESC"]],
+    order: [["createdAt", "DESC"]],
     limit,
     offset,
   });
@@ -157,11 +158,11 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
     success: true,
     message: "Unassigned merchants fetched successfully.",
     data: {
-      total:       count,
+      total: count,
       page,
       limit,
-      totalPages:  Math.ceil(count / limit),
-      merchants:   resultRows,
+      totalPages: Math.ceil(count / limit),
+      merchants: resultRows,
     },
   });
 });
@@ -212,6 +213,13 @@ const setUserSettlementType = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Admin access only.' });
   }
 
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const { id } = req.params;
   const { settlement_type } = req.body;
   const supportedTypes = ['today_settlement', 'next_day_settlement'];
@@ -247,6 +255,7 @@ const setUserSettlementType = asyncHandler(async (req, res) => {
     const isTodayPrev = prevSettlementType === 'today_settlement';
 
     await ServiceToggleAuditLog.create({
+
       user_id: req.user.id,
       affected_user_id: user.id,
       service_key: 'settlement_type',
@@ -255,6 +264,7 @@ const setUserSettlementType = asyncHandler(async (req, res) => {
       action: isTodayNew ? 'T0' : 'T+1',
       ip_address: extractClientIp(req),
       user_agent: req.headers ? (req.headers['user-agent'] || null) : null,
+      company_id: companyId
     });
   }
 
@@ -272,6 +282,13 @@ const setUserSettlementType = asyncHandler(async (req, res) => {
 const setAllUsersSettlementType = asyncHandler(async (req, res) => {
   if (req.user?.role !== 'admin') {
     return res.status(403).json({ success: false, message: 'Admin access only.' });
+  }
+
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
   }
 
   const { settlement_type } = req.body;
@@ -308,6 +325,7 @@ const setAllUsersSettlementType = asyncHandler(async (req, res) => {
     action: isTodayNew ? 'T0' : 'T+1',
     ip_address: extractClientIp(req),
     user_agent: req.headers ? (req.headers['user-agent'] || null) : null,
+    company_id: companyId
   });
 
   return res.status(200).json({

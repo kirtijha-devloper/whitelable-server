@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
@@ -13,6 +14,7 @@ const {
 } = require('../controllers/userPayoutChargeController');
 
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 router.post('/', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
   message: 'You do not have permission to manage user payout charges.',

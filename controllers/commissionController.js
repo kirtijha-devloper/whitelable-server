@@ -141,6 +141,13 @@ const createDefaultCommission = asyncHandler(async (req, res) => {
 
 // Create user-specific commission by referencing an existing default (preferred) or by creating a new default and linking it
 const createUserCommission = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   if (req.user.role !== 'admin') {
     res.status(403);
     throw new Error('Access denied');
@@ -257,7 +264,8 @@ const createUserCommission = asyncHandler(async (req, res) => {
     flat_fee: userFlat,
     percent_fee: userPercent,
     is_active: true,
-    created_by: req.user.id
+    created_by: req.user.id,
+    company_id : companyId,
   });
 
   res.status(201).json({ message: 'User commission linked', link, commission: defaultRecord });
@@ -456,6 +464,13 @@ const updateDefaultCommission = asyncHandler(async (req, res) => {
 
 // Update user commission link (admin only) — change the linked default or toggle active
 const updateUserCommission = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   if (req.user.role !== 'admin') {
     res.status(403);
     throw new Error('Access denied');
@@ -492,6 +507,7 @@ const updateUserCommission = asyncHandler(async (req, res) => {
     if (req.body.percent_fee !== undefined) rec.percent_fee = req.body.percent_fee;
   }
 
+  rec.company_id = companyId;
   await rec.save();
   const updated = await UserCommission.findByPk(rec.id, { include: [{ model: CommissionDefault, as: 'defaultCommission' }] });
   res.status(200).json({ message: 'Updated', record: updated });

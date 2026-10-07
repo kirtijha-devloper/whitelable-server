@@ -27,6 +27,13 @@ const formatMidNumbers = (mids) => {
     .map(mid => `'${mid}'`); // wrap in single quotes
 };
 const uploadCSV = (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   console.log("data:")
   // const cleanMID = (mid) => (mid || "").replace(/'/g, "").trim();
   if (!req.file) {
@@ -183,7 +190,8 @@ console.log("data5:")
               status: "pending", // Marked as request
               reason: `Razorpay transaction ID: ${tx.ID}`,
               requested_by: posMachine ? posMachine.assigned_to : null, // assuming self-initiated
-              source: "razorpay"
+              source: "razorpay",
+              company_id : companyId,
             });
           }
 
@@ -1203,6 +1211,13 @@ const uploadPinelabNotifications = asyncHandler(async (req, res) => {
 });
 
 const processSingleNotificationRow = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const { row, provider = 'telering', index = 0 } = req.body || {};
   if (!row) {
     return res.status(400).json({ success: false, message: "Row payload is required" });
@@ -1296,7 +1311,8 @@ const processSingleNotificationRow = asyncHandler(async (req, res) => {
       processed: false,
       processing_status: 'pending',
       processing_error: null,
-      processed_at: null
+      processed_at: null,
+      company_id : companyId,
     });
 
     const adminContext = {

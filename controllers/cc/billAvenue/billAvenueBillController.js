@@ -216,6 +216,13 @@ const uploadBillersFromFile = asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 const fetchBill = asyncHandler(async (req, res) => {
   try {
+    const companyId = req.company;
+
+    if(!companyId){
+      console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+      return res.status(400).json({message : "No Domain Name is registered"});
+    }
+
     const { billerId, customerParams, amount, initChannel } = req.body;
     const userId = req.user?.id;
 
@@ -259,6 +266,7 @@ const fetchBill = asyncHandler(async (req, res) => {
       amount: txnAmount,
       response: result,
       status: 'completed',
+      company_id : companyId,
     });
 
     return res.status(200).json({ success: true, data: result });
@@ -275,6 +283,13 @@ const fetchBill = asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 const payBill = asyncHandler(async (req, res) => {
   try {
+    const companyId = req.company;
+
+    if(!companyId){
+      console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+      return res.status(400).json({message : "No Domain Name is registered"});
+    }
+
     const { billerId, customerParams, amount, paymentMode, quickPay, splitPay, ccf, billerResponseInfo, additionalInfo, requestId, initChannel, customerPan } = req.body;
 
     const userId = req.user?.id;
@@ -329,6 +344,7 @@ const payBill = asyncHandler(async (req, res) => {
       transaction_amount: txnAmount,
       payment_mode: paymentMode || 'Cash',
       status: 'pending',
+      company_id : companyId,
     });
 
     // ── Step 1: Ledger debit (before calling BillAvenue) ────────────────
@@ -383,7 +399,11 @@ const payBill = asyncHandler(async (req, res) => {
           error: apiError.message,
         },
       });
-      await payment.update({ status: 'failed', response: { error: apiError.message } });
+      await payment.update({
+        status: 'failed',
+        response: { error: apiError.message },
+        company_id : companyId,
+      });
 
       return res.status(500).json({ success: false, message: `BillAvenue API call failed. Amount reversed. Error: ${apiError.message}` });
     }
@@ -404,6 +424,7 @@ const payBill = asyncHandler(async (req, res) => {
       response_code: responseCode,
       response: result,
       charge_amount: chargeAmount,
+      company_id : companyId,
     });
 
     // ── Step 3: Finalise or reverse ─────────────────────────────────────

@@ -52,10 +52,11 @@ async function handleWorldlineNotification(req, res) {
         });
 
         // Background processing after HTTP response sent
+        const companyId = req.company || null;
         setImmediate(async () => {
             try {
                 const source = body.source || req.headers['x-source'] || 'worldline';
-                await processWorldlineNotification(body, source);
+                await processWorldlineNotification(body, source, companyId);
             } catch (bgErr) {
                 console.error("[Worldline Webhook Controller] Background processing error:", bgErr);
             }
@@ -185,6 +186,13 @@ const getNotificationById = asyncHandler(async (req, res) => {
  */
 const adminProcessNotification = asyncHandler(async (req, res) => {
     try {
+        const companyId = req.company;
+
+        if(!companyId){
+            console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+            return res.status(400).json({message : "No Domain Name is registered"});
+        }
+
         if (!req.user || req.user.role !== 'admin') {
             return res.status(403).json({
                 success: false,
@@ -202,7 +210,8 @@ const adminProcessNotification = asyncHandler(async (req, res) => {
             });
         }
 
-        await processWorldlineNotification(notification.event_json, 'worldline_admin');
+        await notification.update({ company_id: companyId });
+        await processWorldlineNotification(notification.event_json, 'worldline_admin', companyId);
         const reloaded = await WorldlineNotification.findByPk(id);
 
         res.status(200).json({

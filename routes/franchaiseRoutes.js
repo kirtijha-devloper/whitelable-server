@@ -3,9 +3,11 @@ const express = require("express");
 const {onBoardUser, getUsers, getUserById, updateUserStatus}  = require("../controllers/franchaiseController");
 const router = express.Router();
 const validateToken = require("../middleware/validateTokenHandler");
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 // const upload = require("../utils/mutlerSetup")
 
-router.use(validateToken)
+router.use(validateToken);
+router.use(validateWhitelabelDomain);
 router.post('/:id/onboard', onBoardUser);
 
 // router.route("/:id/onboard").post( upload.fields([
