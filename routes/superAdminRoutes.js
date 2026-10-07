@@ -8,6 +8,9 @@ const {
   updateAdmin,
   updateAdminStatus,
   getSuperAdminPosInventory,
+  getSuperAdminTransactionReport,
+  getSuperAdminCommissionReport,
+  getSuperAdminServiceWiseReport,
 } = require("../controllers/superAdminController");
 const {
   getPosInventory,
@@ -63,12 +66,24 @@ router.post("/createAdmin", validateToken, validateWhitelabelDomain, createSuper
 
 // ── Super Admin Status Update ────────────────────────────────────────────────
 router.patch("/admin/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
+router.put("/admin/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
+router.patch("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
+router.put("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 
 // ── Super Admin Single Admin Details ─────────────────────────────────────────
 router.get("/admin/:id", validateToken, validateWhitelabelDomain, getAdminDetails);
+router.get("/:id", validateToken, validateWhitelabelDomain, getAdminDetails);
 
 // ── Super Admin Update Admin Profile & Company ───────────────────────────────
 router.put("/admin/:id", validateToken, validateWhitelabelDomain, updateAdmin);
+router.patch("/admin/:id", validateToken, validateWhitelabelDomain, updateAdmin);
+router.put("/:id", validateToken, validateWhitelabelDomain, updateAdmin);
+router.patch("/:id", validateToken, validateWhitelabelDomain, updateAdmin);
+
+// ── Super Admin Reports ───────────────────────────────────────────────────────
+router.get("/reports/transactions", validateToken, validateWhitelabelDomain, getSuperAdminTransactionReport);
+router.get("/reports/commissions", validateToken, validateWhitelabelDomain, getSuperAdminCommissionReport);
+router.get("/reports/service-wise", validateToken, validateWhitelabelDomain, getSuperAdminServiceWiseReport);
 
 router.get("/", validateToken, validateWhitelabelDomain, getSuperAdminData);
 
