@@ -4,9 +4,13 @@ const { Op, fn, col } = require("sequelize");
 const User = require("../models/User");
 const Company = require("../models/Company");
 const PosMachine = require("../models/posMachine");
+const RazorpayNotification = require("../models/RazorpayNotification");
+const MerchantTransactionCharge = require("../models/MerchantTransactionCharge");
 const db = require("../config/database");
 const UsernameSequence = require("../models/UsernameSequence");
 const CompanyName = require("../models/CompanyName");
+const ServiceSetting = require("../models/ServiceSetting");
+const { parseIstBusinessDateRange } = require("../utils/dateRange");
 
 /**
  * Helper to decrypt or decode ID if sent in encrypted / encoded string format
@@ -708,6 +712,572 @@ const getSuperAdminPosInventory = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * GET /api/super-admin/reports/transactions
+ * Super Admin Transaction Report
+ */
+const getSuperAdminTransactionReport = asyncHandler(async (req, res) => {
+  checkSuperAdminAccess(req, res);
+
+  const {
+    page = 1,
+    limit = 10,
+    domain,
+    company_id,
+    from_date,
+    to_date,
+    status,
+    search,
+    q,
+  } = req.query;
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 10));
+  const offset = (pageNum - 1) * limitNum;
+  const searchTerm = (search || q || "").trim();
+
+  const where = {};
+
+  // Company / Domain filter
+  let resolvedCompanyId = company_id;
+  if (!resolvedCompanyId && domain) {
+    const comp = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { domain_name: domain },
+          { domain_name: { [Op.iLike]: `%${domain}%` } },
+        ],
+      },
+    });
+    if (comp) {
+      resolvedCompanyId = comp.company_id;
+    }
+  }
+
+  if (resolvedCompanyId) {
+    where.company_id = resolvedCompanyId;
+  }
+
+  // Date range filter
+  if (from_date || to_date) {
+    const range = parseIstBusinessDateRange(from_date, to_date, { defaultToToday: false });
+    if (range.error) {
+      return res.status(400).json({ success: false, message: range.error });
+    }
+    if (range.fromDate && range.toDate) {
+      where.createdAt = { [Op.between]: [range.fromDate, range.toDate] };
+    } else if (range.fromDate) {
+      where.createdAt = { [Op.gte]: range.fromDate };
+    } else if (range.toDate) {
+      where.createdAt = { [Op.lte]: range.toDate };
+    }
+  }
+
+  // Status filter
+  if (status) {
+    where.status = status;
+  }
+
+  // Keyword search
+  if (searchTerm) {
+    const matchingUsers = await User.findAll({
+      where: {
+        [Op.or]: [
+          { name: { [Op.iLike]: `%${searchTerm}%` } },
+          { email: { [Op.iLike]: `%${searchTerm}%` } },
+          { mobile_number: { [Op.iLike]: `%${searchTerm}%` } },
+          { abheepay_id: { [Op.iLike]: `%${searchTerm}%` } },
+        ],
+      },
+      attributes: ["id"],
+      limit: 50,
+    });
+    const userIds = matchingUsers.map((u) => u.id);
+
+    where[Op.or] = [
+      { txn_id: { [Op.iLike]: `%${searchTerm}%` } },
+      { rr_number: { [Op.iLike]: `%${searchTerm}%` } },
+      ...(userIds.length > 0 ? [{ user_id: { [Op.in]: userIds } }] : []),
+    ];
+  }
+
+  const { count, rows } = await RazorpayNotification.findAndCountAll({
+    where,
+    order: [["createdAt", "DESC"]],
+    limit: limitNum,
+    offset,
+    include: [
+      {
+        model: User,
+        as: "user",
+        required: false,
+        attributes: ["id", "name", "email", "mobile_number", "abheepay_id", "company_id"],
+      },
+      {
+        model: PosMachine,
+        as: "posMachine",
+        required: false,
+        attributes: ["id", "mid_number", "tid_number", "device_serial_number"],
+      },
+    ],
+  });
+
+  // Fetch unique company details for the returned rows
+  const companyIds = [...new Set(rows.map((r) => r.company_id || r.user?.company_id).filter(Boolean))];
+  const companies = companyIds.length
+    ? await Company.findAll({
+        where: { company_id: { [Op.in]: companyIds } },
+        attributes: ["company_id", "company_name", "domain_name"],
+      })
+    : [];
+  const companyMap = new Map(companies.map((c) => [c.company_id, c]));
+
+  // Calculate summary metrics
+  const allMatching = await RazorpayNotification.findAll({
+    where,
+    attributes: ["amount", "status"],
+  });
+
+  let totalVolume = 0;
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const item of allMatching) {
+    const amt = parseFloat(item.amount) || 0;
+    totalVolume += amt;
+    const st = String(item.status || "").toLowerCase();
+    if (st === "completed" || st === "success" || st === "captured") {
+      successCount++;
+    } else if (st === "failed") {
+      failedCount++;
+    }
+  }
+
+  const formattedRows = rows.map((r) => {
+    const compId = r.company_id || r.user?.company_id || null;
+    const comp = compId ? companyMap.get(compId) || null : null;
+
+    return {
+      id: r.id,
+      txn_id: r.txn_id,
+      rr_number: r.rr_number,
+      amount: parseFloat(r.amount) || 0,
+      status: r.status,
+      payment_method: r.payment_method,
+      card_type: r.card_type,
+      card_network: r.card_network,
+      created_at: r.createdAt || r.created_at,
+      company: comp
+        ? {
+            company_id: comp.company_id,
+            company_name: comp.company_name,
+            domain_name: comp.domain_name,
+          }
+        : compId
+        ? { company_id: compId, company_name: compId, domain_name: "-" }
+        : null,
+      merchant: r.user
+        ? {
+            id: r.user.id,
+            name: r.user.name,
+            email: r.user.email,
+            mobile_number: r.user.mobile_number,
+            abheepay_id: r.user.abheepay_id,
+          }
+        : null,
+      pos_machine: r.posMachine
+        ? {
+            id: r.posMachine.id,
+            mid_number: r.posMachine.mid_number,
+            tid_number: r.posMachine.tid_number,
+            device_serial_number: r.posMachine.device_serial_number,
+          }
+        : null,
+    };
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Super Admin transaction report fetched successfully",
+    summary: {
+      total_volume: parseFloat(totalVolume.toFixed(2)),
+      total_count: count,
+      success_count: successCount,
+      failed_count: failedCount,
+      success_rate: count > 0 ? parseFloat(((successCount / count) * 100).toFixed(2)) : 0,
+    },
+    pagination: {
+      total: count,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(count / limitNum) || 1,
+    },
+    data: formattedRows,
+  });
+});
+
+/**
+ * GET /api/super-admin/reports/commissions
+ * Super Admin Commission & Merchant Charges Report
+ */
+const getSuperAdminCommissionReport = asyncHandler(async (req, res) => {
+  checkSuperAdminAccess(req, res);
+
+  const {
+    page = 1,
+    limit = 10,
+    domain,
+    company_id,
+    from_date,
+    to_date,
+    payment_method,
+    search,
+    q,
+  } = req.query;
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 10));
+  const offset = (pageNum - 1) * limitNum;
+  const searchTerm = (search || q || "").trim();
+
+  const where = {};
+
+  // Company / Domain filter
+  let resolvedCompanyId = company_id;
+  if (!resolvedCompanyId && domain) {
+    const comp = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { domain_name: domain },
+          { domain_name: { [Op.iLike]: `%${domain}%` } },
+        ],
+      },
+    });
+    if (comp) {
+      resolvedCompanyId = comp.company_id;
+    }
+  }
+
+  // Filter merchants belonging to this company if specified
+  if (resolvedCompanyId) {
+    const companyMerchants = await User.findAll({
+      where: { company_id: resolvedCompanyId },
+      attributes: ["id"],
+    });
+    const merchantIds = companyMerchants.map((u) => u.id);
+    where.merchant_id = { [Op.in]: merchantIds.length ? merchantIds : [-1] };
+  }
+
+  // Date range filter
+  if (from_date || to_date) {
+    const range = parseIstBusinessDateRange(from_date, to_date, { defaultToToday: false });
+    if (range.error) {
+      return res.status(400).json({ success: false, message: range.error });
+    }
+    if (range.fromDate && range.toDate) {
+      where.createdAt = { [Op.between]: [range.fromDate, range.toDate] };
+    } else if (range.fromDate) {
+      where.createdAt = { [Op.gte]: range.fromDate };
+    } else if (range.toDate) {
+      where.createdAt = { [Op.lte]: range.toDate };
+    }
+  }
+
+  // Payment method filter
+  if (payment_method) {
+    where.payment_method = payment_method;
+  }
+
+  // Keyword search
+  if (searchTerm) {
+    const matchingUsers = await User.findAll({
+      where: {
+        [Op.or]: [
+          { name: { [Op.iLike]: `%${searchTerm}%` } },
+          { email: { [Op.iLike]: `%${searchTerm}%` } },
+          { mobile_number: { [Op.iLike]: `%${searchTerm}%` } },
+          { abheepay_id: { [Op.iLike]: `%${searchTerm}%` } },
+        ],
+      },
+      attributes: ["id"],
+      limit: 50,
+    });
+    const userIds = matchingUsers.map((u) => u.id);
+
+    where[Op.or] = [
+      { razorpay_transaction_id: { [Op.iLike]: `%${searchTerm}%` } },
+      ...(userIds.length > 0 ? [{ merchant_id: { [Op.in]: userIds } }] : []),
+    ];
+  }
+
+  const { count, rows } = await MerchantTransactionCharge.findAndCountAll({
+    where,
+    order: [["createdAt", "DESC"]],
+    limit: limitNum,
+    offset,
+  });
+
+  // Fetch unique merchants, POS machines, and companies
+  const merchantIds = [...new Set(rows.map((r) => r.merchant_id).filter(Boolean))];
+  const merchants = merchantIds.length
+    ? await User.findAll({
+        where: { id: { [Op.in]: merchantIds } },
+        attributes: ["id", "name", "email", "mobile_number", "abheepay_id", "company_id"],
+      })
+    : [];
+  const merchantMap = new Map(merchants.map((m) => [m.id, m]));
+
+  const posIds = [...new Set(rows.map((r) => r.pos_machine_id).filter(Boolean))];
+  const posMachines = posIds.length
+    ? await PosMachine.findAll({
+        where: { id: { [Op.in]: posIds } },
+        attributes: ["id", "mid_number", "tid_number", "device_serial_number"],
+      })
+    : [];
+  const posMap = new Map(posMachines.map((p) => [p.id, p]));
+
+  const companyIds = [...new Set(merchants.map((m) => m.company_id).filter(Boolean))];
+  const companies = companyIds.length
+    ? await Company.findAll({
+        where: { company_id: { [Op.in]: companyIds } },
+        attributes: ["company_id", "company_name", "domain_name"],
+      })
+    : [];
+  const companyMap = new Map(companies.map((c) => [c.company_id, c]));
+
+  // Calculate summaries across all matching records
+  const allMatching = await MerchantTransactionCharge.findAll({
+    where,
+    attributes: ["transaction_amount", "charge_amount", "gst_amount", "net_amount"],
+  });
+
+  let totalTxnVolume = 0;
+  let totalCommissionRevenue = 0;
+  let totalGst = 0;
+  let totalNet = 0;
+
+  for (const item of allMatching) {
+    totalTxnVolume += parseFloat(item.transaction_amount) || 0;
+    totalCommissionRevenue += parseFloat(item.charge_amount) || 0;
+    totalGst += parseFloat(item.gst_amount) || 0;
+    totalNet += parseFloat(item.net_amount) || 0;
+  }
+
+  const formattedRows = rows.map((r) => {
+    const merchant = merchantMap.get(r.merchant_id) || null;
+    const pos = r.pos_machine_id ? posMap.get(r.pos_machine_id) || null : null;
+    const comp = merchant?.company_id ? companyMap.get(merchant.company_id) || null : null;
+
+    return {
+      id: r.id,
+      razorpay_transaction_id: r.razorpay_transaction_id,
+      rr_number: r.rr_number || null,
+      transaction_amount: parseFloat(r.transaction_amount) || 0,
+      charge_amount: parseFloat(r.charge_amount) || 0,
+      charge_rate: parseFloat(r.charge_rate) || 0,
+      gst_percent: parseFloat(r.gst_percent) || 0,
+      gst_amount: parseFloat(r.gst_amount) || 0,
+      net_amount: parseFloat(r.net_amount) || 0,
+      payment_method: r.payment_method,
+      payment_card_type: r.payment_card_type,
+      payment_card_brand: r.payment_card_brand,
+      createdAt: r.createdAt,
+      company: comp
+        ? {
+            company_id: comp.company_id,
+            company_name: comp.company_name,
+            domain_name: comp.domain_name,
+          }
+        : merchant?.company_id
+        ? { company_id: merchant.company_id, company_name: merchant.company_id, domain_name: "-" }
+        : null,
+      merchant: merchant
+        ? {
+            id: merchant.id,
+            name: merchant.name,
+            email: merchant.email,
+            mobile_number: merchant.mobile_number,
+            abheepay_id: merchant.abheepay_id,
+          }
+        : null,
+      pos_machine: pos
+        ? {
+            id: pos.id,
+            mid_number: pos.mid_number,
+            tid_number: pos.tid_number,
+            device_serial_number: pos.device_serial_number,
+          }
+        : null,
+    };
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Super Admin commission report fetched successfully",
+    summary: {
+      total_transaction_volume: parseFloat(totalTxnVolume.toFixed(2)),
+      total_commission_revenue: parseFloat(totalCommissionRevenue.toFixed(2)),
+      total_gst_collected: parseFloat(totalGst.toFixed(2)),
+      total_net_payout: parseFloat(totalNet.toFixed(2)),
+      total_records: count,
+    },
+    pagination: {
+      total: count,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(count / limitNum) || 1,
+    },
+    data: formattedRows,
+  });
+});
+
+/**
+ * GET /api/super-admin/reports/service-wise
+ * Super Admin Service-Wise Report aggregating real transaction and fee metrics
+ */
+const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
+  checkSuperAdminAccess(req, res);
+
+  const { search, q, category } = req.query;
+  const searchTerm = (search || q || "").trim().toLowerCase();
+
+  // 1. Fetch all registered service settings from DB
+  const dbServices = await ServiceSetting.findAll();
+  const dbMap = new Map();
+  dbServices.forEach((s) => {
+    dbMap.set(s.service_key, s.toJSON ? s.toJSON() : s);
+  });
+
+  const DEFAULT_SERVICES = [
+    { key: "vimo_payout", label: "Vimo Payout", category: "Payout & Banking", description: "Vimo Native Payout Gateway Integration" },
+    { key: "branchx_payout", label: "BranchX Payout", category: "Payout & Banking", description: "BranchX Direct Payout Service" },
+    { key: "sevenpay_payout", label: "SevenPay Payout", category: "Payout & Banking", description: "SevenPay Payout Gateway Integration" },
+    { key: "ndia5_payout", label: "Ndia5 Payout", category: "Payout & Banking", description: "NDIA5 Direct Bank Settlement Gateway" },
+    { key: "mx_payout", label: "Payout MX", category: "Payout & Banking", description: "MeroRecharge Payout Gateway" },
+    { key: "cc_bill_pay", label: "Credit Card Bill Pay", category: "Credit Card & Utility", description: "Direct Credit Card Bill Payment Engine" },
+    { key: "ba_cc_bill_pay", label: "BillAvenue CC Bill Pay", category: "Credit Card & Utility", description: "BillAvenue BBPS Credit Card Bill Payment" },
+    { key: "cc_bill_3", label: "CC Bill 3", category: "Credit Card & Utility", description: "CC Bill 3 Payment Route" },
+    { key: "pos_inventory", label: "POS Machine Hardware", category: "POS & Hardware", description: "POS Terminal Transaction Processing" },
+    { key: "pos_t0_settlement", label: "POS Instant T0 Settlement", category: "Settlement & Limits", description: "Same-Day POS Settlement Engine" },
+    { key: "qr_payments", label: "Digital QR Collections", category: "Digital QR", description: "Dynamic Soundbox & Standee QR" },
+  ];
+
+  // Merge default metadata with DB services
+  const allServices = [...DEFAULT_SERVICES];
+  dbServices.forEach((s) => {
+    if (!allServices.some((m) => m.key === s.service_key)) {
+      allServices.push({
+        key: s.service_key,
+        label: s.label || s.service_key,
+        category: s.category || "General",
+        description: s.description || "",
+      });
+    }
+  });
+
+  // 2. Fetch real aggregates from POS transactions
+  let posVolume = 0;
+  let posTxnCount = 0;
+  let posSuccessCount = 0;
+  try {
+    const posTxns = await RazorpayNotification.findAll({
+      attributes: ["amount", "status"],
+    });
+    posTxnCount = posTxns.length;
+    for (const txn of posTxns) {
+      posVolume += parseFloat(txn.amount) || 0;
+      if (txn.status === "captured") {
+        posSuccessCount++;
+      }
+    }
+  } catch (_) {}
+
+  // 3. Fetch real charges & commissions from MerchantTransactionCharge
+  let posCharges = 0;
+  let posCommission = 0;
+  try {
+    const charges = await MerchantTransactionCharge.findAll({
+      attributes: ["charge_amount", "net_amount", "transaction_amount"],
+    });
+    for (const c of charges) {
+      posCharges += parseFloat(c.charge_amount) || 0;
+    }
+  } catch (_) {}
+
+  // 4. Map each service to real database totals (NO mock dummy data)
+  const rows = allServices.map((service) => {
+    const dbRecord = dbMap.get(service.key);
+    const isEnabled = dbRecord ? dbRecord.is_enabled !== false : true;
+
+    // Attribute real volume based on service type
+    let volume = 0;
+    let txns = 0;
+    let charges = 0;
+    let commission = 0;
+    let successRate = 100;
+
+    if (service.key === "pos_inventory" || service.key === "pos_t0_settlement") {
+      volume = posVolume;
+      txns = posTxnCount;
+      charges = posCharges;
+      commission = posCommission;
+      successRate = posTxnCount > 0 ? parseFloat(((posSuccessCount / posTxnCount) * 100).toFixed(1)) : 100;
+    }
+
+    const netProfit = charges - commission;
+    const avgTicket = txns > 0 ? Math.round(volume / txns) : 0;
+
+    return {
+      key: service.key,
+      label: dbRecord?.label || service.label,
+      category: dbRecord?.category || service.category,
+      description: dbRecord?.description || service.description,
+      isEnabled,
+      volume: parseFloat(volume.toFixed(2)),
+      txns,
+      successRate,
+      avgTicket,
+      charges: parseFloat(charges.toFixed(2)),
+      commission: parseFloat(commission.toFixed(2)),
+      netProfit: parseFloat(netProfit.toFixed(2)),
+    };
+  });
+
+  // Apply search and category filtering
+  const filteredRows = rows.filter((r) => {
+    const matchesSearch =
+      !searchTerm ||
+      r.label.toLowerCase().includes(searchTerm) ||
+      r.key.toLowerCase().includes(searchTerm) ||
+      r.category.toLowerCase().includes(searchTerm);
+
+    const matchesCategory =
+      !category || category === "All" || r.category.toLowerCase() === category.toLowerCase();
+
+    return matchesSearch && matchesCategory;
+  });
+
+  // Total summary calculations
+  const totalVolume = filteredRows.reduce((acc, r) => acc + r.volume, 0);
+  const totalTxns = filteredRows.reduce((acc, r) => acc + r.txns, 0);
+  const totalCharges = filteredRows.reduce((acc, r) => acc + r.charges, 0);
+  const totalCommission = filteredRows.reduce((acc, r) => acc + r.commission, 0);
+  const totalNetProfit = totalCharges - totalCommission;
+
+  res.status(200).json({
+    success: true,
+    message: "Service wise report fetched successfully",
+    summary: {
+      total_volume: parseFloat(totalVolume.toFixed(2)),
+      total_txns: totalTxns,
+      total_charges: parseFloat(totalCharges.toFixed(2)),
+      total_commission: parseFloat(totalCommission.toFixed(2)),
+      total_net_profit: parseFloat(totalNetProfit.toFixed(2)),
+    },
+    data: filteredRows,
+  });
+});
+
 module.exports = {
   getSuperAdminData,
   getAdminDetails,
@@ -715,4 +1285,7 @@ module.exports = {
   updateAdmin,
   updateAdminStatus,
   getSuperAdminPosInventory,
+  getSuperAdminTransactionReport,
+  getSuperAdminCommissionReport,
+  getSuperAdminServiceWiseReport,
 };

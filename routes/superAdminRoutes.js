@@ -8,6 +8,9 @@ const {
   updateAdmin,
   updateAdminStatus,
   getSuperAdminPosInventory,
+  getSuperAdminTransactionReport,
+  getSuperAdminCommissionReport,
+  getSuperAdminServiceWiseReport,
 } = require("../controllers/superAdminController");
 const {
   getPosInventory,
@@ -69,6 +72,11 @@ router.get("/admin/:id", validateToken, validateWhitelabelDomain, getAdminDetail
 
 // ── Super Admin Update Admin Profile & Company ───────────────────────────────
 router.put("/admin/:id", validateToken, validateWhitelabelDomain, updateAdmin);
+
+// ── Super Admin Reports ───────────────────────────────────────────────────────
+router.get("/reports/transactions", validateToken, validateWhitelabelDomain, getSuperAdminTransactionReport);
+router.get("/reports/commissions", validateToken, validateWhitelabelDomain, getSuperAdminCommissionReport);
+router.get("/reports/service-wise", validateToken, validateWhitelabelDomain, getSuperAdminServiceWiseReport);
 
 router.get("/", validateToken, validateWhitelabelDomain, getSuperAdminData);
 
