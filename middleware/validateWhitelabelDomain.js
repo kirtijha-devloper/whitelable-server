@@ -69,7 +69,7 @@ const validateWhitelabelDomain = async (req, res, next) => {
     
     if(req.user) {
         const companyIdUser = req.user.company_id;
-        if (companyIdUser !== company?.company_id) {
+        if (companyIdUser !== company?.company_id && req.user.role !== 'super_admin') {
             return res.status(403).json({ success: false, message: "User does not belong to the whitelabel domain." });
         }
     }
