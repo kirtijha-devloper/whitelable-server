@@ -8,7 +8,6 @@ const validateToken = require("../middleware/validateTokenHandler");
 const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
-const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 
 // @public access
 
