@@ -1,6 +1,9 @@
 const asyncHandler = require("express-async-handler");
 const bcrypt = require("bcrypt");
 const { Op, fn, col } = require("sequelize");
+const fs = require("fs");
+const path = require("path");
+const cloudinary = require("cloudinary").v2;
 const User = require("../models/User");
 const Company = require("../models/Company");
 const PosMachine = require("../models/posMachine");
@@ -11,6 +14,142 @@ const UsernameSequence = require("../models/UsernameSequence");
 const CompanyName = require("../models/CompanyName");
 const ServiceSetting = require("../models/ServiceSetting");
 const { parseIstBusinessDateRange } = require("../utils/dateRange");
+
+// Configure Cloudinary if environment variables are provided
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
+
+/**
+ * Strips protocol (http:// or https://), leading www., port, path, query, hash.
+ * E.g. "https://www.google.com/path" -> "google.com"
+ * E.g. "www.google.com" -> "google.com"
+ */
+function sanitizeDomainName(rawDomain) {
+  if (!rawDomain) return "";
+  let domain = String(rawDomain).trim().toLowerCase();
+  domain = domain.replace(/^https?:\/\//i, "");
+  domain = domain.split("/")[0].split("?")[0].split("#")[0].split(":")[0];
+  domain = domain.replace(/^www\./i, "");
+  return domain.trim();
+}
+
+/**
+ * Resilient file upload helper:
+ * 1. Attempts Cloudinary upload if credentials exist and file tempFilePath exists.
+ * 2. If Cloudinary is not configured or upload fails, saves file locally under uploads/<folder>/
+ *    and returns the accessible URL path (e.g. /uploads/<folder>/<filename>).
+ */
+async function uploadOrSaveFile(file, folder = "uploads") {
+  if (!file) return null;
+
+  // 1. Try Cloudinary if keys exist
+  if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_CLOUD_NAME) {
+    try {
+      const uploadPath = file.tempFilePath || file.path;
+      if (uploadPath && fs.existsSync(uploadPath)) {
+        const result = await cloudinary.uploader.upload(uploadPath, { folder });
+        if (result?.secure_url) {
+          return result.secure_url;
+        }
+      }
+    } catch (cErr) {
+      console.warn(`[Cloudinary Warning] Upload to ${folder} failed, falling back to local disk:`, cErr.message || cErr);
+    }
+  }
+
+  // 2. Safe local storage fallback in uploads/<folder>
+  try {
+    const targetDir = path.join(__dirname, "..", "uploads", folder);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    const orig = file.name || "file";
+    const ext = path.extname(orig) || ".png";
+    const cleanName = path
+      .basename(orig, ext)
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .slice(0, 30);
+    const filename = `${Date.now()}_${cleanName}${ext}`;
+    const destination = path.join(targetDir, filename);
+
+    if (file.tempFilePath && fs.existsSync(file.tempFilePath)) {
+      fs.copyFileSync(file.tempFilePath, destination);
+    } else if (file.data) {
+      fs.writeFileSync(destination, file.data);
+    } else if (typeof file.mv === "function") {
+      await file.mv(destination);
+    } else {
+      return null;
+    }
+
+    return `/uploads/${folder}/${filename}`;
+  } catch (localErr) {
+    console.error(`[Local File Save Error] Could not save file into ${folder}:`, localErr);
+    return null;
+  }
+}
+
+/**
+ * Deletes an array of locally saved files (by relative URL /uploads/... or absolute path)
+ * if any database transaction or validation fails, preventing orphaned files on disk.
+ */
+function deleteLocalFiles(filePaths = []) {
+  if (!Array.isArray(filePaths) || filePaths.length === 0) return;
+  for (const fp of filePaths) {
+    if (!fp || typeof fp !== "string") continue;
+    try {
+      let diskPath = fp;
+      if (fp.startsWith("/uploads/") || fp.startsWith("uploads/")) {
+        const relativePart = fp.replace(/^\//, "");
+        diskPath = path.join(__dirname, "..", relativePart);
+      }
+      if (fs.existsSync(diskPath)) {
+        fs.unlinkSync(diskPath);
+        console.log(`[File Cleanup] Deleted orphaned file on error: ${diskPath}`);
+      }
+    } catch (delErr) {
+      console.warn(`[File Cleanup Warning] Could not remove file ${fp}:`, delErr.message || delErr);
+    }
+  }
+}
+
+/**
+ * Generates an uppercase unique companyId (e.g. COMP_GOOGLE_01) checked against DB within transaction.
+ */
+async function generateUniqueCompanyId(companyName, cleanCompanyId, transaction) {
+  if (cleanCompanyId) {
+    return cleanCompanyId;
+  }
+
+  const baseSlug = String(companyName || "COMP")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 15) || "COMP";
+
+  const prefix = baseSlug.startsWith("COMP_") ? baseSlug : `COMP_${baseSlug}`;
+
+  let candidate = prefix;
+  let counter = 1;
+  while (true) {
+    const exists = await Company.findOne({
+      where: { company_id: candidate },
+      transaction,
+    });
+    if (!exists) {
+      return candidate;
+    }
+    candidate = `${prefix}_${String(counter).padStart(2, "0")}`;
+    counter++;
+  }
+}
 
 /**
  * Helper to decrypt or decode ID if sent in encrypted / encoded string format
@@ -269,11 +408,7 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
     throw new Error("Password must be at least 8 characters long.");
   }
 
-  const cleanDomain = String(domain_name)
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/\/.*$/, "");
+  const cleanDomain = sanitizeDomainName(domain_name);
   if (!cleanDomain || cleanDomain.length < 3) {
     res.status(400);
     throw new Error("Invalid domain name format.");
@@ -352,41 +487,57 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
     }
   }
 
-  // 4. KYC Document Uploads to Cloudinary (mimicking franchise KYC flow)
+  // 4. KYC & Company Logo Document Uploads (with local disk fallback if Cloudinary is unavailable)
   const panFile = req.files?.pan_photo;
   const aadharFile = req.files?.aadhar_photo;
   const aadharBkFile = req.files?.aadhar_back_photo;
   const shopFile = req.files?.shop_photo;
   const bankPassbookFile = req.files?.bank_passbook;
+  const companyLogoFile = req.files?.company_logo;
 
   let panUrl = null;
   let aadharUrl = null;
   let aadharBkUrl = null;
   let shopUrl = null;
   let bankPassbookUrl = null;
+  let logoUrl = null;
+
+  const uploadedLocalFiles = [];
 
   try {
-    const uploadPromises = [
-      panFile ? cloudinary.uploader.upload(panFile.tempFilePath, { folder: "admin_kyc" }) : null,
-      aadharFile ? cloudinary.uploader.upload(aadharFile.tempFilePath, { folder: "admin_kyc" }) : null,
-      aadharBkFile ? cloudinary.uploader.upload(aadharBkFile.tempFilePath, { folder: "admin_kyc" }) : null,
-      shopFile ? cloudinary.uploader.upload(shopFile.tempFilePath, { folder: "admin_kyc" }) : null,
-      bankPassbookFile ? cloudinary.uploader.upload(bankPassbookFile.tempFilePath, { folder: "admin_kyc" }) : null,
-    ];
-    [panUrl, aadharUrl, aadharBkUrl, shopUrl, bankPassbookUrl] = await Promise.all(uploadPromises);
+    const [panRes, aadharRes, aadharBkRes, shopRes, bankRes, logoRes] = await Promise.all([
+      panFile ? uploadOrSaveFile(panFile, "admin_kyc") : null,
+      aadharFile ? uploadOrSaveFile(aadharFile, "admin_kyc") : null,
+      aadharBkFile ? uploadOrSaveFile(aadharBkFile, "admin_kyc") : null,
+      shopFile ? uploadOrSaveFile(shopFile, "admin_kyc") : null,
+      bankPassbookFile ? uploadOrSaveFile(bankPassbookFile, "admin_kyc") : null,
+      companyLogoFile ? uploadOrSaveFile(companyLogoFile, "company_logos") : null,
+    ]);
+    panUrl = panRes;
+    aadharUrl = aadharRes;
+    aadharBkUrl = aadharBkRes;
+    shopUrl = shopRes;
+    bankPassbookUrl = bankRes;
+    logoUrl = logoRes;
+
+    [panUrl, aadharUrl, aadharBkUrl, shopUrl, bankPassbookUrl, logoUrl].forEach((u) => {
+      if (u && typeof u === "string" && (u.startsWith("/uploads/") || u.startsWith("uploads/"))) {
+        uploadedLocalFiles.push(u);
+      }
+    });
   } catch (uploadErr) {
-    console.error("KYC Document upload error:", uploadErr);
-    res.status(500);
-    throw new Error(`Failed to upload KYC documents: ${uploadErr.message}`);
+    console.warn("KYC / Logo upload warning:", uploadErr);
   }
 
   const hashPassword = await bcrypt.hash(password, 10);
-  const companyId = cleanCompanyId || `COMP_${Date.now()}`;
 
   // 5. ATOMIC 3-TABLE TRANSACTION (Users, Companies, company_names)
   const transaction = await db.transaction();
 
   try {
+    // Generate unique company_id within transaction (e.g. COMP_GOOGLE_01)
+    const companyId = await generateUniqueCompanyId(finalCompanyName, cleanCompanyId, transaction);
+
     // 5a. Allocate consecutive APA username using UsernameSequence with DB row lock
     const [seq] = await UsernameSequence.findOrCreate({
       where: { prefix: "APA" },
@@ -412,7 +563,7 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
       }
     }
 
-    // 5b. Step 1: Create in Users table (company_id: null initially to satisfy Companies.user_id FK)
+    // 5b. Step 1: Create in Users table (company_id: null initially to satisfy Users_company_id_fkey before Company exists)
     const newUser = await User.create(
       {
         name: String(name).trim(),
@@ -434,12 +585,12 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
         pincode: cleanPincode || null,
         aadhar_number: cleanAadhaar || null,
         pan_number: cleanPan || null,
-        pan_number_url: panUrl?.secure_url || null,
-        aadhar_number_url: aadharUrl?.secure_url || null,
-        aadhar_back_number_url: aadharBkUrl?.secure_url || null,
-        shop_with_photo_url: shopUrl?.secure_url || null,
-        bank_passbook_url: bankPassbookUrl?.secure_url || null,
-        cleanCompanyId,
+        pan_number_url: panUrl || null,
+        aadhar_number_url: aadharUrl || null,
+        aadhar_back_number_url: aadharBkUrl || null,
+        shop_with_photo_url: logoUrl || shopUrl || null,
+        bank_passbook_url: bankPassbookUrl || null,
+        company_id: null,
         company_or_shop_name: finalCompanyName,
         settlement_type: settlement_type || "today_settlement",
         status: "active",
@@ -455,6 +606,7 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
         user_id: newUser.id,
         company_id: companyId,
         company_name: finalCompanyName,
+        company_logo: logoUrl || null,
         director_name: String(name).trim() || finalCompanyName,
         email: cleanEmail,
         mobile_number: cleanMobile,
@@ -474,7 +626,7 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
       { transaction }
     );
 
-    // 5d. Step 3: Link User with company_id now that Company is created
+    // 5d. Step 3: Link User with company_id now that Company record exists in database
     newUser.company_id = companyId;
     await newUser.save({ transaction });
 
@@ -505,6 +657,10 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
   } catch (error) {
     // If any step fails, rollback EVERYTHING (all 3 tables)
     await transaction.rollback();
+
+    // Clean up any locally created files so no orphaned files remain on disk
+    deleteLocalFiles(uploadedLocalFiles);
+
     console.error("Create Admin transaction error (rolled back):", error);
     res.status(res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
     throw new Error(error.message || "Failed to create Admin, Company, and Company Name records.");
@@ -552,76 +708,128 @@ const updateAdmin = asyncHandler(async (req, res) => {
 
   const finalCompanyName = company_name || company_or_shop_name;
 
-  if (name !== undefined) admin.name = name;
-  if (email !== undefined) admin.email = email;
-  if (mobile_number !== undefined) admin.mobile_number = mobile_number;
-  if (gender !== undefined) admin.gender = gender;
-  if (dob !== undefined) admin.dob = dob;
-  if (address1 !== undefined) admin.address1 = address1;
-  if (address2 !== undefined) admin.address2 = address2;
-  if (city !== undefined) admin.city = city;
-  if (district !== undefined) admin.district = district;
-  if (state !== undefined) admin.state = state;
-  if (country !== undefined) admin.country = country;
-  if (pincode !== undefined) admin.pincode = pincode;
-  if (aadhar_number !== undefined) admin.aadhar_number = aadhar_number;
-  if (pan_number !== undefined) admin.pan_number = pan_number;
-  if (settlement_type !== undefined) admin.settlement_type = settlement_type;
-  if (status !== undefined) admin.status = status;
-  if (finalCompanyName !== undefined) {
-    admin.company_or_shop_name = finalCompanyName;
-  }
+  const transaction = await db.transaction();
 
-  if (password && String(password).trim().length >= 8) {
-    admin.password = await bcrypt.hash(password, 10);
-  }
+  try {
+    if (name !== undefined) admin.name = name;
+    if (email !== undefined) admin.email = email;
+    if (mobile_number !== undefined) admin.mobile_number = mobile_number;
+    if (gender !== undefined) admin.gender = gender;
+    if (dob !== undefined) admin.dob = dob;
+    if (address1 !== undefined) admin.address1 = address1;
+    if (address2 !== undefined) admin.address2 = address2;
+    if (city !== undefined) admin.city = city;
+    if (district !== undefined) admin.district = district;
+    if (state !== undefined) admin.state = state;
+    if (country !== undefined) admin.country = country;
+    if (pincode !== undefined) admin.pincode = pincode;
+    if (aadhar_number !== undefined) admin.aadhar_number = aadhar_number;
+    if (pan_number !== undefined) admin.pan_number = pan_number;
+    if (settlement_type !== undefined) admin.settlement_type = settlement_type;
+    if (status !== undefined) admin.status = status;
+    if (finalCompanyName !== undefined) {
+      admin.company_or_shop_name = finalCompanyName;
+    }
 
-  await admin.save();
+    if (password && String(password).trim().length >= 8) {
+      admin.password = await bcrypt.hash(password, 10);
+    }
 
-  if (admin.company_id) {
-    const company = await Company.findOne({ where: { company_id: admin.company_id } });
-    if (company) {
-      if (finalCompanyName) company.company_name = finalCompanyName;
-      if (name) company.director_name = name;
-      if (email) company.email = email;
-      if (mobile_number) company.mobile_number = mobile_number;
-      if (address1 !== undefined) company.address1 = address1;
-      if (address2 !== undefined) company.address2 = address2;
-      if (city !== undefined) company.city = city;
-      if (district !== undefined) company.district = district;
-      if (state !== undefined) company.state = state;
-      if (country !== undefined) company.country = country;
-      if (pincode !== undefined) company.pincode = pincode;
-      if (pan_number !== undefined) company.pan_number = pan_number;
-      if (gst_number !== undefined) company.gst_number = gst_number;
-      if (domain_name) {
-        company.domain_name = String(domain_name).trim().toLowerCase().replace(/^https?:\/\//, "");
+    const uploadedLocalFiles = [];
+
+    if (req.files?.company_logo) {
+      const updatedLogo = await uploadOrSaveFile(req.files.company_logo, "company_logos");
+      if (updatedLogo) {
+        if (typeof updatedLogo === "string" && (updatedLogo.startsWith("/uploads/") || updatedLogo.startsWith("uploads/"))) {
+          uploadedLocalFiles.push(updatedLogo);
+        }
+        admin.shop_with_photo_url = updatedLogo;
       }
-      if (status) company.status = status;
-      await company.save();
     }
 
-    if (finalCompanyName) {
-      await CompanyName.findOrCreate({
-        where: { name: finalCompanyName },
-        defaults: {
-          name: finalCompanyName,
-          created_by: req.user?.id || admin.id,
-          updated_by: req.user?.id || admin.id,
-        },
+    await admin.save({ transaction });
+
+    if (admin.company_id) {
+      const company = await Company.findOne({
+        where: { company_id: admin.company_id },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
       });
+
+      if (company) {
+        if (finalCompanyName) company.company_name = finalCompanyName;
+        if (name) company.director_name = name;
+        if (email) company.email = email;
+        if (mobile_number) company.mobile_number = mobile_number;
+        if (address1 !== undefined) company.address1 = address1;
+        if (address2 !== undefined) company.address2 = address2;
+        if (city !== undefined) company.city = city;
+        if (district !== undefined) company.district = district;
+        if (state !== undefined) company.state = state;
+        if (country !== undefined) company.country = country;
+        if (pincode !== undefined) company.pincode = pincode;
+        if (pan_number !== undefined) company.pan_number = pan_number;
+        if (gst_number !== undefined) company.gst_number = gst_number;
+        if (domain_name) {
+          const cleanDomain = sanitizeDomainName(domain_name);
+          if (cleanDomain && cleanDomain !== company.domain_name) {
+            // Check domain uniqueness pre-flight
+            const domainConflict = await Company.findOne({
+              where: {
+                domain_name: cleanDomain,
+                company_id: { [Op.ne]: admin.company_id },
+              },
+              transaction,
+            });
+            if (domainConflict) {
+              res.status(409);
+              throw new Error(`Domain '${cleanDomain}' is already registered to another company.`);
+            }
+            company.domain_name = cleanDomain;
+          }
+        }
+        if (admin.shop_with_photo_url) {
+          company.company_logo = admin.shop_with_photo_url;
+        }
+        if (status) company.status = status;
+        await company.save({ transaction });
+      }
+
+      if (finalCompanyName) {
+        await CompanyName.findOrCreate({
+          where: { name: finalCompanyName },
+          defaults: {
+            name: finalCompanyName,
+            created_by: req.user?.id || admin.id,
+            updated_by: req.user?.id || admin.id,
+          },
+          transaction,
+        });
+      }
     }
+
+    // Commit both User and Company updates atomically
+    await transaction.commit();
+
+    const updatedAdmin = await findAdminUser(admin.id);
+    const plain = updatedAdmin.toJSON ? updatedAdmin.toJSON() : { ...updatedAdmin };
+    delete plain.password;
+
+    res.status(200).json({
+      success: true,
+      message: "Admin and Company updated successfully",
+      data: plain,
+    });
+  } catch (error) {
+    await transaction.rollback();
+
+    // Clean up any files that were saved locally during this failed update
+    deleteLocalFiles(uploadedLocalFiles);
+
+    console.error("Update Admin transaction error (rolled back):", error);
+    res.status(res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
+    throw new Error(error.message || "Failed to update Admin and Company records.");
   }
-
-  const updatedAdmin = await findAdminUser(admin.id);
-  const plain = updatedAdmin.toJSON ? updatedAdmin.toJSON() : { ...updatedAdmin };
-  delete plain.password;
-
-  res.status(200).json({
-    success: true,
-    message: "Admin updated successfully",
-    data: plain,
-  });
 });
 
 /**
