@@ -461,6 +461,9 @@ const getUsers = asyncHandler(async (req, res) => {
         const where = {};
 
         // Role-based access control
+        if(userRole === "admin") {
+          where.company_id = req.company;
+        }
         if (userRole === 'super_franchise') {
             where.super_franchise_id = userId;
         } else if (userRole === 'franchaise' || userRole === 'franchise') {
