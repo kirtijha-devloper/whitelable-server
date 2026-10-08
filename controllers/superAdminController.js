@@ -24,6 +24,20 @@ if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && proce
   });
 }
 
+function maskingMobileNumber(mobile) {
+  if (!mobile) return mobile;
+  const strMobile = String(mobile);
+  if (strMobile.length < 10) return strMobile;
+  return strMobile.slice(0, 2) + "******" + strMobile.slice(-2);
+}
+
+function maskingEmail(email) {
+  if (!email) return email;
+  const [localPart, domain] = email.split("@");
+  if (!localPart || !domain) return email;
+  return `${localPart.slice(0, 2)}***@${domain}`;
+}
+
 /**
  * Strips protocol (http:// or https://), leading www., port, path, query, hash.
  * E.g. "https://www.google.com/path" -> "google.com"
@@ -302,6 +316,8 @@ const getSuperAdminData = asyncHandler(async (req, res) => {
     const plain = u.toJSON ? u.toJSON() : { ...u };
     plain.pos_machine_count = posCountMap[plain.id] || 0;
     plain.wallet_balance = parseFloat(plain.wallet || 0);
+    plain.mobile_number = maskingMobileNumber(plain.mobile_number);
+    plain.email = maskingEmail(plain.email);
     return plain;
   });
 
@@ -341,6 +357,8 @@ const getAdminDetails = asyncHandler(async (req, res) => {
   plain.pos_machines = posMachines;
   plain.pos_machine_count = posMachines.length;
   plain.wallet_balance = parseFloat(plain.wallet || 0);
+  plain.mobile_number = maskingMobileNumber(plain.mobile_number);
+  plain.email = maskingEmail(plain.email);
 
   res.status(200).json({
     success: true,
