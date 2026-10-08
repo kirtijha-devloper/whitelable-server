@@ -724,6 +724,9 @@ const updateAdmin = asyncHandler(async (req, res) => {
     company_or_shop_name,
     domain_name,
     password,
+    payout_limit,
+    bill_payment_limit,
+    t0_daily_limit,
   } = req.body;
 
   const uploadedLocalFiles = [];
@@ -832,6 +835,13 @@ const updateAdmin = asyncHandler(async (req, res) => {
   if (settlement_type !== undefined && settlement_type !== null && settlement_type !== admin.settlement_type) {
     if (["T0", "T1", "today_settlement", "next_day_settlement"].includes(settlement_type)) {
       userUpdates.settlement_type = settlement_type;
+    }
+  }
+
+  if (t0_daily_limit !== undefined && t0_daily_limit !== null) {
+    const parsedLimit = t0_daily_limit === "" ? null : Number(t0_daily_limit);
+    if (!isNaN(parsedLimit)) {
+      userUpdates.t0_daily_limit = parsedLimit;
     }
   }
 
@@ -946,6 +956,20 @@ const updateAdmin = asyncHandler(async (req, res) => {
     }
     if (userUpdates.status && userUpdates.status !== company.status) {
       companyUpdates.status = userUpdates.status;
+    }
+
+    if (payout_limit !== undefined && payout_limit !== null) {
+      const parsedPayout = Number(payout_limit);
+      if (!isNaN(parsedPayout)) {
+        companyUpdates.payout_limit = parsedPayout;
+      }
+    }
+
+    if (bill_payment_limit !== undefined && bill_payment_limit !== null) {
+      const parsedBill = Number(bill_payment_limit);
+      if (!isNaN(parsedBill)) {
+        companyUpdates.bill_payment_limit = parsedBill;
+      }
     }
 
     if (domain_name && String(domain_name).trim()) {
