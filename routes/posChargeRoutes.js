@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
@@ -20,6 +21,7 @@ const {
 
 // All routes require authentication
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // ── Default POS Charge slabs (write: admin only; read: all) ──────────────────
 router.post('/default', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {

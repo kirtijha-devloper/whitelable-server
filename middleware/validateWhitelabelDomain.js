@@ -18,12 +18,38 @@ const validateWhitelabelDomain = async (req, res, next) => {
     } catch (_) { }
     const originWithoutPort = originHost.split(':')[0];
 
+    const cleanHost = String(hostWithoutPort || rawHost)
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//i, '')
+        .split('/')[0]
+        .split('?')[0]
+        .split('#')[0]
+        .split(':')[0]
+        .replace(/^www\./i, '')
+        .trim();
+
+    const cleanOrigin = String(originWithoutPort || originHost)
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//i, '')
+        .split('/')[0]
+        .split('?')[0]
+        .split('#')[0]
+        .split(':')[0]
+        .replace(/^www\./i, '')
+        .trim();
+
     const possibleDomains = [
-        rawHost,
-        hostWithoutPort,
-        originHost,
-        originWithoutPort
-    ].filter(Boolean);
+        ...new Set([
+            rawHost,
+            hostWithoutPort,
+            cleanHost,
+            originHost,
+            originWithoutPort,
+            cleanOrigin,
+        ].filter(Boolean))
+    ];
 
 
     // 1. Try exact match from candidate domain names

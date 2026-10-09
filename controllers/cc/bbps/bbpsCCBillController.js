@@ -471,6 +471,13 @@ const payCCBill = asyncHandler(async (req, res) => {
       });
     }
 
+    const companyId = req.company;
+
+    if(!companyId){
+      console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+      return res.status(400).json({message : "No Domain Name is registered"});
+    }
+
     const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Authentication required' });
@@ -517,6 +524,7 @@ const payCCBill = asyncHandler(async (req, res) => {
       external_ref:       externalRef,
       status:             'pending',
       geo_code:           normalizeGeoCode(geoCode),
+      company_id : companyId,
     });
 
     // ── Step 1: Create ledger entry to debit the user balance (before calling InstantPay)
@@ -568,6 +576,7 @@ const payCCBill = asyncHandler(async (req, res) => {
       status:             result.data?.status,
       response:           result.data,
       charge_amount:      chargeAmount,
+      company_id : companyId,
     });
 
     // ── Step 3: Finalise or reverse based on result ─────────────────────────
@@ -640,6 +649,13 @@ const payCCBill = asyncHandler(async (req, res) => {
  * Admin / Employee manual refund for failed BBPS CC bill payments where balance was debited.
  */
 const manualRefundBbpsCcBill = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const { reference_id, ledger_id, reason } = req.body;
 
   if (!reference_id && !ledger_id) {
@@ -763,6 +779,7 @@ const manualRefundBbpsCcBill = asyncHandler(async (req, res) => {
     try {
       await ccPayment.update({
         status: 'FAILED (REFUNDED)',
+        company_id : companyId,
       });
     } catch (_) {}
   }

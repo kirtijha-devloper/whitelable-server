@@ -97,6 +97,13 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, errors: errs });
   }
 
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   // determine the effective franchise id for this request
   let effectiveFranchise = franchaise_id || null;
   if (req.user.role === 'franchaise') {
@@ -184,6 +191,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     });
   }
 
+
+
   let rec;
   try {
     rec = await PosChargeRule.create({
@@ -202,7 +211,8 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       gst_required: Boolean(gst_required),
       gst_percent: gst_percent !== undefined && gst_percent !== null ? gst_percent : 0,
       is_active: typeof is_active === 'boolean' ? is_active : true,
-      created_by: creatorId
+      created_by: creatorId,
+      company_id : companyId
     });
   } catch (err) {
     fileLog(`CREATE error: ${err.message}`);
@@ -531,25 +541,25 @@ const listMerchantChargeRules = asyncHandler(async (req, res) => {
     // 3. franchise default rules (visible only if merchant belongs to a franchise)
     franchiseId
       ? PosChargeRule.findAll({
-          where: { ...baseFilter, scope: 'franchise_default', franchaise_id: franchiseId },
-          order: [['createdAt', 'DESC']]
-        })
+        where: { ...baseFilter, scope: 'franchise_default', franchaise_id: franchiseId },
+        order: [['createdAt', 'DESC']]
+      })
       : Promise.resolve([]),
 
     // 4. franchise rules created specifically for this merchant
     franchiseId
       ? PosChargeRule.findAll({
-          where: { ...baseFilter, scope: 'franchise_merchant', user_id: merchantId, franchaise_id: franchiseId },
-          order: [['createdAt', 'DESC']]
-        })
+        where: { ...baseFilter, scope: 'franchise_merchant', user_id: merchantId, franchaise_id: franchiseId },
+        order: [['createdAt', 'DESC']]
+      })
       : Promise.resolve([])
   ]);
 
   res.status(200).json({
     success: true,
     data: {
-      admin_default:     adminDefault,
-      admin_merchant:    adminMerchant,
+      admin_default: adminDefault,
+      admin_merchant: adminMerchant,
       franchise_default: franchiseDefault,
       franchise_merchant: franchiseMerchant
     }
@@ -559,6 +569,13 @@ const listMerchantChargeRules = asyncHandler(async (req, res) => {
 // update rule
 const updatePosChargeRule = asyncHandler(async (req, res) => {
   fileLog(`UPDATE request id=${req.params.id} body=${JSON.stringify(req.body)}`);
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const { id } = req.params;
   if (!id) return res.status(400).json({ success: false, message: 'id required' });
 
@@ -705,6 +722,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   if (normalizedCardBrand !== undefined) updateData.card_brand = normalizedCardBrand || null;
   if (req.body.gst_required !== undefined) updateData.gst_required = Boolean(req.body.gst_required);
   if (req.body.gst_percent !== undefined) updateData.gst_percent = req.body.gst_percent;
+  updateData.company_id = companyId;
   await rec.update(updateData);
   fileLog(`UPDATE success id=${rec.id}`);
   res.status(200).json({ success: true, message: 'Rule updated', record: rec });

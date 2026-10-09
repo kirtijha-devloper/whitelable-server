@@ -1,5 +1,6 @@
 const express = require('express');
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const sevenpayController = require('../controllers/sevenpayPayout.controller');
@@ -7,6 +8,7 @@ const sevenpayController = require('../controllers/sevenpayPayout.controller');
 const router = express.Router();
 
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 router.use(ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.PAYOUT_READ,
   EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE,

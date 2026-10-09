@@ -215,6 +215,13 @@ async function executeCcBill3Payment(req, res, options = {}) {
     return res.status(401).json({ success: false, message: 'Authentication required' });
   }
 
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const user = await User.findByPk(userId);
   if (!user) {
     return res.status(404).json({ success: false, message: 'User not found' });
@@ -388,6 +395,7 @@ async function executeCcBill3Payment(req, res, options = {}) {
         },
       },
       charge_amount: serviceCharge,
+      company_id : companyId,
     }, { transaction });
 
     payoutTransaction = await PayoutTransaction.create({

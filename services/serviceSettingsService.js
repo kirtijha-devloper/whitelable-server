@@ -175,6 +175,7 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
   const performingUserId = updatedBy || 1;
   const ipAddress = options.ip_address || options.ip || null;
   const userAgent = options.user_agent || null;
+  const companyId = options.company_id || options.companyId || null;
 
   for (const [serviceKey, isEnabled] of entries) {
     const previousState = Boolean(currentMap[serviceKey]?.is_enabled);
@@ -189,6 +190,7 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
         action: newState ? 'ENABLE' : 'DISABLE',
         ip_address: ipAddress,
         user_agent: userAgent,
+        company_id: companyId,
       }, transactionOpts);
     }
   }
@@ -212,12 +214,13 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
           is_enabled: isEnabledBool,
           updated_by: performingUserId ?? null,
           updated_at: now,
+          company_id: companyId,
         });
       }
     }
 
     await UserServiceSetting.bulkCreate(userServiceRows, {
-      updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at'],
+      updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at', 'company_id'],
       ...transactionOpts,
     });
   }
@@ -388,6 +391,7 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
   };
 
   const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
+  const companyId = options.company_id || options.companyId || (user && user.company_id) || null;
 
   await Promise.all(entries.map(([serviceKey, isEnabled]) => UserServiceSetting.upsert({
     user_id: plainUser.id,
@@ -395,6 +399,7 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
     is_enabled: isEnabled,
     updated_by: updatedBy ?? null,
     updated_at: now,
+    company_id: companyId,
   }, transactionOpts)));
 
   const performingUserId = updatedBy || plainUser.id;
@@ -414,6 +419,7 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
         action: newState ? 'ENABLE' : 'DISABLE',
         ip_address: ipAddress,
         user_agent: userAgent,
+        company_id: companyId,
       }, transactionOpts);
     }
   }
@@ -597,6 +603,7 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
   }
 
   const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
+  const companyId = options.company_id || options.companyId || null;
 
   // Handle special master service keys
   if (serviceKey === 'pos_t0_settlement') {
@@ -617,10 +624,11 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
     is_enabled: isEnabledBool,
     updated_by: performingUserId ?? null,
     updated_at: now,
+    company_id: companyId,
   }));
 
   await UserServiceSetting.bulkCreate(rows, {
-    updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at'],
+    updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at', 'company_id'],
     ...transactionOpts,
   });
 
@@ -665,6 +673,7 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
     action: `BULK_${isEnabledBool ? 'ENABLE' : 'DISABLE'}_ALL`,
     ip_address: ipAddress,
     user_agent: userAgent,
+    company_id: companyId,
   }, transactionOpts);
 
   return {

@@ -2,8 +2,10 @@ const express = require("express");
 const {onBoardUser, getUsers, getUserById, updateUserStatus, listMerchantTransactionCharges, setIpayOutletId}  = require("../controllers/merchantController");
 const router = express.Router();
 const validateToken = require("../middleware/validateTokenHandler");
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 
-router.use(validateToken)
+router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 
 router.post("/:id/onboard", onBoardUser)

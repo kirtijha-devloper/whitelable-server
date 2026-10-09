@@ -7,6 +7,7 @@
 
 const express = require('express');
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { ensureEmployeePermission } = require('../middleware/employeePermissionHandler');
 const { EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const ndia5Controller = require('../controllers/ndia5Payout.controller');
@@ -15,6 +16,7 @@ const router = express.Router();
 
 // Protect all NDIA5 payout routes with JWT authentication & employee permissions
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 router.use(ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.PAYOUT_READ,
   EMPLOYEE_PERMISSIONS.PAYOUT_MANAGE,

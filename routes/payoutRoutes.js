@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const validateToken = require('../middleware/validateTokenHandler');
+const validateWhitelabelDomain = require('../middleware/validateWhitelabelDomain');
 const { listPayoutBeneficiaries, updatePayoutBeneficiary } = require('../controllers/payoutController');
 const ndia5Controller = require('../controllers/ndia5Payout.controller');
 
@@ -9,6 +10,7 @@ router.post('/ndia5/callback', ndia5Controller.handleCallback);
 router.get('/ndia5/callback', ndia5Controller.handleCallback);
 
 router.use(validateToken);
+router.use(validateWhitelabelDomain);
 
 // GET /api/payout/beneficiaries
 // Admin: all beneficiaries

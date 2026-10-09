@@ -31,6 +31,11 @@ const Company = db.define('Company', {
     type: Sequelize.STRING
   },
 
+  company_logo: {
+    allowNull: true,
+    type: Sequelize.STRING
+  },
+
   director_name: {
     allowNull: true,
     type: Sequelize.STRING

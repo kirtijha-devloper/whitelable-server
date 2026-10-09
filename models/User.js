@@ -168,6 +168,7 @@ const User = db.define("User", {
   company_id: {
     type: Sequelize.STRING,
     allowNull: true,
+    field: "company_id",
   },
   username: {
     type: Sequelize.STRING,
@@ -199,6 +200,8 @@ const User = db.define("User", {
     type: Sequelize.DATE,
     defaultValue: Sequelize.NOW,
   },
+}, {
+  tableName: "Users",
 });
 
 User.associate = function (models) {

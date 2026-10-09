@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId, setUserSettlementType, setAllUsersSettlementType } = require("../controllers/adminController");
 const {
   getPosSettings,
@@ -71,10 +72,11 @@ const requireSettlementManage = ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SE
   elevateRole: "admin",
 });
 
+
 // GET /api/admin/merchants/unassigned
 //   Returns merchants with no franchise (franchaise_id IS NULL)
 //   Query: page, limit, status, search
-router.get("/merchants/unassigned", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_LIST, {
+router.get("/merchants/unassigned", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_LIST, {
   message: "You do not have permission to view user data.",
   elevateRole: "admin",
 }), getUnassignedMerchants);
@@ -82,49 +84,49 @@ router.get("/merchants/unassigned", validateToken, ensureEmployeePermission(EMPL
 // ── Admin wallet adjustments (admin-only, protected) ─────────────────────────
 // POST /api/admin/wallet/credit
 //   Body: { user_id, amount, reason?, idempotency_key }
-router.post("/wallet/credit", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_CREDIT, {
+router.post("/wallet/credit", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_CREDIT, {
   message: "You do not have permission to credit wallet balances.",
   elevateRole: "admin",
 }), adminDirectCredit);
 
 // POST /api/admin/wallet/debit
 //   Body: { user_id, amount, reason?, idempotency_key }
-router.post("/wallet/debit", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_DEBIT, {
+router.post("/wallet/debit", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.WALLET_DEBIT, {
   message: "You do not have permission to debit wallet balances.",
   elevateRole: "admin",
 }), adminDirectDebit);
 
 // PUT /api/admin/user/:id/ipay-outlet
 //   Admin-only: set or update the InstantPay outlet ID for any user.
-router.put("/user/:id/ipay-outlet", validateToken, setUserIpayOutletId);
+router.put("/user/:id/ipay-outlet", validateToken, validateWhitelabelDomain, setUserIpayOutletId);
 
 // PUT /api/admin/users/settlement-type
 //   Admin-only: update settlement type for all merchant and franchise users.
 //   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
-router.put("/users/settlement-type", validateToken, requireSettlementManage, requireAdmin, setAllUsersSettlementType);
+router.put("/users/settlement-type", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdmin, setAllUsersSettlementType);
 
 // PUT /api/admin/user/:id/settlement-type
 //   Admin-only: update settlement type for a single merchant or franchise user.
 //   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
-router.put("/user/:id/settlement-type", validateToken, requireSettlementManage, requireAdmin, setUserSettlementType);
+router.put("/user/:id/settlement-type", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdmin, setUserSettlementType);
 
 // ── POS Settlement Settings Admin/Franchise Endpoints ──────────────────────
 // GET /api/admin/pos-setting and its legacy fallback
-router.get("/pos-setting", validateToken, requireSettlementRead, requireAdminOrFranchise, getPosSettings);
-router.get("/pg-setting", validateToken, requireSettlementRead, requireAdminOrFranchise, getPosSettings);
+router.get("/pos-setting", validateToken, validateWhitelabelDomain, requireSettlementRead, requireAdminOrFranchise, getPosSettings);
+router.get("/pg-setting", validateToken, validateWhitelabelDomain, requireSettlementRead, requireAdminOrFranchise, getPosSettings);
 
 // POST /api/admin/pos-setting/update-t0-limit
-router.post("/pos-setting/update-t0-limit", validateToken, requireSettlementManage, requireAdminOrFranchise, updateT0Limit);
+router.post("/pos-setting/update-t0-limit", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdminOrFranchise, updateT0Limit);
 
 // POST /api/admin/pos-setting/update-settlement-type
-router.post("/pos-setting/update-settlement-type", validateToken, requireSettlementManage, requireAdmin, updateSettlementType);
+router.post("/pos-setting/update-settlement-type", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdmin, updateSettlementType);
 
 // POST /api/admin/pos-setting/bulk-settlement
-router.post("/pos-setting/bulk-settlement", validateToken, requireSettlementManage, requireAdmin, bulkUpdateSettlementType);
+router.post("/pos-setting/bulk-settlement", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdmin, bulkUpdateSettlementType);
 
 // ── Global & User Settlement Cutoff Config Endpoints ───────────────────────
 // GET /api/admin/settlement/config
-router.get("/settlement/config", validateToken, ensureEmployeePermission([
+router.get("/settlement/config", validateToken, validateWhitelabelDomain, ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
   EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
 ], {
@@ -133,13 +135,13 @@ router.get("/settlement/config", validateToken, ensureEmployeePermission([
 }), requireAdmin, getGlobalSettlementConfig);
 
 // PUT /api/admin/settlement/config
-router.put("/settlement/config", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+router.put("/settlement/config", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
   message: "You do not have permission to manage settlement settings.",
   elevateRole: "admin",
 }), requireAdmin, updateGlobalSettlementConfig);
 
 // GET /api/admin/settlement/users
-router.get("/settlement/users", validateToken, ensureEmployeePermission([
+router.get("/settlement/users", validateToken, validateWhitelabelDomain, ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
   EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
 ], {
@@ -148,19 +150,19 @@ router.get("/settlement/users", validateToken, ensureEmployeePermission([
 }), requireAdmin, getSettlementUsers);
 
 // PUT /api/admin/settlement/users/:id/cutoff
-router.put("/settlement/users/:id/cutoff", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+router.put("/settlement/users/:id/cutoff", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
   message: "You do not have permission to manage settlement settings.",
   elevateRole: "admin",
 }), requireAdmin, updateUserCutoff);
 
 // POST /api/admin/settlement/users/:id/trigger-settlement
-router.post("/settlement/users/:id/trigger-settlement", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
+router.post("/settlement/users/:id/trigger-settlement", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE, {
   message: "You do not have permission to trigger settlements.",
   elevateRole: "admin",
 }), requireAdmin, triggerUserSettlement);
 
 // GET /api/admin/settlement/audit-logs
-router.get("/settlement/audit-logs", validateToken, ensureEmployeePermission([
+router.get("/settlement/audit-logs", validateToken, validateWhitelabelDomain, ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.SETTLEMENT_READ,
   EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE,
 ], {
@@ -171,7 +173,7 @@ router.get("/settlement/audit-logs", validateToken, ensureEmployeePermission([
 // POST /api/admin/wallet/reconcile/:userId
 //   Recomputes balance from SUM(credit)-SUM(debit) and fixes user.wallet if drifted.
 //   Run this after any manual insert/delete in the Ledgers table.
-router.post("/wallet/reconcile/:userId", validateToken, ensureEmployeePermission([
+router.post("/wallet/reconcile/:userId", validateToken, validateWhitelabelDomain, ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.WALLET_CREDIT,
   EMPLOYEE_PERMISSIONS.WALLET_DEBIT,
 ], {
@@ -182,7 +184,7 @@ router.post("/wallet/reconcile/:userId", validateToken, ensureEmployeePermission
 // POST /api/admin/wallet/reconcile-all
 //   Reconciles ALL active users' wallets in one call.
 //   Run after bulk DB operations or migrations that may affect many users.
-router.post("/wallet/reconcile-all", validateToken, ensureEmployeePermission([
+router.post("/wallet/reconcile-all", validateToken, validateWhitelabelDomain, ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.WALLET_CREDIT,
   EMPLOYEE_PERMISSIONS.WALLET_DEBIT,
 ], {
@@ -190,31 +192,31 @@ router.post("/wallet/reconcile-all", validateToken, ensureEmployeePermission([
   elevateRole: "admin",
 }), reconcileAllWallets);
 
-router.get("/services", validateToken, getServicesListController);
-router.put("/services/:key/status", validateToken, updateServiceStatusController);
-router.post("/services/create", validateToken, createServiceController);
+router.get("/services", validateToken, validateWhitelabelDomain, getServicesListController);
+router.put("/services/:key/status", validateToken, validateWhitelabelDomain, updateServiceStatusController);
+router.post("/services/create", validateToken, validateWhitelabelDomain, createServiceController);
 
-router.get("/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+router.get("/service-settings", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
   message: "You do not have permission to view service settings.",
   elevateRole: "admin",
 }), getServiceSettings);
 
-router.put("/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
+router.put("/service-settings", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_MANAGE, {
   message: "You do not have permission to manage service settings.",
   elevateRole: "admin",
 }), updateServiceSettings);
 
-router.put("/user/:id/service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE, {
+router.put("/user/:id/service-settings", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE, {
   message: "You do not have permission to manage user service settings.",
   elevateRole: "admin",
 }), updateUserServiceSettings);
 
-router.put("/user/bulk-service-settings", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE, {
+router.put("/user/bulk-service-settings", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE, {
   message: "You do not have permission to bulk update user service settings.",
   elevateRole: "admin",
 }), bulkUpdateUserServiceSettings);
 
-router.get("/service-settings/audit-logs", validateToken, ensureEmployeePermission([
+router.get("/service-settings/audit-logs", validateToken, validateWhitelabelDomain, ensureEmployeePermission([
   EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ,
   EMPLOYEE_PERMISSIONS.USERS_SERVICE_SETTINGS_MANAGE,
 ], {
@@ -222,24 +224,24 @@ router.get("/service-settings/audit-logs", validateToken, ensureEmployeePermissi
   elevateRole: "admin",
 }), getServiceToggleAuditLogsController);
 
-router.get("/login-popups", validateToken, listLoginPopupsForAdmin);
-router.post("/login-popups", validateToken, loginPopupUpload, createLoginPopup);
-router.put("/login-popups/:id", validateToken, loginPopupUpload, updateLoginPopup);
-router.delete("/login-popups/:id", validateToken, deleteLoginPopup);
+router.get("/login-popups", validateToken, validateWhitelabelDomain, listLoginPopupsForAdmin);
+router.post("/login-popups", validateToken, validateWhitelabelDomain, loginPopupUpload, createLoginPopup);
+router.put("/login-popups/:id", validateToken, validateWhitelabelDomain, loginPopupUpload, updateLoginPopup);
+router.delete("/login-popups/:id", validateToken, validateWhitelabelDomain, deleteLoginPopup);
 
-router.get("/logs", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, {
+router.get("/logs", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, {
   message: "You do not have permission to view server logs.",
   elevateRole: "admin",
 }), requireAdmin, listLogFiles);
 
-router.get("/logs/:filename/download", validateToken, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, {
+router.get("/logs/:filename/download", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, {
   message: "You do not have permission to view server logs.",
   elevateRole: "admin",
 }), requireAdmin, downloadLogFile);
 
 // GET /api/admin/bill-avenue/billers
 //   Admin-only: fetch all BillAvenue billers, with optional category filter.
-router.get("/bill-avenue/billers", validateToken, requireAdmin, async (req, res) => {
+router.get("/bill-avenue/billers", validateToken, validateWhitelabelDomain, requireAdmin, async (req, res) => {
   try {
     const BillAvenueBiller = require("../models/BillAvenueBiller");
     const where = {};

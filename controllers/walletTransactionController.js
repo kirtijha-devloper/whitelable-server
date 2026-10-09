@@ -8,6 +8,13 @@ const { Op } = require('sequelize');
 const ledgerService = require('../services/ledgerService');
 
 const requestFund = asyncHandler(async (req, res) =>{
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const role = req.user.role
 
 
@@ -28,6 +35,7 @@ const requestFund = asyncHandler(async (req, res) =>{
     status: "pending",
     reason,
     requested_by: user_id,
+    company_id : companyId,
   });
 
   res.status(200).json({ message: "Fund Requested", balance: user.wallet, id: wallet.id });
@@ -35,6 +43,13 @@ const requestFund = asyncHandler(async (req, res) =>{
 
 const transferFund = asyncHandler(async (req, res) =>{
   try {
+    const companyId = req.company;
+
+    if(!companyId){
+      console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+      return res.status(400).json({message : "No Domain Name is registered"});
+    }
+
     if (req.user.role !== "admin") {
       res.status(401);
       throw new Error("you are not allowed to transfer amount")
@@ -75,6 +90,7 @@ const transferFund = asyncHandler(async (req, res) =>{
 
       walletTransaction.status = "completed"
       walletTransaction.approved_by= req.user.id
+      walletTransaction.company_id = companyId;
       await walletTransaction.save()
 
       const transferTransaction = await WalletTransaction.create({
@@ -84,7 +100,8 @@ const transferFund = asyncHandler(async (req, res) =>{
           reason: "Fund Tranfer",
           approved_by: req.user.id,
           requested_by: walletTransaction.requested_by,
-          reference_id: walletTransaction.id
+          reference_id: walletTransaction.id,
+          company_id : companyId,
         });
 
       // Create ledger entries — these also update user.wallet via createLedgerEntry
@@ -121,6 +138,13 @@ const transferFund = asyncHandler(async (req, res) =>{
 });
 
 const holdFund = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const {id} = req.params;
   const transactionId = parseInt(id, 10);
 
@@ -144,6 +168,7 @@ const holdFund = asyncHandler(async (req, res) => {
 
   walletTransaction.approved_by = req.user.id
   walletTransaction.status = "completed"
+  walletTransaction.company_id = companyId;
   await walletTransaction.save()
 
   const holdTransaction = await WalletTransaction.create({
@@ -153,7 +178,8 @@ const holdFund = asyncHandler(async (req, res) => {
           reason: "HOLD AMOUNT",
           approved_by: req.user.id,
           requested_by: walletTransaction.requested_by,
-          reference_id: walletTransaction.id
+          reference_id: walletTransaction.id,
+          company_id : companyId,
         });
 
   res.status(200).json({
@@ -164,6 +190,13 @@ const holdFund = asyncHandler(async (req, res) => {
 });
 
 const unholdFund = asyncHandler(async (req, res) => {
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   const {id} = req.params;
   const transactionId = parseInt(id, 10);
 
@@ -197,6 +230,7 @@ const unholdFund = asyncHandler(async (req, res) => {
 
   walletTransaction.approved_by = req.user.id
   walletTransaction.status = "completed"
+  walletTransaction.company_id = companyId;
   await walletTransaction.save()
 
   const unholdTransaction = await WalletTransaction.create({
@@ -206,7 +240,8 @@ const unholdFund = asyncHandler(async (req, res) => {
           reason: "UNHOLD AMOUNT",
           approved_by: req.user.id,
           requested_by: walletTransaction.requested_by,
-          reference_id: walletTransaction.id
+          reference_id: walletTransaction.id,
+          company_id : companyId,
         });
 
   // Create ledger entries for unhold — these also update user.wallet via createLedgerEntry

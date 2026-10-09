@@ -26,6 +26,13 @@ router.post('/', asyncHandler(async (req, res) => {
     purpose
   } = req.body;
 
+  const companyId = req.company;
+
+  if(!companyId){
+    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
+    return res.status(400).json({message : "No Domain Name is registered"});
+  }
+
   if (!user_id) {
     return res.status(401).json({ success: false, message: 'Unauthorized: user_id required' });
   }
@@ -133,7 +140,8 @@ router.post('/', asyncHandler(async (req, res) => {
       latitude: latitude || null,
       longitude: longitude || null,
       email_id: beneficiary.email || null,
-      purpose: purpose || null
+      purpose: purpose || null,
+      company_id : companyId,
     }, { transaction });
 
     // audit log entry for request creation
@@ -175,7 +183,8 @@ router.post('/', asyncHandler(async (req, res) => {
       PayoutRequest.update({
         response_status: 'PENDING',
         api_txn_id: response.txnId || null,
-        response: response
+        response: response,
+        company_id : companyId,
       }, {
         where: { id: payoutReq.id }
       }).catch(err => console.error('Failed to update payout request post-API', err));

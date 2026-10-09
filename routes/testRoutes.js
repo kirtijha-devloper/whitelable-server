@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { sendOTP } = require("../utils/mail");
 const validateToken = require("../middleware/validateTokenHandler");
+const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const sevenpayTestStandalone = require("./sevenpayTestStandalone");
 
 // public testing route - remove or secure in production
@@ -16,6 +17,6 @@ router.get("/test-otp", async (req, res) => {
   }
 });
 
-router.use("/sevenpay", validateToken, sevenpayTestStandalone);
+router.use("/sevenpay", validateToken, validateWhitelabelDomain, sevenpayTestStandalone);
 
 module.exports = router;
