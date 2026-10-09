@@ -5,7 +5,6 @@ const router = express.Router();
 const {registerUser, loginUser, currentUser, getUsers, getUserByID, userCount, searchUsers, updatePassword, updateUser, promoteUserToFranchise, promoteUserToSuperFranchise, promoteEmployeeToAdmin, updateUserStatus, sendOtp, verifyOtp, resetPassword, generateTpin, verifyTpin, forgotPassword, enableLedger} = require("../controllers/userController");
 const { getActiveLoginPopups } = require("../controllers/loginPopupController");
 const validateToken = require("../middleware/validateTokenHandler");
-const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");

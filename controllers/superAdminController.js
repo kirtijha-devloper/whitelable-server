@@ -159,7 +159,7 @@ function tryDecryptId(rawId) {
   let trimmed = String(rawId).trim();
   try {
     trimmed = decodeURIComponent(trimmed).trim();
-  } catch (_) {}
+  } catch (_) { }
 
   // Try project AES decryption helper
   try {
@@ -169,7 +169,7 @@ function tryDecryptId(rawId) {
       if (typeof decrypted === "object" && decrypted.id) return decrypted.id;
       if (typeof decrypted === "string" || typeof decrypted === "number") return decrypted;
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // Try standard base64 decoding
   try {
@@ -180,7 +180,7 @@ function tryDecryptId(rawId) {
     if (decoded && decoded.length < 100 && !/[^\x20-\x7E]/.test(decoded)) {
       return decoded;
     }
-  } catch (_) {}
+  } catch (_) { }
 
   return trimmed;
 }
@@ -287,10 +287,10 @@ const getSuperAdminData = asyncHandler(async (req, res) => {
   const userIds = users.map((u) => u.id);
   const posCounts = userIds.length
     ? await PosMachine.findAll({
-        where: { assigned_to: userIds },
-        attributes: ["assigned_to", [fn("COUNT", col("id")), "count"]],
-        group: ["assigned_to"],
-      })
+      where: { assigned_to: userIds },
+      attributes: ["assigned_to", [fn("COUNT", col("id")), "count"]],
+      group: ["assigned_to"],
+    })
     : [];
 
   const posCountMap = posCounts.reduce((acc, row) => {
@@ -1229,9 +1229,9 @@ const getSuperAdminTransactionReport = asyncHandler(async (req, res) => {
   const companyIds = [...new Set(rows.map((r) => r.company_id || r.user?.company_id).filter(Boolean))];
   const companies = companyIds.length
     ? await Company.findAll({
-        where: { company_id: { [Op.in]: companyIds } },
-        attributes: ["company_id", "company_name", "domain_name"],
-      })
+      where: { company_id: { [Op.in]: companyIds } },
+      attributes: ["company_id", "company_name", "domain_name"],
+    })
     : [];
   const companyMap = new Map(companies.map((c) => [c.company_id, c]));
 
@@ -1272,29 +1272,29 @@ const getSuperAdminTransactionReport = asyncHandler(async (req, res) => {
       created_at: r.createdAt || r.created_at,
       company: comp
         ? {
-            company_id: comp.company_id,
-            company_name: comp.company_name,
-            domain_name: comp.domain_name,
-          }
+          company_id: comp.company_id,
+          company_name: comp.company_name,
+          domain_name: comp.domain_name,
+        }
         : compId
-        ? { company_id: compId, company_name: compId, domain_name: "-" }
-        : null,
+          ? { company_id: compId, company_name: compId, domain_name: "-" }
+          : null,
       merchant: r.user
         ? {
-            id: r.user.id,
-            name: r.user.name,
-            email: r.user.email,
-            mobile_number: r.user.mobile_number,
-            abheepay_id: r.user.abheepay_id,
-          }
+          id: r.user.id,
+          name: r.user.name,
+          email: r.user.email,
+          mobile_number: r.user.mobile_number,
+          abheepay_id: r.user.abheepay_id,
+        }
         : null,
       pos_machine: r.posMachine
         ? {
-            id: r.posMachine.id,
-            mid_number: r.posMachine.mid_number,
-            tid_number: r.posMachine.tid_number,
-            device_serial_number: r.posMachine.device_serial_number,
-          }
+          id: r.posMachine.id,
+          mid_number: r.posMachine.mid_number,
+          tid_number: r.posMachine.tid_number,
+          device_serial_number: r.posMachine.device_serial_number,
+        }
         : null,
     };
   });
@@ -1424,27 +1424,27 @@ const getSuperAdminCommissionReport = asyncHandler(async (req, res) => {
   const merchantIds = [...new Set(rows.map((r) => r.merchant_id).filter(Boolean))];
   const merchants = merchantIds.length
     ? await User.findAll({
-        where: { id: { [Op.in]: merchantIds } },
-        attributes: ["id", "name", "email", "mobile_number", "abheepay_id", "company_id"],
-      })
+      where: { id: { [Op.in]: merchantIds } },
+      attributes: ["id", "name", "email", "mobile_number", "abheepay_id", "company_id"],
+    })
     : [];
   const merchantMap = new Map(merchants.map((m) => [m.id, m]));
 
   const posIds = [...new Set(rows.map((r) => r.pos_machine_id).filter(Boolean))];
   const posMachines = posIds.length
     ? await PosMachine.findAll({
-        where: { id: { [Op.in]: posIds } },
-        attributes: ["id", "mid_number", "tid_number", "device_serial_number"],
-      })
+      where: { id: { [Op.in]: posIds } },
+      attributes: ["id", "mid_number", "tid_number", "device_serial_number"],
+    })
     : [];
   const posMap = new Map(posMachines.map((p) => [p.id, p]));
 
   const companyIds = [...new Set(merchants.map((m) => m.company_id).filter(Boolean))];
   const companies = companyIds.length
     ? await Company.findAll({
-        where: { company_id: { [Op.in]: companyIds } },
-        attributes: ["company_id", "company_name", "domain_name"],
-      })
+      where: { company_id: { [Op.in]: companyIds } },
+      attributes: ["company_id", "company_name", "domain_name"],
+    })
     : [];
   const companyMap = new Map(companies.map((c) => [c.company_id, c]));
 
@@ -1487,29 +1487,29 @@ const getSuperAdminCommissionReport = asyncHandler(async (req, res) => {
       createdAt: r.createdAt,
       company: comp
         ? {
-            company_id: comp.company_id,
-            company_name: comp.company_name,
-            domain_name: comp.domain_name,
-          }
+          company_id: comp.company_id,
+          company_name: comp.company_name,
+          domain_name: comp.domain_name,
+        }
         : merchant?.company_id
-        ? { company_id: merchant.company_id, company_name: merchant.company_id, domain_name: "-" }
-        : null,
+          ? { company_id: merchant.company_id, company_name: merchant.company_id, domain_name: "-" }
+          : null,
       merchant: merchant
         ? {
-            id: merchant.id,
-            name: merchant.name,
-            email: merchant.email,
-            mobile_number: merchant.mobile_number,
-            abheepay_id: merchant.abheepay_id,
-          }
+          id: merchant.id,
+          name: merchant.name,
+          email: merchant.email,
+          mobile_number: merchant.mobile_number,
+          abheepay_id: merchant.abheepay_id,
+        }
         : null,
       pos_machine: pos
         ? {
-            id: pos.id,
-            mid_number: pos.mid_number,
-            tid_number: pos.tid_number,
-            device_serial_number: pos.device_serial_number,
-          }
+          id: pos.id,
+          mid_number: pos.mid_number,
+          tid_number: pos.tid_number,
+          device_serial_number: pos.device_serial_number,
+        }
         : null,
     };
   });
@@ -1593,7 +1593,7 @@ const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
         posSuccessCount++;
       }
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // 3. Fetch real charges & commissions from MerchantTransactionCharge
   let posCharges = 0;
@@ -1605,7 +1605,7 @@ const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
     for (const c of charges) {
       posCharges += parseFloat(c.charge_amount) || 0;
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // 4. Map each service to real database totals (NO mock dummy data)
   const rows = allServices.map((service) => {
@@ -1681,6 +1681,137 @@ const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
   });
 });
 
+
+/**
+ * GET /api/super-admin/dashboard
+ * Super Admin Dashboard Real-Time Metrics & Analytics
+ */
+const getSuperAdminDashboard = asyncHandler(async (req, res) => {
+
+  // check access of super admin
+  checkSuperAdminAccess(req, res);
+
+  // today date range (IST / 00:00:00 to 23:59:59)
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const todayWhere = {
+    [Op.or]: [
+      { posting_date: { [Op.between]: [todayStart, todayEnd] } },
+      { posting_date: null, createdAt: { [Op.between]: [todayStart, todayEnd] } }
+    ]
+  };
+
+  const SUCCESS_STATUSES = ["CAPTURED", "captured", "AUTHORIZED", "SETTLED"];
+  const FAILED_STATUSES = ["FAILED", "failed", "VOIDED", "DECLINED", "REJECTED"];
+  const PENDING_STATUSES = ["PENDING", "pending", "processing", "needs_admin"];
+
+  // Run Parallel Queries use promise.all for fast response
+  const [
+    totalTransactions,
+    successfulTransactions,
+    pendingTransactions,
+    failedTransactions,
+    totalBusinessRaw,
+    todayBusinessRaw,
+    totalCommissionRaw,
+    todayCommissionRaw,
+    topAdminsRaw
+  ] = await Promise.all([
+
+    //Total transaction count
+    RazorpayNotification.count(),
+
+    // Success transaction count
+    RazorpayNotification.count({
+      where: { status: { [Op.in]: SUCCESS_STATUSES } }
+    }),
+
+    // Pending transaction count
+    RazorpayNotification.count({
+      where: { status: { [Op.in]: PENDING_STATUSES } }
+    }),
+
+    // Failed transaction count
+    RazorpayNotification.count({
+      where: { status: { [Op.in]: FAILED_STATUSES } }
+    }),
+
+    // Overall Total Business Volume (₹)
+    RazorpayNotification.sum("amount", {
+      where: { status: {[Op.in]: SUCCESS_STATUSES}}
+    }),
+
+    // Today's Business Volume (₹)
+    RazorpayNotification.sum("amount", {
+      where: {
+        ...todayWhere,
+        status: { [Op.in]: SUCCESS_STATUSES }
+      }
+    }),
+
+    //OverAll Commission Revenue from MerchantTransactionCharge
+    MerchantTransactionCharge.sum("charge_amount"),
+
+    //Today's Commision Revenue
+    MerchantTransactionCharge.sum("charge_amount", {
+      where : { createdAt: { [Op.between]: [todayStart, todayEnd] } }
+    }),
+
+    // Top Admins / Companies by Volume for spending chart
+    RazorpayNotification.findAll({
+      attributes : [
+        "company_id",
+        [fn("SUM",col("amount")), "total_amount"]
+      ],
+      where: {
+        company_id: { [Op.ne]: null },
+        status: { [Op.in]: SUCCESS_STATUSES }
+      },
+      group: ["company_id"],
+      order: [[fn("SUM",col("amount")), "DESC"]],
+      limit: 5,
+      raw: true
+    })
+  ]);
+
+  // resolve company names for chart lablel
+
+  const companyIds = topAdminsRaw.map((r) => r.company_id).filter(Boolean);
+  const companies = companyIds.length ? await Company.findAll({
+    where : { company_id : { [Op.in]: companyIds } },
+    attributes: ["company_id","company_name"]
+  }) : [];
+
+  const companyMap = new Map(companies.map((c) => [c.company_id,
+  c.company_name]));
+
+  const spending = topAdminsRaw.map((row) => ({
+    adminName: companyMap.get(row.company_id) || row.company_id || "Admin",
+    amount: Number(row.total_amount || 0)
+  }));
+
+  res.status(200).json({
+    success : true,
+    message: "Super admin dashboard data fetched successfully",
+    data: {
+      todaysBusiness: Number(todayBusinessRaw || 0),
+      totalBusiness: Number(totalBusinessRaw || 0),
+      totalTransactions: Number(totalTransactions || 0),
+      successfulTransactions: Number(successfulTransactions || 0),
+      pendingTransactions: Number(pendingTransactions || 0),
+      failedTransactions: Number(failedTransactions || 0),
+      totalCommission: Number(totalCommissionRaw || 0),
+      todaysCommission: Number(todayCommissionRaw || 0),
+      spending: spending.length ? spending : []
+    }
+  })
+})
+
+
 module.exports = {
   getSuperAdminData,
   getAdminDetails,
@@ -1691,4 +1822,5 @@ module.exports = {
   getSuperAdminTransactionReport,
   getSuperAdminCommissionReport,
   getSuperAdminServiceWiseReport,
+  getSuperAdminDashboard,
 };

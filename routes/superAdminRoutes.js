@@ -11,6 +11,7 @@ const {
   getSuperAdminTransactionReport,
   getSuperAdminCommissionReport,
   getSuperAdminServiceWiseReport,
+  getSuperAdminDashboard
 } = require("../controllers/superAdminController");
 const {
   getPosInventory,
@@ -29,6 +30,10 @@ const {
 } = require("../controllers/serviceSettingsController");
 
 const router = express.Router();
+
+// Super Admin Dashboard Route ________________________________________________
+
+router.get("/dashboard", validateToken, validateWhitelabelDomain , getSuperAdminDashboard);
 
 // ── Service Management APIs ──────────────────────────────────────────────────
 router.get("/services", validateToken, validateWhitelabelDomain, getServicesListController);
