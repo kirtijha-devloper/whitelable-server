@@ -4,6 +4,7 @@ const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain
 const {
   getSuperAdminData,
   getAdminDetails,
+  getAdminServicesController,
   createSuperAdmin,
   updateAdmin,
   updateAdminStatus,
@@ -91,6 +92,10 @@ router.patch("/admin/:id/status", validateToken, validateWhitelabelDomain, updat
 router.put("/admin/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 router.patch("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 router.put("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
+
+// ── Super Admin Admin-Wise Services ─────────────────────────────────────────
+router.get("/admin/:id/services", validateToken, validateWhitelabelDomain, getAdminServicesController);
+router.get("/:id/services", validateToken, validateWhitelabelDomain, getAdminServicesController);
 
 // ── Super Admin Single Admin Details ─────────────────────────────────────────
 router.get("/admin/:id", validateToken, validateWhitelabelDomain, getAdminDetails);

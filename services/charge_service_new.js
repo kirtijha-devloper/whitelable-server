@@ -1,3 +1,37 @@
+const db = require('../config/database');
+
+const CARD_BRAND_MAPPINGS = {
+  MASTER_CARD: 'MASTERCARD',
+  MASTER: 'MASTERCARD',
+  MASTERCARD: 'MASTERCARD',
+  AMERICAN_EXPRESS: 'AMEX',
+  AMEX: 'AMEX',
+  DINERS_CLUB: 'DINERS',
+  DINERS: 'DINERS'
+};
+
+const CARD_BRAND_SYNONYMS = {
+  MASTERCARD: ['MASTER_CARD', 'MASTER'],
+  AMEX: ['AMERICAN_EXPRESS'],
+  DINERS: ['DINERS_CLUB']
+};
+
+function normalizeCardBrand(cardBrand) {
+  const normalized = String(cardBrand || '').trim().toUpperCase();
+  if (!normalized) return null;
+  return CARD_BRAND_MAPPINGS[normalized] || normalized;
+}
+
+function normalizeLookupValue(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return normalized || null;
+}
+
+function getCardBrandCandidates(cardBrand) {
+  const normalized = normalizeCardBrand(cardBrand);
+  if (!normalized) return [];
+
+  const variants = CARD_BRAND_SYNONYMS[normalized] || [];
   const original = String(cardBrand || '').trim().toUpperCase();
   const candidates = [normalized, ...variants];
   if (original && !candidates.includes(original)) {

@@ -257,6 +257,8 @@ const updateServiceStatusController = asyncHandler(async (req, res) => {
   }
 
   const context = extractRequestContext(req);
+  context.role = req.user?.role;
+  context.user = req.user;
   await upsertServiceSettings({ [serviceKey]: isEnabled }, req.user?.id || null, context);
 
   let record = await ServiceSetting.findOne({ where: { service_key: serviceKey } });
@@ -341,21 +343,71 @@ const createServiceController = asyncHandler(async (req, res) => {
   });
 });
 
-const getServiceSettings = asyncHandler(async (_req, res) => {
-  const data = await getServiceSettingsMap();
+const getServiceSettings = asyncHandler(async (req, res) => {
+  const { getUserServiceSettingsForUser } = require('../services/serviceSettingsService');
+  const UserServiceSetting = require('../models/UserServiceSetting');
+  const globalMap = await getServiceSettingsMap();
+  const requesterRole = String(req.user?.role || '').toLowerCase();
+
+  if (requesterRole === 'admin' || requesterRole === 'employee') {
+    const companyId = req.company || req.user?.company_id;
+    let targetAdminUser = req.user;
+    if (requesterRole === 'employee' && companyId) {
+      const companyAdmin = await User.findOne({
+        where: { company_id: companyId, role: 'admin' },
+      });
+      if (companyAdmin) {
+        targetAdminUser = companyAdmin;
+      }
+    }
+
+    const superAdmins = await User.findAll({
+      where: { role: 'super_admin' },
+      attributes: ['id'],
+    });
+    const superAdminIds = new Set(superAdmins.map((u) => u.id));
+    superAdminIds.add(1);
+
+    const rawAdminRecords = await UserServiceSetting.findAll({
+      where: { user_id: targetAdminUser.id },
+    });
+    const rawAdminMap = new Map();
+    rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
+
+    const adminUserSettings = await getUserServiceSettingsForUser(targetAdminUser);
+    const result = {};
+    for (const [key, globalCfg] of Object.entries(globalMap)) {
+      const isTier1Disabled = globalCfg.is_enabled === false;
+      const adminRec = rawAdminMap.get(key);
+      const isTier2Disabled = adminRec && adminRec.is_enabled === false && superAdminIds.has(Number(adminRec.updated_by));
+      const isSuperAdminDisabled = isTier1Disabled || Boolean(isTier2Disabled);
+
+      const adminEnabled = adminUserSettings[key] !== false;
+      result[key] = {
+        ...globalCfg,
+        is_enabled: isSuperAdminDisabled ? false : adminEnabled,
+        is_super_admin_disabled: isSuperAdminDisabled,
+        admin_enabled: adminEnabled,
+      };
+    }
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  }
 
   return res.status(200).json({
     success: true,
-    data,
+    data: globalMap,
   });
 });
 
 const updateServiceSettings = asyncHandler(async (req, res) => {
-  const companyId = req.company;
+  const companyId = req.company || req.user?.company_id;
 
-  if(!companyId){
+  if (!companyId) {
     console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
-    return res.status(400).json({message : "No Domain Name is registered"});
+    return res.status(400).json({ message: "No Domain Name is registered" });
   }
 
   const { payload, error } = getValidatedServiceSettingsPayload(req.body);
@@ -365,18 +417,34 @@ const updateServiceSettings = asyncHandler(async (req, res) => {
   }
 
   const context = extractRequestContext(req);
-  const data = await db.transaction(async (transaction) => {
-    return await upsertServiceSettings(payload, req.user?.id || null, {
-      transaction,
-      ...context,
-    });
-  });
+  context.role = req.user?.role;
+  context.user = req.user;
+  context.company_id = companyId;
 
-  return res.status(200).json({
-    success: true,
-    message: 'Service settings updated successfully.',
-    data,
-  });
+  try {
+    const data = await db.transaction(async (transaction) => {
+      return await upsertServiceSettings(payload, req.user?.id || null, {
+        transaction,
+        ...context,
+      });
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Service settings updated successfully.',
+      data,
+    });
+  } catch (err) {
+    if (err.code === 'SUPER_ADMIN_DISABLED' || err.statusCode === 403) {
+      return res.status(403).json({
+        success: false,
+        message: err.message,
+        code: err.code || 'SUPER_ADMIN_DISABLED',
+        service_key: err.service_key || null,
+      });
+    }
+    throw err;
+  }
 });
 
 const updateUserServiceSettings = asyncHandler(async (req, res) => {
@@ -419,32 +487,44 @@ const updateUserServiceSettings = asyncHandler(async (req, res) => {
   }
 
   const context = extractRequestContext(req);
-  const data = await db.transaction(async (transaction) => {
-    const {
-      user,
-      userServiceSettings,
-      serviceFlags,
-    } = await upsertUserServiceSettings(
-      targetUser,
-      payload,
-      req.user?.id || null,
-      {
-        transaction,
-        ...context,
-      }
-    );
+  try {
+    const data = await db.transaction(async (transaction) => {
+      const {
+        user,
+        userServiceSettings,
+        serviceFlags,
+      } = await upsertUserServiceSettings(
+        targetUser,
+        payload,
+        req.user?.id || null,
+        {
+          transaction,
+          ...context,
+        }
+      );
 
-    return {
-      user_id: user.id,
-      user_service_settings: userServiceSettings,
-      service_flags: serviceFlags,
-    };
-  });
+      return {
+        user_id: user.id,
+        user_service_settings: userServiceSettings,
+        service_flags: serviceFlags,
+      };
+    });
 
-  return res.status(200).json({
-    success: true,
-    data,
-  });
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (err) {
+    if (err.code === 'SUPER_ADMIN_DISABLED' || err.code === 'ADMIN_GLOBAL_DISABLED' || err.statusCode === 403) {
+      return res.status(403).json({
+        success: false,
+        message: err.message,
+        code: err.code || 'SERVICE_DISABLED',
+        service_key: err.service_key || null,
+      });
+    }
+    throw err;
+  }
 });
 
 const getServiceToggleAuditLogsController = asyncHandler(async (req, res) => {
@@ -502,24 +582,37 @@ const bulkUpdateUserServiceSettings = asyncHandler(async (req, res) => {
     });
   }
 
-  const context = extractRequestContext(req);
-  const result = await db.transaction(async (transaction) => {
-    return await bulkUpdateUserServiceSettingsForAllUsers(
-      service_key,
-      is_enabled,
-      req.user?.id || null,
-      {
-        transaction,
-        ...context,
-      }
-    );
-  });
+  try {
+    const context = extractRequestContext(req);
+    context.company_id = companyId;
+    const result = await db.transaction(async (transaction) => {
+      return await bulkUpdateUserServiceSettingsForAllUsers(
+        service_key,
+        is_enabled,
+        req.user?.id || null,
+        {
+          transaction,
+          ...context,
+        }
+      );
+    });
 
-  return res.status(200).json({
-    success: true,
-    message: `Successfully ${is_enabled ? 'enabled' : 'disabled'} ${service_key} for all ${result.affected_count} users.`,
-    data: result,
-  });
+    return res.status(200).json({
+      success: true,
+      message: `Successfully ${is_enabled ? 'enabled' : 'disabled'} ${service_key} for all ${result.affected_count} users.`,
+      data: result,
+    });
+  } catch (err) {
+    if (err.code === 'SUPER_ADMIN_DISABLED' || err.statusCode === 403) {
+      return res.status(403).json({
+        success: false,
+        message: err.message,
+        code: err.code || 'SUPER_ADMIN_DISABLED',
+        service_key: err.service_key || null,
+      });
+    }
+    throw err;
+  }
 });
 
 module.exports = {

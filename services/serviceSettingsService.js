@@ -17,6 +17,9 @@ const SERVICE_SETTING_KEYS = Object.freeze({
   CC_BILL_3: 'cc_bill_3',
   POS_T0_SETTLEMENT: 'pos_t0_settlement',
   USER_DAILY_LIMIT: 'user_daily_limit',
+  POS_INVENTORY: 'pos_inventory',
+  AADHAAR_PAY: 'aadhaar_pay',
+  QR_PAYMENTS: 'qr_payments',
 });
 
 const SERVICE_SETTING_KEY_LIST = Object.freeze(Object.values(SERVICE_SETTING_KEYS));
@@ -62,7 +65,7 @@ function normalizeGlobalServiceSettingsMap(records) {
   for (const recordLike of Array.isArray(records) ? records : []) {
     const record = toPlainRecord(recordLike);
 
-    if (!SERVICE_SETTING_KEY_SET.has(record.service_key)) {
+    if (!record?.service_key) {
       continue;
     }
 
@@ -70,6 +73,8 @@ function normalizeGlobalServiceSettingsMap(records) {
       is_enabled: record.is_enabled !== false,
       updated_by: record.updated_by ?? null,
       updated_at: record.updatedAt || record.updated_at || null,
+      label: record.label || null,
+      category: record.category || 'General',
     };
   }
 
@@ -101,8 +106,6 @@ function isExpandedUserServiceSettingsObject(recordLike) {
     && typeof recordLike === 'object'
     && !Array.isArray(recordLike)
     && !Object.prototype.hasOwnProperty.call(recordLike, 'service_key')
-    && SERVICE_SETTING_KEY_LIST.some((serviceKey) =>
-      Object.prototype.hasOwnProperty.call(recordLike, serviceKey))
   );
 }
 
@@ -114,9 +117,9 @@ function normalizeUserServiceSettings(user, recordLikes) {
   }
 
   if (isExpandedUserServiceSettingsObject(recordLikes)) {
-    for (const serviceKey of SERVICE_SETTING_KEY_LIST) {
-      if (typeof recordLikes[serviceKey] === 'boolean') {
-        normalized[serviceKey] = recordLikes[serviceKey];
+    for (const [serviceKey, val] of Object.entries(recordLikes)) {
+      if (typeof val === 'boolean') {
+        normalized[serviceKey] = val;
       }
     }
 
@@ -126,7 +129,7 @@ function normalizeUserServiceSettings(user, recordLikes) {
   for (const recordLike of Array.isArray(recordLikes) ? recordLikes : [recordLikes]) {
     const record = toPlainRecord(recordLike);
 
-    if (!SERVICE_SETTING_KEY_SET.has(record.service_key)) {
+    if (!record?.service_key) {
       continue;
     }
 
@@ -143,11 +146,6 @@ function isUserServiceTargetRole(role) {
 async function getServiceSettingsMap() {
   try {
     const records = await ServiceSetting.findAll({
-      where: {
-        service_key: {
-          [Op.in]: SERVICE_SETTING_KEY_LIST,
-        },
-      },
       order: [['service_key', 'ASC']],
     });
 
@@ -165,51 +163,151 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
   const entries = Object.entries(updates || {});
   const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
   const currentMap = await getServiceSettingsMap();
-
-  await Promise.all(entries.map(([serviceKey, isEnabled]) => ServiceSetting.upsert({
-    service_key: serviceKey,
-    is_enabled: isEnabled,
-    updated_by: updatedBy ?? null,
-  }, transactionOpts)));
+  const requesterRole = String(options.role || options.user?.role || '').trim().toLowerCase();
+  const isSuperAdmin = requesterRole === 'super_admin';
 
   const performingUserId = updatedBy || 1;
   const ipAddress = options.ip_address || options.ip || null;
   const userAgent = options.user_agent || null;
-  const companyId = options.company_id || options.companyId || null;
+  const companyId = options.company_id || options.companyId || options.user?.company_id || null;
 
+  if (isSuperAdmin) {
+    // ── Super-Admin Scope: Updates Global Platform ServiceSettings ──
+    await Promise.all(entries.map(([serviceKey, isEnabled]) => ServiceSetting.upsert({
+      service_key: serviceKey,
+      is_enabled: isEnabled,
+      updated_by: updatedBy ?? null,
+    }, transactionOpts)));
+
+    for (const [serviceKey, isEnabled] of entries) {
+      const previousState = Boolean(currentMap[serviceKey]?.is_enabled);
+      const newState = Boolean(isEnabled);
+      if (previousState !== newState) {
+        await ServiceToggleAuditLog.create({
+          user_id: performingUserId,
+          affected_user_id: null,
+          service_key: serviceKey,
+          previous_state: previousState,
+          new_state: newState,
+          action: newState ? 'GLOBAL_ENABLE' : 'GLOBAL_DISABLE',
+          ip_address: ipAddress,
+          user_agent: userAgent,
+          company_id: companyId,
+        }, transactionOpts);
+      }
+    }
+
+    // If a specific company is targeted (e.g. from AdminList.jsx company modal), sync only that company
+    if (companyId) {
+      const targetUsers = await User.findAll({
+        where: { company_id: companyId },
+        attributes: ['id'],
+        ...transactionOpts,
+      });
+
+      if (targetUsers.length > 0 && entries.length > 0) {
+        const now = new Date();
+        const userServiceRows = [];
+        for (const [serviceKey, isEnabled] of entries) {
+          const isEnabledBool = Boolean(isEnabled);
+          for (const u of targetUsers) {
+            userServiceRows.push({
+              user_id: u.id,
+              service_key: serviceKey,
+              is_enabled: isEnabledBool,
+              updated_by: performingUserId ?? null,
+              updated_at: now,
+              company_id: companyId,
+            });
+          }
+        }
+
+        await UserServiceSetting.bulkCreate(userServiceRows, {
+          updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at', 'company_id'],
+          ...transactionOpts,
+        });
+      }
+    }
+
+    return getServiceSettingsMap();
+  }
+
+  // ── Admin Scope: Strictly Tenant / Company Isolated ──
+  // 1. Enforce Super Admin Global Lock (Tier 1): Admin CANNOT enable any service disabled by Super Admin platform-wide
   for (const [serviceKey, isEnabled] of entries) {
-    const previousState = Boolean(currentMap[serviceKey]?.is_enabled);
-    const newState = Boolean(isEnabled);
-    if (previousState !== newState) {
-      await ServiceToggleAuditLog.create({
-        user_id: performingUserId,
-        affected_user_id: null,
-        service_key: serviceKey,
-        previous_state: previousState,
-        new_state: newState,
-        action: newState ? 'ENABLE' : 'DISABLE',
-        ip_address: ipAddress,
-        user_agent: userAgent,
-        company_id: companyId,
-      }, transactionOpts);
+    const isGloballyDisabled = currentMap[serviceKey]?.is_enabled === false;
+    if (isEnabled && isGloballyDisabled) {
+      const error = new Error(`Cannot enable '${serviceKey}'. This service has been disabled by Super Admin.`);
+      error.statusCode = 403;
+      error.code = 'SUPER_ADMIN_DISABLED';
+      error.service_key = serviceKey;
+      throw error;
     }
   }
 
-  // Bulk-sync user_service_settings across all merchant and franchise users
-  const targetUsers = await User.findAll({
-    where: { role: { [Op.in]: ['merchant', 'franchaise'] } },
+  if (!companyId) {
+    const error = new Error('Company ID is required to update admin service settings.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // 1.5. Enforce Super Admin Admin-Wise Lock (Tier 2): Check if Super Admin disabled it for this admin/company
+  const companyAdminUser = await User.findOne({
+    where: { company_id: companyId, role: 'admin' },
     attributes: ['id'],
     ...transactionOpts,
   });
 
-  if (targetUsers.length > 0 && entries.length > 0) {
+  if (companyAdminUser) {
+    const superAdmins = await User.findAll({
+      where: { role: 'super_admin' },
+      attributes: ['id'],
+      ...transactionOpts,
+    });
+    const superAdminIds = new Set(superAdmins.map((u) => u.id));
+    superAdminIds.add(1);
+
+    const rawAdminRecords = await UserServiceSetting.findAll({
+      where: { user_id: companyAdminUser.id },
+      ...transactionOpts,
+    });
+    const rawAdminMap = new Map();
+    rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
+
+    for (const [serviceKey, isEnabled] of entries) {
+      if (!isEnabled) continue;
+      const adminRec = rawAdminMap.get(serviceKey);
+      const isTier2Disabled = adminRec && adminRec.is_enabled === false && superAdminIds.has(Number(adminRec.updated_by));
+      if (isTier2Disabled) {
+        const error = new Error(`Cannot enable '${serviceKey}'. This service has been disabled for your company by Super Admin.`);
+        error.statusCode = 403;
+        error.code = 'SUPER_ADMIN_DISABLED';
+        error.service_key = serviceKey;
+        throw error;
+      }
+    }
+  }
+
+  // 2. Tenant Isolation: Find all users under THIS Admin's company only
+  const targetUsers = await User.findAll({
+    where: { company_id: companyId },
+    attributes: ['id', 'role'],
+    ...transactionOpts,
+  });
+
+  const userIds = new Set(targetUsers.map((u) => u.id));
+  if (options.user?.id) {
+    userIds.add(Number(options.user.id));
+  }
+
+  if (userIds.size > 0 && entries.length > 0) {
     const now = new Date();
     const userServiceRows = [];
     for (const [serviceKey, isEnabled] of entries) {
       const isEnabledBool = Boolean(isEnabled);
-      for (const u of targetUsers) {
+      for (const uid of userIds) {
         userServiceRows.push({
-          user_id: u.id,
+          user_id: uid,
           service_key: serviceKey,
           is_enabled: isEnabledBool,
           updated_by: performingUserId ?? null,
@@ -217,6 +315,18 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
           company_id: companyId,
         });
       }
+
+      await ServiceToggleAuditLog.create({
+        user_id: performingUserId,
+        affected_user_id: null,
+        service_key: serviceKey,
+        previous_state: null,
+        new_state: isEnabledBool,
+        action: isEnabledBool ? 'COMPANY_ENABLE' : 'COMPANY_DISABLE',
+        ip_address: ipAddress,
+        user_agent: userAgent,
+        company_id: companyId,
+      }, transactionOpts);
     }
 
     await UserServiceSetting.bulkCreate(userServiceRows, {
@@ -256,9 +366,6 @@ async function getUserServiceSettingsMapForUsers(users, options = {}) {
         user_id: {
           [Op.in]: [...usersById.keys()],
         },
-        service_key: {
-          [Op.in]: SERVICE_SETTING_KEY_LIST,
-        },
       },
       order: [['user_id', 'ASC'], ['service_key', 'ASC']],
       ...(options.transaction ? { transaction: options.transaction } : {}),
@@ -268,7 +375,7 @@ async function getUserServiceSettingsMapForUsers(users, options = {}) {
       const record = toPlainRecord(recordLike);
       const userId = Number(record.user_id);
 
-      if (!Number.isInteger(userId) || !usersById.has(userId) || !SERVICE_SETTING_KEY_SET.has(record.service_key)) {
+      if (!Number.isInteger(userId) || !usersById.has(userId) || !record.service_key) {
         continue;
       }
 
@@ -336,48 +443,82 @@ async function resolveUserForServiceEvaluation(userLike) {
   return toPlainRecord(dbUser);
 }
 
-function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings) {
+function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings, companyAdminSettings) {
   const resolvedSettings = serviceSettingsMap || buildDefaultServiceSettingsMap();
   const resolvedUserServiceSettings = normalizeUserServiceSettings(user, userServiceSettings);
   const payoutEnabledForUser = user?.is_payout_enabled !== false;
+  const adminOverrides = companyAdminSettings || user?.company_admin_service_settings || null;
 
-  return {
+  const flags = {
     [SERVICE_SETTING_KEYS.VIMO_PAYOUT]:
-      resolvedSettings[SERVICE_SETTING_KEYS.VIMO_PAYOUT].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.VIMO_PAYOUT]
+      resolvedSettings[SERVICE_SETTING_KEYS.VIMO_PAYOUT]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.VIMO_PAYOUT] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.VIMO_PAYOUT] !== false
       && payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]:
-      resolvedSettings[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]
+      resolvedSettings[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.BRANCHX_PAYOUT] !== false
       && payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]:
-      resolvedSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]
+      resolvedSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT] !== false
       && payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.MX_PAYOUT]:
-      resolvedSettings[SERVICE_SETTING_KEYS.MX_PAYOUT].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.MX_PAYOUT]
+      resolvedSettings[SERVICE_SETTING_KEYS.MX_PAYOUT]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.MX_PAYOUT] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.MX_PAYOUT] !== false
       && payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.NDIA5_PAYOUT]:
-      resolvedSettings[SERVICE_SETTING_KEYS.NDIA5_PAYOUT].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.NDIA5_PAYOUT]
+      resolvedSettings[SERVICE_SETTING_KEYS.NDIA5_PAYOUT]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.NDIA5_PAYOUT] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.NDIA5_PAYOUT] !== false
       && payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]:
-      resolvedSettings[SERVICE_SETTING_KEYS.CC_BILL_PAY].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.CC_BILL_PAY],
+      resolvedSettings[SERVICE_SETTING_KEYS.CC_BILL_PAY]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.CC_BILL_PAY] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.CC_BILL_PAY] !== false,
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]:
-      resolvedSettings[SERVICE_SETTING_KEYS.BA_CC_BILL_PAY].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.BA_CC_BILL_PAY],
+      resolvedSettings[SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.BA_CC_BILL_PAY] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.BA_CC_BILL_PAY] !== false,
     [SERVICE_SETTING_KEYS.CC_BILL_3]:
-      resolvedSettings[SERVICE_SETTING_KEYS.CC_BILL_3].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.CC_BILL_3],
+      resolvedSettings[SERVICE_SETTING_KEYS.CC_BILL_3]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.CC_BILL_3] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.CC_BILL_3] !== false,
     [SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT]:
-      resolvedSettings[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT],
+      resolvedSettings[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT] !== false,
     [SERVICE_SETTING_KEYS.USER_DAILY_LIMIT]:
-      resolvedSettings[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT].is_enabled
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT],
+      resolvedSettings[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT] !== false,
+    pos_inventory:
+      resolvedSettings['pos_inventory']?.is_enabled !== false
+      && (adminOverrides ? adminOverrides['pos_inventory'] !== false : true)
+      && resolvedUserServiceSettings['pos_inventory'] !== false,
+    aadhaar_pay:
+      resolvedSettings['aadhaar_pay']?.is_enabled !== false
+      && (adminOverrides ? adminOverrides['aadhaar_pay'] !== false : true)
+      && resolvedUserServiceSettings['aadhaar_pay'] !== false,
+    qr_payments:
+      resolvedSettings['qr_payments']?.is_enabled !== false
+      && (adminOverrides ? adminOverrides['qr_payments'] !== false : true)
+      && resolvedUserServiceSettings['qr_payments'] !== false,
   };
+
+  // Dynamically include any other services in resolvedSettings
+  for (const [key, meta] of Object.entries(resolvedSettings)) {
+    if (flags[key] === undefined) {
+      flags[key] = meta?.is_enabled !== false
+        && (adminOverrides ? adminOverrides[key] !== false : true)
+        && resolvedUserServiceSettings[key] !== false;
+    }
+  }
+
+  return flags;
 }
 
 async function upsertUserServiceSettings(user, updates, updatedBy, options = {}) {
@@ -385,13 +526,76 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
   const entries = Object.entries(updates || {});
   const now = new Date();
   const currentUserServiceSettings = await getUserServiceSettingsForUser(plainUser, options);
+  const serviceSettingsMap = await getServiceSettingsMap();
+  const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
+  const companyId = options.company_id || options.companyId || (user && user.company_id) || null;
+
+  // Tier 1: Enforce Super Admin Global Lock
+  for (const [serviceKey, isEnabled] of entries) {
+    if (isEnabled && serviceSettingsMap[serviceKey]?.is_enabled === false) {
+      const error = new Error(`Cannot enable '${serviceKey}'. This service has been disabled by Super Admin.`);
+      error.statusCode = 403;
+      error.code = 'SUPER_ADMIN_DISABLED';
+      error.service_key = serviceKey;
+      throw error;
+    }
+  }
+
+  // Tier 2 & Tier 3: Enforce Super Admin Admin-Wise Lock & Admin Global Lock for company users
+  if (companyId) {
+    const adminUser = await User.findOne({
+      where: { company_id: companyId, role: 'admin' },
+      attributes: ['id'],
+      ...transactionOpts,
+    });
+
+    if (adminUser) {
+      const superAdmins = await User.findAll({
+        where: { role: 'super_admin' },
+        attributes: ['id'],
+        ...transactionOpts,
+      });
+      const superAdminIds = new Set(superAdmins.map((u) => u.id));
+      superAdminIds.add(1);
+
+      const rawAdminRecords = await UserServiceSetting.findAll({
+        where: { user_id: adminUser.id },
+        ...transactionOpts,
+      });
+      const rawAdminMap = new Map();
+      rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
+
+      const adminUserSettings = await getUserServiceSettingsForUser(adminUser, options);
+
+      for (const [serviceKey, isEnabled] of entries) {
+        if (!isEnabled) continue;
+
+        const adminRec = rawAdminMap.get(serviceKey);
+        const isTier2Disabled = adminRec && adminRec.is_enabled === false && superAdminIds.has(Number(adminRec.updated_by));
+        if (isTier2Disabled) {
+          const error = new Error(`Cannot enable '${serviceKey}'. This service has been disabled for your company by Super Admin.`);
+          error.statusCode = 403;
+          error.code = 'SUPER_ADMIN_DISABLED';
+          error.service_key = serviceKey;
+          throw error;
+        }
+
+        const isAdminGlobalDisabled = adminUserSettings[serviceKey] === false;
+        if (isAdminGlobalDisabled) {
+          const error = new Error(`Cannot enable '${serviceKey}' for this user. This service is disabled in your organization's global settings by Admin.`);
+          error.statusCode = 403;
+          error.code = 'ADMIN_GLOBAL_DISABLED';
+          error.service_key = serviceKey;
+          throw error;
+        }
+      }
+    }
+  }
+
   const nextUserServiceSettings = {
     ...currentUserServiceSettings,
     ...updates,
   };
-
-  const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
-  const companyId = options.company_id || options.companyId || (user && user.company_id) || null;
 
   await Promise.all(entries.map(([serviceKey, isEnabled]) => UserServiceSetting.upsert({
     user_id: plainUser.id,
@@ -443,8 +647,6 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
 
     await user.save(options.transaction ? { transaction: options.transaction } : {});
   }
-
-  const serviceSettingsMap = await getServiceSettingsMap();
 
   return {
     user,
@@ -589,12 +791,27 @@ async function getServiceToggleAuditLogs(filters = {}) {
 async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, performingUserId, options = {}) {
   const isEnabledBool = Boolean(isEnabled);
   const now = new Date();
+  const currentGlobalMap = await getServiceSettingsMap();
 
-  // Find all merchant and franchise users
+  if (isEnabledBool && currentGlobalMap[serviceKey]?.is_enabled === false) {
+    const error = new Error(`Cannot enable '${serviceKey}'. This service has been disabled by Super Admin.`);
+    error.statusCode = 403;
+    error.code = 'SUPER_ADMIN_DISABLED';
+    error.service_key = serviceKey;
+    throw error;
+  }
+
+  const companyId = options.company_id || options.companyId || null;
+  const userWhere = {
+    role: { [Op.in]: ['merchant', 'franchaise', 'super_franchise'] },
+  };
+  if (companyId) {
+    userWhere.company_id = companyId;
+  }
+
+  // Find all merchant and franchise users (filtered by company if provided)
   const targetUsers = await User.findAll({
-    where: {
-      role: { [Op.in]: ['merchant', 'franchaise', 'super_franchise'] },
-    },
+    where: userWhere,
     attributes: ['id', 'role', 'status', 'is_payout_enabled', 'settlement_type'],
   });
 
@@ -603,7 +820,6 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
   }
 
   const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
-  const companyId = options.company_id || options.companyId || null;
 
   // Handle special master service keys
   if (serviceKey === 'pos_t0_settlement') {
