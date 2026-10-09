@@ -127,6 +127,76 @@ const getPosSettings = asyncHandler(async (req, res) => {
     };
   }
 
+  let adminLimits = null;
+  try {
+    const Company = require('../models/Company');
+    let company = null;
+    if (req.user?.company_id) {
+      company = await Company.findOne({ where: { company_id: req.user.company_id } });
+    }
+    if (!company && req.company) {
+      company = await Company.findOne({ where: { company_id: req.company } });
+    }
+    if (!company && req.user?.id) {
+      company = await Company.findOne({ where: { user_id: req.user.id } });
+    }
+
+    let adminUser = null;
+    if (req.user?.role === 'admin' && req.user?.id) {
+      adminUser = await User.findByPk(req.user.id);
+    }
+    if (!adminUser && req.user?.company_id) {
+      adminUser = await User.findOne({ where: { company_id: req.user.company_id, role: 'admin' } });
+    }
+    if (!adminUser && company?.user_id) {
+      adminUser = await User.findByPk(company.user_id);
+    }
+    if (!adminUser && company?.company_id) {
+      adminUser = await User.findOne({ where: { company_id: company.company_id, role: 'admin' } });
+    }
+    if (!adminUser && req.company) {
+      adminUser = await User.findOne({ where: { company_id: req.company, role: 'admin' } });
+    }
+
+    if (adminUser || company) {
+      const rawPayinLimit = adminUser?.t0_daily_limit;
+      const isPayinAssigned = rawPayinLimit !== null && rawPayinLimit !== undefined && rawPayinLimit !== '';
+      const payinLimitNum = isPayinAssigned ? parseFloat(rawPayinLimit) : null;
+      const payoutLimitNum = company?.payout_limit !== null && company?.payout_limit !== undefined ? parseFloat(company.payout_limit) : 0;
+      const ccBillLimitNum = company?.bill_payment_limit !== null && company?.bill_payment_limit !== undefined ? parseFloat(company.bill_payment_limit) : 0;
+
+      // Filter top-level users under Admin:
+      // Super Franchises + Standalone Franchises + Direct Merchants
+      const topLevelUsers = merchants.filter((u) => {
+        const uRole = String(u.role || '').toLowerCase();
+        if (['admin', 'superadmin', 'super_admin', 'subadmin', 'employee', 'staff'].includes(uRole)) return false;
+        if (uRole === 'super_franchise') return true;
+        if (['franchise', 'franchaise'].includes(uRole)) {
+          return !u.super_franchise_id;
+        }
+        return !u.franchaise_id && !u.super_franchise_id;
+      });
+
+      const allocatedToUsers = topLevelUsers.reduce((sum, u) => {
+        const l = parseFloat(u.t0_daily_limit);
+        return sum + (isNaN(l) || l <= 0 ? 0 : l);
+      }, 0);
+
+      const remainingPayinLimit = payinLimitNum !== null ? Math.max(0, payinLimitNum - allocatedToUsers) : null;
+
+      adminLimits = {
+        payin_limit: payinLimitNum,
+        payout_limit: payoutLimitNum,
+        cc_bill_limit: ccBillLimitNum,
+        allocated_to_users: allocatedToUsers,
+        remaining_payin_limit: remainingPayinLimit,
+        is_payin_assigned: isPayinAssigned,
+      };
+    }
+  } catch (err) {
+    console.error('Error calculating admin limits:', err);
+  }
+
   return res.status(200).json({
     success: true,
     message: 'POS settlement settings fetched successfully.',
@@ -142,6 +212,7 @@ const getPosSettings = asyncHandler(async (req, res) => {
         is_user_daily_limit_enabled: isUserDailyLimitEnabled,
       },
       ...(franchisePool ? { franchise_pool: franchisePool } : {}),
+      ...(adminLimits ? { admin_limits: adminLimits } : {}),
       merchants: formattedMerchants,
       customers: formattedCustomers,
     }
