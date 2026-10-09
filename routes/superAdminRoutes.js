@@ -28,11 +28,29 @@ const {
   updateServiceSettings,
 } = require("../controllers/serviceSettingsController");
 const serviceChargeRoutes = require("./serviceChargeRoutes");
+const posChargeRuleRoutes = require("./posChargeRuleRoutes");
+const payoutChargeRoutes = require("./payoutChargeRoutes");
+const userPayoutChargeRoutes = require("./userPayoutChargeRoutes");
+const chargeRoutes = require("./chargeRoutes");
+const serviceFeeRoutes = require("./serviceFeeRoutes");
+const commissionRoutes = require("./commissionRoutes");
 
 const router = express.Router();
 
-// ── Service Charges (Platform Slab / Pricing Rules) ──────────────────────────
+// ── Rate & Charge Settings for Super Admin ─────────────────────────────────
 router.use("/service-charges", serviceChargeRoutes);
+router.use("/rate-settings/pos", posChargeRuleRoutes);
+router.use("/pos-charge-rules", posChargeRuleRoutes);
+router.use("/rate-settings/payout", payoutChargeRoutes);
+router.use("/payout-charges", payoutChargeRoutes);
+router.use("/rate-settings/user-payout", userPayoutChargeRoutes);
+router.use("/user-payout-charges", userPayoutChargeRoutes);
+router.use("/rate-settings/slabs", chargeRoutes);
+router.use("/charge-slabs", chargeRoutes);
+router.use("/rate-settings/service-fees", serviceFeeRoutes);
+router.use("/service-fees", serviceFeeRoutes);
+router.use("/rate-settings/commissions", commissionRoutes);
+router.use("/commissions", commissionRoutes);
 
 // ── Service Management APIs ──────────────────────────────────────────────────
 router.get("/services", validateToken, validateWhitelabelDomain, getServicesListController);

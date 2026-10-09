@@ -238,7 +238,8 @@ function getResolvedPermissions(user) {
 }
 
 function isAdmin(user) {
-  return normalizeRole(user?.role) === 'admin';
+  const role = normalizeRole(user?.role);
+  return role === 'admin' || role === 'super_admin';
 }
 
 function isSuperFranchise(user) {

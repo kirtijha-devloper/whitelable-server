@@ -107,7 +107,16 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
 
   // determine effective super franchise & franchise ids for this request
   let effectiveSuperFranchise = super_franchise_id || null;
-  let effectiveFranchise = franchaise_id || null;
+  if (req.user.role === 'super_admin') {
+    if (user_id) {
+      const targetAdmin = await User.findByPk(user_id);
+      if (!targetAdmin || targetAdmin.role !== 'admin') {
+        return res.status(400).json({ success: false, message: 'Super Admin can only set rate rules for Admin users' });
+      }
+    }
+    effectiveSuperFranchise = null;
+    effectiveFranchise = null;
+  }
 
   if (req.user.role === 'super_franchise') {
     if (effectiveSuperFranchise && parseInt(effectiveSuperFranchise) !== req.user.id) {
