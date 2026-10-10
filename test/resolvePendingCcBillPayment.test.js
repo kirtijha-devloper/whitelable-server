@@ -54,7 +54,7 @@ describe('cron/resolvePendingCcBillPayment', () => {
       transactionType: 'bbps_payment_reversal',
       referenceId: 1,
       referenceTable: 'CcBillPayments',
-      description: 'Reversed — BBPS CC payment failed (FAILED)',
+      description: 'Reversed — BBPS CC payment failed (FAILED) — Principal: ₹100.00',
       credit: 100,
     });
     expect(pendingRow.update.calledOnce).to.be.true;
