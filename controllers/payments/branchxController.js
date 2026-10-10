@@ -9,6 +9,7 @@ const User = require('../../models/User');
 const PayoutTransaction = require('../../models/PayoutTransaction');
 const Ledger = require('../../models/Ledger');
 const payoutReferenceService = require('../../services/payoutReferenceService');
+const { validateCompanyPayoutLimit } = require('../../services/companyPayoutLimitService');
 const ledgerService = require('../../services/ledgerService');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const ServiceFee = require('../../models/ServiceFee');
@@ -226,6 +227,27 @@ router.post('/payout', asyncHandler(async (req, res) => {
         if (!lockedUser) {
           await transaction.rollback();
           return res.status(404).json({ message: "Merchant not found" });
+        }
+
+        // Enforce Company Daily Payout Limit (Super Admin Cap)
+        const companyLimitCheck = await validateCompanyPayoutLimit({
+          user: lockedUser,
+          companyId: req.company || lockedUser.company_id,
+          amount,
+          dbTransaction: transaction,
+        });
+        if (!companyLimitCheck.allowed) {
+          await transaction.rollback();
+          return res.status(403).json({
+            success: false,
+            code: 'COMPANY_PAYOUT_LIMIT_EXCEEDED',
+            message: companyLimitCheck.message,
+            data: {
+              limit: companyLimitCheck.limit,
+              todayUsed: companyLimitCheck.todayUsed,
+              remaining: companyLimitCheck.remaining,
+            },
+          });
         }
 
         const availableBalance = await ledgerService.getAvailableBalance(merchant_id);

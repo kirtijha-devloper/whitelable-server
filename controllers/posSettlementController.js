@@ -184,9 +184,23 @@ const getPosSettings = asyncHandler(async (req, res) => {
 
       const remainingPayinLimit = payinLimitNum !== null ? Math.max(0, payinLimitNum - allocatedToUsers) : null;
 
+      let todayPayoutUsed = 0;
+      let remainingPayoutLimit = payoutLimitNum;
+      if (company) {
+        const { getCompanyPayoutDailyStats } = require('../services/companyPayoutLimitService');
+        const payoutStats = await getCompanyPayoutDailyStats({
+          companyId: company.company_id,
+          user: adminUser || req.user,
+        });
+        todayPayoutUsed = payoutStats.todayUsed || 0;
+        remainingPayoutLimit = payoutStats.remaining !== null ? payoutStats.remaining : Math.max(0, payoutLimitNum - todayPayoutUsed);
+      }
+
       adminLimits = {
         payin_limit: payinLimitNum,
         payout_limit: payoutLimitNum,
+        today_payout_used: todayPayoutUsed,
+        remaining_payout_limit: remainingPayoutLimit,
         cc_bill_limit: ccBillLimitNum,
         allocated_to_users: allocatedToUsers,
         remaining_payin_limit: remainingPayinLimit,

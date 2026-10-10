@@ -3,6 +3,7 @@ const axios = require('axios');
 const User = require('../models/User');
 const Beneficiary = require('../models/Beneficiary');
 const { Op } = require('sequelize');
+const { validateCompanyPayoutLimit } = require('../services/companyPayoutLimitService');
 const { isAdmin, hasPermission, EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
   SERVICE_SETTING_KEYS,
@@ -439,6 +440,27 @@ async function createPayout(req, res) {
       if (!lockedUser) {
         await transaction.rollback();
         return res.status(404).json({ success: false, message: 'User not found' });
+      }
+
+      // Enforce Company Daily Payout Limit (Super Admin Cap)
+      const companyLimitCheck = await validateCompanyPayoutLimit({
+        user: lockedUser,
+        companyId: req.company || lockedUser.company_id,
+        amount,
+        dbTransaction: transaction,
+      });
+      if (!companyLimitCheck.allowed) {
+        await transaction.rollback();
+        return res.status(403).json({
+          success: false,
+          code: 'COMPANY_PAYOUT_LIMIT_EXCEEDED',
+          message: companyLimitCheck.message,
+          data: {
+            limit: companyLimitCheck.limit,
+            todayUsed: companyLimitCheck.todayUsed,
+            remaining: companyLimitCheck.remaining,
+          },
+        });
       }
 
       // ── Balance check ──────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ const PayoutRequest = require('../../models/PayoutRequest');
 const PayoutBeneficiary = require('../../models/PayoutBeneficiary');
 const ServiceChargeSlab = require('../../models/ServiceChargeSlab');
 const ledgerService = require('../../services/ledgerService');
+const { validateCompanyPayoutLimit } = require('../../services/companyPayoutLimitService');
 const credxpayService = require('../../services/credxpayService');
 const PayoutAuditLog = require('../../models/PayoutAuditLog');
 const { verifyTpinForUser } = require('../../services/tpinService');
@@ -103,6 +104,28 @@ router.post('/', asyncHandler(async (req, res) => {
       await transaction.rollback();
       return res.status(403).json({ success: false, message: 'Payout service is disabled for this user' });
     }
+
+    // Enforce Company Daily Payout Limit (Super Admin Cap)
+    const companyLimitCheck = await validateCompanyPayoutLimit({
+      user,
+      companyId: req.company || user.company_id,
+      amount,
+      dbTransaction: transaction,
+    });
+    if (!companyLimitCheck.allowed) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        code: 'COMPANY_PAYOUT_LIMIT_EXCEEDED',
+        message: companyLimitCheck.message,
+        data: {
+          limit: companyLimitCheck.limit,
+          todayUsed: companyLimitCheck.todayUsed,
+          remaining: companyLimitCheck.remaining,
+        },
+      });
+    }
+
     const availableBalance = await ledgerService.getAvailableBalance(user_id);
     if (availableBalance < total_amount) {
       await transaction.rollback();
