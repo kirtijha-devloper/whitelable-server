@@ -6,6 +6,7 @@ const BillAvenuePayment = require('../models/BillAvenuePayment');
 const Ledger = require('../models/Ledger');
 const ledgerService = require('../services/ledgerService');
 const billAvenueService = require('../services/cc/billAvenue/billAvenueService');
+const sharedCcBillLimitService = require('../services/sharedCcBillLimitService');
 
 const LOG_PREFIX = '[cron] resolvePendingBillAvenueCcBill';
 const LOG_FILE = path.resolve(__dirname, '../logs/billavenue-pending-cron.log');
@@ -124,6 +125,15 @@ async function resolvePendingBillAvenueCcBill() {
                 auditLog(`${LOG_PREFIX}: reversed wallet debit for id=${record.id} amount=₹${refundAmount}`);
               }
             }
+
+            try {
+              await sharedCcBillLimitService.releaseReservation({
+                flow: 'ba_cc',
+                referenceId: String(record.id),
+              });
+            } catch (limitErr) {
+              auditError(`${LOG_PREFIX}: failed to release reservation for id=${record.id}`, limitErr);
+            }
           } else {
             auditLog(`${LOG_PREFIX}: skipping id=${record.id} (no requestId or transaction_ref_id, age=${ageHours.toFixed(1)}h < 24h)`);
           }
@@ -179,6 +189,15 @@ async function resolvePendingBillAvenueCcBill() {
           record.status = 'success';
           record.response_code = resCode || '000';
           await record.save();
+
+          try {
+            await sharedCcBillLimitService.commitReservation({
+              flow: 'ba_cc',
+              referenceId: String(record.id),
+            });
+          } catch (limitErr) {
+            auditError(`${LOG_PREFIX}: failed to commit reservation for id=${record.id}`, limitErr);
+          }
         } else if (nextStatus === 'failed') {
           record.status = 'failed';
           record.response_code = resCode || 'FAILED';
@@ -213,6 +232,15 @@ async function resolvePendingBillAvenueCcBill() {
               });
               auditLog(`${LOG_PREFIX}: reversed wallet debit for id=${record.id} amount=₹${refundAmount}`);
             }
+          }
+
+          try {
+            await sharedCcBillLimitService.releaseReservation({
+              flow: 'ba_cc',
+              referenceId: String(record.id),
+            });
+          } catch (limitErr) {
+            auditError(`${LOG_PREFIX}: failed to release reservation for id=${record.id}`, limitErr);
           }
         }
       } catch (err) {

@@ -727,7 +727,12 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
       transaction,
     });
 
-    // 5f. Commit all 3 tables atomically
+    // 5f. Initialize daily CC bill limit counter for today
+    const sharedCcBillLimitService = require('../services/sharedCcBillLimitService');
+    const businessDate = sharedCcBillLimitService.getBusinessDate();
+    await sharedCcBillLimitService.getOrCreateDailyCounter(newUser.id, businessDate, { transaction, lock: true });
+
+    // 5g. Commit all tables atomically
     await transaction.commit();
 
     const plain = newUser.toJSON ? newUser.toJSON() : { ...newUser };
@@ -1082,6 +1087,14 @@ const updateAdmin = asyncHandler(async (req, res) => {
           where: { id: company.id },
           transaction,
         });
+
+        if (companyUpdates.bill_payment_limit !== undefined) {
+          const sharedCcBillLimitService = require('../services/sharedCcBillLimitService');
+          const businessDate = sharedCcBillLimitService.getBusinessDate();
+          const counter = await sharedCcBillLimitService.getOrCreateDailyCounter(admin.id, businessDate, { transaction, lock: true });
+          counter.daily_limit = companyUpdates.bill_payment_limit;
+          await counter.save({ transaction });
+        }
       }
 
       if (companyUpdates.company_name || userUpdates.company_or_shop_name) {

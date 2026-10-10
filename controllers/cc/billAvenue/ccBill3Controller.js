@@ -16,6 +16,7 @@ const {
   assertServiceEnabledOrRespond,
 } = require('../../../services/serviceSettingsService');
 const { normalizeRole } = require('../../../utils/permissions');
+const sharedCcBillLimitService = require('../../../services/sharedCcBillLimitService');
 
 const SUPPORTED_CC_BANKS = [
   {
@@ -344,6 +345,30 @@ async function executeCcBill3Payment(req, res, options = {}) {
   }
 
   const merchantRefId = await payoutReferenceService.getNextPayoutReference({ provider: 'vimo', userId });
+
+  // ── Enforce Admin Shared Daily CC Bill Limit ──────────────────────────────
+  try {
+    await sharedCcBillLimitService.reserveLimit({
+      userId,
+      amount: finalAmount,
+      flow: 'cc_bill_3',
+      referenceId: merchantRefId,
+    });
+  } catch (limitErr) {
+    if (limitErr.code === 'CC_BILL_DAILY_LIMIT_EXCEEDED') {
+      return res.status(400).json({
+        success: false,
+        message: limitErr.message,
+        code: 'CC_BILL_DAILY_LIMIT_EXCEEDED',
+        data: limitErr.data,
+      });
+    }
+    return res.status(limitErr.statusCode || 400).json({
+      success: false,
+      message: limitErr.message || 'CC bill limit check failed',
+      code: limitErr.code || 'LIMIT_ERROR',
+    });
+  }
   const resolvedPaymentPurpose = String(
     paymentPurpose
     || purpose
@@ -578,6 +603,13 @@ async function executeCcBill3Payment(req, res, options = {}) {
         },
       }, { transaction: refundTransaction });
     });
+
+    try {
+      await sharedCcBillLimitService.releaseReservation({
+        flow: 'cc_bill_3',
+        referenceId: merchantRefId,
+      });
+    } catch (_) {}
 
     return res.status(error.statusCode || 500).json({
       success: false,

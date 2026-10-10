@@ -11,6 +11,7 @@ const {
 const fs = require('fs');
 const path = require('path');
 const BillAvenuePayment = require('../models/BillAvenuePayment');
+const sharedCcBillLimitService = require('../services/sharedCcBillLimitService');
 
 const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimo.log');
 const VIMO_CALLBACK_LOG_FILE = path.join(__dirname, '../logs/vimoCallback.log');
@@ -809,6 +810,14 @@ async function failProcessingPayout(req, res) {
       }
     }, { transaction: tr });
 
+    try {
+      await sharedCcBillLimitService.releaseReservation({
+        flow: 'cc_bill_3',
+        referenceId: locked.reference_id,
+        transaction: tr,
+      });
+    } catch (_) {}
+
     await tr.commit();
 
     return res.status(200).json({
@@ -1197,6 +1206,28 @@ async function handleCallback(req, res) {
             };
 
             await billPayment.save({ transaction: tr });
+          }
+
+          if (newStatus === 'SUCCESS') {
+            try {
+              await sharedCcBillLimitService.commitReservation({
+                flow: 'cc_bill_3',
+                referenceId: merchantRefId,
+                transaction: tr,
+              });
+            } catch (commitErr) {
+              vimoCallbackLog('ERROR', `Failed to commit cc_bill_3 limit reservation for ${merchantRefId}`, commitErr);
+            }
+          } else if (newStatus === 'FAILED') {
+            try {
+              await sharedCcBillLimitService.releaseReservation({
+                flow: 'cc_bill_3',
+                referenceId: merchantRefId,
+                transaction: tr,
+              });
+            } catch (releaseErr) {
+              vimoCallbackLog('ERROR', `Failed to release cc_bill_3 limit reservation for ${merchantRefId}`, releaseErr);
+            }
           }
         }
 

@@ -148,6 +148,8 @@ app.use('/api/pinelabs', require('./routes/pinelabsCallbackRoutes'));
 app.use('/api/credit-bill', require('./routes/cc/billAvenue/creditBillRoutes'));
 app.use('/api/bill-avenue', require('./routes/cc/billAvenue/billAvenueRoutes'));
 app.use('/api/bbps-cc', require('./routes/cc/bbps/bbpsCCBillRoutes'));
+app.use('/api/shared-cc-bill-limit', require('./routes/sharedCcBillLimitRoutes'));
+app.use('/shared-cc-bill-limit', require('./routes/sharedCcBillLimitRoutes'));
 app.use('/api/wallet', require('./routes/walletTransactionRoutes'));
 app.use('/api/charge', require('./routes/chargeRoutes'));
 app.use('/api/company-name', require('./routes/companyNameRoutes'));
