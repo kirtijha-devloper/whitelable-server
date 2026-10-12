@@ -390,7 +390,17 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   if (card_brand) where.card_brand = card_brand;
   if (card_classification) where.card_classification = card_classification;
   if (settlement_type) where.settlement_type = settlement_type;
-  if (scope) where.scope = scope;
+  if (scope) {
+    if (scope === 'admin_default' || scope === 'super_admin_default') {
+      where.scope = { [Op.in]: ['admin_default', 'super_admin_default'] };
+    } else if (Array.isArray(scope)) {
+      where.scope = { [Op.in]: scope };
+    } else if (typeof scope === 'string' && scope.includes(',')) {
+      where.scope = { [Op.in]: scope.split(',').map((s) => s.trim()) };
+    } else {
+      where.scope = scope;
+    }
+  }
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
   if (company_name) where.company_name = company_name;
 
