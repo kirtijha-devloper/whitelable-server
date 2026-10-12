@@ -187,11 +187,83 @@ const listNotifications = asyncHandler(async (req, res) => {
             where.processed = processed
         }
 
+        // Scope filter: Super Admin sees all notifications.
+        // Admin sees only notifications matching machines assigned to them or their merchants.
+        if (req.user?.role !== 'super_admin') {
+            const adminId = req.user.id;
+            const companyId = req.company || req.user.company_id;
+
+            let userIds = [adminId];
+            if (companyId) {
+                const companyUsers = await User.findAll({
+                    where: { company_id: companyId },
+                    attributes: ['id']
+                });
+                userIds = [...new Set([adminId, ...companyUsers.map(u => u.id)])];
+            }
+
+            const assignedMachines = await PosMachine.findAll({
+                where: {
+                    [Op.or]: [
+                        { assigned_to: { [Op.in]: userIds } },
+                        ...(companyId ? [{ company_name: companyId }] : [])
+                    ]
+                },
+                attributes: ['id', 'mid_number', 'tid_number', 'device_serial_number']
+            });
+
+            const machineIds = assignedMachines.map(m => m.id);
+            const mids = assignedMachines.map(m => m.mid_number).filter(Boolean);
+            const tids = assignedMachines.map(m => m.tid_number).filter(Boolean);
+            const serials = assignedMachines.map(m => m.device_serial_number).filter(Boolean);
+
+            const scopeConditions = [];
+            if (machineIds.length > 0) {
+                scopeConditions.push({ pos_machine_id: { [Op.in]: machineIds } });
+            }
+            if (mids.length > 0) {
+                scopeConditions.push({ mid: { [Op.in]: mids } });
+            }
+            if (tids.length > 0) {
+                scopeConditions.push({ tid: { [Op.in]: tids } });
+            }
+            if (serials.length > 0) {
+                scopeConditions.push({ device_serial: { [Op.in]: serials } });
+            }
+            if (companyId) {
+                scopeConditions.push({ company_id: companyId });
+            }
+            if (userIds.length > 0) {
+                scopeConditions.push({ user_id: { [Op.in]: userIds } });
+            }
+
+            if (scopeConditions.length > 0) {
+                where[Op.and] = where[Op.and] || [];
+                where[Op.and].push({ [Op.or]: scopeConditions });
+            } else {
+                where.id = -1; // No machines assigned yet
+            }
+        }
+
         let formattedNotifications = [];
         let totalCount = 0;
 
         const { count, rows: notifications } = await RazorpayNotification.findAndCountAll({
             where,
+            include: [
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'name', 'email', 'abheepay_id'],
+                    required: false
+                },
+                {
+                    model: PosMachine,
+                    as: 'posMachine',
+                    attributes: ['id', 'mid_number', 'tid_number', 'device_serial_number'],
+                    required: false
+                }
+            ],
             limit: parseInt(limit),
             offset: parseInt(offset),
             order: [['createdAt', 'DESC']]
@@ -212,6 +284,19 @@ const listNotifications = asyncHandler(async (req, res) => {
                 processing_status: notification.processing_status || null,
                 processing_error: notification.processing_error || null,
                 processed: notification.processed || false,
+                settlement_type: notification.settlement_type || eventData?.settlement_type || null,
+                user: notification.user ? {
+                    id: notification.user.id,
+                    name: notification.user.name,
+                    email: notification.user.email,
+                    abheepay_id: notification.user.abheepay_id
+                } : null,
+                pos_machine: notification.posMachine ? {
+                    id: notification.posMachine.id,
+                    mid_number: notification.posMachine.mid_number,
+                    tid_number: notification.posMachine.tid_number,
+                    device_serial_number: notification.posMachine.device_serial_number
+                } : null,
                 createdAt: notification.createdAt,
                 updatedAt: notification.updatedAt,
                 amount: notification.amount || eventData.amount || null,
@@ -449,8 +534,9 @@ async function adminProcessNotification(req, res) {
             return res.status(400).json({message : "No Domain Name is registered"});
         }
 
-        if (!req.user || req.user.role !== 'admin') {
-            res.status(403).json({ success: false, message: 'Admin role required' });
+        const userRole = String(req.user?.role || '').trim().toLowerCase();
+        if (!req.user || (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'superadmin')) {
+            res.status(403).json({ success: false, message: 'Admin or Super Admin role required' });
             return;
         }
 
@@ -458,6 +544,11 @@ async function adminProcessNotification(req, res) {
         const notification = await RazorpayNotification.findByPk(id);
         if (!notification) {
             return res.status(404).json({ success: false, message: 'Notification not found' });
+        }
+
+        // Whitelabel admins cannot process notifications belonging to another company
+        if (userRole === 'admin' && notification.company_id && notification.company_id !== companyId) {
+            return res.status(403).json({ success: false, message: 'Unauthorized: This notification does not belong to your company' });
         }
 
         if (notification.processing_status === 'completed') {
@@ -485,8 +576,9 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             return res.status(400).json({message : "No Domain Name is registered"});
         }
 
-        if (!req.user || req.user.role !== 'admin') {
-            res.status(403).json({ success: false, message: 'Admin role required' });
+        const userRole = String(req.user?.role || '').trim().toLowerCase();
+        if (!req.user || (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'superadmin')) {
+            res.status(403).json({ success: false, message: 'Admin or Super Admin role required' });
             return;
         }
 
@@ -503,6 +595,11 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
         const notification = await RazorpayNotification.findByPk(id);
         if (!notification) {
             return res.status(404).json({ success: false, message: 'Notification not found' });
+        }
+
+        // Whitelabel admins cannot process notifications belonging to another company
+        if (userRole === 'admin' && notification.company_id && notification.company_id !== companyId) {
+            return res.status(403).json({ success: false, message: 'Unauthorized: This notification does not belong to your company' });
         }
 
         const {
@@ -735,8 +832,9 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
  */
 async function replayNotificationsToApi(req, res) {
     try {
-        if (!req.user || req.user.role !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Admin role required' });
+        const userRole = String(req.user?.role || '').trim().toLowerCase();
+        if (userRole !== 'super_admin' && userRole !== 'superadmin') {
+            return res.status(403).json({ success: false, message: 'Super Admin role required' });
         }
 
         // Default window: 2026-09-12 18:34:00 IST → now

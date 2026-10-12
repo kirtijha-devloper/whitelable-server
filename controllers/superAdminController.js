@@ -313,12 +313,57 @@ const getSuperAdminData = asyncHandler(async (req, res) => {
     return acc;
   }, {});
 
+  // Calculate Payin allocated per admin's company
+  const adminCompanyIds = users
+    .map((u) => u.company_id || u.company?.company_id)
+    .filter(Boolean);
+
+  let allocatedMap = {};
+  if (adminCompanyIds.length > 0) {
+    const downstreamUsers = await User.findAll({
+      where: {
+        company_id: { [Op.in]: adminCompanyIds },
+        role: { [Op.in]: ["super_franchise", "franchise", "franchaise", "merchant", "user"] },
+        t0_daily_limit: { [Op.not]: null },
+      },
+      attributes: ["id", "company_id", "role", "t0_daily_limit", "super_franchise_id", "franchaise_id"],
+    });
+
+    downstreamUsers.forEach((u) => {
+      const r = String(u.role || "").toLowerCase();
+      if (["admin", "superadmin", "super_admin", "subadmin", "employee", "staff"].includes(r)) return;
+      const isTop =
+        r === "super_franchise" ||
+        (["franchise", "franchaise"].includes(r) && !u.super_franchise_id) ||
+        (!["franchise", "franchaise", "super_franchise"].includes(r) && !u.franchaise_id && !u.super_franchise_id);
+      if (isTop) {
+        const val = parseFloat(u.t0_daily_limit);
+        if (!isNaN(val) && val > 0) {
+          allocatedMap[u.company_id] = (allocatedMap[u.company_id] || 0) + val;
+        }
+      }
+    });
+  }
+
   const serializedUsers = users.map((u) => {
     const plain = u.toJSON ? u.toJSON() : { ...u };
     plain.pos_machine_count = posCountMap[plain.id] || 0;
     plain.wallet_balance = parseFloat(plain.wallet || 0);
     plain.mobile_number = maskingMobileNumber(plain.mobile_number);
     plain.email = maskingEmail(plain.email);
+
+    const compId = plain.company_id || plain.company?.company_id;
+    const allocated = compId && allocatedMap[compId] !== undefined ? allocatedMap[compId] : 0;
+    const rawLimit = plain.t0_daily_limit;
+    const isAssigned = rawLimit !== null && rawLimit !== undefined && rawLimit !== "";
+    const isUnlimited = isAssigned && String(rawLimit).toLowerCase() === "unlimited";
+    const limitNum = isUnlimited ? "unlimited" : (isAssigned ? parseFloat(rawLimit) : null);
+
+    plain.payin_allocated = allocated;
+    plain.payin_remaining = isUnlimited
+      ? "unlimited"
+      : (limitNum !== null ? Math.max(0, limitNum - allocated) : 0);
+
     return plain;
   });
 
@@ -368,6 +413,12 @@ const getAdminDetails = asyncHandler(async (req, res) => {
     servicesMap[row.service_key] = row.is_enabled !== false;
   });
   plain.services = servicesMap;
+
+  const { getAdminPayinLimitStats } = require("../services/settlementService");
+  const compId = admin.company_id || admin.company?.company_id;
+  const payinStats = await getAdminPayinLimitStats(admin, compId);
+  plain.payin_allocated = payinStats.allocatedToUsers;
+  plain.payin_remaining = payinStats.remainingLimit;
 
   res.status(200).json({
     success: true,
@@ -921,9 +972,53 @@ const updateAdmin = asyncHandler(async (req, res) => {
   }
 
   if (t0_daily_limit !== undefined && t0_daily_limit !== null) {
-    const parsedLimit = t0_daily_limit === "" ? null : Number(t0_daily_limit);
-    if (!isNaN(parsedLimit)) {
+    const rawLimitStr = String(t0_daily_limit).trim();
+    const isUnlimited = rawLimitStr.toLowerCase() === "unlimited";
+    const parsedLimit = rawLimitStr === "" ? null : Number(rawLimitStr);
+
+    if (isUnlimited) {
+      userUpdates.t0_daily_limit = "unlimited";
+    } else if (parsedLimit !== null && !isNaN(parsedLimit)) {
+      if (parsedLimit < 0) {
+        res.status(400);
+        throw new Error("Payin (T0) limit cannot be negative.");
+      }
+
+      // Check against already allocated limit to downstream users
+      const { getAdminPayinLimitStats } = require("../services/settlementService");
+      const { allocatedToUsers, adminLimit } = await getAdminPayinLimitStats(
+        admin,
+        company?.company_id || admin.company_id
+      );
+
+      if (parsedLimit < allocatedToUsers) {
+        const currentPool = adminLimit !== null && adminLimit !== "unlimited" ? Number(adminLimit) : (Number(admin.t0_daily_limit) || 0);
+        const maxReduction = Math.max(0, currentPool - allocatedToUsers);
+        res.status(400);
+        throw new Error(
+          `Cannot reduce Payin limit to ₹${parsedLimit.toLocaleString("en-IN")}. Already allocated to downstream users: ₹${allocatedToUsers.toLocaleString("en-IN")}. Maximum allowed reduction is ₹${maxReduction.toLocaleString("en-IN")} (remaining available limit). Minimum Payin limit allowed is ₹${allocatedToUsers.toLocaleString("en-IN")}.`
+        );
+      }
+
       userUpdates.t0_daily_limit = parsedLimit;
+    } else if (parsedLimit === null) {
+      // Trying to remove limit (set to null / unset)
+      const { getAdminPayinLimitStats } = require("../services/settlementService");
+      const { allocatedToUsers, adminLimit } = await getAdminPayinLimitStats(
+        admin,
+        company?.company_id || admin.company_id
+      );
+
+      if (allocatedToUsers > 0) {
+        const currentPool = adminLimit !== null && adminLimit !== "unlimited" ? Number(adminLimit) : (Number(admin.t0_daily_limit) || 0);
+        const maxReduction = Math.max(0, currentPool - allocatedToUsers);
+        res.status(400);
+        throw new Error(
+          `Cannot remove Payin limit! Already allocated to downstream users: ₹${allocatedToUsers.toLocaleString("en-IN")}. Maximum allowed reduction is ₹${maxReduction.toLocaleString("en-IN")} (remaining available limit). Minimum Payin limit allowed is ₹${allocatedToUsers.toLocaleString("en-IN")}.`
+        );
+      }
+
+      userUpdates.t0_daily_limit = null;
     }
   }
 

@@ -2,13 +2,13 @@ const asyncHandler = require('express-async-handler');
 const CompanyName = require('../models/CompanyName');
 const { Op } = require('sequelize');
 
-// Admin-only write operations, read available to any authenticated user
+// Super Admin-only write operations, read available to any authenticated user
 
 // Create a new company name
 const createCompanyName = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin') {
+  if (req.user.role !== 'super_admin') {
     res.status(403);
-    throw new Error('Access denied: only admin can create company names');
+    throw new Error('Access denied: only Super Admin can create company names');
   }
 
   const { name } = req.body;
@@ -40,9 +40,9 @@ const getCompanyNames = asyncHandler(async (req, res) => {
 
 // Update existing company name
 const updateCompanyName = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin') {
+  if (req.user.role !== 'super_admin') {
     res.status(403);
-    throw new Error('Access denied: only admin can update company names');
+    throw new Error('Access denied: only Super Admin can update company names');
   }
 
   const rec = await CompanyName.findByPk(req.params.id);
@@ -75,9 +75,9 @@ const updateCompanyName = asyncHandler(async (req, res) => {
 
 // Delete a company name
 const deleteCompanyName = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin') {
+  if (req.user.role !== 'super_admin') {
     res.status(403);
-    throw new Error('Access denied: only admin can delete company names');
+    throw new Error('Access denied: only Super Admin can delete company names');
   }
 
   const rec = await CompanyName.findByPk(req.params.id);

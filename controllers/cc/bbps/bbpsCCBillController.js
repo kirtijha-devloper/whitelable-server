@@ -376,7 +376,7 @@ const getCcBillPayment = asyncHandler(async (req, res) => {
 });
 
 const getBbpsCcChargeRules = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
@@ -385,7 +385,7 @@ const getBbpsCcChargeRules = asyncHandler(async (req, res) => {
 });
 
 const createBbpsCcChargeRule = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
@@ -410,7 +410,7 @@ const createBbpsCcChargeRule = asyncHandler(async (req, res) => {
 });
 
 const updateBbpsCcChargeRule = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
@@ -437,7 +437,7 @@ const updateBbpsCcChargeRule = asyncHandler(async (req, res) => {
 });
 
 const deleteBbpsCcChargeRule = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
