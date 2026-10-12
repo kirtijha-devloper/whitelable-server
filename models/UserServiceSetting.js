@@ -12,6 +12,15 @@ const USER_SERVICE_ALLOWED_KEYS = [
   'mx_payout',
   'pos_t0_settlement',
   'user_daily_limit',
+  'pos_inventory',
+  'aadhaar_pay',
+  'qr_payments',
+  'pos',
+  'pg',
+  'qr',
+  'soundbox',
+  'dmt',
+  'billpayments',
 ];
 
 const UserServiceSetting = db.define('UserServiceSetting', {
@@ -38,9 +47,8 @@ const UserServiceSetting = db.define('UserServiceSetting', {
     type: Sequelize.STRING(100),
     allowNull: false,
     validate: {
-      isIn: {
-        args: [USER_SERVICE_ALLOWED_KEYS],
-        msg: `service_key must be one of: ${USER_SERVICE_ALLOWED_KEYS.join(', ')}`,
+      notEmpty: {
+        msg: 'service_key cannot be empty',
       },
     },
   },
@@ -67,24 +75,10 @@ const UserServiceSetting = db.define('UserServiceSetting', {
       fields: ['user_id', 'service_key'],
     },
     {
-      fields: ['user_id'],
-    },
-    {
-      fields: ['service_key'],
+      fields: ['company_id'],
     },
   ],
 });
 
-UserServiceSetting.associate = function(models) {
-  UserServiceSetting.belongsTo(models.User, {
-    foreignKey: 'user_id',
-    as: 'user',
-  });
-  UserServiceSetting.belongsTo(models.Company, {
-    foreignKey: 'company_id',
-    targetKey: 'company_id',
-    as: 'company',
-  });
-};
-
 module.exports = UserServiceSetting;
+module.exports.USER_SERVICE_ALLOWED_KEYS = USER_SERVICE_ALLOWED_KEYS;

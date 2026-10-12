@@ -11,6 +11,11 @@ const {
   getAllRazorpayNotifications,
   getUserReport
 } = require("../controllers/reportController");
+const {
+  getTransactionReports,
+  getCommissionReports,
+  getServiceWiseReport,
+} = require("../controllers/reportsController");
 
 const validateToken = require("../middleware/validateTokenHandler");
 const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
@@ -20,6 +25,22 @@ const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 // 🛡️ Protect routes below this line (if needed)
 router.use(validateToken);
 router.use(validateWhitelabelDomain);
+
+// ── Universal Reports (Transactions, Commissions, Service-Wise) ───────────────
+router.get("/transactions", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.REPORTS_READ, {
+  message: "You do not have permission to view reports.",
+  elevateRole: "admin",
+}), getTransactionReports);
+
+router.get("/commissions", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.REPORTS_READ, {
+  message: "You do not have permission to view reports.",
+  elevateRole: "admin",
+}), getCommissionReports);
+
+router.get("/service-wise", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.REPORTS_READ, {
+  message: "You do not have permission to view reports.",
+  elevateRole: "admin",
+}), getServiceWiseReport);
 
 router.get("/pos-txn", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.REPORTS_READ, {
   message: "You do not have permission to view reports.",

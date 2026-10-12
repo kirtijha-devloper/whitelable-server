@@ -55,6 +55,8 @@ function getCardBrandCandidates(cardBrand) {
 }
 
 const VALID_SCOPES = [
+  'super_admin_default',
+  'super_admin_admin',
   'admin_default',
   'admin_super_franchise',
   'super_franchise_franchise',
@@ -130,6 +132,8 @@ async function getTransactionChargeRule({
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
+        WHEN 'super_admin_admin'         THEN 96
+        WHEN 'super_admin_default'       THEN 90
         WHEN 'super_franchise_merchant'  THEN 80
         WHEN 'franchise_merchant'        THEN 64
         WHEN 'admin_merchant'            THEN 48
@@ -439,6 +443,11 @@ function calculateCharge(amount, rule) {
  */
 function deriveScope(callerRole, userId, franchiseId, superFranchiseId) {
   const normalizedCaller = callerRole === 'franchise' ? 'franchaise' : callerRole;
+
+  if (normalizedCaller === 'super_admin') {
+    if (userId) return 'super_admin_admin';
+    return 'super_admin_default';
+  }
 
   if (normalizedCaller === 'admin') {
     if (userId) return 'admin_merchant';

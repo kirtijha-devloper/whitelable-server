@@ -7,6 +7,7 @@ const CcBillPayment = require('../models/CcBillPayment');
 const User = require('../models/User');
 const Ledger = require('../models/Ledger');
 const ledgerService = require('../services/ledgerService');
+const sharedCcBillLimitService = require('../services/sharedCcBillLimitService');
 
 const LOG_PREFIX = '[cron] resolvePendingCcBillPayment';
 const LOG_FILE = path.resolve(__dirname, '../logs/ccbill-pending-cron.log');
@@ -259,6 +260,20 @@ async function resolvePendingCcBillPayment() {
         }
 
         await row.update(updatedData);
+
+        if (isSuccess && externalRef) {
+          try {
+            await sharedCcBillLimitService.commitReservation({ flow: 'bbps_cc', referenceId: externalRef });
+          } catch (limitErr) {
+            auditError(`${LOG_PREFIX}: error committing CC bill limit for id=${row.id}:`, limitErr);
+          }
+        } else if (needsRefund && !isInvalidOutlet && externalRef) {
+          try {
+            await sharedCcBillLimitService.releaseReservation({ flow: 'bbps_cc', referenceId: externalRef });
+          } catch (limitErr) {
+            auditError(`${LOG_PREFIX}: error releasing CC bill limit for id=${row.id}:`, limitErr);
+          }
+        }
 
         if (isUnknown) {
           auditLog(`${LOG_PREFIX}: no actionable status for id=${row.id}; response saved. request=${JSON.stringify(requestDetails)} responseSummary=${JSON.stringify(summary)}`);

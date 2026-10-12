@@ -15,6 +15,7 @@ const {
 } = require('../../../services/serviceSettingsService');
 const { normalizeRole } = require('../../../utils/permissions');
 const { parseIstBusinessDateRange } = require('../../../utils/dateRange');
+const sharedCcBillLimitService = require('../../../services/sharedCcBillLimitService');
 
 // ─── Logging ──.──────────────────────────────────────────────────────────────
 const logFile = path.join(__dirname, '../../../logs/billAvenue.log');
@@ -347,6 +348,31 @@ const payBill = asyncHandler(async (req, res) => {
       company_id : companyId,
     });
 
+    // ── Enforce Admin Shared Daily CC Bill Limit ──────────────────────────────
+    try {
+      await sharedCcBillLimitService.reserveLimit({
+        userId,
+        amount: txnAmount,
+        flow: 'ba_cc',
+        referenceId: String(payment.id),
+      });
+    } catch (limitErr) {
+      await payment.destroy();
+      if (limitErr.code === 'CC_BILL_DAILY_LIMIT_EXCEEDED') {
+        return res.status(400).json({
+          success: false,
+          message: limitErr.message,
+          code: 'CC_BILL_DAILY_LIMIT_EXCEEDED',
+          data: limitErr.data,
+        });
+      }
+      return res.status(limitErr.statusCode || 400).json({
+        success: false,
+        message: limitErr.message || 'CC bill limit check failed',
+        code: limitErr.code || 'LIMIT_ERROR',
+      });
+    }
+
     // ── Step 1: Ledger debit (before calling BillAvenue) ────────────────
     let ledgerEntry = null;
     if (userId && txnAmount > 0) {
@@ -405,6 +431,11 @@ const payBill = asyncHandler(async (req, res) => {
         company_id : companyId,
       });
 
+      await sharedCcBillLimitService.releaseReservation({
+        flow: 'ba_cc',
+        referenceId: String(payment.id),
+      });
+
       return res.status(500).json({ success: false, message: `BillAvenue API call failed. Amount reversed. Error: ${apiError.message}` });
     }
 
@@ -457,6 +488,12 @@ const payBill = asyncHandler(async (req, res) => {
           },
         });
       }
+
+      // Convert reservation to consumed usage
+      await sharedCcBillLimitService.commitReservation({
+        flow: 'ba_cc',
+        referenceId: String(payment.id),
+      });
     } else {
       // Payment failed — reverse the ledger debit
       fileLog(`payBill failed billerId=${billerId} responseCode=${responseCode} response=${JSON.stringify(result)}`);
@@ -475,6 +512,12 @@ const payBill = asyncHandler(async (req, res) => {
           response_code: responseCode,
           transaction_ref_id: transactionRefId,
         },
+      });
+
+      // Release reservation on failure
+      await sharedCcBillLimitService.releaseReservation({
+        flow: 'ba_cc',
+        referenceId: String(payment.id),
       });
     }
 

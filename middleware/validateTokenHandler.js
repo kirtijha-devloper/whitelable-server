@@ -20,6 +20,7 @@ const AUTH_USER_ATTRIBUTES = [
   'permissions',
   'employee_access_role_id',
   'company_id',
+  't0_daily_limit',
 ];
 
 function buildAuthUser(userLike) {
@@ -40,6 +41,7 @@ function buildAuthUser(userLike) {
     status: userLike.status || 'active',
     ipay_outlet_id: userLike.ipay_outlet_id || null,
     company_id: userLike.company_id || null,
+    t0_daily_limit: userLike.t0_daily_limit !== undefined && userLike.t0_daily_limit !== null ? userLike.t0_daily_limit : null,
     employee_access_role_id: userLike.employee_access_role_id || normalizedEmployeeAccessRole?.id || null,
     employee_access_role: normalizedEmployeeAccessRole,
     permissions: getResolvedPermissions({

@@ -7,7 +7,6 @@ const { getActiveLoginPopups } = require("../controllers/loginPopupController");
 const validateToken = require("../middleware/validateTokenHandler");
 const { ensureEmployeePermission } = require("../middleware/employeePermissionHandler");
 const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
-const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 
 // @public access
 

@@ -12,6 +12,7 @@ const {
   assertServiceEnabledOrRespond,
 } = require('../../../services/serviceSettingsService');
 const { normalizeRole } = require('../../../utils/permissions');
+const sharedCcBillLimitService = require('../../../services/sharedCcBillLimitService');
 
 // Debug logging helper for this controller
 // Logs are written to the shared root /logs folder (same as auth.log etc.)
@@ -510,6 +511,30 @@ const payCCBill = asyncHandler(async (req, res) => {
     // always persisted (even if the InstantPay call later fails or times out).
     const externalRef = bbpsCCBillService.generateExternalRef();
 
+    // ── Enforce Admin Shared Daily CC Bill Limit ──────────────────────────────
+    try {
+      await sharedCcBillLimitService.reserveLimit({
+        userId,
+        amount: txnAmount,
+        flow: 'bbps_cc',
+        referenceId: externalRef,
+      });
+    } catch (limitErr) {
+      if (limitErr.code === 'CC_BILL_DAILY_LIMIT_EXCEEDED') {
+        return res.status(400).json({
+          success: false,
+          message: limitErr.message,
+          code: 'CC_BILL_DAILY_LIMIT_EXCEEDED',
+          data: limitErr.data,
+        });
+      }
+      return res.status(limitErr.statusCode || 400).json({
+        success: false,
+        message: limitErr.message || 'CC bill limit check failed',
+        code: limitErr.code || 'LIMIT_ERROR',
+      });
+    }
+
     // Create a pending CC bill payment record early so ledger/wallet tx can reference it
     const ccPayment = await CcBillPayment.create({
       user_id:            userId,
@@ -610,6 +635,14 @@ const payCCBill = asyncHandler(async (req, res) => {
           },
         });
       }
+
+      // Convert reservation to consumed usage only on definitive success; retain as RESERVED if pending (TUP)
+      if (result.data?.statuscode === 'TXN' || (result.data?.status || '').toString().toUpperCase() === 'SUCCESS') {
+        await sharedCcBillLimitService.commitReservation({
+          flow: 'bbps_cc',
+          referenceId: externalRef,
+        });
+      }
     } else {
       // Payment failed — reverse the ledger debit
       bbpsFileLog(`payCCBill failed for billerId=${billerId} body=${JSON.stringify(req.body)} response=${JSON.stringify(result)}`);
@@ -629,6 +662,17 @@ const payCCBill = asyncHandler(async (req, res) => {
           external_ref: result.externalRef,
         }
       });
+
+      // Release reservation only if definitive failure; retain if pending/unknown
+      const statuscodeUpper = (result.data?.statuscode || '').toString().toUpperCase();
+      const statusUpper = (result.data?.status || '').toString().toUpperCase();
+      const failedStatusCodes = ['TRP', 'FAILED', 'SPE', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'];
+      if (failedStatusCodes.includes(statuscodeUpper) || statusUpper === 'FAILED') {
+        await sharedCcBillLimitService.releaseReservation({
+          flow: 'bbps_cc',
+          referenceId: externalRef,
+        });
+      }
     }
 
     return res.status(200).json({
@@ -781,6 +825,12 @@ const manualRefundBbpsCcBill = asyncHandler(async (req, res) => {
         status: 'FAILED (REFUNDED)',
         company_id : companyId,
       });
+      if (ccPayment.external_ref) {
+        await sharedCcBillLimitService.releaseReservation({
+          flow: 'bbps_cc',
+          referenceId: ccPayment.external_ref,
+        });
+      }
     } catch (_) {}
   }
 

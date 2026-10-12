@@ -24,6 +24,20 @@ if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && proce
   });
 }
 
+function maskingMobileNumber(mobile) {
+  if (!mobile) return mobile;
+  const strMobile = String(mobile);
+  if (strMobile.length < 10) return strMobile;
+  return strMobile.slice(0, 2) + "******" + strMobile.slice(-2);
+}
+
+function maskingEmail(email) {
+  if (!email) return email;
+  const [localPart, domain] = email.split("@");
+  if (!localPart || !domain) return email;
+  return `${localPart.slice(0, 2)}***@${domain}`;
+}
+
 /**
  * Strips protocol (http:// or https://), leading www., port, path, query, hash.
  * E.g. "https://www.google.com/path" -> "google.com"
@@ -190,7 +204,7 @@ function tryDecryptId(rawId) {
  */
 async function findAdminUser(identifier) {
   if (!identifier) return null;
-  const resolved = tryDecryptId(identifier);
+  const resolved = tryDecryptId(identifier);  
 
   const numericId = Number(resolved);
   if (Number.isFinite(numericId) && numericId > 0) {
@@ -302,6 +316,8 @@ const getSuperAdminData = asyncHandler(async (req, res) => {
     const plain = u.toJSON ? u.toJSON() : { ...u };
     plain.pos_machine_count = posCountMap[plain.id] || 0;
     plain.wallet_balance = parseFloat(plain.wallet || 0);
+    plain.mobile_number = maskingMobileNumber(plain.mobile_number);
+    plain.email = maskingEmail(plain.email);
     return plain;
   });
 
@@ -342,10 +358,69 @@ const getAdminDetails = asyncHandler(async (req, res) => {
   plain.pos_machine_count = posMachines.length;
   plain.wallet_balance = parseFloat(plain.wallet || 0);
 
+  const UserServiceSetting = require("../models/UserServiceSetting");
+  const userSettings = await UserServiceSetting.findAll({
+    where: { user_id: admin.id },
+  });
+  const servicesMap = {};
+  userSettings.forEach((row) => {
+    servicesMap[row.service_key] = row.is_enabled !== false;
+  });
+  plain.services = servicesMap;
+
   res.status(200).json({
     success: true,
     message: "Admin details retrieved successfully",
     data: plain,
+  });
+});
+
+/**
+ * GET /api/super-admin/admin/:id/services
+ * Return the exact services map for a specific admin/company
+ */
+const getAdminServicesController = asyncHandler(async (req, res) => {
+  checkSuperAdminAccess(req, res);
+  const { id } = req.params;
+  const admin = await findAdminUser(id);
+
+  if (!admin) {
+    res.status(404);
+    throw new Error("Admin not found.");
+  }
+
+  const { getServiceSettingsMap } = require("../services/serviceSettingsService");
+  const UserServiceSetting = require("../models/UserServiceSetting");
+  const globalMap = await getServiceSettingsMap();
+
+  console.log(`[SuperAdmin] Fetching services for admin ID ${admin.id} (company: ${admin.company_id || "N/A"})`);
+
+  const userSettings = await UserServiceSetting.findAll({
+    where: { user_id: admin.id },
+  });
+
+  const userSettingsMap = {};
+  userSettings.forEach((row) => {
+    userSettingsMap[row.service_key] = row.is_enabled !== false;
+  });
+
+  const result = {};
+  for (const [key, globalCfg] of Object.entries(globalMap)) {
+    const isSuperAdminDisabled = globalCfg.is_enabled === false;
+    const adminEnabled = userSettingsMap[key] !== undefined ? userSettingsMap[key] : true;
+    result[key] = {
+      key,
+      service_key: key,
+      label: globalCfg.label || key,
+      category: globalCfg.category || "General",
+      is_enabled: isSuperAdminDisabled ? false : adminEnabled,
+      is_super_admin_disabled: isSuperAdminDisabled,
+    };
+  }
+
+  res.status(200).json({
+    success: true,
+    data: result,
   });
 });
 
@@ -652,7 +727,12 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
       transaction,
     });
 
-    // 5f. Commit all 3 tables atomically
+    // 5f. Initialize daily CC bill limit counter for today
+    const sharedCcBillLimitService = require('../services/sharedCcBillLimitService');
+    const businessDate = sharedCcBillLimitService.getBusinessDate();
+    await sharedCcBillLimitService.getOrCreateDailyCounter(newUser.id, businessDate, { transaction, lock: true });
+
+    // 5g. Commit all tables atomically
     await transaction.commit();
 
     const plain = newUser.toJSON ? newUser.toJSON() : { ...newUser };
@@ -724,6 +804,10 @@ const updateAdmin = asyncHandler(async (req, res) => {
     company_or_shop_name,
     domain_name,
     password,
+    services,
+    payout_limit,
+    bill_payment_limit,
+    t0_daily_limit,
   } = req.body;
 
   const uploadedLocalFiles = [];
@@ -832,6 +916,13 @@ const updateAdmin = asyncHandler(async (req, res) => {
   if (settlement_type !== undefined && settlement_type !== null && settlement_type !== admin.settlement_type) {
     if (["T0", "T1", "today_settlement", "next_day_settlement"].includes(settlement_type)) {
       userUpdates.settlement_type = settlement_type;
+    }
+  }
+
+  if (t0_daily_limit !== undefined && t0_daily_limit !== null) {
+    const parsedLimit = t0_daily_limit === "" ? null : Number(t0_daily_limit);
+    if (!isNaN(parsedLimit)) {
+      userUpdates.t0_daily_limit = parsedLimit;
     }
   }
 
@@ -948,6 +1039,20 @@ const updateAdmin = asyncHandler(async (req, res) => {
       companyUpdates.status = userUpdates.status;
     }
 
+    if (payout_limit !== undefined && payout_limit !== null) {
+      const parsedPayout = Number(payout_limit);
+      if (!isNaN(parsedPayout)) {
+        companyUpdates.payout_limit = parsedPayout;
+      }
+    }
+
+    if (bill_payment_limit !== undefined && bill_payment_limit !== null) {
+      const parsedBill = Number(bill_payment_limit);
+      if (!isNaN(parsedBill)) {
+        companyUpdates.bill_payment_limit = parsedBill;
+      }
+    }
+
     if (domain_name && String(domain_name).trim()) {
       const cleanDomain = sanitizeDomainName(domain_name);
       if (cleanDomain && cleanDomain !== (company.domain_name || "")) {
@@ -982,6 +1087,14 @@ const updateAdmin = asyncHandler(async (req, res) => {
           where: { id: company.id },
           transaction,
         });
+
+        if (companyUpdates.bill_payment_limit !== undefined) {
+          const sharedCcBillLimitService = require('../services/sharedCcBillLimitService');
+          const businessDate = sharedCcBillLimitService.getBusinessDate();
+          const counter = await sharedCcBillLimitService.getOrCreateDailyCounter(admin.id, businessDate, { transaction, lock: true });
+          counter.daily_limit = companyUpdates.bill_payment_limit;
+          await counter.save({ transaction });
+        }
       }
 
       if (companyUpdates.company_name || userUpdates.company_or_shop_name) {
@@ -1004,6 +1117,65 @@ const updateAdmin = asyncHandler(async (req, res) => {
       console.error("Update Admin transaction error (rolled back):", error);
       res.status(res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
       throw new Error(error.message || "Failed to update Admin records.");
+    }
+  }
+
+  // 3.5. Update Admin-Wise Services in user_service_settings if provided
+  // Tier 2: Super Admin Admin-Wise — only update THIS admin user's own service settings row.
+  // Cascade to their merchants/franchises happens at read-time via getEffectiveServiceFlags().
+  if (services && typeof services === 'object' && Object.keys(services).length > 0) {
+    const UserServiceSetting = require("../models/UserServiceSetting");
+
+    const serviceKeyMapping = {
+      pos: ['pos_inventory', 'pos_t0_settlement'],
+      pg: ['pg_inventory'],
+      qr: ['qr_payments'],
+      soundbox: ['qr_payments'],
+      dmt: ['vimo_payout', 'branchx_payout', 'sevenpay_payout', 'ndia5_payout', 'mx_payout'],
+      billpayments: ['cc_bill_pay', 'ba_cc_bill_pay', 'cc_bill_3'],
+    };
+
+    const flattenedUpdates = {};
+    for (const [k, v] of Object.entries(services)) {
+      if (typeof v === 'boolean') {
+        if (serviceKeyMapping[k]) {
+          serviceKeyMapping[k].forEach((sk) => { flattenedUpdates[sk] = v; });
+        } else {
+          flattenedUpdates[k] = v;
+        }
+      }
+    }
+
+    // Enforce Super Admin Global Lock (Tier 1):
+    // Cannot enable a service that is globally disabled in ServiceSetting.
+    const { getServiceSettingsMap } = require("../services/serviceSettingsService");
+    const globalMap = await getServiceSettingsMap();
+
+    for (const [sKey, isEn] of Object.entries(flattenedUpdates)) {
+      if (isEn && globalMap[sKey]?.is_enabled === false) {
+        flattenedUpdates[sKey] = false;
+      }
+    }
+
+    // Only write the admin user's own row (Tier 2 scoping)
+    const now = new Date();
+    const adminServiceRows = [];
+    const adminCompanyId = company?.company_id || admin.company_id || req.body.company_id;
+    for (const [sKey, isEn] of Object.entries(flattenedUpdates)) {
+      adminServiceRows.push({
+        user_id: admin.id,
+        service_key: sKey,
+        is_enabled: isEn,
+        updated_by: req.user?.id || 1,
+        updated_at: now,
+        company_id: adminCompanyId || null,
+      });
+    }
+
+    if (adminServiceRows.length > 0) {
+      await UserServiceSetting.bulkCreate(adminServiceRows, {
+        updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at', 'company_id'],
+      });
     }
   }
 
@@ -1815,6 +1987,7 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
 module.exports = {
   getSuperAdminData,
   getAdminDetails,
+  getAdminServicesController,
   createSuperAdmin,
   updateAdmin,
   updateAdminStatus,

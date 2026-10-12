@@ -2,6 +2,7 @@ const asyncHandler = require("express-async-handler");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const  User = require('../models/User');
+const Company = require('../models/Company');
 const EmployeeAccessRole = require('../models/EmployeeAccessRole');
 const db = require('../config/database');
 const UsernameSequence = require('../models/UsernameSequence');
@@ -1484,6 +1485,14 @@ const approveUser = asyncHandler( async (req, res) => {
                 ]);
                 const serviceFlags = getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings);
 
+                let company = null;
+                if (user.company_id) {
+                    company = await Company.findOne({ where: { company_id: user.company_id } });
+                }
+                if (!company) {
+                    company = await Company.findOne({ where: { user_id: user.id } });
+                }
+
                 res.json({
                     email: maskEmail(user.email),
                     mobile_number: user.mobile_number, 
@@ -1500,6 +1509,16 @@ const approveUser = asyncHandler( async (req, res) => {
                     available_balance: availableBalance,
                     settlement_type: user.settlement_type || "today_settlement",
                     t0_daily_limit: user.t0_daily_limit !== undefined && user.t0_daily_limit !== null ? parseFloat(user.t0_daily_limit) : null,
+                    payout_limit: company ? parseFloat(company.payout_limit || 0) : 0,
+                    bill_payment_limit: company ? parseFloat(company.bill_payment_limit || 0) : 0,
+                    company: company ? {
+                        id: company.id,
+                        company_name: company.company_name,
+                        company_id: company.company_id,
+                        domain_name: company.domain_name,
+                        payout_limit: parseFloat(company.payout_limit || 0),
+                        bill_payment_limit: parseFloat(company.bill_payment_limit || 0),
+                    } : null,
                     tpin_set: tpinSet,
                     ipay_outlet_id: user.ipay_outlet_id || null,
                     is_payout_enabled: user.is_payout_enabled,

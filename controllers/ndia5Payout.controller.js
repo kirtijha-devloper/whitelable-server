@@ -21,6 +21,7 @@ const PayoutCharge = require('../models/PayoutCharge');
 const ServiceFee = require('../models/ServiceFee');
 const ledgerService = require('../services/ledgerService');
 const payoutReferenceService = require('../services/payoutReferenceService');
+const { validateCompanyPayoutLimit } = require('../services/companyPayoutLimitService');
 const instantpayService = require('../services/payments/instantpayService');
 const branchxService = require('../services/payments/branchxService');
 const db = require('../config/database');
@@ -414,6 +415,27 @@ const initiatePayout = asyncHandler(async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Merchant not found.',
+      });
+    }
+
+    // Enforce Company Daily Payout Limit (Super Admin Cap)
+    const companyLimitCheck = await validateCompanyPayoutLimit({
+      user: lockedUser,
+      companyId: req.company || lockedUser.company_id,
+      amount,
+      dbTransaction: transaction,
+    });
+    if (!companyLimitCheck.allowed) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        code: 'COMPANY_PAYOUT_LIMIT_EXCEEDED',
+        message: companyLimitCheck.message,
+        data: {
+          limit: companyLimitCheck.limit,
+          todayUsed: companyLimitCheck.todayUsed,
+          remaining: companyLimitCheck.remaining,
+        },
       });
     }
 

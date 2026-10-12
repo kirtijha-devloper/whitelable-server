@@ -396,6 +396,96 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
       }
     }
   }
+
+  // 5. Validate against Admin Payin Limit Pool (for Top-Level Accounts: Super Franchise, Standalone Franchise, Direct Merchant)
+  const isTopLevelUnderAdmin =
+    targetRole === 'super_franchise' ||
+    (isTargetFranchise && !targetUser.super_franchise_id) ||
+    (!isTargetFranchise && targetRole !== 'super_franchise' && !targetUser.franchaise_id && !targetUser.super_franchise_id);
+
+  if (isTopLevelUnderAdmin) {
+    const Company = require('../models/Company');
+    const compId = targetUser.company_id || requesterUser?.company_id;
+    let adminUser = null;
+    if (requesterUser && requesterUser.role === 'admin' && requesterUser.id) {
+      adminUser = await User.findByPk(requesterUser.id);
+    }
+    if (!adminUser && compId) {
+      adminUser = await User.findOne({ where: { company_id: compId, role: 'admin' } });
+      if (!adminUser) {
+        const comp = await Company.findOne({ where: { company_id: compId } });
+        if (comp?.user_id) {
+          adminUser = await User.findByPk(comp.user_id);
+        }
+      }
+    }
+
+    if (adminUser) {
+      const rawAdminPayin = adminUser.t0_daily_limit;
+      const isAdminPayinNotSet = rawAdminPayin === null || rawAdminPayin === undefined || rawAdminPayin === '';
+      const isAdminPayinUnlimited = !isAdminPayinNotSet && String(rawAdminPayin).toLowerCase() === 'unlimited';
+
+      if (isAdminPayinNotSet && requestedLimitVal > 0) {
+        const err = new Error(
+          `Cannot assign T0 limit! Admin (${adminUser.name || 'Admin'}) has no Payin (T0) limit pool assigned by Super Admin (Not Set / ₹0). Super Admin must assign a Payin limit first.`
+        );
+        err.status = 400;
+        err.statusCode = 400;
+        throw err;
+      }
+
+      if (!isAdminPayinNotSet && !isAdminPayinUnlimited) {
+        const adminPayinPool = parseFloat(rawAdminPayin) || 0;
+        if (adminPayinPool <= 0 && requestedLimitVal > 0) {
+          const err = new Error(
+            `Cannot assign T0 limit! Admin Payin limit is ₹0. Super Admin must increase Admin's Payin limit first.`
+          );
+          err.status = 400;
+          err.statusCode = 400;
+          throw err;
+        }
+
+        // Sum of all other top-level accounts under this admin
+        const whereUsers = {
+          id: { [Op.ne]: targetUser.id },
+          role: { [Op.in]: ['super_franchise', 'franchise', 'franchaise', 'merchant', 'user'] },
+          t0_daily_limit: { [Op.not]: null },
+        };
+        if (compId) {
+          whereUsers.company_id = compId;
+        }
+
+        const otherUsers = await User.findAll({
+          where: whereUsers,
+          attributes: ['id', 'role', 't0_daily_limit', 'super_franchise_id', 'franchaise_id']
+        });
+
+        const otherTopLevelAllocated = otherUsers.reduce((sum, u) => {
+          const r = String(u.role || '').toLowerCase();
+          const isTop =
+            r === 'super_franchise' ||
+            (['franchise', 'franchaise'].includes(r) && !u.super_franchise_id) ||
+            (!['franchise', 'franchaise', 'super_franchise'].includes(r) && !u.franchaise_id && !u.super_franchise_id);
+          if (isTop) {
+            const l = parseFloat(u.t0_daily_limit);
+            return sum + (isNaN(l) || l <= 0 ? 0 : l);
+          }
+          return sum;
+        }, 0);
+
+        const availableFromAdmin = Math.max(0, adminPayinPool - otherTopLevelAllocated);
+
+        if (requestedLimitVal > availableFromAdmin) {
+          const err = new Error(
+            `Admin Payin limit pool (₹${adminPayinPool.toLocaleString('en-IN')}) exceeded! Total allocated limit (₹${(otherTopLevelAllocated + requestedLimitVal).toLocaleString('en-IN')}) cannot exceed Admin Payin limit. Maximum available limit to assign is ₹${availableFromAdmin.toLocaleString('en-IN')}.`
+          );
+          err.status = 400;
+          err.statusCode = 400;
+          throw err;
+        }
+      }
+    }
+  }
 }
 
 /**

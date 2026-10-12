@@ -245,7 +245,43 @@ const Transaction = db.define("Transaction", {
 
   FileName: {
     type: DataTypes.STRING,
-    field: "Receipt URL"}
+    field: "Receipt URL"
+  },
+  user_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  service: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: 'POS',
+  },
+  charge: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+    defaultValue: 0.0,
+  },
+  utr_no: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  transaction_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  created_at: {
+    type: DataTypes.DATE,
+    field: 'createdAt',
+  },
 });
+
+Transaction.associate = function (models) {
+  if (models.User) {
+    Transaction.belongsTo(models.User, {
+      foreignKey: 'user_id',
+      as: 'user',
+    });
+  }
+};
 
 module.exports = Transaction;

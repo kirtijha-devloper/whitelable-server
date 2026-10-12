@@ -3,6 +3,7 @@ const axios = require('axios');
 const User = require('../models/User');
 const Beneficiary = require('../models/Beneficiary');
 const { Op } = require('sequelize');
+const { validateCompanyPayoutLimit } = require('../services/companyPayoutLimitService');
 const { isAdmin, hasPermission, EMPLOYEE_PERMISSIONS } = require('../utils/permissions');
 const {
   SERVICE_SETTING_KEYS,
@@ -11,6 +12,7 @@ const {
 const fs = require('fs');
 const path = require('path');
 const BillAvenuePayment = require('../models/BillAvenuePayment');
+const sharedCcBillLimitService = require('../services/sharedCcBillLimitService');
 
 const VIMO_LOG_FILE = path.join(__dirname, '../logs/vimo.log');
 const VIMO_CALLBACK_LOG_FILE = path.join(__dirname, '../logs/vimoCallback.log');
@@ -441,6 +443,27 @@ async function createPayout(req, res) {
         return res.status(404).json({ success: false, message: 'User not found' });
       }
 
+      // Enforce Company Daily Payout Limit (Super Admin Cap)
+      const companyLimitCheck = await validateCompanyPayoutLimit({
+        user: lockedUser,
+        companyId: req.company || lockedUser.company_id,
+        amount,
+        dbTransaction: transaction,
+      });
+      if (!companyLimitCheck.allowed) {
+        await transaction.rollback();
+        return res.status(403).json({
+          success: false,
+          code: 'COMPANY_PAYOUT_LIMIT_EXCEEDED',
+          message: companyLimitCheck.message,
+          data: {
+            limit: companyLimitCheck.limit,
+            todayUsed: companyLimitCheck.todayUsed,
+            remaining: companyLimitCheck.remaining,
+          },
+        });
+      }
+
       // ── Balance check ──────────────────────────────────────────────────────
       const currentBalance = await ledgerService.getAvailableBalance(user_id);
       if (currentBalance < total_amount) {
@@ -808,6 +831,14 @@ async function failProcessingPayout(req, res) {
         reason: failReason
       }
     }, { transaction: tr });
+
+    try {
+      await sharedCcBillLimitService.releaseReservation({
+        flow: 'cc_bill_3',
+        referenceId: locked.reference_id,
+        transaction: tr,
+      });
+    } catch (_) {}
 
     await tr.commit();
 
@@ -1197,6 +1228,28 @@ async function handleCallback(req, res) {
             };
 
             await billPayment.save({ transaction: tr });
+          }
+
+          if (newStatus === 'SUCCESS') {
+            try {
+              await sharedCcBillLimitService.commitReservation({
+                flow: 'cc_bill_3',
+                referenceId: merchantRefId,
+                transaction: tr,
+              });
+            } catch (commitErr) {
+              vimoCallbackLog('ERROR', `Failed to commit cc_bill_3 limit reservation for ${merchantRefId}`, commitErr);
+            }
+          } else if (newStatus === 'FAILED') {
+            try {
+              await sharedCcBillLimitService.releaseReservation({
+                flow: 'cc_bill_3',
+                referenceId: merchantRefId,
+                transaction: tr,
+              });
+            } catch (releaseErr) {
+              vimoCallbackLog('ERROR', `Failed to release cc_bill_3 limit reservation for ${merchantRefId}`, releaseErr);
+            }
           }
         }
 

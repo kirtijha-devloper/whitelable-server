@@ -4,6 +4,7 @@ const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain
 const {
   getSuperAdminData,
   getAdminDetails,
+  getAdminServicesController,
   createSuperAdmin,
   updateAdmin,
   updateAdminStatus,
@@ -28,12 +29,33 @@ const {
   getServiceSettings,
   updateServiceSettings,
 } = require("../controllers/serviceSettingsController");
+const serviceChargeRoutes = require("./serviceChargeRoutes");
+const posChargeRuleRoutes = require("./posChargeRuleRoutes");
+const payoutChargeRoutes = require("./payoutChargeRoutes");
+const userPayoutChargeRoutes = require("./userPayoutChargeRoutes");
+const chargeRoutes = require("./chargeRoutes");
+const serviceFeeRoutes = require("./serviceFeeRoutes");
+const commissionRoutes = require("./commissionRoutes");
 
 const router = express.Router();
 
 // Super Admin Dashboard Route ________________________________________________
 
 router.get("/dashboard", validateToken, validateWhitelabelDomain , getSuperAdminDashboard);
+// ── Rate & Charge Settings for Super Admin ─────────────────────────────────
+router.use("/service-charges", serviceChargeRoutes);
+router.use("/rate-settings/pos", posChargeRuleRoutes);
+router.use("/pos-charge-rules", posChargeRuleRoutes);
+router.use("/rate-settings/payout", payoutChargeRoutes);
+router.use("/payout-charges", payoutChargeRoutes);
+router.use("/rate-settings/user-payout", userPayoutChargeRoutes);
+router.use("/user-payout-charges", userPayoutChargeRoutes);
+router.use("/rate-settings/slabs", chargeRoutes);
+router.use("/charge-slabs", chargeRoutes);
+router.use("/rate-settings/service-fees", serviceFeeRoutes);
+router.use("/service-fees", serviceFeeRoutes);
+router.use("/rate-settings/commissions", commissionRoutes);
+router.use("/commissions", commissionRoutes);
 
 // ── Service Management APIs ──────────────────────────────────────────────────
 router.get("/services", validateToken, validateWhitelabelDomain, getServicesListController);
@@ -74,6 +96,10 @@ router.patch("/admin/:id/status", validateToken, validateWhitelabelDomain, updat
 router.put("/admin/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 router.patch("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 router.put("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
+
+// ── Super Admin Admin-Wise Services ─────────────────────────────────────────
+router.get("/admin/:id/services", validateToken, validateWhitelabelDomain, getAdminServicesController);
+router.get("/:id/services", validateToken, validateWhitelabelDomain, getAdminServicesController);
 
 // ── Super Admin Single Admin Details ─────────────────────────────────────────
 router.get("/admin/:id", validateToken, validateWhitelabelDomain, getAdminDetails);

@@ -168,6 +168,7 @@ const User = db.define("User", {
   company_id: {
     type: Sequelize.STRING,
     allowNull: true,
+    field: "company_id",
   },
   username: {
     type: Sequelize.STRING,
@@ -199,6 +200,8 @@ const User = db.define("User", {
     type: Sequelize.DATE,
     defaultValue: Sequelize.NOW,
   },
+}, {
+  tableName: "Users",
 });
 
 User.associate = function (models) {
@@ -220,6 +223,18 @@ User.associate = function (models) {
     targetKey: "company_id",
     as: "company",
   });
+  if (models.Commission) {
+    User.hasMany(models.Commission, {
+      foreignKey: "user_id",
+      as: "commissions",
+    });
+  }
+  if (models.Transaction) {
+    User.hasMany(models.Transaction, {
+      foreignKey: "user_id",
+      as: "transactions",
+    });
+  }
 };
 
 module.exports = User;

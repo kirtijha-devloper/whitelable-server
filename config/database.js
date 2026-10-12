@@ -24,6 +24,7 @@ if (process.env.NODE_ENV === 'test') {
     host: process.env.DB_HOST,
     dialect: process.env.DB_DIALECT, // e.g., 'postgres', 'mysql'
     port: process.env.DB_PORT || (process.env.DB_DIALECT === 'postgres' ? '5432' : process.env.DB_DIALECT === 'mysql' ? '3306' : undefined),
+    attributeBehavior: 'escape',
     // Enable SSL for cloud-hosted databases (e.g. Neon)
     ...( (process.env.DB_SSL === 'true' || (process.env.DB_HOST && process.env.DB_HOST.includes('neon.tech'))) && {
       dialectOptions: {
