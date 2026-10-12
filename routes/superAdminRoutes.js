@@ -12,6 +12,7 @@ const {
   getSuperAdminTransactionReport,
   getSuperAdminCommissionReport,
   getSuperAdminServiceWiseReport,
+  getSuperAdminDashboard
 } = require("../controllers/superAdminController");
 const {
   getPosInventory,
@@ -38,6 +39,9 @@ const commissionRoutes = require("./commissionRoutes");
 
 const router = express.Router();
 
+// Super Admin Dashboard Route ________________________________________________
+
+router.get("/dashboard", validateToken, validateWhitelabelDomain , getSuperAdminDashboard);
 // ── Rate & Charge Settings for Super Admin ─────────────────────────────────
 router.use("/service-charges", serviceChargeRoutes);
 router.use("/rate-settings/pos", posChargeRuleRoutes);
