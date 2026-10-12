@@ -193,10 +193,11 @@ const adminProcessNotification = asyncHandler(async (req, res) => {
             return res.status(400).json({message : "No Domain Name is registered"});
         }
 
-        if (!req.user || req.user.role !== 'admin') {
+        const userRole = String(req.user?.role || '').trim().toLowerCase();
+        if (!req.user || (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'superadmin')) {
             return res.status(403).json({
                 success: false,
-                message: 'Admin role required'
+                message: 'Admin or Super Admin role required'
             });
         }
 
@@ -207,6 +208,14 @@ const adminProcessNotification = asyncHandler(async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: 'Notification not found'
+            });
+        }
+
+        // Whitelabel admins cannot process notifications belonging to another company
+        if (userRole === 'admin' && notification.company_id && notification.company_id !== companyId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized: This notification does not belong to your company'
             });
         }
 

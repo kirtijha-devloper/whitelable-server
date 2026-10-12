@@ -28,10 +28,10 @@ const createRental = asyncHandler(async (req, res) => {
     const role   = req.user.role;
     const userId = req.user.id;
 
-    if (role !== 'admin' && role !== 'super_franchise' && role !== 'franchaise' && role !== 'franchise') {
+    if (role !== 'admin' && role !== 'super_franchise' && role !== 'franchaise' && role !== 'franchise' && role !== 'super_admin') {
       return res.status(403).json({
         success: false,
-        message: 'Only admin, super franchise, or franchise can create rental rates'
+        message: 'Only super admin, admin, super franchise, or franchise can create rental rates'
       });
     }
 
@@ -48,7 +48,9 @@ const createRental = asyncHandler(async (req, res) => {
     let super_franchise_id = null;
     let targetType;
 
-    if (role === 'admin') {
+    if (role === 'super_admin') {
+      targetType = target_user_type || 'admin';
+    } else if (role === 'admin') {
       if (!target_user_type || !['super_franchise', 'franchise', 'merchant'].includes(target_user_type)) {
         return res.status(400).json({
           success: false,
@@ -75,7 +77,9 @@ const createRental = asyncHandler(async (req, res) => {
     });
 
     if (existing) {
-      const scope = role === 'admin'
+      const scope = role === 'super_admin'
+        ? `rental rate for ${targetType} accounts`
+        : role === 'admin'
         ? `admin rate for ${targetType}s`
         : role === 'super_franchise'
         ? `super franchise rate for ${targetType}s`

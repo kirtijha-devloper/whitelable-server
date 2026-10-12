@@ -3,7 +3,7 @@ const PayoutCharge = require('../models/PayoutCharge');
 
 // ── List all payout charge rules (admin only) ────────────────────────────────
 const listPayoutCharges = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
   const rules = await PayoutCharge.findAll({ order: [['from_amount', 'ASC']] });
@@ -12,7 +12,7 @@ const listPayoutCharges = asyncHandler(async (req, res) => {
 
 // ── Get a single payout charge rule by id (admin only) ───────────────────────
 const getPayoutCharge = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
   const rule = await PayoutCharge.findByPk(req.params.id);
@@ -24,7 +24,7 @@ const getPayoutCharge = asyncHandler(async (req, res) => {
 
 // ── Create a new payout charge rule (admin only) ─────────────────────────────
 const createPayoutCharge = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
@@ -57,7 +57,7 @@ const createPayoutCharge = asyncHandler(async (req, res) => {
 
 // ── Update a payout charge rule (admin only) ─────────────────────────────────
 const updatePayoutCharge = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
@@ -91,7 +91,7 @@ const updatePayoutCharge = asyncHandler(async (req, res) => {
 
 // ── Delete a payout charge rule (admin only) ─────────────────────────────────
 const deletePayoutCharge = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 

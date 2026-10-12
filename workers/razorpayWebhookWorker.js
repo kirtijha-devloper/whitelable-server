@@ -376,6 +376,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
 
     await notification.update({
       user_id: posOperator.id,
+      company_id: posOperator.company_id || notification.company_id || null,
       settlement_type: settlementTypeSnapshot
     });
 
