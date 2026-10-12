@@ -1493,6 +1493,8 @@ const approveUser = asyncHandler( async (req, res) => {
                     company = await Company.findOne({ where: { user_id: user.id } });
                 }
 
+                const companyLogo = company?.company_logo || user.shop_with_photo_url || null;
+
                 res.json({
                     email: maskEmail(user.email),
                     mobile_number: user.mobile_number, 
@@ -1513,12 +1515,19 @@ const approveUser = asyncHandler( async (req, res) => {
                     bill_payment_limit: company ? parseFloat(company.bill_payment_limit || 0) : 0,
                     company: company ? {
                         id: company.id,
-                        company_name: company.company_name,
+                        logo: companyLogo,
                         company_id: company.company_id,
                         domain_name: company.domain_name,
                         payout_limit: parseFloat(company.payout_limit || 0),
                         bill_payment_limit: parseFloat(company.bill_payment_limit || 0),
-                    } : null,
+                    } : (companyLogo ? {
+                        id: null,
+                        logo: companyLogo,
+                        company_id: user.company_id || null,
+                        domain_name: null,
+                        payout_limit: 0,
+                        bill_payment_limit: 0,
+                    } : null),
                     tpin_set: tpinSet,
                     ipay_outlet_id: user.ipay_outlet_id || null,
                     is_payout_enabled: user.is_payout_enabled,
