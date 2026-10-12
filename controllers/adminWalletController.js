@@ -104,6 +104,14 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
   }
 
   const userId = parseInt(user_id);
+  const adminId = parseInt(req.user.id);
+
+  if (adminId === userId) {
+    return res.status(400).json({
+      success: false,
+      message: "Admin cannot credit own wallet. Target user must be a different account."
+    });
+  }
 
   // Find user
   const user = await User.findByPk(userId);
@@ -131,15 +139,39 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
   const transaction = await db.transaction();
 
   try {
-    // Get current balance
+    // Lock and get Admin user to verify sufficient balance
+    let adminUser = await User.findByPk(adminId, { transaction });
+    if (!adminUser) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Admin account not found."
+      });
+    }
+
+    const adminCurrentBalance = parseFloat(adminUser.wallet) || 0;
+    if (adminCurrentBalance < parsedAmount) {
+      await transaction.rollback();
+      return res.status(422).json({
+        success: false,
+        message: `Insufficient admin wallet balance. Your balance: ₹${adminCurrentBalance.toFixed(2)}, Requested: ₹${parsedAmount.toFixed(2)}`,
+        data: {
+          admin_balance: adminCurrentBalance,
+          requested_amount: parsedAmount
+        }
+      });
+    }
+
+    // Get target user balance
     const currentBalance = parseFloat(user.wallet) || 0;
+    const adminNewBalance = parseFloat((adminCurrentBalance - parsedAmount).toFixed(2));
     const newBalance = parseFloat((currentBalance + parsedAmount).toFixed(2));
 
     const description = reason 
       ? `Admin credit: ${reason}`
-      : `Admin credit by ${req.user.name}`;
+      : `Admin credit by ${req.user.name || 'Admin'}`;
 
-    // Create ledger entry
+    // Target user ledger entry (Credit)
     const ledgerEntry = await Ledger.create({
       user_id: userId,
       transaction_type: "admin_credit",
@@ -152,13 +184,43 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
       metadata: JSON.stringify({
         admin_id: req.user.id,
         admin_name: req.user.name,
-        reason: reason
+        reason: reason,
+        idempotency_key: idempotencyKey
       }),
       company_id : companyId
     }, { transaction });
 
-    // Update user balance
-    await user.update({ wallet: newBalance }, { transaction });
+    // Admin user ledger entry (Debit / Transfer out)
+    await Ledger.create({
+      user_id: adminId,
+      transaction_type: "admin_transfer_out",
+      transaction_id: generateTransactionId(),
+      description: `Wallet transferred to ${user.name || ('User #' + user.id)}${reason ? ' (' + reason + ')' : ''}`,
+      balance_before: adminCurrentBalance,
+      credit: 0,
+      debit: parsedAmount,
+      balance: adminNewBalance,
+      metadata: JSON.stringify({
+        recipient_user_id: userId,
+        recipient_name: user.name,
+        reason: reason,
+        idempotency_key: idempotencyKey
+      }),
+      company_id: companyId
+    }, { transaction });
+
+    // Update balances
+    if (typeof user.update === "function") {
+      await user.update({ wallet: newBalance }, { transaction });
+    } else {
+      await User.update({ wallet: newBalance }, { where: { id: userId }, transaction });
+    }
+
+    if (typeof adminUser.update === "function") {
+      await adminUser.update({ wallet: adminNewBalance, start_ledger: true }, { transaction });
+    } else {
+      await User.update({ wallet: adminNewBalance, start_ledger: true }, { where: { id: adminId }, transaction });
+    }
 
     // Record audit log for system activity
     await ServiceToggleAuditLog.create({
@@ -188,6 +250,8 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
         amount: parsedAmount,
         balance_before: currentBalance,
         balance_after: newBalance,
+        admin_balance_before: adminCurrentBalance,
+        admin_balance_after: adminNewBalance,
         description: description
       }
     });
@@ -257,6 +321,14 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
   }
 
   const userId = parseInt(user_id);
+  const adminId = parseInt(req.user.id);
+
+  if (adminId === userId) {
+    return res.status(400).json({
+      success: false,
+      message: "Admin cannot debit own wallet. Target user must be a different account."
+    });
+  }
 
   // Find user
   const user = await User.findByPk(userId);
@@ -280,7 +352,7 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check sufficient balance
+  // Check sufficient balance (User cannot go negative!)
   const currentBalance = parseFloat(user.wallet) || 0;
   if (currentBalance < parsedAmount) {
     return res.status(422).json({
@@ -294,13 +366,24 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
   const transaction = await db.transaction();
 
   try {
-    const newBalance = parseFloat((currentBalance - parsedAmount).toFixed(2));
+    let adminUser = await User.findByPk(adminId, { transaction });
+    if (!adminUser) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Admin account not found."
+      });
+    }
+
+    const adminCurrentBalance = parseFloat(adminUser.wallet) || 0;
+    const userNewBalance = parseFloat((currentBalance - parsedAmount).toFixed(2));
+    const adminNewBalance = parseFloat((adminCurrentBalance + parsedAmount).toFixed(2));
 
     const description = reason 
       ? `Admin debit: ${reason}`
-      : `Admin debit by ${req.user.name}`;
+      : `Admin debit by ${req.user.name || 'Admin'}`;
 
-    // Create ledger entry
+    // Target user ledger entry (Debit)
     const ledgerEntry = await Ledger.create({
       user_id: userId,
       transaction_type: "admin_debit",
@@ -309,17 +392,47 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
       balance_before: currentBalance,
       credit: 0,
       debit: parsedAmount,
-      balance: newBalance,
+      balance: userNewBalance,
       metadata: JSON.stringify({
         admin_id: req.user.id,
         admin_name: req.user.name,
-        reason: reason
+        reason: reason,
+        idempotency_key: idempotencyKey
       }),
       company_id : companyId,
     }, { transaction });
 
-    // Update user balance
-    await user.update({ wallet: newBalance }, { transaction });
+    // Admin user ledger entry (Credit / Recovery in)
+    await Ledger.create({
+      user_id: adminId,
+      transaction_type: "admin_recovery_in",
+      transaction_id: generateTransactionId(),
+      description: `Wallet recovered from ${user.name || ('User #' + user.id)}${reason ? ' (' + reason + ')' : ''}`,
+      balance_before: adminCurrentBalance,
+      credit: parsedAmount,
+      debit: 0,
+      balance: adminNewBalance,
+      metadata: JSON.stringify({
+        source_user_id: userId,
+        source_user_name: user.name,
+        reason: reason,
+        idempotency_key: idempotencyKey
+      }),
+      company_id: companyId
+    }, { transaction });
+
+    // Update balances
+    if (typeof user.update === "function") {
+      await user.update({ wallet: userNewBalance }, { transaction });
+    } else {
+      await User.update({ wallet: userNewBalance }, { where: { id: userId }, transaction });
+    }
+
+    if (typeof adminUser.update === "function") {
+      await adminUser.update({ wallet: adminNewBalance, start_ledger: true }, { transaction });
+    } else {
+      await User.update({ wallet: adminNewBalance, start_ledger: true }, { where: { id: adminId }, transaction });
+    }
 
     // Record audit log for system activity
     await ServiceToggleAuditLog.create({
@@ -330,7 +443,7 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
       new_state: true,
       action: 'DEBIT',
       balance_before: currentBalance,
-      balance_after: newBalance,
+      balance_after: userNewBalance,
       ip_address: extractClientIp(req),
       user_agent: req.headers['user-agent'] || null,
       company_id : companyId
@@ -348,7 +461,9 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
         user_name: user.name,
         amount: parsedAmount,
         balance_before: currentBalance,
-        balance_after: newBalance,
+        balance_after: userNewBalance,
+        admin_balance_before: adminCurrentBalance,
+        admin_balance_after: adminNewBalance,
         description: description
       }
     });
