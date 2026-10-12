@@ -10,6 +10,7 @@ const PosMachine = require("../models/posMachine");
 const RazorpayNotification = require("../models/RazorpayNotification");
 const MerchantTransactionCharge = require("../models/MerchantTransactionCharge");
 const db = require("../config/database");
+const Ledger = require("../models/Ledger");
 const UsernameSequence = require("../models/UsernameSequence");
 const CompanyName = require("../models/CompanyName");
 const ServiceSetting = require("../models/ServiceSetting");
@@ -1983,6 +1984,197 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
   })
 })
 
+/**
+ * POST /api/super-admin/admin/:id/wallet/credit
+ * Super Admin credits money to an Admin's wallet (Master top-up / funding).
+ */
+const superAdminCreditAdminWallet = asyncHandler(async (req, res) => {
+  checkSuperAdminAccess(req, res);
+
+  const { id } = req.params;
+  const { amount, reason = "" } = req.body;
+
+  const parsedAmount = parseFloat(amount);
+  if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "amount is required and must be a positive number.",
+    });
+  }
+
+  const adminUser = await findAdminUser(id);
+  if (!adminUser) {
+    return res.status(404).json({
+      success: false,
+      message: "Admin account not found.",
+    });
+  }
+
+  const transaction = await db.transaction();
+
+  try {
+    const currentBalance = parseFloat(adminUser.wallet) || 0;
+    const newBalance = parseFloat((currentBalance + parsedAmount).toFixed(2));
+    const description = reason
+      ? `Super Admin credit: ${reason}`
+      : `Master wallet credit by Super Admin (${req.user?.name || 'Super Admin'})`;
+
+    const crypto = require("crypto");
+    const txnId = `SA_TXN_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
+
+    const ledgerEntry = await Ledger.create(
+      {
+        user_id: adminUser.id,
+        transaction_type: "super_admin_credit",
+        transaction_id: txnId,
+        description: description,
+        balance_before: currentBalance,
+        credit: parsedAmount,
+        debit: 0,
+        balance: newBalance,
+        metadata: JSON.stringify({
+          super_admin_id: req.user.id,
+          super_admin_name: req.user.name,
+          reason: reason,
+        }),
+        company_id: adminUser.company_id || "COMP_DEFAULT",
+      },
+      { transaction }
+    );
+
+    if (typeof adminUser.update === "function") {
+      await adminUser.update({ wallet: newBalance, start_ledger: true }, { transaction });
+    } else {
+      await User.update(
+        { wallet: newBalance, start_ledger: true },
+        { where: { id: adminUser.id }, transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    return res.status(201).json({
+      success: true,
+      message: "Admin wallet credited successfully by Super Admin.",
+      data: {
+        ledger_id: ledgerEntry.id,
+        admin_id: adminUser.id,
+        admin_name: adminUser.name,
+        amount: parsedAmount,
+        balance_before: currentBalance,
+        balance_after: newBalance,
+        description: description,
+      },
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("superAdminCreditAdminWallet error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to credit admin wallet.",
+    });
+  }
+});
+
+/**
+ * POST /api/super-admin/admin/:id/wallet/debit
+ * Super Admin debits money from an Admin's wallet.
+ */
+const superAdminDebitAdminWallet = asyncHandler(async (req, res) => {
+  checkSuperAdminAccess(req, res);
+
+  const { id } = req.params;
+  const { amount, reason = "" } = req.body;
+
+  const parsedAmount = parseFloat(amount);
+  if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "amount is required and must be a positive number.",
+    });
+  }
+
+  const adminUser = await findAdminUser(id);
+  if (!adminUser) {
+    return res.status(404).json({
+      success: false,
+      message: "Admin account not found.",
+    });
+  }
+
+  const currentBalance = parseFloat(adminUser.wallet) || 0;
+  if (currentBalance < parsedAmount) {
+    return res.status(422).json({
+      success: false,
+      message: `Insufficient admin wallet balance. Current: ₹${currentBalance.toFixed(2)}, Requested: ₹${parsedAmount.toFixed(2)}`,
+      data: { current_balance: currentBalance },
+    });
+  }
+
+  const transaction = await db.transaction();
+
+  try {
+    const newBalance = parseFloat((currentBalance - parsedAmount).toFixed(2));
+    const description = reason
+      ? `Super Admin debit: ${reason}`
+      : `Master wallet debit by Super Admin (${req.user?.name || 'Super Admin'})`;
+
+    const crypto = require("crypto");
+    const txnId = `SA_TXN_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
+
+    const ledgerEntry = await Ledger.create(
+      {
+        user_id: adminUser.id,
+        transaction_type: "super_admin_debit",
+        transaction_id: txnId,
+        description: description,
+        balance_before: currentBalance,
+        credit: 0,
+        debit: parsedAmount,
+        balance: newBalance,
+        metadata: JSON.stringify({
+          super_admin_id: req.user.id,
+          super_admin_name: req.user.name,
+          reason: reason,
+        }),
+        company_id: adminUser.company_id || "COMP_DEFAULT",
+      },
+      { transaction }
+    );
+
+    if (typeof adminUser.update === "function") {
+      await adminUser.update({ wallet: newBalance, start_ledger: true }, { transaction });
+    } else {
+      await User.update(
+        { wallet: newBalance, start_ledger: true },
+        { where: { id: adminUser.id }, transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    return res.status(201).json({
+      success: true,
+      message: "Admin wallet debited successfully by Super Admin.",
+      data: {
+        ledger_id: ledgerEntry.id,
+        admin_id: adminUser.id,
+        admin_name: adminUser.name,
+        amount: parsedAmount,
+        balance_before: currentBalance,
+        balance_after: newBalance,
+        description: description,
+      },
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("superAdminDebitAdminWallet error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to debit admin wallet.",
+    });
+  }
+});
 
 module.exports = {
   getSuperAdminData,
@@ -1996,4 +2188,6 @@ module.exports = {
   getSuperAdminCommissionReport,
   getSuperAdminServiceWiseReport,
   getSuperAdminDashboard,
+  superAdminCreditAdminWallet,
+  superAdminDebitAdminWallet,
 };

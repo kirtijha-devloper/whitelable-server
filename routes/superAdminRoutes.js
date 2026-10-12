@@ -12,7 +12,9 @@ const {
   getSuperAdminTransactionReport,
   getSuperAdminCommissionReport,
   getSuperAdminServiceWiseReport,
-  getSuperAdminDashboard
+  getSuperAdminDashboard,
+  superAdminCreditAdminWallet,
+  superAdminDebitAdminWallet,
 } = require("../controllers/superAdminController");
 const {
   getPosInventory,
@@ -96,6 +98,12 @@ router.patch("/admin/:id/status", validateToken, validateWhitelabelDomain, updat
 router.put("/admin/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 router.patch("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 router.put("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
+
+// ── Super Admin Admin Wallet Credit / Debit ──────────────────────────────────
+router.post("/admin/:id/wallet/credit", validateToken, validateWhitelabelDomain, superAdminCreditAdminWallet);
+router.post("/:id/wallet/credit", validateToken, validateWhitelabelDomain, superAdminCreditAdminWallet);
+router.post("/admin/:id/wallet/debit", validateToken, validateWhitelabelDomain, superAdminDebitAdminWallet);
+router.post("/:id/wallet/debit", validateToken, validateWhitelabelDomain, superAdminDebitAdminWallet);
 
 // ── Super Admin Admin-Wise Services ─────────────────────────────────────────
 router.get("/admin/:id/services", validateToken, validateWhitelabelDomain, getAdminServicesController);
