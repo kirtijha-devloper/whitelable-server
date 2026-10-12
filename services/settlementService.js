@@ -235,6 +235,99 @@ async function resolveEffectiveSettlement({ user, incomingTxnAmount = 0, date = 
 }
 
 /**
+ * Calculates total top-level Payin (T0) limit allocated to downstream users
+ * (Super Franchises, Standalone Franchises, Direct Merchants) under an Admin,
+ * along with the Admin's configured limit and remaining available limit.
+ *
+ * @param {Object|number|string} adminUserOrId - User object or User ID of admin
+ * @param {string|number} [companyId] - Optional company_id
+ * @param {number|string} [excludeUserId] - Optional user ID to exclude (e.g. when updating a child user)
+ * @returns {Promise<{ admin: Object|null, companyId: string|null, adminLimit: number|string|null, allocatedToUsers: number, remainingLimit: number|string|null }>}
+ */
+async function getAdminPayinLimitStats(adminUserOrId, companyId = null, excludeUserId = null) {
+  const User = require('../models/User');
+  const Company = require('../models/Company');
+
+  let admin = null;
+  if (adminUserOrId && typeof adminUserOrId === 'object' && adminUserOrId.id) {
+    admin = adminUserOrId;
+  } else if (adminUserOrId) {
+    admin = await User.findByPk(adminUserOrId, {
+      include: [{ model: Company, as: 'company', required: false }]
+    });
+  }
+
+  let compId = companyId || admin?.company_id || admin?.company?.company_id || null;
+  if (!compId && admin?.id) {
+    const comp = await Company.findOne({ where: { user_id: admin.id } });
+    if (comp) compId = comp.company_id;
+  }
+
+  if (!admin && compId) {
+    admin = await User.findOne({ where: { company_id: compId, role: 'admin' } });
+    if (!admin) {
+      const comp = await Company.findOne({ where: { company_id: compId } });
+      if (comp?.user_id) {
+        admin = await User.findByPk(comp.user_id);
+      }
+    }
+  }
+
+  const rawAdminLimit = admin?.t0_daily_limit;
+  const isAssigned = rawAdminLimit !== null && rawAdminLimit !== undefined && rawAdminLimit !== '';
+  const isUnlimited = isAssigned && String(rawAdminLimit).toLowerCase() === 'unlimited';
+  const adminLimitNum = isUnlimited ? 'unlimited' : (isAssigned ? parseFloat(rawAdminLimit) : null);
+
+  const whereUsers = {
+    role: { [Op.in]: ['super_franchise', 'franchise', 'franchaise', 'merchant', 'user'] },
+    t0_daily_limit: { [Op.not]: null },
+  };
+
+  if (compId) {
+    whereUsers.company_id = compId;
+  }
+
+  if (excludeUserId) {
+    whereUsers.id = { [Op.ne]: excludeUserId };
+  }
+
+  const users = await User.findAll({
+    where: whereUsers,
+    attributes: ['id', 'role', 't0_daily_limit', 'super_franchise_id', 'franchaise_id'],
+  });
+
+  const topLevelUsers = users.filter((u) => {
+    const r = String(u.role || '').toLowerCase();
+    if (['admin', 'superadmin', 'super_admin', 'subadmin', 'employee', 'staff'].includes(r)) return false;
+    if (r === 'super_franchise') return true;
+    if (['franchise', 'franchaise'].includes(r)) {
+      return !u.super_franchise_id;
+    }
+    return !u.franchaise_id && !u.super_franchise_id;
+  });
+
+  const allocatedToUsers = topLevelUsers.reduce((sum, u) => {
+    const l = parseFloat(u.t0_daily_limit);
+    return sum + (isNaN(l) || l <= 0 ? 0 : l);
+  }, 0);
+
+  let remainingLimit = null;
+  if (adminLimitNum === 'unlimited') {
+    remainingLimit = 'unlimited';
+  } else if (adminLimitNum !== null) {
+    remainingLimit = Math.max(0, adminLimitNum - allocatedToUsers);
+  }
+
+  return {
+    admin,
+    companyId: compId,
+    adminLimit: adminLimitNum,
+    allocatedToUsers,
+    remainingLimit,
+  };
+}
+
+/**
  * Validates requested T0 daily limit for a user (Franchise or Merchant)
  * 1. Ensures requested limit is NOT less than the user's total committed/utilized limit:
  *    - For Franchise: min limit = (allocated to merchants) + (utilized today by franchise)
@@ -404,22 +497,14 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
     (!isTargetFranchise && targetRole !== 'super_franchise' && !targetUser.franchaise_id && !targetUser.super_franchise_id);
 
   if (isTopLevelUnderAdmin) {
-    const Company = require('../models/Company');
     const compId = targetUser.company_id || requesterUser?.company_id;
-    let adminUser = null;
-    if (requesterUser && requesterUser.role === 'admin' && requesterUser.id) {
-      adminUser = await User.findByPk(requesterUser.id);
-    }
-    if (!adminUser && compId) {
-      adminUser = await User.findOne({ where: { company_id: compId, role: 'admin' } });
-      if (!adminUser) {
-        const comp = await Company.findOne({ where: { company_id: compId } });
-        if (comp?.user_id) {
-          adminUser = await User.findByPk(comp.user_id);
-        }
-      }
-    }
+    const adminPayinStats = await getAdminPayinLimitStats(
+      requesterUser?.role === 'admin' ? requesterUser : null,
+      compId,
+      targetUser.id
+    );
 
+    const adminUser = adminPayinStats.admin;
     if (adminUser) {
       const rawAdminPayin = adminUser.t0_daily_limit;
       const isAdminPayinNotSet = rawAdminPayin === null || rawAdminPayin === undefined || rawAdminPayin === '';
@@ -445,34 +530,7 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
           throw err;
         }
 
-        // Sum of all other top-level accounts under this admin
-        const whereUsers = {
-          id: { [Op.ne]: targetUser.id },
-          role: { [Op.in]: ['super_franchise', 'franchise', 'franchaise', 'merchant', 'user'] },
-          t0_daily_limit: { [Op.not]: null },
-        };
-        if (compId) {
-          whereUsers.company_id = compId;
-        }
-
-        const otherUsers = await User.findAll({
-          where: whereUsers,
-          attributes: ['id', 'role', 't0_daily_limit', 'super_franchise_id', 'franchaise_id']
-        });
-
-        const otherTopLevelAllocated = otherUsers.reduce((sum, u) => {
-          const r = String(u.role || '').toLowerCase();
-          const isTop =
-            r === 'super_franchise' ||
-            (['franchise', 'franchaise'].includes(r) && !u.super_franchise_id) ||
-            (!['franchise', 'franchaise', 'super_franchise'].includes(r) && !u.franchaise_id && !u.super_franchise_id);
-          if (isTop) {
-            const l = parseFloat(u.t0_daily_limit);
-            return sum + (isNaN(l) || l <= 0 ? 0 : l);
-          }
-          return sum;
-        }, 0);
-
+        const otherTopLevelAllocated = adminPayinStats.allocatedToUsers;
         const availableFromAdmin = Math.max(0, adminPayinPool - otherTopLevelAllocated);
 
         if (requestedLimitVal > availableFromAdmin) {
@@ -617,4 +675,5 @@ module.exports = {
   checkIsCutoffPassed,
   getUsableMainWalletBalance,
   deductUsableBalance,
+  getAdminPayinLimitStats,
 };

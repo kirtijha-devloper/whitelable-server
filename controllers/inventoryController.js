@@ -11,70 +11,143 @@ const PosMachine = require("../models/posMachine");
  */
 const getPosInventory = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status, search, q } = req.query;
-  const searchTerm = (search || q || "").trim();
-  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-  const where = {};
+  const searchTerm = (search || q || "").trim().toLowerCase();
+  const pageNum = parseInt(page, 10) || 1;
+  const limitNum = parseInt(limit, 10) || 10;
+  const offset = (pageNum - 1) * limitNum;
 
-  if (status && status !== "all") {
-    where.status = status;
-  }
+  const User = require("../models/User");
 
-  if (searchTerm) {
-    where[Op.or] = [
-      { tid_number: { [Op.iLike]: `%${searchTerm}%` } },
-      { serial_number: { [Op.iLike]: `%${searchTerm}%` } },
-      { model: { [Op.iLike]: `%${searchTerm}%` } },
-      { company_name: { [Op.iLike]: `%${searchTerm}%` } },
-      { assigned_to: { [Op.iLike]: `%${searchTerm}%` } },
-    ];
-  }
-
-  const { count, rows } = await PosInventory.findAndCountAll({
-    where,
-    limit: parseInt(limit, 10),
-    offset: parseInt(offset, 10),
+  // 1. Fetch live machines from master PosMachine table (with assigned users)
+  const posMachines = await PosMachine.findAll({
     order: [["createdAt", "DESC"]],
   });
 
-  // If pos_inventory is empty, fallback/merge from PosMachine table for seamless UX
-  if (count === 0 && !searchTerm && (!status || status === "all")) {
-    const fallbackMachines = await PosMachine.findAll({
-      limit: parseInt(limit, 10),
-      order: [["createdAt", "DESC"]],
-    });
-    if (fallbackMachines.length > 0) {
-      const mapped = fallbackMachines.map((pm) => ({
-        id: pm.id,
-        tid_number: pm.pos_machine_id || `TID-${pm.id}`,
-        serial_number: pm.serial_number || `SN-${pm.id}`,
-        model: pm.model_name || 'Pax A920',
-        company_name: pm.company_name || 'AGRO-AXIS',
-        assigned_to: pm.assigned_to ? `User #${pm.assigned_to}` : 'Unassigned',
-        assigned_user_id: pm.assigned_to || null,
-        status: pm.status || 'available',
-        createdAt: pm.createdAt,
-      }));
-      return res.status(200).json({
-        success: true,
-        data: mapped,
-        pagination: {
-          total: fallbackMachines.length,
-          page: parseInt(page, 10),
-          limit: parseInt(limit, 10),
-          totalPages: 1,
-        },
+  const userIds = posMachines.map((pm) => pm.assigned_to).filter(Boolean);
+  const assignedUsers = userIds.length
+    ? await User.findAll({
+        where: { id: { [Op.in]: userIds } },
+        attributes: ["id", "name", "email", "role", "username", "mobile_number"],
+      })
+    : [];
+  const userMap = assignedUsers.reduce((acc, u) => {
+    acc[u.id] = u;
+    return acc;
+  }, {});
+
+  const mappedMachines = posMachines.map((pm) => {
+    const user = pm.assigned_to ? userMap[pm.assigned_to] : null;
+    const assignedName = user
+      ? user.name || user.username || `User #${user.id}`
+      : pm.assigned_to
+      ? `User #${pm.assigned_to}`
+      : "Unassigned";
+
+    let mappedStatus = pm.status || (pm.assigned_to ? "active" : "available");
+    if (mappedStatus === "added") mappedStatus = "available";
+
+    return {
+      id: pm.id,
+      tid_number: pm.tid_number || pm.pos_machine_id || `TID-${pm.id}`,
+      serial_number: pm.device_serial_number || pm.serial_number || `SN-${pm.id}`,
+      device_serial_number: pm.device_serial_number || pm.serial_number,
+      mid_number: pm.mid_number,
+      model: pm.model_name || pm.model || "Pax A920",
+      company_name: pm.company_name || "-",
+      bank_name: pm.bank_name || "-",
+      assigned_to: assignedName,
+      assigned_user_id: pm.assigned_to || null,
+      assigned_user: user
+        ? {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            username: user.username,
+          }
+        : null,
+      status: mappedStatus,
+      createdAt: pm.createdAt,
+      source_table: "PosMachine",
+    };
+  });
+
+  // 2. Fetch records from PosInventory table (seed/mock records)
+  const inventoryRecords = await PosInventory.findAll({
+    order: [["createdAt", "DESC"]],
+  });
+
+  const existingTids = new Set(
+    mappedMachines.map((m) => String(m.tid_number || "").trim().toLowerCase())
+  );
+
+  const mappedInventory = [];
+  for (const inv of inventoryRecords) {
+    const tidLower = String(inv.tid_number || "").trim().toLowerCase();
+    if (!existingTids.has(tidLower)) {
+      mappedInventory.push({
+        id: inv.id,
+        tid_number: inv.tid_number,
+        serial_number: inv.serial_number,
+        device_serial_number: inv.serial_number,
+        model: inv.model || "Pax A920",
+        company_name: inv.company_name || "-",
+        assigned_to: inv.assigned_to || "Unassigned",
+        assigned_user_id: inv.assigned_user_id || null,
+        status: inv.status || "available",
+        createdAt: inv.createdAt,
+        source_table: "PosInventory",
       });
+      existingTids.add(tidLower);
     }
   }
 
+  // 3. Combine both lists, newest first
+  let allCombined = [...mappedMachines, ...mappedInventory].sort(
+    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+  );
+
+  // 4. Apply status filter
+  if (status && status !== "all") {
+    const filterStatus = String(status).toLowerCase();
+    allCombined = allCombined.filter((m) => {
+      const s = String(m.status || "").toLowerCase();
+      if (filterStatus === "available") return s === "available" || s === "added";
+      if (filterStatus === "active") return s === "active";
+      if (filterStatus === "returned") return s.includes("return");
+      return s === filterStatus;
+    });
+  }
+
+  // 5. Apply search filter
+  if (searchTerm) {
+    allCombined = allCombined.filter((m) => {
+      const tid = String(m.tid_number || "").toLowerCase();
+      const serial = String(m.serial_number || "").toLowerCase();
+      const model = String(m.model || "").toLowerCase();
+      const comp = String(m.company_name || "").toLowerCase();
+      const assigned = String(m.assigned_to || "").toLowerCase();
+      return (
+        tid.includes(searchTerm) ||
+        serial.includes(searchTerm) ||
+        model.includes(searchTerm) ||
+        comp.includes(searchTerm) ||
+        assigned.includes(searchTerm)
+      );
+    });
+  }
+
+  const total = allCombined.length;
+  const paginated = allCombined.slice(offset, offset + limitNum);
+
   return res.status(200).json({
     success: true,
-    data: rows,
+    data: paginated,
     pagination: {
-      total: count,
-      page: parseInt(page, 10),
-      limit: parseInt(limit, 10),
-      totalPages: Math.ceil(count / parseInt(limit, 10)) || 1,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum) || 1,
     },
   });
 });

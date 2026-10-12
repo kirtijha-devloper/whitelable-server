@@ -174,9 +174,14 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
 
 const createPosMachine = asyncHandler(async (req, res ) => {
     try {
+    const userRole = String(req.user?.role || '').toLowerCase();
+    if (userRole !== 'super_admin') {
+      res.status(403);
+      throw new Error("Access denied: only Super Admin can create new POS machines");
+    }
+
     console.log("create params:", req.body)
     const { tid_number, mid_number, device_serial_number, company_name, bank_name } = req.body;
-    const userRole = req.user.role
     if (!tid_number || !mid_number || !device_serial_number) {
         res.status(400);
             throw new Error ("All fields are mandatory !")
@@ -783,6 +788,12 @@ const updatePosMachine = asyncHandler(async (req, res) => {
 
 const bulkCreatePosMachines = asyncHandler(async (req, res) => {
   try {
+    const userRole = String(req.user?.role || '').toLowerCase();
+    if (userRole !== 'super_admin') {
+      res.status(403);
+      throw new Error("Access denied: only Super Admin can bulk upload POS machines");
+    }
+
     console.log("Request received:", req.file);
     
     if (!req.file) {
@@ -790,7 +801,6 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
       throw new Error("Please upload a CSV file");
     }
 
-    const userRole = req.user.role;
     let franchaiseId = null;
     if (userRole === "franchaise") {
       franchaiseId = req.user.id;

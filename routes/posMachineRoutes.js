@@ -50,14 +50,14 @@ router.get("/assigned/:userId", ensureEmployeePermission([
   message: "You do not have permission to view assigned POS machines.",
 }), getPosMachinesByUserId);
 
-// ➕ Create
+// ➕ Create (Super Admin only)
 router.post("/", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
   message: "You do not have permission to manage stock POS data.",
-  elevateRole: "admin",
+  elevateRole: "super_admin",
 }), createPosMachine);
 router.post("/bulk-create", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_MANAGE, {
   message: "You do not have permission to manage stock POS data.",
-  elevateRole: "admin",
+  elevateRole: "super_admin",
 }), upload.single('file'), bulkCreatePosMachines); // Updated route with file upload
 
 // 🔄 Activate/Deactivate
