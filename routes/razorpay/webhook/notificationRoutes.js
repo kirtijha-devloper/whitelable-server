@@ -26,11 +26,22 @@ router.get("/notification/:id", validateToken, validateWhitelabelDomain, getNoti
 router.post("/notification/:id/admin-process", validateToken, validateWhitelabelDomain, adminProcessNotification);
 router.post("/notification/:id/admin-process-custom-charge", validateToken, validateWhitelabelDomain, adminProcessNotificationWithCustomCharge);
 
+const requireSuperAdmin = (req, res, next) => {
+  const role = String(req.user?.role || "").trim().toLowerCase();
+  if (role === "super_admin" || role === "superadmin") {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: "Access denied. Only Super Admin is authorized for this operation."
+  });
+};
+
 // Admin: replay missed notifications to api.abheepay.com (reads event_json from DB)
 // ?dryRun=true  → just count, don't forward
 // ?from=<ISO>   → override start time (default: 2026-09-12 18:34 IST)
 // ?to=<ISO>     → override end time   (default: now)
-router.post("/notifications/replay-to-api", validateToken, validateWhitelabelDomain, replayNotificationsToApi);
+router.post("/notifications/replay-to-api", validateToken, validateWhitelabelDomain, requireSuperAdmin, replayNotificationsToApi);
 
 module.exports = router;
 
