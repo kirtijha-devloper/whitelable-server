@@ -507,9 +507,12 @@ const updateSettlementType = asyncHandler(async (req, res) => {
     try {
       await ServiceToggleAuditLog.create({
         user_id: req.user.id,
+        affected_user_id: user.id,
         target_type: user.role === 'franchaise' ? 'franchise' : 'user',
         target_id: user.id,
         service_key: 'pos_t0_settlement',
+        previous_state: normalizeSettlementType(prevType) === 'T0',
+        new_state: normalized === 'T0',
         action: normalized === 'T0' ? 'ENABLE' : 'DISABLE',
         ip_address: req.ip || '127.0.0.1',
         user_agent: req.headers ? req.headers['user-agent'] : null,

@@ -258,6 +258,17 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
     ...transactionOpts,
   });
 
+  const targetAdminId = companyAdminUser?.id || (options.user?.id ? Number(options.user.id) : null);
+  const rawAdminMap = new Map();
+
+  if (targetAdminId) {
+    const rawAdminRecords = await UserServiceSetting.findAll({
+      where: { user_id: targetAdminId },
+      ...transactionOpts,
+    });
+    rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
+  }
+
   if (companyAdminUser) {
     const superAdmins = await User.findAll({
       where: { role: 'super_admin' },
@@ -266,13 +277,6 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
     });
     const superAdminIds = new Set(superAdmins.map((u) => u.id));
     superAdminIds.add(1);
-
-    const rawAdminRecords = await UserServiceSetting.findAll({
-      where: { user_id: companyAdminUser.id },
-      ...transactionOpts,
-    });
-    const rawAdminMap = new Map();
-    rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
 
     for (const [serviceKey, isEnabled] of entries) {
       if (!isEnabled) continue;
@@ -316,11 +320,16 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
         });
       }
 
+      const adminRec = rawAdminMap.get(serviceKey);
+      const previousState = adminRec !== undefined
+        ? Boolean(adminRec.is_enabled)
+        : (currentMap[serviceKey]?.is_enabled !== false);
+
       await ServiceToggleAuditLog.create({
         user_id: performingUserId,
         affected_user_id: null,
         service_key: serviceKey,
-        previous_state: null,
+        previous_state: Boolean(previousState),
         new_state: isEnabledBool,
         action: isEnabledBool ? 'COMPANY_ENABLE' : 'COMPANY_DISABLE',
         ip_address: ipAddress,
