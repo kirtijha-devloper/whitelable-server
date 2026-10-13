@@ -377,7 +377,7 @@ const getServiceSettings = asyncHandler(async (req, res) => {
     const adminUserSettings = await getUserServiceSettingsForUser(targetAdminUser);
     const result = {};
     for (const [key, globalCfg] of Object.entries(globalMap)) {
-      const isTier1Disabled = globalCfg.is_enabled === false;
+      const isTier1Disabled = globalCfg.is_enabled === false && (globalCfg.updated_by === null || superAdminIds.has(Number(globalCfg.updated_by)));
       const adminRec = rawAdminMap.get(key);
       const isTier2Disabled = adminRec && adminRec.is_enabled === false && superAdminIds.has(Number(adminRec.updated_by));
       const isSuperAdminDisabled = isTier1Disabled || Boolean(isTier2Disabled);

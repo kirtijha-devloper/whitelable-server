@@ -843,6 +843,18 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
     company_id: companyId,
   }));
 
+  // Also update the performing admin's own record in UserServiceSetting so organization default is updated
+  if (performingUserId) {
+    rows.push({
+      user_id: Number(performingUserId),
+      service_key: serviceKey,
+      is_enabled: isEnabledBool,
+      updated_by: performingUserId ?? null,
+      updated_at: now,
+      company_id: companyId,
+    });
+  }
+
   await UserServiceSetting.bulkCreate(rows, {
     updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at', 'company_id'],
     ...transactionOpts,
@@ -869,12 +881,17 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
     }
   }
 
-  // Also update global default service_settings table
-  await ServiceSetting.upsert({
-    service_key: serviceKey,
-    is_enabled: isEnabledBool,
-    updated_by: performingUserId ?? null,
-  }, transactionOpts);
+  // Only update global platform ServiceSetting table if performing user is Super Admin
+  const requesterRole = String(options.role || options.user?.role || '').toLowerCase();
+  const isSuperAdminCaller = requesterRole === 'super_admin' || Boolean(options.isSuperAdmin);
+
+  if (isSuperAdminCaller) {
+    await ServiceSetting.upsert({
+      service_key: serviceKey,
+      is_enabled: isEnabledBool,
+      updated_by: performingUserId ?? null,
+    }, transactionOpts);
+  }
 
   // Record audit log
   const ipAddress = options.ip_address || options.ip || null;
