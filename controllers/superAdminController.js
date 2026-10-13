@@ -204,7 +204,7 @@ function tryDecryptId(rawId) {
  */
 async function findAdminUser(identifier) {
   if (!identifier) return null;
-  const resolved = tryDecryptId(identifier);  
+  const resolved = tryDecryptId(identifier);
 
   const numericId = Number(resolved);
   if (Number.isFinite(numericId) && numericId > 0) {
@@ -1914,7 +1914,7 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
 
     // Overall Total Business Volume (₹)
     RazorpayNotification.sum("amount", {
-      where: { status: {[Op.in]: SUCCESS_STATUSES}}
+      where: { status: { [Op.in]: SUCCESS_STATUSES } }
     }),
 
     // Today's Business Volume (₹)
@@ -1930,21 +1930,21 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
 
     //Today's Commision Revenue
     MerchantTransactionCharge.sum("charge_amount", {
-      where : { createdAt: { [Op.between]: [todayStart, todayEnd] } }
+      where: { createdAt: { [Op.between]: [todayStart, todayEnd] } }
     }),
 
     // Top Admins / Companies by Volume for spending chart
     RazorpayNotification.findAll({
-      attributes : [
+      attributes: [
         "company_id",
-        [fn("SUM",col("amount")), "total_amount"]
+        [fn("SUM", col("amount")), "total_amount"]
       ],
       where: {
         company_id: { [Op.ne]: null },
         status: { [Op.in]: SUCCESS_STATUSES }
       },
       group: ["company_id"],
-      order: [[fn("SUM",col("amount")), "DESC"]],
+      order: [[fn("SUM", col("amount")), "DESC"]],
       limit: 5,
       raw: true
     })
@@ -1954,8 +1954,8 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
 
   const companyIds = topAdminsRaw.map((r) => r.company_id).filter(Boolean);
   const companies = companyIds.length ? await Company.findAll({
-    where : { company_id : { [Op.in]: companyIds } },
-    attributes: ["company_id","company_name"]
+    where: { company_id: { [Op.in]: companyIds } },
+    attributes: ["company_id", "company_name"]
   }) : [];
 
   const companyMap = new Map(companies.map((c) => [c.company_id,
@@ -1966,8 +1966,53 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
     amount: Number(row.total_amount || 0)
   }));
 
+  // Service Usages Calculation
+  const [posTxns, pgTxns, ccBillTxns, payoutTxns] = await Promise.all([
+
+    // POS transactions (jisme machine ID hai)
+    RazorpayNotification.count({
+      where: { pos_machine_id: { [Op.ne]: null } },
+    }).catch(() => 0),
+
+    // PG transactions (jisme machine ID nahi hai)
+    RazorpayNotification.count({
+      where: { pos_machine_id: null },
+    }).catch(() => 0),
+
+    // Bill Payments
+    (async () => {
+      try {
+        const CcBillPayment = require("../models/CcBillPayment");
+        return await CcBillPayment.count();
+      } catch (_) {
+        return 0;
+      }
+    })(),
+
+    // Payout / DMT
+    (async () => {
+      try {
+        const PayoutTransaction = require("../models/PayoutTransaction");
+        return await PayoutTransaction.count();
+      } catch (_) {
+        return 0;
+      }
+    })(),
+  ]);
+
+  const totalServiceTxns = posTxns + pgTxns + ccBillTxns + payoutTxns;
+  const serviceUsage =
+    totalServiceTxns > 0
+      ? [
+        { name: "POS", value: Math.round((posTxns / totalServiceTxns) * 100) },
+        { name: "PG", value: Math.round((pgTxns / totalServiceTxns) * 100) },
+        { name: "Bill Payments", value: Math.round((ccBillTxns / totalServiceTxns) * 100) },
+        { name: "Payout / DMT", value: Math.round((payoutTxns / totalServiceTxns) * 100) },
+      ].filter((item) => item.value > 0)
+      : [];
+
   res.status(200).json({
-    success : true,
+    success: true,
     message: "Super admin dashboard data fetched successfully",
     data: {
       todaysBusiness: Number(todayBusinessRaw || 0),
@@ -1978,7 +2023,9 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
       failedTransactions: Number(failedTransactions || 0),
       totalCommission: Number(totalCommissionRaw || 0),
       todaysCommission: Number(todayCommissionRaw || 0),
-      spending: spending.length ? spending : []
+      spending: spending.length ? spending : [],
+      serviceUsage : serviceUsage.length ?
+      serviceUsage : [],
     }
   })
 })
