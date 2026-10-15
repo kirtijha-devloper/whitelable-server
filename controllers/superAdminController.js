@@ -445,8 +445,6 @@ const getAdminServicesController = asyncHandler(async (req, res) => {
   const UserServiceSetting = require("../models/UserServiceSetting");
   const globalMap = await getServiceSettingsMap();
 
-  console.log("global service settings map:", globalMap);
-
   console.log(`[SuperAdmin] Fetching services for admin ID ${admin.id} (company: ${admin.company_id || "N/A"})`);
 
   const userSettings = await UserServiceSetting.findAll({
@@ -460,7 +458,7 @@ const getAdminServicesController = asyncHandler(async (req, res) => {
 
   const result = {};
   for (const [key, globalCfg] of Object.entries(globalMap)) {
-    const isSuperAdminDisabled = globalCfg.is_enabled === false;
+    const isSuperAdminDisabled = globalCfg.updated_by_role === "super_admin" && globalCfg.is_enabled === false;
     const adminEnabled = userSettingsMap[key] !== undefined ? userSettingsMap[key] : true;
     result[key] = {
       key,

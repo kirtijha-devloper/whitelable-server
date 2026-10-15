@@ -69,9 +69,12 @@ function normalizeGlobalServiceSettingsMap(records) {
       continue;
     }
 
+    const user = record.updated_by ? User.findByPk(record.updated_by, { attributes: ['id', 'role'] }) : null;
+
     normalized[record.service_key] = {
       is_enabled: record.is_enabled !== false,
       updated_by: record.updated_by ?? null,
+      updated_by_role: user ? user.role : null,
       updated_at: record.updatedAt || record.updated_at || null,
       label: record.label || null,
       category: record.category || 'General',
