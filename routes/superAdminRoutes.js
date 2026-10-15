@@ -100,6 +100,8 @@ router.patch("/:id/status", validateToken, validateWhitelabelDomain, updateAdmin
 router.put("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 
 // ── Super Admin Admin Wallet Credit / Debit ──────────────────────────────────
+router.post("/wallet/credit", validateToken, validateWhitelabelDomain, superAdminCreditAdminWallet);
+router.post("/wallet/debit", validateToken, validateWhitelabelDomain, superAdminDebitAdminWallet);
 router.post("/admin/:id/wallet/credit", validateToken, validateWhitelabelDomain, superAdminCreditAdminWallet);
 router.post("/:id/wallet/credit", validateToken, validateWhitelabelDomain, superAdminCreditAdminWallet);
 router.post("/admin/:id/wallet/debit", validateToken, validateWhitelabelDomain, superAdminDebitAdminWallet);

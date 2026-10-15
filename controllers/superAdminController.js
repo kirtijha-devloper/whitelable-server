@@ -445,6 +445,8 @@ const getAdminServicesController = asyncHandler(async (req, res) => {
   const UserServiceSetting = require("../models/UserServiceSetting");
   const globalMap = await getServiceSettingsMap();
 
+  console.log("global service settings map:", globalMap);
+
   console.log(`[SuperAdmin] Fetching services for admin ID ${admin.id} (company: ${admin.company_id || "N/A"})`);
 
   const userSettings = await UserServiceSetting.findAll({
@@ -2143,7 +2145,7 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
 const superAdminCreditAdminWallet = asyncHandler(async (req, res) => {
   checkSuperAdminAccess(req, res);
 
-  const { id } = req.params;
+  const id = req.params?.id || req.body?.user_id || req.body?.admin_id;
   const { amount, reason = "" } = req.body;
 
   const parsedAmount = parseFloat(amount);
@@ -2151,6 +2153,13 @@ const superAdminCreditAdminWallet = asyncHandler(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "amount is required and must be a positive number.",
+    });
+  }
+
+  if (!id) {
+    return res.status(400).json({
+      success: false,
+      message: "user_id or admin ID is required.",
     });
   }
 
@@ -2235,7 +2244,7 @@ const superAdminCreditAdminWallet = asyncHandler(async (req, res) => {
 const superAdminDebitAdminWallet = asyncHandler(async (req, res) => {
   checkSuperAdminAccess(req, res);
 
-  const { id } = req.params;
+  const id = req.params?.id || req.body?.user_id || req.body?.admin_id;
   const { amount, reason = "" } = req.body;
 
   const parsedAmount = parseFloat(amount);
@@ -2243,6 +2252,13 @@ const superAdminDebitAdminWallet = asyncHandler(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "amount is required and must be a positive number.",
+    });
+  }
+
+  if (!id) {
+    return res.status(400).json({
+      success: false,
+      message: "user_id or admin ID is required.",
     });
   }
 
