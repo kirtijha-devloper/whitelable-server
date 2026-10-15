@@ -225,13 +225,50 @@ const getDashboard = asyncHandler(async (req, res) => {
     const isEmployeeUser = requesterRole && String(requesterRole).toLowerCase() === 'employee';
 
     if (role === 'admin' || isEmployeeUser) {
-      const [activeMachineCount, deactiveMachineCount, activeMerchantCount, activeFranchaiseCount] =
-        await Promise.all([
-          PosMachine.count({ where: { status: { [Op.ne]: 'in_active' } } }),
-          PosMachine.count({ where: { status: 'in_active' } }),
-          User.count({ where: { role: 'merchant', status: 'active' } }),
-          User.count({ where: { role: 'franchaise', status: 'active' } })
-        ]);
+      const companyId = req.user?.company_id || req.company;
+      const userWhere = companyId ? { company_id: companyId } : {};
+
+      const [
+        activeMachineCount,
+        deactiveMachineCount,
+        totalMachineCount,
+        merchantCount,
+        franchaiseCount,
+        superFranchiseCount
+      ] = await Promise.all([
+        PosMachine.count({
+          where: {
+            status: { [Op.notIn]: ['in_active', 'inactive'] }
+          }
+        }),
+        PosMachine.count({
+          where: {
+            status: { [Op.in]: ['in_active', 'inactive'] }
+          }
+        }),
+        PosMachine.count(),
+        User.count({
+          where: {
+            ...userWhere,
+            role: 'merchant',
+            status: 'active'
+          }
+        }),
+        User.count({
+          where: {
+            ...userWhere,
+            role: { [Op.in]: ['franchaise', 'franchise'] },
+            status: 'active'
+          }
+        }),
+        User.count({
+          where: {
+            ...userWhere,
+            role: 'super_franchise',
+            status: 'active'
+          }
+        })
+      ]);
 
       const [posStats, ccBillStats, baCcBillStats, today_total_payout] = await Promise.all([
         getRazorpayTransactionStats(dateWhere),
@@ -241,9 +278,14 @@ const getDashboard = asyncHandler(async (req, res) => {
       ]);
 
       data = {
-        pos_machines: { active: activeMachineCount, inactive: deactiveMachineCount },
-        merchants: { count: activeMerchantCount },
-        franchaises: { count: activeFranchaiseCount },
+        pos_machines: {
+          active: activeMachineCount,
+          inactive: deactiveMachineCount,
+          total: totalMachineCount || (activeMachineCount + deactiveMachineCount)
+        },
+        merchants: { count: merchantCount },
+        franchaises: { count: franchaiseCount },
+        super_franchises: { count: superFranchiseCount },
         pos_transactions: {
           total: posStats.total,
           success: posStats.success,

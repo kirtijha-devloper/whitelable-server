@@ -119,7 +119,16 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     if (company_name) where.company_name = { [Op.iLike]: `%${String(company_name).trim()}%` };
     if (bank_name) where.bank_name = { [Op.iLike]: `%${String(bank_name).trim()}%` };
 
-    if (status) where.status = status;
+    if (status && String(status).toLowerCase().trim() !== 'all') {
+      const normalizedStatus = String(status).toLowerCase().trim();
+      if (normalizedStatus === 'active') {
+        where.status = { [Op.notIn]: ['in_active', 'inactive'] };
+      } else if (normalizedStatus === 'inactive' || normalizedStatus === 'in_active' || normalizedStatus === 'deactive') {
+        where.status = { [Op.in]: ['in_active', 'inactive'] };
+      } else {
+        where.status = status;
+      }
+    }
     if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
 
     // Role-based access - filter by logged-in user
@@ -627,19 +636,61 @@ const assignPosMachineToSuperFranchise = asyncHandler(async (req, res) => {
 const getPosMachineList = asyncHandler(async (req, res) => {
     try {
     console.log("user", req.user.role)
-    const { status, company_name, bank_name, page = 1, limit = 10 } = req.query;
+    const {
+      status,
+      company_name,
+      bank_name,
+      tid_number,
+      mid_number,
+      device_serial_number,
+      search,
+      page = 1,
+      limit = 10
+    } = req.query;
     const role = req.user.role; 
     const id = req.user.id;
 
     const offset = (page - 1) * limit;
     const where = {};
 
-    if (status) where.status = status;
+    if (status && String(status).toLowerCase().trim() !== 'all') {
+      const normalizedStatus = String(status).toLowerCase().trim();
+      if (normalizedStatus === 'active') {
+        where.status = { [Op.notIn]: ['in_active', 'inactive'] };
+      } else if (normalizedStatus === 'inactive' || normalizedStatus === 'in_active' || normalizedStatus === 'deactive') {
+        where.status = { [Op.in]: ['in_active', 'inactive'] };
+      } else {
+        where.status = status;
+      }
+    }
+    if (tid_number) where.tid_number = tid_number;
+    if (mid_number) where.mid_number = mid_number;
+    if (device_serial_number) where.device_serial_number = device_serial_number;
+    if (search) {
+      const trimmedSearch = String(search).trim();
+      where[Op.or] = [
+        { tid_number: { [Op.iLike]: `%${trimmedSearch}%` } },
+        { mid_number: { [Op.iLike]: `%${trimmedSearch}%` } },
+        { device_serial_number: { [Op.iLike]: `%${trimmedSearch}%` } },
+        { company_name: { [Op.iLike]: `%${trimmedSearch}%` } },
+        { bank_name: { [Op.iLike]: `%${trimmedSearch}%` } },
+      ];
+    }
     if (company_name) where.company_name = { [Op.iLike]: `%${String(company_name).trim()}%` };
     if (bank_name) where.bank_name = { [Op.iLike]: `%${String(bank_name).trim()}%` };
 
     // Role-based scoping
-    if (role === 'franchaise' || role === 'merchant') {
+    if (role === "super_franchise") {
+      const downstreamUsers = await User.findAll({
+        where: { super_franchise_id: id },
+        attributes: ['id']
+      });
+      const userIds = [id, ...downstreamUsers.map(u => u.id)];
+      where[Op.or] = [
+        { super_franchise_id: id },
+        { assigned_to: { [Op.in]: userIds } }
+      ];
+    } else if (role === 'franchaise' || role === 'franchise' || role === 'merchant') {
       where.assigned_to = id;
     }
 
