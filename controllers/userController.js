@@ -1492,8 +1492,23 @@ const approveUser = asyncHandler( async (req, res) => {
                 if (!company) {
                     company = await Company.findOne({ where: { user_id: user.id } });
                 }
+                if (!company && (user.franchaise_id || user.super_franchise_id)) {
+                    const parent = await User.findByPk(user.franchaise_id || user.super_franchise_id);
+                    if (parent?.company_id) {
+                        company = await Company.findOne({ where: { company_id: parent.company_id } });
+                    }
+                }
 
-                const companyLogo = company?.company_logo || user.shop_with_photo_url || null;
+                let companyLogo = company?.company_logo || null;
+                if (company && !companyLogo) {
+                    const companyAdmin = await User.findOne({ where: { company_id: company.company_id, role: 'admin' } });
+                    if (companyAdmin?.shop_with_photo_url) {
+                        companyLogo = companyAdmin.shop_with_photo_url;
+                    }
+                }
+                if (!companyLogo && user.role === 'admin') {
+                    companyLogo = user.shop_with_photo_url || null;
+                }
 
                 res.json({
                     email: maskEmail(user.email),
