@@ -1446,7 +1446,16 @@ const getSuperAdminTransactionReport = asyncHandler(async (req, res) => {
 
   // Status filter
   if (status) {
-    where.status = status;
+    const sLower = String(status).toLowerCase().trim();
+    if (sLower === "completed" || sLower === "success") {
+      where.status = { [Op.in]: ["completed", "COMPLETED", "success", "SUCCESS", "captured", "CAPTURED", "authorized", "AUTHORIZED"] };
+    } else if (sLower === "failed") {
+      where.status = { [Op.in]: ["failed", "FAILED", "declined", "DECLINED"] };
+    } else if (sLower === "pending") {
+      where.status = { [Op.in]: ["pending", "PENDING", "created", "CREATED"] };
+    } else {
+      where.status = { [Op.iLike]: `%${status}%` };
+    }
   }
 
   // Keyword search
@@ -1517,9 +1526,9 @@ const getSuperAdminTransactionReport = asyncHandler(async (req, res) => {
     const amt = parseFloat(item.amount) || 0;
     totalVolume += amt;
     const st = String(item.status || "").toLowerCase();
-    if (st === "completed" || st === "success" || st === "captured") {
+    if (st === "completed" || st === "success" || st === "captured" || st === "authorized") {
       successCount++;
-    } else if (st === "failed") {
+    } else if (st === "failed" || st === "declined") {
       failedCount++;
     }
   }
@@ -1527,16 +1536,17 @@ const getSuperAdminTransactionReport = asyncHandler(async (req, res) => {
   const formattedRows = rows.map((r) => {
     const compId = r.company_id || r.user?.company_id || null;
     const comp = compId ? companyMap.get(compId) || null : null;
+    const rawJson = r.event_json?.raw || r.event_json || {};
 
     return {
       id: r.id,
       txn_id: r.txn_id,
-      rr_number: r.rr_number,
+      rr_number: r.rr_number || r.event_json?.rrNumber || rawJson?.RRN || rawJson?.rr_number,
       amount: parseFloat(r.amount) || 0,
       status: r.status,
-      payment_method: r.payment_method,
-      card_type: r.card_type,
-      card_network: r.card_network,
+      payment_method: r.payment_mode || r.payment_method || r.event_json?.paymentMode || "CARD",
+      card_type: r.payment_card_type || r.card_type || r.event_json?.paymentCardType || rawJson?.["CARD TYPE"] || rawJson?.card_type,
+      card_network: r.payment_card_brand || r.card_network || r.event_json?.paymentCardBrand || rawJson?.SCHEME,
       created_at: r.createdAt || r.created_at,
       company: comp
         ? {
