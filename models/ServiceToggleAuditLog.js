@@ -34,10 +34,18 @@ const ServiceToggleAuditLog = db.define('ServiceToggleAuditLog', {
   previous_state: {
     type: Sequelize.BOOLEAN,
     allowNull: false,
+    defaultValue: false,
+    set(val) {
+      this.setDataValue('previous_state', val === null || val === undefined ? false : Boolean(val));
+    },
   },
   new_state: {
     type: Sequelize.BOOLEAN,
     allowNull: false,
+    defaultValue: false,
+    set(val) {
+      this.setDataValue('new_state', val === null || val === undefined ? false : Boolean(val));
+    },
   },
   action: {
     type: Sequelize.STRING(50),

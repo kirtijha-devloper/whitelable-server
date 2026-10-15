@@ -116,8 +116,8 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     if (mid_number) where.mid_number = mid_number;
     if (device_serial_number) where.device_serial_number = device_serial_number;
     if (razorpay_id) where.razorpay_id = razorpay_id;
-    if (company_name) where.company_name = company_name;
-    if (bank_name) where.bank_name = bank_name;
+    if (company_name) where.company_name = { [Op.iLike]: `%${String(company_name).trim()}%` };
+    if (bank_name) where.bank_name = { [Op.iLike]: `%${String(bank_name).trim()}%` };
 
     if (status) where.status = status;
     if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
@@ -635,8 +635,8 @@ const getPosMachineList = asyncHandler(async (req, res) => {
     const where = {};
 
     if (status) where.status = status;
-    if (company_name) where.company_name = company_name;
-    if (bank_name) where.bank_name = bank_name;
+    if (company_name) where.company_name = { [Op.iLike]: `%${String(company_name).trim()}%` };
+    if (bank_name) where.bank_name = { [Op.iLike]: `%${String(bank_name).trim()}%` };
 
     // Role-based scoping
     if (role === 'franchaise' || role === 'merchant') {
