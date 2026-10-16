@@ -53,10 +53,54 @@ const getTodayRange = () => {
 const getAdminDashboard = asyncHandler(async (req, res) => {
   const { start, end } = getTodayRange();
   try {
-    const activeMachineCount = await PosMachine.count({ where: { status: 'active' } });
-    const deactiveMachineCount = await PosMachine.count({ where: { status: 'in_active' } });
-    const activeMerchantCount = await User.count({ where: { role: "merchant", status: 'active' } });
-    const activeFranchaiseCount = await User.count({ where: { role: "franchaise", status: 'active' } });
+    const role = req.user?.original_role || req.user?.role;
+    const isSuperAdmin = role === 'super_admin';
+    const companyId = req.user?.company_id || req.company;
+
+    let posWhere = {};
+    let userWhere = {};
+
+    if (!isSuperAdmin) {
+      if (companyId) {
+        userWhere.company_id = companyId;
+      }
+      let allowedUserIds = req.user?.id ? [req.user.id] : [];
+      if (companyId) {
+        const companyUsers = await User.findAll({
+          where: { company_id: companyId },
+          attributes: ['id']
+        });
+        allowedUserIds = Array.from(new Set([...allowedUserIds, ...companyUsers.map(u => u.id)]));
+      }
+      posWhere.assigned_to = { [Op.in]: allowedUserIds };
+    }
+
+    const activeMachineCount = await PosMachine.count({
+      where: {
+        ...posWhere,
+        status: { [Op.notIn]: ['in_active', 'inactive'] }
+      }
+    });
+    const deactiveMachineCount = await PosMachine.count({
+      where: {
+        ...posWhere,
+        status: { [Op.in]: ['in_active', 'inactive'] }
+      }
+    });
+    const activeMerchantCount = await User.count({
+      where: {
+        ...userWhere,
+        role: "merchant",
+        status: 'active'
+      }
+    });
+    const activeFranchaiseCount = await User.count({
+      where: {
+        ...userWhere,
+        role: { [Op.in]: ['franchaise', 'franchise'] },
+        status: 'active'
+      }
+    });
 
     // const todayPosTransactions = await Transaction.sum('amount', {
     //     where: {

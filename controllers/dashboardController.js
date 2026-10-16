@@ -228,6 +228,18 @@ const getDashboard = asyncHandler(async (req, res) => {
       const companyId = req.user?.company_id || req.company;
       const userWhere = companyId ? { company_id: companyId } : {};
 
+      let allowedUserIds = [userId];
+      if (companyId) {
+        const companyUsers = await User.findAll({
+          where: { company_id: companyId },
+          attributes: ['id']
+        });
+        allowedUserIds = Array.from(new Set([userId, ...companyUsers.map(u => u.id)]));
+      }
+      const posWhere = {
+        assigned_to: { [Op.in]: allowedUserIds }
+      };
+
       const [
         activeMachineCount,
         deactiveMachineCount,
@@ -238,15 +250,19 @@ const getDashboard = asyncHandler(async (req, res) => {
       ] = await Promise.all([
         PosMachine.count({
           where: {
+            ...posWhere,
             status: { [Op.notIn]: ['in_active', 'inactive'] }
           }
         }),
         PosMachine.count({
           where: {
+            ...posWhere,
             status: { [Op.in]: ['in_active', 'inactive'] }
           }
         }),
-        PosMachine.count(),
+        PosMachine.count({
+          where: posWhere
+        }),
         User.count({
           where: {
             ...userWhere,

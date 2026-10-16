@@ -91,6 +91,39 @@ async function buildPosMachineWithAssignedUser(posMachine, req = null) {
   };
 }
 
+async function getAllowedUserIdsForPos(req) {
+  const userRole = normalizeRole(req.user?.original_role || req.user?.role);
+  const userId = req.user?.id;
+  const companyId = req.user?.company_id || req.company;
+
+  if (userRole === "super_admin") {
+    return null; // null indicates unrestricted access (Super Admin)
+  }
+
+  if (userRole === "admin" || userRole === "employee") {
+    let adminUserIds = [userId];
+    if (companyId) {
+      const companyUsers = await User.findAll({
+        where: { company_id: companyId },
+        attributes: ['id']
+      });
+      adminUserIds = Array.from(new Set([userId, ...companyUsers.map(u => u.id)]));
+    }
+    return adminUserIds;
+  }
+
+  if (userRole === "super_franchise") {
+    const downstreamUsers = await User.findAll({
+      where: { super_franchise_id: userId },
+      attributes: ['id']
+    });
+    return Array.from(new Set([userId, ...downstreamUsers.map(u => u.id)]));
+  }
+
+  // franchise, merchant
+  return [userId];
+}
+
 const getAllPosMachine = asyncHandler(async (req, res) => {
   const { 
     status, 
@@ -131,19 +164,18 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     }
     if (is_pos_asigned !== undefined) where.is_pos_asigned = is_pos_asigned;
 
-    // Role-based access - filter by logged-in user
-    if (userRole === "super_franchise") {
-      const downstreamUsers = await User.findAll({
-        where: { super_franchise_id: userId },
-        attributes: ['id']
-      });
-      const userIds = [userId, ...downstreamUsers.map(u => u.id)];
-      where[Op.or] = [
-        { super_franchise_id: userId },
-        { assigned_to: { [Op.in]: userIds } }
-      ];
-    } else if (userRole === "franchaise" || userRole === "franchise" || userRole === "merchant") {
-      where.assigned_to = userId;
+    // Role-based access - filter by logged-in user and company
+    const allowedUserIds = await getAllowedUserIdsForPos(req);
+    if (allowedUserIds !== null) {
+      const normalizedUserRole = normalizeRole(userRole);
+      if (normalizedUserRole === "super_franchise") {
+        where[Op.or] = [
+          { super_franchise_id: userId },
+          { assigned_to: { [Op.in]: allowedUserIds } }
+        ];
+      } else {
+        where.assigned_to = { [Op.in]: allowedUserIds };
+      }
     }
 
     // Get total count and paginated results
@@ -260,14 +292,19 @@ const createPosMachine = asyncHandler(async (req, res ) => {
 const getPosMachine = asyncHandler( async (req, res) => {
     const id = req.params.id;
     const posMachineById = await PosMachine.findByPk(id);
-    if (posMachineById) {
-        const formatted = await buildPosMachineWithAssignedUser(posMachineById, req);
-        res.status(200).json(formatted);
-    } else {
+    if (!posMachineById) {
         res.status(404);
-            throw new Error ("NoT Found !")
-    };
-    
+        throw new Error ("NoT Found !");
+    }
+
+    const allowedUserIds = await getAllowedUserIdsForPos(req);
+    if (allowedUserIds !== null && (!posMachineById.assigned_to || !allowedUserIds.includes(posMachineById.assigned_to))) {
+        res.status(403);
+        throw new Error("You do not have access to this POS machine.");
+    }
+
+    const formatted = await buildPosMachineWithAssignedUser(posMachineById, req);
+    res.status(200).json(formatted);
 });
 
 const activatePosMachine = asyncHandler( async (req, res) => {
@@ -330,9 +367,33 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
   }
 
   const previousAssignedTo = posMachine.assigned_to;
+  const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
 
-  // clear assignment
-  posMachine.assigned_to = null;
+  if (requesterRole !== 'super_admin') {
+    const allowedUserIds = await getAllowedUserIdsForPos(req);
+    if (allowedUserIds !== null && (!posMachine.assigned_to || !allowedUserIds.includes(posMachine.assigned_to))) {
+      res.status(403);
+      throw new Error("You can only unassign POS machines that belong to you or your company.");
+    }
+  }
+
+  // If super admin unassigns, return to central inventory (null)
+  // If admin unassigns from a merchant/franchise, return it to the admin
+  // If franchise unassigns from a merchant, return it to the franchise
+  if (requesterRole === 'super_admin') {
+    posMachine.assigned_to = null;
+  } else if (requesterRole === 'admin' || requesterRole === 'employee') {
+    let returnToId = req.user.id;
+    if (requesterRole === 'employee') {
+      const companyId = req.user?.company_id || req.company;
+      const companyAdmin = await User.findOne({ where: { company_id: companyId, role: 'admin' } });
+      if (companyAdmin) returnToId = companyAdmin.id;
+    }
+    posMachine.assigned_to = returnToId;
+  } else {
+    posMachine.assigned_to = req.user.id;
+  }
+
   posMachine.status = "active"; // keep it available as inventory
   await posMachine.save();
 
@@ -370,15 +431,21 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
 
 const deletePosMachine = asyncHandler( async (req, res) => {
     const id = req.params.id;
-    const posMachineById = await PosMachine.findByPk(id)
-    if (posMachineById) {
-        posMachineById.status = "in_active";
-        await posMachineById.destroy();
-        res.status(200).json(posMachineById)
-    } else {
+    const posMachineById = await PosMachine.findByPk(id);
+    if (!posMachineById) {
         res.status(404);
-            throw new Error ("NoT Found !")
-    };
+        throw new Error ("NoT Found !");
+    }
+
+    const allowedUserIds = await getAllowedUserIdsForPos(req);
+    if (allowedUserIds !== null && (!posMachineById.assigned_to || !allowedUserIds.includes(posMachineById.assigned_to))) {
+        res.status(403);
+        throw new Error("You do not have permission to delete this POS machine.");
+    }
+
+    posMachineById.status = "in_active";
+    await posMachineById.destroy();
+    res.status(200).json(posMachineById);
 });
 
 const markAsDelivered = asyncHandler( async (req, res) => {
@@ -423,7 +490,8 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
         throw new Error("Target user_id is required");
     }
 
-    if (req.user.role === 'merchant') {
+    const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+    if (requesterRole === 'merchant') {
         res.status(403);
         throw new Error("Merchants cannot assign POS machines");
     }
@@ -442,6 +510,17 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
     const posMachines = await PosMachine.findAll({
       where: { id: ids }
     });
+
+    if (requesterRole !== 'super_admin') {
+      const allowedUserIds = await getAllowedUserIdsForPos(req);
+      if (allowedUserIds !== null) {
+        const unauthorized = posMachines.find(m => !m.assigned_to || !allowedUserIds.includes(m.assigned_to));
+        if (unauthorized) {
+          res.status(403);
+          throw new Error("You can only assign POS machines that are assigned to you or your company.");
+        }
+      }
+    }
 
     const updated = await PosMachine.update(
         { status: "active", assigned_to: userId },
@@ -680,18 +759,17 @@ const getPosMachineList = asyncHandler(async (req, res) => {
     if (bank_name) where.bank_name = { [Op.iLike]: `%${String(bank_name).trim()}%` };
 
     // Role-based scoping
-    if (role === "super_franchise") {
-      const downstreamUsers = await User.findAll({
-        where: { super_franchise_id: id },
-        attributes: ['id']
-      });
-      const userIds = [id, ...downstreamUsers.map(u => u.id)];
-      where[Op.or] = [
-        { super_franchise_id: id },
-        { assigned_to: { [Op.in]: userIds } }
-      ];
-    } else if (role === 'franchaise' || role === 'franchise' || role === 'merchant') {
-      where.assigned_to = id;
+    const allowedUserIds = await getAllowedUserIdsForPos(req);
+    if (allowedUserIds !== null) {
+      const normalizedRole = normalizeRole(role);
+      if (normalizedRole === "super_franchise") {
+        where[Op.or] = [
+          { super_franchise_id: id },
+          { assigned_to: { [Op.in]: allowedUserIds } }
+        ];
+      } else {
+        where.assigned_to = { [Op.in]: allowedUserIds };
+      }
     }
 
     const { count, rows: machines } = await PosMachine.findAndCountAll({
