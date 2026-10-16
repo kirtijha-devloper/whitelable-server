@@ -22,10 +22,10 @@ const getPayoutCharge = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, data: rule });
 });
 
-// ── Create a new payout charge rule (admin only) ─────────────────────────────
+// ── Create a new payout charge rule (super_admin only) ─────────────────────────
 const createPayoutCharge = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-    return res.status(403).json({ success: false, message: 'Access denied' });
+  if (req.user?.role !== 'super_admin') {
+    return res.status(403).json({ success: false, message: 'Only Super Admin can create platform default payout charges. Use user-payout-charges for downstream overrides.' });
   }
 
   const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
@@ -55,10 +55,10 @@ const createPayoutCharge = asyncHandler(async (req, res) => {
   return res.status(201).json({ success: true, data: rule });
 });
 
-// ── Update a payout charge rule (admin only) ─────────────────────────────────
+// ── Update a payout charge rule (super_admin only) ─────────────────────────────
 const updatePayoutCharge = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-    return res.status(403).json({ success: false, message: 'Access denied' });
+  if (req.user?.role !== 'super_admin') {
+    return res.status(403).json({ success: false, message: 'Only Super Admin can modify platform default payout charges. Use user-payout-charges for downstream overrides.' });
   }
 
   const rule = await PayoutCharge.findByPk(req.params.id);
@@ -89,10 +89,10 @@ const updatePayoutCharge = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, data: rule });
 });
 
-// ── Delete a payout charge rule (admin only) ─────────────────────────────────
+// ── Delete a payout charge rule (super_admin only) ─────────────────────────────
 const deletePayoutCharge = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-    return res.status(403).json({ success: false, message: 'Access denied' });
+  if (req.user?.role !== 'super_admin') {
+    return res.status(403).json({ success: false, message: 'Only Super Admin can delete platform default payout charges. Use user-payout-charges for downstream overrides.' });
   }
 
   const rule = await PayoutCharge.findByPk(req.params.id);

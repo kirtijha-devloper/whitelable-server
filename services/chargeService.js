@@ -439,10 +439,12 @@ function calculateCharge(amount, rule) {
  * @param {number|null} userId            target merchant id (null → default rule)
  * @param {number|null} franchiseId       target franchise id
  * @param {number|null} superFranchiseId  target super franchise id
+ * @param {string|null} targetRole        optional target user role ('super_franchise'|'franchaise'|'merchant')
  * @returns {string}                      one of VALID_SCOPES
  */
-function deriveScope(callerRole, userId, franchiseId, superFranchiseId) {
+function deriveScope(callerRole, userId, franchiseId, superFranchiseId, targetRole = null) {
   const normalizedCaller = callerRole === 'franchise' ? 'franchaise' : callerRole;
+  const normalizedTarget = targetRole === 'franchise' ? 'franchaise' : targetRole;
 
   if (normalizedCaller === 'super_admin') {
     if (userId) return 'super_admin_admin';
@@ -450,9 +452,18 @@ function deriveScope(callerRole, userId, franchiseId, superFranchiseId) {
   }
 
   if (normalizedCaller === 'admin') {
-    if (userId) return 'admin_merchant';
-    if (franchiseId) return 'admin_franchise';
+    if (normalizedTarget === 'super_franchise' || (superFranchiseId && !franchiseId && !userId)) {
+      return 'admin_super_franchise';
+    }
+    if (normalizedTarget === 'franchaise' || (franchiseId && !userId)) {
+      return 'admin_franchise';
+    }
+    if (normalizedTarget === 'merchant' || (userId && !superFranchiseId && !franchiseId)) {
+      return 'admin_merchant';
+    }
     if (superFranchiseId) return 'admin_super_franchise';
+    if (franchiseId) return 'admin_franchise';
+    if (userId) return 'admin_merchant';
     return 'admin_default';
   }
 

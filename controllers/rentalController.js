@@ -1,4 +1,5 @@
 const asyncHandler = require("express-async-handler");
+const { Op } = require("sequelize");
 const Rental = require('../models/Rental');
 const User = require('../models/User');
 
@@ -152,15 +153,14 @@ const listRentals = asyncHandler(async (req, res) => {
     const role   = req.user.role;
     const userId = req.user.id;
 
-    if (role === 'merchant') {
-      return res.status(403).json({ success: false, message: 'Access denied' });
-    }
-
     const { status, type, page = 1, limit = 10 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const where  = {};
 
-    if (role === 'super_franchise') {
+    if (role === 'merchant') {
+      where.target_user_type = 'merchant';
+      where.status = 'active';
+    } else if (role === 'super_franchise') {
       where[Op.or] = [
         { super_franchise_id: userId },
         { super_franchise_id: null, franchaise_id: null }
@@ -170,6 +170,9 @@ const listRentals = asyncHandler(async (req, res) => {
         { franchaise_id: userId },
         { franchaise_id: null }
       ];
+    } else if (role === 'admin') {
+      where.super_franchise_id = null;
+      where.franchaise_id = null;
     }
 
     if (status) where.status = status;
@@ -217,6 +220,10 @@ const updateRental = asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'Rental not found' });
     }
 
+    if (role === 'admin' && rental.target_user_type === 'admin') {
+      return res.status(403).json({ success: false, message: 'Admins cannot modify Super Admin default rental rates' });
+    }
+
     if (role === 'super_franchise' && rental.super_franchise_id !== userId) {
       return res.status(403).json({ success: false, message: 'You can only update your own rental rate' });
     }
@@ -258,6 +265,10 @@ const deleteRental = asyncHandler(async (req, res) => {
 
     if (!rental) {
       return res.status(404).json({ success: false, message: 'Rental not found' });
+    }
+
+    if (role === 'admin' && rental.target_user_type === 'admin') {
+      return res.status(403).json({ success: false, message: 'Admins cannot delete Super Admin default rental rates' });
     }
 
     if (role === 'super_franchise' && rental.super_franchise_id !== userId) {

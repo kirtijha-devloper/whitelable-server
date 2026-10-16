@@ -122,6 +122,62 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     effectiveFranchise = null;
   }
 
+  let effectiveUserId = user_id || null;
+  let targetUserRole = null;
+
+  if (req.user.role === 'admin') {
+    if (user_id) {
+      const targetUser = await User.findByPk(user_id);
+      if (!targetUser) {
+        return res.status(404).json({ success: false, message: 'Target user not found' });
+      }
+      if (['super_admin', 'admin'].includes(targetUser.role)) {
+        return res.status(403).json({ success: false, message: 'Admin cannot configure rates for other admins or super admin' });
+      }
+      if (targetUser.company_id && companyId && targetUser.company_id !== companyId) {
+        return res.status(403).json({ success: false, message: 'Target user does not belong to your company' });
+      }
+      targetUserRole = targetUser.role;
+      if (targetUser.role === 'super_franchise') {
+        effectiveSuperFranchise = targetUser.id;
+        effectiveFranchise = null;
+        effectiveUserId = null;
+      } else if (isFranchiseRole(targetUser.role)) {
+        effectiveFranchise = targetUser.id;
+        effectiveSuperFranchise = targetUser.super_franchise_id || null;
+        effectiveUserId = null;
+      } else {
+        effectiveUserId = targetUser.id;
+        effectiveFranchise = targetUser.franchaise_id || null;
+        effectiveSuperFranchise = targetUser.super_franchise_id || null;
+      }
+    } else if (super_franchise_id) {
+      const targetSf = await User.findByPk(super_franchise_id);
+      if (!targetSf || targetSf.role !== 'super_franchise') {
+        return res.status(400).json({ success: false, message: 'Invalid super franchise user' });
+      }
+      if (targetSf.company_id && companyId && targetSf.company_id !== companyId) {
+        return res.status(403).json({ success: false, message: 'Super franchise does not belong to your company' });
+      }
+      effectiveSuperFranchise = targetSf.id;
+      effectiveFranchise = null;
+      effectiveUserId = null;
+      targetUserRole = 'super_franchise';
+    } else if (franchaise_id) {
+      const targetF = await User.findByPk(franchaise_id);
+      if (!targetF || !isFranchiseRole(targetF.role)) {
+        return res.status(400).json({ success: false, message: 'Invalid franchise user' });
+      }
+      if (targetF.company_id && companyId && targetF.company_id !== companyId) {
+        return res.status(403).json({ success: false, message: 'Franchise does not belong to your company' });
+      }
+      effectiveFranchise = targetF.id;
+      effectiveSuperFranchise = targetF.super_franchise_id || null;
+      effectiveUserId = null;
+      targetUserRole = 'franchaise';
+    }
+  }
+
   if (req.user.role === 'super_franchise') {
     if (effectiveSuperFranchise && parseInt(effectiveSuperFranchise) !== req.user.id) {
       return res.status(403).json({ success: false, message: 'Cannot set rule for another super franchise' });
@@ -159,14 +215,14 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
 
   // determine the scope of this rule
   const callerRole = isFranchiseRole(req.user.role) ? 'franchaise' : req.user.role;
-  const ruleScope = deriveScope(callerRole, user_id || null, effectiveFranchise, effectiveSuperFranchise);
+  const ruleScope = deriveScope(callerRole, effectiveUserId, effectiveFranchise, effectiveSuperFranchise, targetUserRole);
 
   // duplicate check: exact same combination including franchise and super franchise
   const normalizedCardBrand = normalizeCardBrand(card_brand);
 
   const duplicate = await PosChargeRule.findOne({
     where: {
-      user_id: user_id || null,
+      user_id: effectiveUserId,
       franchaise_id: effectiveFranchise,
       super_franchise_id: effectiveSuperFranchise,
       scope: ruleScope,
@@ -192,7 +248,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   const newMin = parseDecimal(min_amount) || 0;
   const newMax = parseDecimal(max_amount);
   const overlapCondition = {
-    user_id: user_id || null,
+    user_id: effectiveUserId,
     franchaise_id: effectiveFranchise,
     super_franchise_id: effectiveSuperFranchise,
     scope: ruleScope,
@@ -221,7 +277,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   let rec;
   try {
     rec = await PosChargeRule.create({
-      user_id: user_id || null,
+      user_id: effectiveUserId,
       franchaise_id: effectiveFranchise,
       super_franchise_id: effectiveSuperFranchise,
       scope: ruleScope,
@@ -373,6 +429,7 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   const {
     user_id,
     franchaise_id,
+    super_franchise_id,
     payment_mode,
     card_type,
     card_brand,
@@ -389,6 +446,7 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   const where = {};
   if (user_id !== undefined) where.user_id = user_id || null;
   if (franchaise_id !== undefined) where.franchaise_id = franchaise_id || null;
+  if (super_franchise_id !== undefined) where.super_franchise_id = super_franchise_id || null;
   if (payment_mode) where.payment_mode = payment_mode;
   if (card_type) where.card_type = card_type;
   if (card_brand) where.card_brand = card_brand;
@@ -632,6 +690,16 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   const rec = await PosChargeRule.findByPk(id);
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
 
+  // Admin cannot modify Super Admin rules or rules of another company
+  if (req.user.role === 'admin') {
+    if (rec.scope === 'super_admin_default' || rec.scope === 'super_admin_admin') {
+      return res.status(403).json({ success: false, message: 'Admins cannot modify Super Admin rules or global defaults' });
+    }
+    if (rec.company_id && companyId && rec.company_id !== companyId) {
+      return res.status(403).json({ success: false, message: 'Cannot modify rate rules belonging to another company' });
+    }
+  }
+
   // franchise users may only modify rules they created. treat null/absent
   // created_by as system-owned (not editable).
   if (req.user.role === 'franchaise' && rec.created_by !== req.user.id) {
@@ -821,6 +889,17 @@ const deletePosChargeRule = asyncHandler(async (req, res) => {
 
   const rec = await PosChargeRule.findByPk(id);
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
+
+  // Admin cannot delete Super Admin rules or rules of another company
+  if (req.user.role === 'admin') {
+    if (rec.scope === 'super_admin_default' || rec.scope === 'super_admin_admin') {
+      return res.status(403).json({ success: false, message: 'Admins cannot delete Super Admin rules or global defaults' });
+    }
+    const companyId = req.company;
+    if (rec.company_id && companyId && rec.company_id !== companyId) {
+      return res.status(403).json({ success: false, message: 'Cannot delete rate rules belonging to another company' });
+    }
+  }
 
   // franchise may only delete their own rules or those for their merchants
   if (req.user.role === 'franchaise') {

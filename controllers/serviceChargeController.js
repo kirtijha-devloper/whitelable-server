@@ -5,6 +5,7 @@ const {
   PayoutCharge,
   UserPayoutCharge,
   BbpsCcChargeRule,
+  Rental,
   User,
 } = require("../models");
 
@@ -145,37 +146,97 @@ exports.toggleServiceChargeStatus = async (req, res) => {
   }
 };
 
-// 6. Get Applicable Charges for Logged-In Admin (POS Rate, Pay Rate, CC Bill Rate)
+// 6. Get Applicable Charges for Logged-In User (Super Admin, Admin, Super Franchise, Franchise, Merchant)
 exports.getMyApplicableCharges = async (req, res) => {
   try {
     if (!req.user || !req.user.id) {
       return res.status(401).json({ success: false, message: "Unauthorized. Authentication required." });
     }
 
-    if (req.user.role !== "admin" && req.user.role !== "super_admin") {
-      return res.status(403).json({ success: false, message: "Forbidden. Access is restricted to Admins." });
+    const currentUserId = parseInt(req.user.id, 10);
+    const currentUser = await User.findByPk(currentUserId, {
+      attributes: ["id", "name", "username", "role", "company_or_shop_name", "company_id", "franchaise_id", "super_franchise_id"],
+    });
+
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const adminId = parseInt(req.user.id, 10);
-    const adminUser = await User.findByPk(adminId, {
-      attributes: ["id", "name", "username", "role", "company_or_shop_name", "company_id"],
-    });
+    const userRole = (currentUser.role || req.user.role || "").toLowerCase();
+    const isSuperAdmin = userRole === "super_admin";
+    const isAdmin = userRole === "admin";
+    const isSuperFranchise = userRole === "super_franchise";
+    const isFranchise = userRole === "franchaise" || userRole === "franchise";
+    const isMerchant = userRole === "merchant";
 
     // ── 1. POS Rates ──────────────────────────────────────────────────────────
     const defaultPosRules = await PosChargeRule.findAll({
       where: {
         scope: { [Op.in]: ["admin_default", "super_admin_default"] },
         user_id: null,
+        franchaise_id: null,
+        super_franchise_id: null,
+        is_active: true,
       },
       order: [["id", "ASC"]],
     });
 
-    const adminPosRules = await PosChargeRule.findAll({
-      where: {
-        user_id: adminId,
-      },
-      order: [["id", "ASC"]],
-    });
+    // Query candidate rules that might apply to this user based on hierarchy
+    let applicablePosRules = [];
+    if (isAdmin) {
+      applicablePosRules = await PosChargeRule.findAll({
+        where: {
+          user_id: currentUserId,
+          is_active: true,
+        },
+        order: [["id", "ASC"]],
+      });
+    } else if (isSuperFranchise) {
+      applicablePosRules = await PosChargeRule.findAll({
+        where: {
+          [Op.or]: [
+            { super_franchise_id: currentUserId, scope: "admin_super_franchise" },
+            { user_id: currentUserId },
+          ],
+          is_active: true,
+        },
+        order: [["id", "ASC"]],
+      });
+    } else if (isFranchise) {
+      const orConditions = [
+        { franchaise_id: currentUserId, user_id: null },
+        { user_id: currentUserId },
+      ];
+      if (currentUser.super_franchise_id) {
+        orConditions.push({
+          super_franchise_id: currentUser.super_franchise_id,
+          user_id: null,
+          scope: { [Op.in]: ["super_franchise_default", "super_franchise_franchise"] },
+        });
+      }
+      applicablePosRules = await PosChargeRule.findAll({
+        where: {
+          [Op.or]: orConditions,
+          is_active: true,
+        },
+        order: [["id", "ASC"]],
+      });
+    } else if (isMerchant) {
+      const orConditions = [{ user_id: currentUserId }];
+      if (currentUser.franchaise_id) {
+        orConditions.push({
+          franchaise_id: currentUser.franchaise_id,
+          user_id: null,
+        });
+      }
+      applicablePosRules = await PosChargeRule.findAll({
+        where: {
+          [Op.or]: orConditions,
+          is_active: true,
+        },
+        order: [["id", "ASC"]],
+      });
+    }
 
     const getPosRuleKey = (r) => {
       if (!r) return "";
@@ -185,22 +246,85 @@ exports.getMyApplicableCharges = async (req, res) => {
       const classf = String(r.card_classification || "ANY").trim().toUpperCase();
       const st = String(r.settlement_type || "ANY").trim().toLowerCase();
       const comp = String(r.company_name || "ANY").trim().toUpperCase();
-      return `${mode}|${brand}|${type}|${classf}|${st}|${comp}`;
+      const minA = parseFloat(r.min_amount || 0).toFixed(2);
+      const maxA = r.max_amount != null ? parseFloat(r.max_amount).toFixed(2) : "INF";
+      return `${mode}|${brand}|${type}|${classf}|${st}|${comp}|${minA}|${maxA}`;
     };
 
-    const adminPosMap = new Map();
-    adminPosRules.forEach((ar) => {
-      adminPosMap.set(getPosRuleKey(ar), ar);
+    const getRulePrecedence = (rule) => {
+      if (!rule) return 0;
+      if (isAdmin) {
+        return rule.user_id === currentUserId ? 100 : 10;
+      }
+      if (isSuperFranchise) {
+        if (rule.user_id === currentUserId || rule.super_franchise_id === currentUserId) return 100;
+        return 10;
+      }
+      if (isFranchise) {
+        if (rule.user_id === currentUserId || (rule.franchaise_id === currentUserId && rule.scope === "admin_franchise")) return 100;
+        if (rule.super_franchise_id === currentUser.super_franchise_id) return 50;
+        return 10;
+      }
+      if (isMerchant) {
+        if (rule.user_id === currentUserId) return 100;
+        if (rule.franchaise_id === currentUser.franchaise_id && rule.scope === "franchise_default") return 70;
+        if (rule.franchaise_id === currentUser.franchaise_id && rule.scope === "admin_franchise") return 40;
+        return 10;
+      }
+      return 10;
+    };
+
+    const getSourceLabel = (rule, isOverridden) => {
+      if (!isOverridden) {
+        return "Inherited Default";
+      }
+      if (isAdmin) {
+        return "Super Admin Override";
+      }
+      if (isSuperFranchise) {
+        return "Admin Override";
+      }
+      if (isFranchise) {
+        if (rule.scope === "super_franchise_franchise" || rule.scope === "super_franchise_default") {
+          return "Super Franchise Rate";
+        }
+        return "Admin Override";
+      }
+      if (isMerchant) {
+        if (rule.scope === "franchise_merchant" || (rule.user_id === currentUserId && currentUser.franchaise_id)) {
+          return "Franchise Rate";
+        }
+        if (rule.scope === "admin_merchant" || (rule.user_id === currentUserId && !currentUser.franchaise_id)) {
+          return "Admin Override";
+        }
+        if (rule.scope === "franchise_default") {
+          return "Franchise Default";
+        }
+        if (rule.scope === "admin_franchise") {
+          return "Admin Override";
+        }
+        return "Account Override";
+      }
+      return "Custom Rate";
+    };
+
+    const overrideMap = new Map();
+    applicablePosRules.forEach((ar) => {
+      const key = getPosRuleKey(ar);
+      const existing = overrideMap.get(key);
+      if (!existing || getRulePrecedence(ar) > getRulePrecedence(existing)) {
+        overrideMap.set(key, ar);
+      }
     });
 
-    const matchedAdminPosIds = new Set();
+    const matchedPosIds = new Set();
     const posRows = [];
 
     defaultPosRules.forEach((dr) => {
       const key = getPosRuleKey(dr);
-      const overrideRule = adminPosMap.get(key) || null;
+      const overrideRule = overrideMap.get(key) || null;
       if (overrideRule) {
-        matchedAdminPosIds.add(overrideRule.id);
+        matchedPosIds.add(overrideRule.id);
       }
       const activeRule = overrideRule || dr;
       const isOverridden = Boolean(overrideRule);
@@ -213,6 +337,8 @@ exports.getMyApplicableCharges = async (req, res) => {
       } else if (cardType && cardType !== "ANY" && cardType !== "UNKNOWN") {
         serviceName = `POS ${cardType.charAt(0) + cardType.slice(1).toLowerCase()} Card`;
       }
+
+      const label = getSourceLabel(activeRule, isOverridden);
 
       posRows.push({
         id: activeRule.id,
@@ -230,16 +356,16 @@ exports.getMyApplicableCharges = async (req, res) => {
         fee_type: parseFloat(activeRule.charge_flat || 0) > 0 && parseFloat(activeRule.charge_percent || 0) === 0 ? "flat" : "percentage",
         gst_required: Boolean(activeRule.gst_required),
         gst_percent: activeRule.gst_required ? parseFloat(activeRule.gst_percent || 18) : 0,
-        rate_source: isOverridden ? "Admin Override" : "Inherited Default",
-        source_label: isOverridden ? "Admin Override" : "Inherited Default",
+        rate_source: label,
+        source_label: label,
         is_override: isOverridden,
         is_active: Boolean(activeRule.is_active),
         company_name: activeRule.company_name || "ANY",
       });
     });
 
-    adminPosRules.forEach((ar) => {
-      if (!matchedAdminPosIds.has(ar.id)) {
+    applicablePosRules.forEach((ar) => {
+      if (!matchedPosIds.has(ar.id)) {
         const mode = String(ar.payment_mode || "CARD").toUpperCase();
         const cardType = String(ar.card_type || "").toUpperCase();
         let serviceName = "POS Card Payment";
@@ -248,6 +374,8 @@ exports.getMyApplicableCharges = async (req, res) => {
         } else if (cardType && cardType !== "ANY" && cardType !== "UNKNOWN") {
           serviceName = `POS ${cardType.charAt(0) + cardType.slice(1).toLowerCase()} Card`;
         }
+
+        const label = getSourceLabel(ar, true);
 
         posRows.push({
           id: ar.id,
@@ -265,8 +393,8 @@ exports.getMyApplicableCharges = async (req, res) => {
           fee_type: parseFloat(ar.charge_flat || 0) > 0 && parseFloat(ar.charge_percent || 0) === 0 ? "flat" : "percentage",
           gst_required: Boolean(ar.gst_required),
           gst_percent: ar.gst_required ? parseFloat(ar.gst_percent || 18) : 0,
-          rate_source: "Admin Override",
-          source_label: "Admin Override",
+          rate_source: label,
+          source_label: label,
           is_override: true,
           is_active: Boolean(ar.is_active),
           company_name: ar.company_name || "ANY",
@@ -276,31 +404,46 @@ exports.getMyApplicableCharges = async (req, res) => {
 
     // ── 2. Payout (Pay) Rates ─────────────────────────────────────────────────
     const defaultPayoutRules = await PayoutCharge.findAll({
+      where: { is_active: true },
       order: [["from_amount", "ASC"]],
     });
 
-    const adminPayoutRules = await UserPayoutCharge.findAll({
-      where: { user_id: adminId },
+    const userCandidateIds = [currentUserId];
+    if (currentUser.franchaise_id) userCandidateIds.push(currentUser.franchaise_id);
+    if (currentUser.super_franchise_id) userCandidateIds.push(currentUser.super_franchise_id);
+
+    const userPayoutRules = await UserPayoutCharge.findAll({
+      where: { user_id: { [Op.in]: userCandidateIds }, is_active: true },
       order: [["from_amount", "ASC"]],
     });
 
-    const adminPayoutMap = new Map();
-    adminPayoutRules.forEach((ar) => {
+    const userPayoutMap = new Map();
+    userPayoutRules.forEach((ar) => {
       const slabKey = `${parseFloat(ar.from_amount).toFixed(2)}-${parseFloat(ar.to_amount).toFixed(2)}`;
-      adminPayoutMap.set(slabKey, ar);
+      const existing = userPayoutMap.get(slabKey);
+      if (!existing || ar.user_id === currentUserId) {
+        userPayoutMap.set(slabKey, ar);
+      }
     });
 
-    const matchedAdminPayoutIds = new Set();
+    const matchedPayoutIds = new Set();
     const payoutRows = [];
 
     defaultPayoutRules.forEach((dr) => {
       const slabKey = `${parseFloat(dr.from_amount).toFixed(2)}-${parseFloat(dr.to_amount).toFixed(2)}`;
-      const overrideRule = adminPayoutMap.get(slabKey) || null;
+      const overrideRule = userPayoutMap.get(slabKey) || null;
       if (overrideRule) {
-        matchedAdminPayoutIds.add(overrideRule.id);
+        matchedPayoutIds.add(overrideRule.id);
       }
       const activeRule = overrideRule || dr;
       const isOverridden = Boolean(overrideRule);
+      const label = !isOverridden
+        ? "Inherited Default"
+        : isAdmin
+        ? "Super Admin Override"
+        : overrideRule.user_id === currentUserId
+        ? "Account Override"
+        : "Parent Assignment";
 
       payoutRows.push({
         id: activeRule.id,
@@ -315,17 +458,23 @@ exports.getMyApplicableCharges = async (req, res) => {
         gst_required: false,
         gst_percent: 0,
         settlement_type: "Instant (24x7)",
-        rate_source: isOverridden ? "Admin Override" : "Inherited Default",
-        source_label: isOverridden ? "Admin Override" : "Inherited Default",
+        rate_source: label,
+        source_label: label,
         is_override: isOverridden,
         is_active: Boolean(activeRule.is_active),
         description: activeRule.description || "Payout Bank Transfer",
       });
     });
 
-    adminPayoutRules.forEach((ar) => {
-      if (!matchedAdminPayoutIds.has(ar.id)) {
+    userPayoutRules.forEach((ar) => {
+      if (!matchedPayoutIds.has(ar.id)) {
         const slabKey = `${parseFloat(ar.from_amount).toFixed(2)}-${parseFloat(ar.to_amount).toFixed(2)}`;
+        const label = isAdmin
+          ? "Super Admin Override"
+          : ar.user_id === currentUserId
+          ? "Account Override"
+          : "Parent Assignment";
+
         payoutRows.push({
           id: ar.id,
           slab_key: slabKey,
@@ -339,8 +488,8 @@ exports.getMyApplicableCharges = async (req, res) => {
           gst_required: false,
           gst_percent: 0,
           settlement_type: "Instant (24x7)",
-          rate_source: "Admin Override",
-          source_label: "Admin Override",
+          rate_source: label,
+          source_label: label,
           is_override: true,
           is_active: Boolean(ar.is_active),
           description: ar.description || "Custom Payout Slab",
@@ -352,32 +501,40 @@ exports.getMyApplicableCharges = async (req, res) => {
 
     // ── 3. CC Bill Rates ──────────────────────────────────────────────────────
     const defaultCcBillRules = await BbpsCcChargeRule.findAll({
-      where: { user_id: null },
+      where: { user_id: null, is_active: true },
       order: [["from_amount", "ASC"]],
     });
 
-    const adminCcBillRules = await BbpsCcChargeRule.findAll({
-      where: { user_id: adminId },
+    const userCcBillRules = await BbpsCcChargeRule.findAll({
+      where: { user_id: { [Op.in]: userCandidateIds }, is_active: true },
       order: [["from_amount", "ASC"]],
     });
 
-    const adminCcBillMap = new Map();
-    adminCcBillRules.forEach((ar) => {
+    const userCcBillMap = new Map();
+    userCcBillRules.forEach((ar) => {
       const slabKey = `${parseFloat(ar.from_amount).toFixed(2)}-${parseFloat(ar.to_amount).toFixed(2)}`;
-      adminCcBillMap.set(slabKey, ar);
+      const existing = userCcBillMap.get(slabKey);
+      if (!existing || ar.user_id === currentUserId) {
+        userCcBillMap.set(slabKey, ar);
+      }
     });
 
-    const matchedAdminCcBillIds = new Set();
+    const matchedCcBillIds = new Set();
     const ccBillRows = [];
 
     defaultCcBillRules.forEach((dr) => {
       const slabKey = `${parseFloat(dr.from_amount).toFixed(2)}-${parseFloat(dr.to_amount).toFixed(2)}`;
-      const overrideRule = adminCcBillMap.get(slabKey) || null;
+      const overrideRule = userCcBillMap.get(slabKey) || null;
       if (overrideRule) {
-        matchedAdminCcBillIds.add(overrideRule.id);
+        matchedCcBillIds.add(overrideRule.id);
       }
       const activeRule = overrideRule || dr;
       const isOverridden = Boolean(overrideRule);
+      const label = !isOverridden
+        ? "Inherited Default"
+        : isAdmin
+        ? "Super Admin Override"
+        : "Account Override";
 
       ccBillRows.push({
         id: activeRule.id,
@@ -391,17 +548,19 @@ exports.getMyApplicableCharges = async (req, res) => {
         gst_required: false,
         gst_percent: 0,
         settlement_type: "Standard BBPS",
-        rate_source: isOverridden ? "Admin Override" : "Inherited Default",
-        source_label: isOverridden ? "Admin Override" : "Inherited Default",
+        rate_source: label,
+        source_label: label,
         is_override: isOverridden,
         is_active: Boolean(activeRule.is_active),
         description: activeRule.description || "BBPS Credit Card Bill Payment",
       });
     });
 
-    adminCcBillRules.forEach((ar) => {
-      if (!matchedAdminCcBillIds.has(ar.id)) {
+    userCcBillRules.forEach((ar) => {
+      if (!matchedCcBillIds.has(ar.id)) {
         const slabKey = `${parseFloat(ar.from_amount).toFixed(2)}-${parseFloat(ar.to_amount).toFixed(2)}`;
+        const label = isAdmin ? "Super Admin Override" : "Account Override";
+
         ccBillRows.push({
           id: ar.id,
           slab_key: slabKey,
@@ -414,8 +573,8 @@ exports.getMyApplicableCharges = async (req, res) => {
           gst_required: false,
           gst_percent: 0,
           settlement_type: "Standard BBPS",
-          rate_source: "Admin Override",
-          source_label: "Admin Override",
+          rate_source: label,
+          source_label: label,
           is_override: true,
           is_active: Boolean(ar.is_active),
           description: ar.description || "Custom BBPS CC Slab",
@@ -425,23 +584,97 @@ exports.getMyApplicableCharges = async (req, res) => {
 
     ccBillRows.sort((a, b) => a.from_amount - b.from_amount);
 
+    // ── 4. POS Rental Rates ───────────────────────────────────────────────────
+    let applicableRental = null;
+    let isRentalOverridden = false;
+    let rentalSourceLabel = "Inherited Default";
+
+    if (isAdmin || isSuperAdmin) {
+      applicableRental = await Rental.findOne({
+        where: { target_user_type: "admin", status: "active" },
+        order: [["createdAt", "DESC"]],
+      });
+      rentalSourceLabel = "Inherited Default";
+    } else if (isSuperFranchise) {
+      applicableRental = await Rental.findOne({
+        where: { target_user_type: "super_franchise", status: "active" },
+        order: [["createdAt", "DESC"]],
+      });
+      if (applicableRental) {
+        isRentalOverridden = true;
+        rentalSourceLabel = "Admin Override";
+      }
+    } else if (isFranchise) {
+      if (currentUser.super_franchise_id) {
+        applicableRental = await Rental.findOne({
+          where: { super_franchise_id: currentUser.super_franchise_id, target_user_type: "franchise", status: "active" },
+          order: [["createdAt", "DESC"]],
+        });
+      }
+      if (!applicableRental) {
+        applicableRental = await Rental.findOne({
+          where: { target_user_type: "franchise", status: "active" },
+          order: [["createdAt", "DESC"]],
+        });
+      }
+      if (applicableRental) {
+        isRentalOverridden = true;
+        rentalSourceLabel = applicableRental.super_franchise_id ? "Super Franchise Rate" : "Admin Override";
+      }
+    } else if (isMerchant) {
+      if (currentUser.franchaise_id) {
+        applicableRental = await Rental.findOne({
+          where: { franchaise_id: currentUser.franchaise_id, target_user_type: "merchant", status: "active" },
+          order: [["createdAt", "DESC"]],
+        });
+      }
+      if (!applicableRental) {
+        applicableRental = await Rental.findOne({
+          where: { target_user_type: "merchant", status: "active" },
+          order: [["createdAt", "DESC"]],
+        });
+      }
+      if (applicableRental) {
+        isRentalOverridden = true;
+        rentalSourceLabel = applicableRental.franchaise_id ? "Franchise Rate" : "Admin Override";
+      }
+    }
+
+    const rentalRows = [];
+    if (applicableRental) {
+      rentalRows.push({
+        id: applicableRental.id,
+        service_name: "POS Terminal Monthly Rental",
+        amount: parseFloat(applicableRental.amount || 0),
+        billing_period: "30 Days (Monthly)",
+        status: applicableRental.status,
+        target_user_type: applicableRental.target_user_type,
+        rate_source: rentalSourceLabel,
+        source_label: rentalSourceLabel,
+        is_override: isRentalOverridden,
+        is_active: applicableRental.status === "active",
+      });
+    }
+
+    const userSummary = {
+      id: currentUser.id,
+      name: currentUser.name,
+      username: currentUser.username,
+      role: currentUser.role,
+      company_name: currentUser.company_or_shop_name,
+    };
+
     return res.status(200).json({
       success: true,
-      admin: adminUser
-        ? {
-            id: adminUser.id,
-            name: adminUser.name,
-            username: adminUser.username,
-            role: adminUser.role,
-            company_name: adminUser.company_or_shop_name,
-          }
-        : { id: adminId },
+      admin: userSummary,
+      user: userSummary,
       data: {
         pos: posRows,
         payout: payoutRows,
         pay: payoutRows,
         cc_bill: ccBillRows,
         ccBill: ccBillRows,
+        rental: rentalRows,
       },
       categories: {
         pos: posRows,
@@ -449,11 +682,13 @@ exports.getMyApplicableCharges = async (req, res) => {
         pay: payoutRows,
         cc_bill: ccBillRows,
         ccBill: ccBillRows,
+        rental: rentalRows,
       },
       summary: {
         totalPosRules: posRows.length,
         totalPayoutRules: payoutRows.length,
         totalCcBillRules: ccBillRows.length,
+        totalRentalRules: rentalRows.length,
       },
     });
   } catch (error) {

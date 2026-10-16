@@ -424,7 +424,12 @@ const getBbpsCcChargeRules = asyncHandler(async (req, res) => {
     if (user_id === 'null' || user_id === 'default' || user_id === '') {
       where.user_id = null;
     } else if (user_id === 'all') {
-      // return all
+      if (req.user?.role === 'admin' && req.company) {
+        where[Op.or] = [
+          { company_id: req.company },
+          { user_id: null }
+        ];
+      }
     } else {
       where.user_id = parseInt(user_id, 10);
     }
@@ -467,13 +472,27 @@ const createBbpsCcChargeRule = asyncHandler(async (req, res) => {
 
   const targetUserId = user_id ? parseInt(user_id, 10) : null;
   let targetCompanyId = req.company || null;
+
   if (targetUserId) {
     const targetUser = await User.findByPk(targetUserId);
     if (!targetUser) {
-      return res.status(404).json({ success: false, message: 'Target admin user not found' });
+      return res.status(404).json({ success: false, message: 'Target user not found' });
+    }
+    if (req.user?.role === 'admin') {
+      if (req.company && targetUser.company_id && targetUser.company_id !== req.company) {
+        return res.status(403).json({ success: false, message: 'Cannot configure rates for users of another company' });
+      }
+      if (['admin', 'super_admin'].includes(targetUser.role) && targetUser.id !== req.user.id) {
+        return res.status(403).json({ success: false, message: 'Cannot configure rates for other admins or super admin' });
+      }
     }
     if (targetUser.company_id) {
       targetCompanyId = targetUser.company_id;
+    }
+  } else {
+    // targetUserId is null -> Super Admin Global Default!
+    if (req.user?.role === 'admin') {
+      return res.status(403).json({ success: false, message: 'Only Super Admin can create global default CC bill charge rules' });
     }
   }
 
@@ -514,6 +533,15 @@ const updateBbpsCcChargeRule = asyncHandler(async (req, res) => {
   const rule = await BbpsCcChargeRule.findByPk(req.params.id);
   if (!rule) {
     return res.status(404).json({ success: false, message: 'Charge rule not found' });
+  }
+
+  if (req.user?.role === 'admin') {
+    if (rule.user_id === null) {
+      return res.status(403).json({ success: false, message: 'Admins cannot modify Super Admin default CC bill rates' });
+    }
+    if (req.company && rule.company_id && rule.company_id !== req.company) {
+      return res.status(403).json({ success: false, message: 'Cannot modify rules of another company' });
+    }
   }
 
   const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
@@ -568,6 +596,15 @@ const deleteBbpsCcChargeRule = asyncHandler(async (req, res) => {
   const rule = await BbpsCcChargeRule.findByPk(req.params.id);
   if (!rule) {
     return res.status(404).json({ success: false, message: 'Charge rule not found' });
+  }
+
+  if (req.user?.role === 'admin') {
+    if (rule.user_id === null) {
+      return res.status(403).json({ success: false, message: 'Admins cannot delete Super Admin default CC bill rates' });
+    }
+    if (req.company && rule.company_id && rule.company_id !== req.company) {
+      return res.status(403).json({ success: false, message: 'Cannot delete rules of another company' });
+    }
   }
 
   await rule.destroy();
