@@ -52,7 +52,7 @@ const createUserPayoutCharge = asyncHandler(async (req, res) => {
     });
   }
 
-  const companyId = req.company;
+  const companyId = user?.company_id || req.company;
 
   if(!companyId){
     console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
@@ -107,17 +107,12 @@ const getUserPayoutChargeById = asyncHandler(async (req, res) => {
 
 // ── Update a rule ─────────────────────────────────────────────────────────────
 const updateUserPayoutCharge = asyncHandler(async (req, res) => {
-  const companyId = req.company;
-
-  if(!companyId){
-    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
-    return res.status(400).json({message : "No Domain Name is registered"});
-  }
-
   const rule = await UserPayoutCharge.findByPk(req.params.id);
   if (!rule) {
     return res.status(404).json({ success: false, message: 'User payout charge rule not found' });
   }
+
+  const companyId = rule.company_id || req.company;
 
   const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
 

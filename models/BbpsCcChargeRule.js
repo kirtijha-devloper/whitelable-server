@@ -34,6 +34,18 @@ const BbpsCcChargeRule = db.define('BbpsCcChargeRule', {
     type: Sequelize.STRING,
     allowNull: true,
   },
+  user_id: {
+    type: Sequelize.INTEGER,
+    allowNull: true,
+    defaultValue: null,
+    comment: 'Target admin user ID for admin-specific override; null for platform defaults',
+  },
+  company_id: {
+    type: Sequelize.STRING,
+    allowNull: true,
+    defaultValue: null,
+    comment: 'Company / tenant identifier',
+  },
   createdAt: {
     allowNull: false,
     type: Sequelize.DATE,
@@ -45,5 +57,14 @@ const BbpsCcChargeRule = db.define('BbpsCcChargeRule', {
     defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
   },
 });
+
+BbpsCcChargeRule.associate = function(models) {
+  if (models.User) {
+    BbpsCcChargeRule.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
+  }
+  if (models.Company) {
+    BbpsCcChargeRule.belongsTo(models.Company, { foreignKey: 'company_id', targetKey: 'company_id', as: 'company' });
+  }
+};
 
 module.exports = BbpsCcChargeRule;
