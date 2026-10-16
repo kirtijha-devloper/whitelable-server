@@ -165,6 +165,8 @@ app.use('/api/payout', require('./routes/payoutRoutes'));
 app.use('/api/sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/payout-sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/ndia5', require('./routes/ndia5Payout.routes'));
+app.use('/api/partner', require('./routes/partnerRoutes'));
+app.use('/partner', require('./routes/partnerRoutes'));
 app.use('/api/india5', require('./routes/ndia5Payout.routes'));
 // Note: /api/shared proxy is hosted on central API Portal (Reseller API), POS-SERVER consumes it as client only.
 app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
