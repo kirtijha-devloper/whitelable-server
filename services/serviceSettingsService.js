@@ -29,9 +29,9 @@ const USER_SERVICE_TARGET_ROLES = Object.freeze(['merchant', 'franchaise','super
 const USER_SERVICE_TARGET_ROLE_SET = new Set(USER_SERVICE_TARGET_ROLES);
 
 function buildDefaultServiceSettingsMap() {
-  return SERVICE_SETTING_KEY_LIST.reduce((acc, serviceKey) => {
+  return SERVICE_SETTING_KEY_LIST.filter(k => k !== SERVICE_SETTING_KEYS.MX_PAYOUT).reduce((acc, serviceKey) => {
     acc[serviceKey] = {
-      is_enabled: (serviceKey === SERVICE_SETTING_KEYS.MX_PAYOUT || serviceKey === SERVICE_SETTING_KEYS.NDIA5_PAYOUT) ? false : true,
+      is_enabled: serviceKey === SERVICE_SETTING_KEYS.NDIA5_PAYOUT ? false : true,
       updated_by: null,
       updated_at: null,
     };
@@ -46,7 +46,6 @@ function buildDefaultUserServiceSettings(user) {
     [SERVICE_SETTING_KEYS.VIMO_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]: payoutEnabledForUser,
-    [SERVICE_SETTING_KEYS.MX_PAYOUT]: false,
     [SERVICE_SETTING_KEYS.NDIA5_PAYOUT]: false,
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]: true,
@@ -65,7 +64,7 @@ function normalizeGlobalServiceSettingsMap(records) {
   for (const recordLike of Array.isArray(records) ? records : []) {
     const record = toPlainRecord(recordLike);
 
-    if (!record?.service_key) {
+    if (!record?.service_key || record.service_key === SERVICE_SETTING_KEYS.MX_PAYOUT || record.service_key === 'mx_payout') {
       continue;
     }
 

@@ -12,6 +12,7 @@ const PayoutTransaction = require('../models/PayoutTransaction');
 const Beneficiary = require('../models/Beneficiary');
 const CcBillPayment = require('../models/CcBillPayment');
 const { WEBHOOK_SOURCES, LEGACY_AGRO_SOURCE, extractCardClassification } = require('../utils/razorpay/sources');
+const { normalizeRole } = require('../utils/permissions');
 
 function pickFirstNonEmpty(...values) {
   for (const value of values) {
@@ -212,13 +213,52 @@ const extractPayoutReferenceFields = (payout) => {
  * @returns {Promise<Object>}     - Partial WHERE clause object
  */
 const buildUserScope = async (req, qUserId = null, fieldName = 'user_id') => {
-  const userRole     = req.user?.role;
+  const userRole      = normalizeRole(req.user?.original_role || req.user?.role);
   const currentUserId = req.user?.id;
+  const companyId     = req.user?.company_id || req.company;
   const scope = {};
 
-  if (userRole === 'merchant') {
-    scope[fieldName] = currentUserId;
-  } else if (userRole === 'franchaise') {
+  if (userRole === 'super_admin') {
+    if (qUserId) scope[fieldName] = parseInt(qUserId);
+    // super_admin without user_id → no restriction
+  } else if (userRole === 'admin' || userRole === 'employee') {
+    let companyUserIds = [currentUserId];
+    if (companyId) {
+      const companyUsers = await User.findAll({
+        where: { company_id: companyId },
+        attributes: ['id']
+      });
+      companyUserIds = Array.from(new Set([currentUserId, ...companyUsers.map(u => u.id)]));
+    }
+    if (qUserId) {
+      const parsedId = parseInt(qUserId);
+      if (!companyUserIds.includes(parsedId)) {
+        const err = new Error('Access denied: user does not belong to your company');
+        err.statusCode = 403;
+        throw err;
+      }
+      scope[fieldName] = parsedId;
+    } else {
+      scope[fieldName] = { [Op.in]: companyUserIds };
+    }
+  } else if (userRole === 'super_franchise') {
+    const downstreamUsers = await User.findAll({
+      where: { super_franchise_id: currentUserId, status: 'active' },
+      attributes: ['id']
+    }).then(rows => rows.map(r => r.id));
+    const allowedIds = Array.from(new Set([currentUserId, ...downstreamUsers]));
+    if (qUserId) {
+      const parsedId = parseInt(qUserId);
+      if (!allowedIds.includes(parsedId)) {
+        const err = new Error('Access denied: user does not belong to your network');
+        err.statusCode = 403;
+        throw err;
+      }
+      scope[fieldName] = parsedId;
+    } else {
+      scope[fieldName] = { [Op.in]: allowedIds };
+    }
+  } else if (userRole === 'franchaise' || userRole === 'franchise') {
     if (qUserId) {
       const targetUser = await User.findOne({
         where: { id: qUserId, franchaise_id: currentUserId, status: 'active' }
@@ -236,9 +276,6 @@ const buildUserScope = async (req, qUserId = null, fieldName = 'user_id') => {
       }).then(rows => rows.map(r => r.id));
       scope[fieldName] = { [Op.in]: [currentUserId, ...merchantIds] };
     }
-  } else if (userRole === 'admin') {
-    if (qUserId) scope[fieldName] = parseInt(qUserId);
-    // admin without user_id → no restriction
   } else {
     scope[fieldName] = currentUserId;
   }
@@ -442,10 +479,55 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
     };
 
     // ── Role-based scoping ───────────────────────────────────────────────────
-    if (userRole === 'merchant') {
-      where.user_id = currentUserId;
+    const normalizedRole = normalizeRole(req.user?.original_role || req.user?.role);
+    const companyId = req.user?.company_id || req.company;
 
-    } else if (userRole === 'franchaise') {
+    if (normalizedRole === 'super_admin') {
+      if (user_id) {
+        where.user_id = parseInt(user_id);
+      } else if (include_unlinked !== 'true') {
+        where.user_id = { [Op.ne]: null };
+      }
+    } else if (normalizedRole === 'admin' || normalizedRole === 'employee') {
+      let companyUserIds = [currentUserId];
+      if (companyId) {
+        const companyUsers = await User.findAll({
+          where: { company_id: companyId },
+          attributes: ['id']
+        });
+        companyUserIds = Array.from(new Set([currentUserId, ...companyUsers.map(u => u.id)]));
+      }
+      if (user_id) {
+        const parsedUserId = parseInt(user_id);
+        if (!companyUserIds.includes(parsedUserId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied: user does not belong to your company'
+          });
+        }
+        where.user_id = parsedUserId;
+      } else {
+        where.user_id = { [Op.in]: companyUserIds };
+      }
+    } else if (normalizedRole === 'super_franchise') {
+      const downstreamUsers = await User.findAll({
+        where: { super_franchise_id: currentUserId, status: 'active' },
+        attributes: ['id']
+      }).then(rows => rows.map(r => r.id));
+      const allowedUserIds = Array.from(new Set([currentUserId, ...downstreamUsers]));
+      if (user_id) {
+        const parsedUserId = parseInt(user_id);
+        if (!allowedUserIds.includes(parsedUserId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied: user does not belong to your network'
+          });
+        }
+        where.user_id = parsedUserId;
+      } else {
+        where.user_id = { [Op.in]: allowedUserIds };
+      }
+    } else if (normalizedRole === 'franchaise' || normalizedRole === 'franchise') {
       if (user_id) {
         const targetUser = await User.findOne({
           where: { id: user_id, franchaise_id: currentUserId, status: 'active' }
@@ -465,14 +547,6 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         // Use Op.in so the DB can use the composite (user_id, posting_date) index
         where.user_id = { [Op.in]: [currentUserId, ...merchantIds] };
       }
-
-    } else if (userRole === 'admin') {
-      if (user_id) {
-        where.user_id = parseInt(user_id);
-      } else if (include_unlinked !== 'true') {
-        where.user_id = { [Op.ne]: null };
-      }
-      // include_unlinked=true → no user_id constraint → returns unlinked rows too
     } else {
       where.user_id = currentUserId;
     }
@@ -755,8 +829,9 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
 
 const getLedgerReport = asyncHandler(async (req, res) => {
   try {
-    const userRole = req.user?.role;
+    const userRole = normalizeRole(req.user?.original_role || req.user?.role);
     const currentUserId = req.user?.id;
+    const companyId = req.user?.company_id || req.company;
     const { from_date, to_date, user_id, status, transaction_type } = req.query;
 
     // status filter is intentionally ignored for ledger report (show all statuses)
@@ -785,9 +860,53 @@ const getLedgerReport = asyncHandler(async (req, res) => {
     }
 
     // scope by role
-    if (userRole === 'merchant') {
-      where.user_id = currentUserId;
-    } else if (userRole === 'franchaise') {
+    if (userRole === 'super_admin') {
+      if (user_id) {
+        where.user_id = parseInt(user_id);
+      }
+      // super_admin without user_id sees all entries
+    } else if (userRole === 'admin' || userRole === 'employee') {
+      let companyUserIds = [currentUserId];
+      if (companyId) {
+        const companyUsers = await User.findAll({
+          where: { company_id: companyId },
+          attributes: ['id']
+        });
+        companyUserIds = Array.from(new Set([currentUserId, ...companyUsers.map(u => u.id)]));
+      }
+
+      if (user_id) {
+        const parsedUserId = parseInt(user_id);
+        if (!companyUserIds.includes(parsedUserId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied: user does not belong to your company'
+          });
+        }
+        where.user_id = parsedUserId;
+      } else {
+        where.user_id = { [Op.in]: companyUserIds };
+      }
+    } else if (userRole === 'super_franchise') {
+      const downstreamUsers = await User.findAll({
+        where: { super_franchise_id: currentUserId, status: 'active' },
+        attributes: ['id']
+      }).then(rows => rows.map(r => r.id));
+      const allowedUserIds = Array.from(new Set([currentUserId, ...downstreamUsers]));
+
+      if (user_id) {
+        const parsedUserId = parseInt(user_id);
+        if (!allowedUserIds.includes(parsedUserId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied: user does not belong to your network'
+          });
+        }
+        where.user_id = parsedUserId;
+      } else {
+        where.user_id = { [Op.in]: allowedUserIds };
+      }
+    } else if (userRole === 'franchaise' || userRole === 'franchise') {
       if (user_id) {
         const targetUser = await User.findOne({
           where: { id: user_id, franchaise_id: currentUserId, status: 'active' }
@@ -806,11 +925,6 @@ const getLedgerReport = asyncHandler(async (req, res) => {
         }).then(rows => rows.map(r => r.id));
         where.user_id = { [Op.in]: [currentUserId, ...merchantIds] };
       }
-    } else if (userRole === 'admin') {
-      if (user_id) {
-        where.user_id = parseInt(user_id);
-      }
-      // admin without user_id sees all entries
     } else {
       where.user_id = currentUserId;
     }

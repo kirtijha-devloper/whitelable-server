@@ -458,6 +458,7 @@ const getAdminServicesController = asyncHandler(async (req, res) => {
 
   const result = {};
   for (const [key, globalCfg] of Object.entries(globalMap)) {
+    if (key === 'mx_payout') continue;
     const isSuperAdminDisabled = globalCfg.updated_by_role === "super_admin" && globalCfg.is_enabled === false;
     const adminEnabled = userSettingsMap[key] !== undefined ? userSettingsMap[key] : true;
     result[key] = {
@@ -1227,7 +1228,7 @@ const updateAdmin = asyncHandler(async (req, res) => {
       pg: ['pg_inventory'],
       qr: ['qr_payments'],
       soundbox: ['qr_payments'],
-      dmt: ['vimo_payout', 'branchx_payout', 'sevenpay_payout', 'ndia5_payout', 'mx_payout'],
+      dmt: ['vimo_payout', 'branchx_payout', 'sevenpay_payout', 'ndia5_payout'],
       billpayments: ['cc_bill_pay', 'ba_cc_bill_pay', 'cc_bill_3'],
     };
 
@@ -1834,7 +1835,6 @@ const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
     { key: "branchx_payout", label: "BranchX Payout", category: "Payout & Banking", description: "BranchX Direct Payout Service" },
     { key: "sevenpay_payout", label: "SevenPay Payout", category: "Payout & Banking", description: "SevenPay Payout Gateway Integration" },
     { key: "ndia5_payout", label: "Ndia5 Payout", category: "Payout & Banking", description: "NDIA5 Direct Bank Settlement Gateway" },
-    { key: "mx_payout", label: "Payout MX", category: "Payout & Banking", description: "MeroRecharge Payout Gateway" },
     { key: "cc_bill_pay", label: "Credit Card Bill Pay", category: "Credit Card & Utility", description: "Direct Credit Card Bill Payment Engine" },
     { key: "ba_cc_bill_pay", label: "BillAvenue CC Bill Pay", category: "Credit Card & Utility", description: "BillAvenue BBPS Credit Card Bill Payment" },
     { key: "cc_bill_3", label: "CC Bill 3", category: "Credit Card & Utility", description: "CC Bill 3 Payment Route" },
@@ -1846,7 +1846,7 @@ const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
   // Merge default metadata with DB services
   const allServices = [...DEFAULT_SERVICES];
   dbServices.forEach((s) => {
-    if (!allServices.some((m) => m.key === s.service_key)) {
+    if (s.service_key !== 'mx_payout' && !allServices.some((m) => m.key === s.service_key)) {
       allServices.push({
         key: s.service_key,
         label: s.label || s.service_key,
