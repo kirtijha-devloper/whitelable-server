@@ -22,8 +22,24 @@ const getPosSettings = asyncHandler(async (req, res) => {
 
   const where = {};
   if (role === 'super_franchise') {
-    where.super_franchise_id = req.user.id;
-    where.role = { [Op.in]: ['merchant', 'franchaise', 'franchise'] };
+    const downstreamFranchises = await User.findAll({
+      where: {
+        super_franchise_id: req.user.id,
+        role: { [Op.in]: ['franchaise', 'franchise'] }
+      },
+      attributes: ['id']
+    });
+    const franchiseIds = downstreamFranchises.map((f) => f.id);
+
+    where[Op.or] = [
+      {
+        super_franchise_id: req.user.id,
+        role: { [Op.in]: ['merchant', 'user', 'franchaise', 'franchise'] }
+      },
+      ...(franchiseIds.length > 0
+        ? [{ franchaise_id: { [Op.in]: franchiseIds }, role: { [Op.in]: ['merchant', 'user'] } }]
+        : [])
+    ];
   } else if (role === 'franchaise' || role === 'franchise') {
     where.franchaise_id = req.user.id;
     where.role = 'merchant';
@@ -347,10 +363,19 @@ const updateT0Limit = asyncHandler(async (req, res) => {
           continue;
         }
 
-        if (role === 'super_franchise' && user.super_franchise_id !== req.user.id && user.id !== req.user.id) {
-          failedCount++;
-          results.push({ row, identifier: rawId, success: false, message: 'User not assigned to your super franchise' });
-          continue;
+        if (role === 'super_franchise') {
+          let isAuthorized = Number(user.super_franchise_id) === Number(req.user.id) || Number(user.id) === Number(req.user.id);
+          if (!isAuthorized && user.franchaise_id) {
+            const parentF = await User.findByPk(user.franchaise_id, { attributes: ['id', 'super_franchise_id'] });
+            if (parentF && Number(parentF.super_franchise_id) === Number(req.user.id)) {
+              isAuthorized = true;
+            }
+          }
+          if (!isAuthorized) {
+            failedCount++;
+            results.push({ row, identifier: rawId, success: false, message: 'User not assigned to your super franchise' });
+            continue;
+          }
         }
 
         if ((role === 'franchaise' || role === 'franchise') && user.franchaise_id !== req.user.id) {
@@ -412,7 +437,14 @@ const updateT0Limit = asyncHandler(async (req, res) => {
   }
 
   if (role === 'super_franchise') {
-    if (user.super_franchise_id !== req.user.id && user.id !== req.user.id) {
+    let isAuthorized = Number(user.super_franchise_id) === Number(req.user.id) || Number(user.id) === Number(req.user.id);
+    if (!isAuthorized && user.franchaise_id) {
+      const parentF = await User.findByPk(user.franchaise_id, { attributes: ['id', 'super_franchise_id'] });
+      if (parentF && Number(parentF.super_franchise_id) === Number(req.user.id)) {
+        isAuthorized = true;
+      }
+    }
+    if (!isAuthorized) {
       res.status(403);
       throw new Error('You can only update T0 limits for users assigned to your super franchise.');
     }
