@@ -465,15 +465,21 @@ const getAdminServicesController = asyncHandler(async (req, res) => {
   const result = {};
   for (const [key, globalCfg] of Object.entries(globalMap)) {
     if (key === 'mx_payout') continue;
-    const isSuperAdminDisabled = globalCfg.updated_by_role === "super_admin" && globalCfg.is_enabled === false;
+    const globalEnabled = globalCfg.is_enabled !== false;
+    const isGloballyDisabled = !globalEnabled;
     const adminEnabled = userSettingsMap[key] !== undefined ? userSettingsMap[key] : true;
+    const effectiveEnabled = globalEnabled && adminEnabled;
+
     result[key] = {
       key,
       service_key: key,
       label: globalCfg.label || key,
       category: globalCfg.category || "General",
-      is_enabled: isSuperAdminDisabled ? false : adminEnabled,
-      is_super_admin_disabled: isSuperAdminDisabled,
+      global_enabled: globalEnabled,
+      is_globally_disabled: isGloballyDisabled,
+      is_super_admin_disabled: isGloballyDisabled,
+      admin_enabled: adminEnabled,
+      is_enabled: effectiveEnabled,
     };
   }
 
@@ -1249,16 +1255,8 @@ const updateAdmin = asyncHandler(async (req, res) => {
       }
     }
 
-    // Enforce Super Admin Global Lock (Tier 1):
-    // Cannot enable a service that is globally disabled in ServiceSetting.
-    const { getServiceSettingsMap } = require("../services/serviceSettingsService");
-    const globalMap = await getServiceSettingsMap();
-
-    for (const [sKey, isEn] of Object.entries(flattenedUpdates)) {
-      if (isEn && globalMap[sKey]?.is_enabled === false) {
-        flattenedUpdates[sKey] = false;
-      }
-    }
+    // Retain Admin's saved preferences directly in UserServiceSetting.
+    // Effective availability (effectiveEnabled = globalEnabled && adminEnabled) is enforced dynamically at evaluation time.
 
     // Only write the admin user's own row (Tier 2 scoping)
     const now = new Date();

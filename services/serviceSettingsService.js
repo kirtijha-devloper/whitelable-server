@@ -68,12 +68,10 @@ function normalizeGlobalServiceSettingsMap(records) {
       continue;
     }
 
-    const user = record.updated_by ? User.findByPk(record.updated_by, { attributes: ['id', 'role'] }) : null;
-
     normalized[record.service_key] = {
       is_enabled: record.is_enabled !== false,
       updated_by: record.updated_by ?? null,
-      updated_by_role: user ? user.role : null,
+      updated_by_role: null,
       updated_at: record.updatedAt || record.updated_at || null,
       label: record.label || null,
       category: record.category || 'General',
@@ -437,7 +435,7 @@ async function resolveUserForServiceEvaluation(userLike) {
 
   try {
     dbUser = await User.findByPk(userId, {
-      attributes: ['id', 'role', 'status', 'franchaise_id', 'is_payout_enabled'],
+      attributes: ['id', 'role', 'status', 'franchaise_id', 'company_id', 'is_payout_enabled'],
     });
   } catch (error) {
     if (isMissingTableError(error, 'users')) {
@@ -666,10 +664,10 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
   };
 }
 
-function buildServiceDisabledPayload(serviceKey) {
+function buildServiceDisabledPayload(serviceKey, message = 'Service is currently disabled.') {
   return {
     success: false,
-    message: 'Service is currently disabled.',
+    message,
     code: 'SERVICE_DISABLED',
     service_key: serviceKey,
   };
@@ -681,14 +679,45 @@ async function assertServiceEnabledOrRespond(res, serviceKey, user) {
     getServiceSettingsMap(),
     getUserServiceSettingsForUser(resolvedUser),
   ]);
-  const effectiveFlags = getEffectiveServiceFlags(resolvedUser, serviceSettingsMap, userServiceSettings);
 
-  if (effectiveFlags[serviceKey]) {
-    return true;
+  // 1. Enforce Global Availability
+  if (serviceSettingsMap && serviceSettingsMap[serviceKey]?.is_enabled === false) {
+    res.status(403).json(buildServiceDisabledPayload(serviceKey, `Service '${serviceKey}' is currently disabled globally by Super Admin.`));
+    return false;
   }
 
-  res.status(403).json(buildServiceDisabledPayload(serviceKey));
-  return false;
+  // 2. Enforce Admin / Tenant Availability
+  const userRole = String(resolvedUser?.role || '').toLowerCase();
+  let companyAdminSettings = null;
+  if (userRole === 'admin') {
+    if (userServiceSettings[serviceKey] === false) {
+      res.status(403).json(buildServiceDisabledPayload(serviceKey, `Service '${serviceKey}' is currently disabled for this tenant.`));
+      return false;
+    }
+  } else if (userRole !== 'super_admin') {
+    const companyId = resolvedUser?.company_id;
+    if (companyId) {
+      const companyAdmin = await User.findOne({
+        where: { company_id: companyId, role: 'admin' },
+      });
+      if (companyAdmin) {
+        companyAdminSettings = await getUserServiceSettingsForUser(companyAdmin);
+        if (companyAdminSettings && companyAdminSettings[serviceKey] === false) {
+          res.status(403).json(buildServiceDisabledPayload(serviceKey, `Service '${serviceKey}' is currently disabled for this tenant.`));
+          return false;
+        }
+      }
+    }
+  }
+
+  // 3. Enforce User-level Availability via effective flags
+  const effectiveFlags = getEffectiveServiceFlags(resolvedUser, serviceSettingsMap, userServiceSettings, companyAdminSettings);
+  if (!effectiveFlags[serviceKey]) {
+    res.status(403).json(buildServiceDisabledPayload(serviceKey, `Service '${serviceKey}' is currently disabled.`));
+    return false;
+  }
+
+  return true;
 }
 
 async function getServiceToggleAuditLogs(filters = {}) {
