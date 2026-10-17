@@ -368,6 +368,7 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
 
   const targetRole = String(targetUser.role || '').toLowerCase();
   const isTargetFranchise = targetRole === 'franchise' || targetRole === 'franchaise';
+  const isTargetSuperFranchise = targetRole === 'super_franchise' || targetRole === 'superfranchise';
 
   // 1. Calculate amount utilized today by targetUser (T0 transactions executed today)
   const { startOfDay, endOfDay } = getTodayIstDateWindow();
@@ -387,9 +388,21 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
     targetUsedToday = 0;
   }
 
-  // 2. Calculate amount allocated to downstream merchants if targetUser is a Franchise
-  let allocatedToMerchants = 0;
-  if (isTargetFranchise) {
+  // 2. Calculate amount allocated to downstream users (for Super Franchise OR Franchise)
+  let allocatedToDownstream = 0;
+  if (isTargetSuperFranchise) {
+    const downstreamUsers = await User.findAll({
+      where: {
+        super_franchise_id: targetUser.id,
+        t0_daily_limit: { [Op.not]: null }
+      },
+      attributes: ['t0_daily_limit']
+    });
+    allocatedToDownstream = downstreamUsers.reduce((sum, u) => {
+      const l = parseFloat(u.t0_daily_limit);
+      return sum + (isNaN(l) ? 0 : l);
+    }, 0);
+  } else if (isTargetFranchise) {
     const downstreamMerchants = await User.findAll({
       where: {
         franchaise_id: targetUser.id,
@@ -399,20 +412,25 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
       attributes: ['t0_daily_limit']
     });
 
-    allocatedToMerchants = downstreamMerchants.reduce((sum, m) => {
+    allocatedToDownstream = downstreamMerchants.reduce((sum, m) => {
       const l = parseFloat(m.t0_daily_limit);
       return sum + (isNaN(l) ? 0 : l);
     }, 0);
   }
 
   // 3. Minimum allowable limit for targetUser
-  const minRequiredLimit = allocatedToMerchants + targetUsedToday;
+  const minRequiredLimit = allocatedToDownstream + targetUsedToday;
 
   if (requestedLimitVal < minRequiredLimit) {
     let msg = '';
-    if (isTargetFranchise) {
+    if (isTargetSuperFranchise) {
       const details = [];
-      if (allocatedToMerchants > 0) details.push(`Allocated to merchants: ₹${allocatedToMerchants}`);
+      if (allocatedToDownstream > 0) details.push(`Allocated to child franchises: ₹${allocatedToDownstream}`);
+      if (targetUsedToday > 0) details.push(`Utilized today: ₹${targetUsedToday}`);
+      msg = `Super Franchise limit cannot be set lower than ₹${minRequiredLimit} as it is already allocated/utilized (${details.join(', ')}).`;
+    } else if (isTargetFranchise) {
+      const details = [];
+      if (allocatedToDownstream > 0) details.push(`Allocated to merchants: ₹${allocatedToDownstream}`);
       if (targetUsedToday > 0) details.push(`Utilized today: ₹${targetUsedToday}`);
       msg = `Franchise limit cannot be set lower than ₹${minRequiredLimit} as it is already utilized/allocated (${details.join(', ')}).`;
     } else {

@@ -266,16 +266,20 @@ async function resolveUserForT0Limit(rawId) {
     if (userByPk) return userByPk;
   }
 
-  // 2. Otherwise try matching id as string, mobile_number, phone, user_code, email
+  // 2. Otherwise try matching abheepay_id, username, mobile_number, email
+  const orConditions = [
+    { abheepay_id: cleanId },
+    { username: cleanId },
+    { mobile_number: cleanId },
+    { email: cleanId }
+  ];
+  if (!isNaN(numId) && Number.isInteger(numId) && numId > 0) {
+    orConditions.push({ id: numId });
+  }
+
   const userByQuery = await User.findOne({
     where: {
-      [Op.or]: [
-        { id: cleanId },
-        { mobile_number: cleanId },
-        { phone: cleanId },
-        { user_code: cleanId },
-        { email: cleanId }
-      ]
+      [Op.or]: orConditions
     }
   });
 
