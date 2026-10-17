@@ -83,8 +83,9 @@ const listStatement = asyncHandler(async (req, res) => {
   try {
     const status = req.query.status;
     const searchedRole = req.query.searched_role || null;
-    const userRole = req.user.role;
+    const userRole = normalizeRole(req.user?.original_role || req.user.role);
     const userId = req.user.id;
+    const companyId = req.user?.company_id || req.company;
 
     const where = {
       status: status || "completed",
@@ -96,6 +97,10 @@ const listStatement = asyncHandler(async (req, res) => {
       const userFilter = {
         status: "active",
       };
+
+      if (companyId) {
+        userFilter.company_id = companyId;
+      }
 
       if (searchedRole) {
         userFilter.role = searchedRole;
@@ -189,12 +194,23 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
         targetUserId = userId;
       }
     } else if (userRole === 'admin') {
-      // Admin can see any user's ledger
       if (!user_id) {
         return res.status(400).json({
           success: false,
           message: 'user_id is required for admin users'
         });
+      }
+      const companyId = req.user?.company_id || req.company;
+      if (companyId && parseInt(user_id) !== userId) {
+        const targetUser = await User.findOne({
+          where: { id: user_id, company_id: companyId }
+        });
+        if (!targetUser) {
+          return res.status(403).json({
+            success: false,
+            message: "You do not have access to this user's ledger"
+          });
+        }
       }
       targetUserId = user_id;
     } else {
