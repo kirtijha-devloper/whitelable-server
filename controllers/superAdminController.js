@@ -2586,7 +2586,7 @@ const getSuperAdminPosAdminsMatrix = asyncHandler(async (req, res) => {
 
   const { count, rows: admins } = await User.findAndCountAll({
     where: adminWhere,
-    attributes: ['id', 'name', 'email', 'mobile', 'role', 'status', 'company_id', 'createdAt'],
+    attributes: ['id', 'name', 'email', 'role', 'status', 'company_id', 'createdAt'],
     limit: parseInt(limit, 10),
     offset,
     order: [['id', 'ASC']],
