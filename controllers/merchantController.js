@@ -130,8 +130,20 @@ const getUsers = asyncHandler(async (req, res) => {
       if (userId) where.franchaise_id = userId;
       if (status) where.status = status;
     } else if (req.user.role === "super_franchise") {
+      const downstreamFranchises = await User.findAll({
+        where: {
+          super_franchise_id: req.user.id,
+          role: { [Op.in]: ['franchaise', 'franchise'] }
+        },
+        attributes: ['id']
+      });
+      const franchiseIds = downstreamFranchises.map((f) => f.id);
+
       where.role = "merchant";
-      where.super_franchise_id = req.user.id;
+      where[Op.or] = [
+        { super_franchise_id: req.user.id },
+        ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
+      ];
       if (status) where.status = status;
     } else {
       // For admin or other roles, show all merchants

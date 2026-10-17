@@ -21,6 +21,8 @@ const AUTH_USER_ATTRIBUTES = [
   'employee_access_role_id',
   'company_id',
   't0_daily_limit',
+  'super_franchise_id',
+  'franchaise_id',
 ];
 
 function buildAuthUser(userLike) {
@@ -42,6 +44,8 @@ function buildAuthUser(userLike) {
     ipay_outlet_id: userLike.ipay_outlet_id || null,
     company_id: userLike.company_id || null,
     t0_daily_limit: userLike.t0_daily_limit !== undefined && userLike.t0_daily_limit !== null ? userLike.t0_daily_limit : null,
+    super_franchise_id: userLike.super_franchise_id ? Number(userLike.super_franchise_id) : null,
+    franchaise_id: userLike.franchaise_id ? Number(userLike.franchaise_id) : null,
     employee_access_role_id: userLike.employee_access_role_id || normalizedEmployeeAccessRole?.id || null,
     employee_access_role: normalizedEmployeeAccessRole,
     permissions: getResolvedPermissions({

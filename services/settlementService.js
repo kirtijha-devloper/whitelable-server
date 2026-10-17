@@ -490,6 +490,56 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
     }
   }
 
+  // 4b. If targetUser is a Franchise under a Super Franchise, validate against Super Franchise pool
+  if (isTargetFranchise && targetUser.super_franchise_id) {
+    const parentSf = await User.findByPk(targetUser.super_franchise_id);
+    if (parentSf) {
+      const rawSfLimit = parentSf.t0_daily_limit;
+      const isSfNotSet = rawSfLimit === null || rawSfLimit === undefined || rawSfLimit === '';
+      const isSfUnlimited = !isSfNotSet && String(rawSfLimit).toLowerCase() === 'unlimited';
+
+      if (!isSfNotSet && !isSfUnlimited) {
+        const sfPool = parseFloat(rawSfLimit) || 0;
+        if (sfPool > 0) {
+          const otherFranchises = await User.findAll({
+            where: {
+              super_franchise_id: parentSf.id,
+              role: { [Op.in]: ['franchise', 'franchaise'] },
+              id: { [Op.ne]: targetUser.id },
+              t0_daily_limit: { [Op.not]: null }
+            },
+            attributes: ['t0_daily_limit']
+          });
+          const otherAllocated = otherFranchises.reduce((sum, f) => {
+            const l = parseFloat(f.t0_daily_limit);
+            return sum + (isNaN(l) ? 0 : l);
+          }, 0);
+          let sfUsedToday = 0;
+          try {
+            const sfUsedRaw = await RazorpayNotification.sum('amount', {
+              where: {
+                user_id: parentSf.id,
+                status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED'] },
+                settlement_type: { [Op.in]: ['T0', 'today_settlement'] },
+                createdAt: { [Op.between]: [startOfDay, endOfDay] }
+              }
+            });
+            sfUsedToday = parseFloat(sfUsedRaw) || 0;
+          } catch (err) {
+            sfUsedToday = 0;
+          }
+          const availableFromSf = Math.max(0, sfPool - otherAllocated - sfUsedToday);
+          if (requestedLimitVal > availableFromSf) {
+            const err = new Error(`Limit pool of Super Franchise (₹${sfPool.toLocaleString('en-IN')}) exceeded! Maximum limit available to assign to this franchise is ₹${availableFromSf.toLocaleString('en-IN')}.`);
+            err.status = 400;
+            err.statusCode = 400;
+            throw err;
+          }
+        }
+      }
+    }
+  }
+
   // 5. Validate against Admin Payin Limit Pool (for Top-Level Accounts: Super Franchise, Standalone Franchise, Direct Merchant)
   const isTopLevelUnderAdmin =
     targetRole === 'super_franchise' ||
