@@ -2416,8 +2416,22 @@ const createSuperAdminPosDefault = asyncHandler(async (req, res) => {
   if (!payment_mode) {
     return res.status(400).json({ success: false, message: 'payment_mode is required' });
   }
-  if (charge_percent === undefined || charge_percent === null || isNaN(parseFloat(charge_percent))) {
-    return res.status(400).json({ success: false, message: 'charge_percent must be a valid number' });
+  const parsedChargePercent = (charge_percent !== undefined && charge_percent !== null && charge_percent !== '' && !isNaN(parseFloat(charge_percent)))
+    ? parseFloat(charge_percent)
+    : 0;
+  if (parsedChargePercent < 0 || parsedChargePercent > 100) {
+    return res.status(400).json({ success: false, message: 'charge_percent must be between 0 and 100' });
+  }
+
+  const parsedMinAmount = (min_amount !== undefined && min_amount !== null && min_amount !== '' && !isNaN(parseFloat(min_amount)))
+    ? parseFloat(min_amount)
+    : 0;
+  const parsedMaxAmount = (max_amount !== undefined && max_amount !== null && max_amount !== '' && max_amount !== 'Unlimited' && !isNaN(parseFloat(max_amount)))
+    ? parseFloat(max_amount)
+    : null;
+
+  if (parsedMaxAmount !== null && parsedMinAmount > parsedMaxAmount) {
+    return res.status(400).json({ success: false, message: 'min_amount cannot be greater than max_amount' });
   }
 
   // Check duplicate
@@ -2430,8 +2444,8 @@ const createSuperAdminPosDefault = asyncHandler(async (req, res) => {
       card_brand: card_brand || null,
       card_classification: card_classification || null,
       settlement_type: settlement_type || null,
-      min_amount: min_amount || 0,
-      max_amount: max_amount || null,
+      min_amount: parsedMinAmount,
+      max_amount: parsedMaxAmount,
       company_name: company_name || null,
     },
   });
@@ -2453,9 +2467,9 @@ const createSuperAdminPosDefault = asyncHandler(async (req, res) => {
     card_brand: card_brand || null,
     card_classification: card_classification || 'ANY',
     settlement_type: settlement_type || null,
-    min_amount: parseFloat(min_amount) || 0,
-    max_amount: max_amount ? parseFloat(max_amount) : null,
-    charge_percent: parseFloat(charge_percent),
+    min_amount: parsedMinAmount,
+    max_amount: parsedMaxAmount,
+    charge_percent: parsedChargePercent,
     charge_flat: parseFloat(charge_flat) || 0,
     gst_required: Boolean(gst_required),
     gst_percent: parseFloat(gst_percent) || 0,
@@ -2498,9 +2512,31 @@ const updateSuperAdminPosDefault = asyncHandler(async (req, res) => {
     'is_active',
   ].forEach((field) => {
     if (req.body[field] !== undefined) {
-      updateFields[field] = req.body[field];
+      if (field === 'charge_percent') {
+        const val = req.body[field];
+        updateFields[field] = (val !== null && val !== '' && !isNaN(parseFloat(val))) ? parseFloat(val) : 0;
+      } else if (field === 'min_amount') {
+        const val = req.body[field];
+        updateFields[field] = (val !== null && val !== '' && !isNaN(parseFloat(val))) ? parseFloat(val) : 0;
+      } else if (field === 'max_amount') {
+        const val = req.body[field];
+        updateFields[field] = (val !== null && val !== '' && val !== 'Unlimited' && !isNaN(parseFloat(val))) ? parseFloat(val) : null;
+      } else if (field === 'charge_flat' || field === 'gst_percent') {
+        const val = req.body[field];
+        updateFields[field] = (val !== null && val !== '' && !isNaN(parseFloat(val))) ? parseFloat(val) : 0;
+      } else if (field === 'gst_required') {
+        updateFields[field] = Boolean(req.body[field]);
+      } else {
+        updateFields[field] = req.body[field];
+      }
     }
   });
+
+  const effMin = updateFields.min_amount !== undefined ? updateFields.min_amount : parseFloat(rule.min_amount);
+  const effMax = updateFields.max_amount !== undefined ? updateFields.max_amount : (rule.max_amount !== null ? parseFloat(rule.max_amount) : null);
+  if (effMax !== null && effMin > effMax) {
+    return res.status(400).json({ success: false, message: 'min_amount cannot be greater than max_amount' });
+  }
 
   await rule.update(updateFields);
 
@@ -2656,8 +2692,22 @@ const createOrUpdateSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
   if (!payment_mode) {
     return res.status(400).json({ success: false, message: 'payment_mode is required' });
   }
-  if (charge_percent === undefined || charge_percent === null || isNaN(parseFloat(charge_percent))) {
-    return res.status(400).json({ success: false, message: 'charge_percent must be a valid number' });
+  const parsedChargePercent = (charge_percent !== undefined && charge_percent !== null && charge_percent !== '' && !isNaN(parseFloat(charge_percent)))
+    ? parseFloat(charge_percent)
+    : 0;
+  if (parsedChargePercent < 0 || parsedChargePercent > 100) {
+    return res.status(400).json({ success: false, message: 'charge_percent must be between 0 and 100' });
+  }
+
+  const parsedMinAmount = (min_amount !== undefined && min_amount !== null && min_amount !== '' && !isNaN(parseFloat(min_amount)))
+    ? parseFloat(min_amount)
+    : 0;
+  const parsedMaxAmount = (max_amount !== undefined && max_amount !== null && max_amount !== '' && max_amount !== 'Unlimited' && !isNaN(parseFloat(max_amount)))
+    ? parseFloat(max_amount)
+    : null;
+
+  if (parsedMaxAmount !== null && parsedMinAmount > parsedMaxAmount) {
+    return res.status(400).json({ success: false, message: 'min_amount cannot be greater than max_amount' });
   }
 
   // Find if an override already exists for this admin
@@ -2669,8 +2719,8 @@ const createOrUpdateSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
     card_brand: card_brand || null,
     card_classification: card_classification || null,
     settlement_type: settlement_type || null,
-    min_amount: parseFloat(min_amount) || 0,
-    max_amount: max_amount ? parseFloat(max_amount) : null,
+    min_amount: parsedMinAmount,
+    max_amount: parsedMaxAmount,
   };
   if (company_name) whereMatch.company_name = company_name;
 
@@ -2678,7 +2728,9 @@ const createOrUpdateSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
 
   if (rule) {
     await rule.update({
-      charge_percent: parseFloat(charge_percent),
+      min_amount: parsedMinAmount,
+      max_amount: parsedMaxAmount,
+      charge_percent: parsedChargePercent,
       charge_flat: parseFloat(charge_flat) || 0,
       gst_required: Boolean(gst_required),
       gst_percent: parseFloat(gst_percent) || 0,
@@ -2696,9 +2748,9 @@ const createOrUpdateSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
       card_brand: card_brand || null,
       card_classification: card_classification || 'ANY',
       settlement_type: settlement_type || null,
-      min_amount: parseFloat(min_amount) || 0,
-      max_amount: max_amount ? parseFloat(max_amount) : null,
-      charge_percent: parseFloat(charge_percent),
+      min_amount: parsedMinAmount,
+      max_amount: parsedMaxAmount,
+      charge_percent: parsedChargePercent,
       charge_flat: parseFloat(charge_flat) || 0,
       gst_required: Boolean(gst_required),
       gst_percent: parseFloat(gst_percent) || 0,
@@ -2727,6 +2779,8 @@ const updateSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
 
   const updateFields = {};
   [
+    'min_amount',
+    'max_amount',
     'charge_percent',
     'charge_flat',
     'gst_required',
@@ -2735,9 +2789,31 @@ const updateSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
     'settlement_type',
   ].forEach((field) => {
     if (req.body[field] !== undefined) {
-      updateFields[field] = req.body[field];
+      if (field === 'charge_percent') {
+        const val = req.body[field];
+        updateFields[field] = (val !== null && val !== '' && !isNaN(parseFloat(val))) ? parseFloat(val) : 0;
+      } else if (field === 'min_amount') {
+        const val = req.body[field];
+        updateFields[field] = (val !== null && val !== '' && !isNaN(parseFloat(val))) ? parseFloat(val) : 0;
+      } else if (field === 'max_amount') {
+        const val = req.body[field];
+        updateFields[field] = (val !== null && val !== '' && val !== 'Unlimited' && !isNaN(parseFloat(val))) ? parseFloat(val) : null;
+      } else if (field === 'charge_flat' || field === 'gst_percent') {
+        const val = req.body[field];
+        updateFields[field] = (val !== null && val !== '' && !isNaN(parseFloat(val))) ? parseFloat(val) : 0;
+      } else if (field === 'gst_required') {
+        updateFields[field] = Boolean(req.body[field]);
+      } else {
+        updateFields[field] = req.body[field];
+      }
     }
   });
+
+  const effMin = updateFields.min_amount !== undefined ? updateFields.min_amount : parseFloat(rule.min_amount);
+  const effMax = updateFields.max_amount !== undefined ? updateFields.max_amount : (rule.max_amount !== null ? parseFloat(rule.max_amount) : null);
+  if (effMax !== null && effMin > effMax) {
+    return res.status(400).json({ success: false, message: 'min_amount cannot be greater than max_amount' });
+  }
 
   await rule.update(updateFields);
 
