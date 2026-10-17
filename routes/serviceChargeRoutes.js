@@ -8,11 +8,15 @@ const {
   updateServiceCharge,
   deleteServiceCharge,
   toggleServiceChargeStatus,
+  getMyApplicableCharges,
 } = require("../controllers/serviceChargeController");
 
 // Protect all service charge routes
 router.use(validateToken);
 router.use(validateWhitelabelDomain);
+
+// 0. Inherited Base Rates for logged-in user
+router.get("/my-applicable-charges", getMyApplicableCharges);
 
 // 1. SET CHARGES (Super Admin / Admin)
 // List all service charge rules
