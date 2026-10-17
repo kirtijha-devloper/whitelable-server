@@ -562,7 +562,7 @@ async function createPayoutEntry({
   description = null,
   metadata = null,
 }, opts = {}) {
-  return await createLedgerEntry({
+  const ledgerResult = await createLedgerEntry({
     userId,
     transactionType: 'payout',
     referenceId: payoutTransactionId,
@@ -571,6 +571,41 @@ async function createPayoutEntry({
     debit: amount,
     metadata,
   }, opts);
+
+  // If service charge was deducted, distribute commission across hierarchy
+  try {
+    const meta = typeof metadata === 'string' ? JSON.parse(metadata) : (metadata || {});
+    let payoutTxn = null;
+    if (payoutTransactionId) {
+      if (typeof payoutTransactionId === 'object' && payoutTransactionId.id) {
+        payoutTxn = payoutTransactionId;
+      } else {
+        const PayoutTransaction = require('../models/PayoutTransaction');
+        payoutTxn = await PayoutTransaction.findByPk(payoutTransactionId, {
+          transaction: opts.transaction,
+        });
+      }
+    }
+
+    const serviceCharge = parseFloat(meta.service_charge ?? payoutTxn?.service_charge ?? 0);
+    const payoutAmount = parseFloat(meta.payout_amount ?? payoutTxn?.amount ?? (amount - serviceCharge));
+
+    if (serviceCharge > 0) {
+      const payoutCommissionService = require('./payoutCommissionService');
+      await payoutCommissionService.distributePayoutCommission({
+        payoutTransaction: payoutTxn,
+        merchantId: userId,
+        amount: payoutAmount > 0 ? payoutAmount : amount,
+        serviceCharge,
+        provider: meta.payout_provider || payoutTxn?.payout_provider || 'Payout',
+        dbTransaction: opts.transaction,
+      });
+    }
+  } catch (commErr) {
+    console.error('[PayoutCommission] Failed to distribute payout commission:', commErr.message || commErr);
+  }
+
+  return ledgerResult;
 }
 
 // ---------------------------------------------------------------------------

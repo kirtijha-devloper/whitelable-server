@@ -218,7 +218,7 @@ const buildUserScope = async (req, qUserId = null, fieldName = 'user_id') => {
 
   if (userRole === 'merchant') {
     scope[fieldName] = currentUserId;
-  } else if (userRole === 'franchaise') {
+  } else if (userRole === 'franchaise' || userRole === 'franchise') {
     if (qUserId) {
       const targetUser = await User.findOne({
         where: { id: qUserId, franchaise_id: currentUserId, status: 'active' }
@@ -236,9 +236,43 @@ const buildUserScope = async (req, qUserId = null, fieldName = 'user_id') => {
       }).then(rows => rows.map(r => r.id));
       scope[fieldName] = { [Op.in]: [currentUserId, ...merchantIds] };
     }
-  } else if (userRole === 'admin') {
+  } else if (userRole === 'super_franchise') {
+    if (qUserId) {
+      const targetUser = await User.findByPk(qUserId);
+      const isAllowed = targetUser && (
+        targetUser.id === currentUserId ||
+        targetUser.super_franchise_id === currentUserId ||
+        (targetUser.franchaise_id && (await User.count({ where: { id: targetUser.franchaise_id, super_franchise_id: currentUserId } })) > 0)
+      );
+      if (!isAllowed) {
+        const err = new Error('Access denied: user does not belong to your super franchise');
+        err.statusCode = 403;
+        throw err;
+      }
+      scope[fieldName] = parseInt(qUserId);
+    } else {
+      const franchises = await User.findAll({
+        where: { super_franchise_id: currentUserId },
+        attributes: ['id']
+      });
+      const franchiseIds = franchises.map(f => f.id);
+      const merchantWhere = {
+        [Op.or]: [
+          { super_franchise_id: currentUserId },
+          ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
+        ]
+      };
+      const merchants = await User.findAll({
+        where: merchantWhere,
+        attributes: ['id']
+      });
+      const merchantIds = merchants.map(m => m.id);
+      const allowedIds = Array.from(new Set([currentUserId, ...franchiseIds, ...merchantIds]));
+      scope[fieldName] = { [Op.in]: allowedIds };
+    }
+  } else if (userRole === 'admin' || userRole === 'super_admin') {
     if (qUserId) scope[fieldName] = parseInt(qUserId);
-    // admin without user_id → no restriction
+    // admin/super_admin without user_id → no restriction
   } else {
     scope[fieldName] = currentUserId;
   }
@@ -445,7 +479,7 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
     if (userRole === 'merchant') {
       where.user_id = currentUserId;
 
-    } else if (userRole === 'franchaise') {
+    } else if (userRole === 'franchaise' || userRole === 'franchise') {
       if (user_id) {
         const targetUser = await User.findOne({
           where: { id: user_id, franchaise_id: currentUserId, status: 'active' }
@@ -466,7 +500,43 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         where.user_id = { [Op.in]: [currentUserId, ...merchantIds] };
       }
 
-    } else if (userRole === 'admin') {
+    } else if (userRole === 'super_franchise') {
+      if (user_id) {
+        const targetUser = await User.findByPk(user_id);
+        const isAllowed = targetUser && (
+          targetUser.id === currentUserId ||
+          targetUser.super_franchise_id === currentUserId ||
+          (targetUser.franchaise_id && (await User.count({ where: { id: targetUser.franchaise_id, super_franchise_id: currentUserId } })) > 0)
+        );
+        if (!isAllowed) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied: user does not belong to your super franchise'
+          });
+        }
+        where.user_id = parseInt(user_id);
+      } else {
+        const franchises = await User.findAll({
+          where: { super_franchise_id: currentUserId, status: 'active' },
+          attributes: ['id']
+        });
+        const franchiseIds = franchises.map(f => f.id);
+        const merchantWhere = {
+          status: 'active',
+          [Op.or]: [
+            { super_franchise_id: currentUserId },
+            ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
+          ]
+        };
+        const merchants = await User.findAll({
+          where: merchantWhere,
+          attributes: ['id']
+        });
+        const merchantIds = merchants.map(m => m.id);
+        where.user_id = { [Op.in]: [currentUserId, ...franchiseIds, ...merchantIds] };
+      }
+
+    } else if (userRole === 'admin' || userRole === 'super_admin') {
       if (user_id) {
         where.user_id = parseInt(user_id);
       } else if (include_unlinked !== 'true') {
@@ -787,7 +857,7 @@ const getLedgerReport = asyncHandler(async (req, res) => {
     // scope by role
     if (userRole === 'merchant') {
       where.user_id = currentUserId;
-    } else if (userRole === 'franchaise') {
+    } else if (userRole === 'franchaise' || userRole === 'franchise') {
       if (user_id) {
         const targetUser = await User.findOne({
           where: { id: user_id, franchaise_id: currentUserId, status: 'active' }
@@ -806,7 +876,42 @@ const getLedgerReport = asyncHandler(async (req, res) => {
         }).then(rows => rows.map(r => r.id));
         where.user_id = { [Op.in]: [currentUserId, ...merchantIds] };
       }
-    } else if (userRole === 'admin') {
+    } else if (userRole === 'super_franchise') {
+      if (user_id) {
+        const targetUser = await User.findByPk(user_id);
+        const isAllowed = targetUser && (
+          targetUser.id === currentUserId ||
+          targetUser.super_franchise_id === currentUserId ||
+          (targetUser.franchaise_id && (await User.count({ where: { id: targetUser.franchaise_id, super_franchise_id: currentUserId } })) > 0)
+        );
+        if (!isAllowed) {
+          return res.status(403).json({
+            success: false,
+            message: 'Access denied: user does not belong to your super franchise'
+          });
+        }
+        where.user_id = parseInt(user_id);
+      } else {
+        const franchises = await User.findAll({
+          where: { super_franchise_id: currentUserId, status: 'active' },
+          attributes: ['id']
+        });
+        const franchiseIds = franchises.map(f => f.id);
+        const merchantWhere = {
+          status: 'active',
+          [Op.or]: [
+            { super_franchise_id: currentUserId },
+            ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
+          ]
+        };
+        const merchants = await User.findAll({
+          where: merchantWhere,
+          attributes: ['id']
+        });
+        const merchantIds = merchants.map(m => m.id);
+        where.user_id = { [Op.in]: [currentUserId, ...franchiseIds, ...merchantIds] };
+      }
+    } else if (userRole === 'admin' || userRole === 'super_admin') {
       if (user_id) {
         where.user_id = parseInt(user_id);
       }

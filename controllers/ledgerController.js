@@ -110,7 +110,7 @@ const listStatement = asyncHandler(async (req, res) => {
       where.requested_by = userIds;
     }
 
-    if (userRole === "franchaise") {
+    if (userRole === "franchaise" || userRole === "franchise") {
       if (searchedRole === "merchant") {
         const users = await User.findAll({
           where: { franchaise_id: userId, status: "active" },
@@ -118,6 +118,35 @@ const listStatement = asyncHandler(async (req, res) => {
         });
         const userIds = users.map((u) => u.id);
         where.requested_by = userIds;
+      } else {
+        where.requested_by = userId;
+      }
+    }
+
+    if (userRole === "super_franchise") {
+      if (searchedRole === "franchise" || searchedRole === "franchaise") {
+        const users = await User.findAll({
+          where: { super_franchise_id: userId, status: "active" },
+          attributes: ["id"],
+        });
+        where.requested_by = users.map((u) => u.id);
+      } else if (searchedRole === "merchant") {
+        const franchises = await User.findAll({
+          where: { super_franchise_id: userId, status: "active" },
+          attributes: ["id"],
+        });
+        const fIds = franchises.map(f => f.id);
+        const users = await User.findAll({
+          where: {
+            status: "active",
+            [Op.or]: [
+              { super_franchise_id: userId },
+              ...(fIds.length > 0 ? [{ franchaise_id: { [Op.in]: fIds } }] : [])
+            ]
+          },
+          attributes: ["id"],
+        });
+        where.requested_by = users.map((u) => u.id);
       } else {
         where.requested_by = userId;
       }
@@ -167,7 +196,7 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
     if (userRole === 'merchant') {
       // Merchants can only see their own ledger
       targetUserId = userId;
-    } else if (userRole === 'franchaise') {
+    } else if (userRole === 'franchaise' || userRole === 'franchise') {
       // Franchise can see their own or their merchants' ledgers
       if (user_id) {
         // Verify that the requested user_id belongs to this franchise by checking
@@ -188,15 +217,31 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
       } else {
         targetUserId = userId;
       }
-    } else if (userRole === 'admin') {
-      // Admin can see any user's ledger
-      if (!user_id) {
-        return res.status(400).json({
-          success: false,
-          message: 'user_id is required for admin users'
-        });
+    } else if (userRole === 'super_franchise') {
+      if (user_id && parseInt(user_id) !== userId) {
+        const targetUser = await User.findByPk(user_id);
+        const isAllowed = targetUser && (
+          targetUser.id === userId ||
+          targetUser.super_franchise_id === userId ||
+          (targetUser.franchaise_id && (await User.count({ where: { id: targetUser.franchaise_id, super_franchise_id: userId } })) > 0)
+        );
+        if (!isAllowed) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this user\'s ledger'
+          });
+        }
+        targetUserId = user_id;
+      } else {
+        targetUserId = userId;
       }
-      targetUserId = user_id;
+    } else if (userRole === 'admin' || userRole === 'super_admin') {
+      // Admin can see any user's ledger or their own
+      if (!user_id) {
+        targetUserId = userId;
+      } else {
+        targetUserId = user_id;
+      }
     } else {
       // Default: own ledger
       targetUserId = userId;
