@@ -108,7 +108,7 @@ router.put("/users/settlement-type", validateToken, validateWhitelabelDomain, re
 // PUT /api/admin/user/:id/settlement-type
 //   Admin-only: update settlement type for a single merchant or franchise user.
 //   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
-router.put("/user/:id/settlement-type", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdmin, setUserSettlementType);
+router.put("/user/:id/settlement-type", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdminOrFranchise, setUserSettlementType);
 
 // ── POS Settlement Settings Admin/Franchise Endpoints ──────────────────────
 // GET /api/admin/pos-setting and its legacy fallback

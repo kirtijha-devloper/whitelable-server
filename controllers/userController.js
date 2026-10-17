@@ -98,6 +98,7 @@ const {
   isEmployee,
   hasPermission,
   canFranchiseAccessTarget,
+  canSuperFranchiseAccessTarget,
 } = require('../utils/permissions');
 const { maskEmail } = require('../utils/masking');
 
@@ -466,7 +467,15 @@ const getUsers = asyncHandler(async (req, res) => {
           where.company_id = req.company;
         }
         if (userRole === 'super_franchise') {
-            where.super_franchise_id = userId;
+            const subFranchises = await User.findAll({
+              where: { super_franchise_id: userId, role: { [Op.in]: ['franchise', 'franchaise'] } },
+              attributes: ['id']
+            });
+            const subFranchiseIds = subFranchises.map((f) => f.id);
+            where[Op.or] = [
+              { super_franchise_id: userId },
+              ...(subFranchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: subFranchiseIds } }] : [])
+            ];
         } else if (userRole === 'franchaise' || userRole === 'franchise') {
             // Franchise can only see their own merchants
             where.franchaise_id = userId;
@@ -622,8 +631,20 @@ const searchUsers = asyncHandler(async (req, res) => {
         const offset = (parseInt(page) - 1) * parseInt(limit);
         const where = {};
 
+        const andConditions = [];
+
         if (userRole === 'super_franchise') {
-            where.super_franchise_id = userId;
+            const subFranchises = await User.findAll({
+              where: { super_franchise_id: userId, role: { [Op.in]: ['franchise', 'franchaise'] } },
+              attributes: ['id']
+            });
+            const subFranchiseIds = subFranchises.map((f) => f.id);
+            andConditions.push({
+              [Op.or]: [
+                { super_franchise_id: userId },
+                ...(subFranchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: subFranchiseIds } }] : [])
+              ]
+            });
         } else if (userRole === 'franchaise' || userRole === 'franchise') {
             where.franchaise_id = userId;
         }
@@ -638,13 +659,20 @@ const searchUsers = asyncHandler(async (req, res) => {
 
         if (q) {
             const normalized = q.trim();
-            where[Op.or] = [
+            andConditions.push({
+              [Op.or]: [
                 { name: { [Op.iLike]: `%${normalized}%` } },
                 { email: { [Op.iLike]: `%${normalized}%` } },
                 { username: { [Op.iLike]: `%${normalized}%` } },
                 { mobile_number: { [Op.iLike]: `%${normalized}%` } },
                 { mobile_number_country_code: { [Op.iLike]: `%${normalized}%` } },
-            ];
+                { abheepay_id: { [Op.iLike]: `%${normalized}%` } },
+              ]
+            });
+        }
+
+        if (andConditions.length > 0) {
+            where[Op.and] = andConditions;
         }
 
         const { count, rows: users } = await User.findAndCountAll({
@@ -774,6 +802,11 @@ const updateUserStatus = asyncHandler(async (req, res) => {
     if (!isOwnMerchant) {
       res.status(403);
       throw new Error('You can only manage your own merchants');
+    }
+  } else if (requesterRole === 'super_franchise') {
+    if (!canSuperFranchiseAccessTarget(req.user, targetUser)) {
+      res.status(403);
+      throw new Error('You can only manage users within your super franchise');
     }
   }
 
@@ -2137,7 +2170,14 @@ const updateUser = asyncHandler(async (req, res) => {
     }
 
     if (settlementTypeProvided && requesterRole !== 'admin') {
-      if (!isEmployee(req.user) || !hasPermission(req.user, EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE)) {
+      if (requesterRole === 'super_franchise') {
+        if (!canSuperFranchiseAccessTarget(req.user, targetUser)) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have permission to manage settlement settings for this user.',
+          });
+        }
+      } else if (!isEmployee(req.user) || !hasPermission(req.user, EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE)) {
         return res.status(403).json({
           success: false,
           message: 'You do not have permission to manage settlement settings.',
@@ -2211,6 +2251,15 @@ const updateUser = asyncHandler(async (req, res) => {
       }
     }
 
+    if (requesterRole === 'super_franchise') {
+      if (!canSuperFranchiseAccessTarget(req.user, targetUser)) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only edit users within your super franchise.',
+        });
+      }
+    }
+
     // ── Build update payload ──────────────────────────────────────────────
     // Fields any authenticated role may update on an allowed target:
     const commonFields = [
@@ -2264,8 +2313,8 @@ const updateUser = asyncHandler(async (req, res) => {
         updates.employee_access_role_id = null;
         updates.permissions = [];
       }
-    } else if (settlementTypeProvided && isEmployee(req.user)
-      && hasPermission(req.user, EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE)) {
+    } else if (settlementTypeProvided && (requesterRole === 'super_franchise' || (isEmployee(req.user)
+      && hasPermission(req.user, EMPLOYEE_PERMISSIONS.SETTLEMENT_MANAGE)))) {
       updates.settlement_type = req.body.settlement_type;
     }
 

@@ -11,7 +11,7 @@ const {
   bulkUpdateUserServiceSettingsForAllUsers,
   getServiceToggleAuditLogs,
 } = require('../services/serviceSettingsService');
-const { normalizeRole } = require('../utils/permissions');
+const { normalizeRole, canSuperFranchiseAccessTarget } = require('../utils/permissions');
 
 const DEFAULT_SERVICES_METADATA = [
   {
@@ -457,10 +457,10 @@ const updateUserServiceSettings = asyncHandler(async (req, res) => {
 
   const requesterRole = normalizeRole(req.user?.role);
 
-  if (requesterRole !== 'admin') {
+  if (requesterRole !== 'admin' && requesterRole !== 'super_franchise') {
     return res.status(403).json({
       success: false,
-      message: 'Only admin can manage user service settings.',
+      message: 'Only admin and super franchise can manage user service settings.',
     });
   }
 
@@ -476,6 +476,13 @@ const updateUserServiceSettings = asyncHandler(async (req, res) => {
     return res.status(404).json({
       success: false,
       message: 'User not found.',
+    });
+  }
+
+  if (requesterRole === 'super_franchise' && !canSuperFranchiseAccessTarget(req.user, targetUser)) {
+    return res.status(403).json({
+      success: false,
+      message: 'You can only manage service settings for users within your super franchise.',
     });
   }
 
