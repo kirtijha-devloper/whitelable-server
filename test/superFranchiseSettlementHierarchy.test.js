@@ -10,7 +10,9 @@ const SECRET = process.env.ACCESS_TOKEN_SECRET;
 const adminRoutes = require('../routes/adminRoutes');
 const userRoutes = require('../routes/userRoutes');
 const merchantRoutes = require('../routes/merchantRoutes');
+const dashboardRoutes = require('../routes/dashboardRoutes');
 const User = require('../models/User');
+const Company = require('../models/Company');
 
 const app = express();
 app.use(bodyParser.json());
@@ -21,6 +23,7 @@ app.use((req, res, next) => {
 app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/merchant', merchantRoutes);
+app.use('/dashboard', dashboardRoutes);
 
 describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', function () {
   this.timeout(20000);
@@ -34,6 +37,17 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
   let karanToken;
 
   before(async () => {
+    const { Op } = require('sequelize');
+    const matchedCompany = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { domain_name: { [Op.like]: '%localhost%' } },
+          { domain_name: { [Op.like]: '%127.0.0.1%' } }
+        ]
+      }
+    }) || await Company.findOne();
+    const companyId = matchedCompany ? matchedCompany.company_id : null;
+
     // Clean up test users if any
     await User.destroy({
       where: {
@@ -50,6 +64,7 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
       mobile_number: '9888800001',
       role: 'super_franchise',
       status: 'active',
+      company_id: companyId,
       t0_daily_limit: 1000000,
       settlement_type: 'T0'
     });
@@ -63,6 +78,7 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
       mobile_number: '9888800002',
       role: 'franchaise',
       status: 'active',
+      company_id: companyId,
       super_franchise_id: superFranchiseRam.id,
       t0_daily_limit: 500000,
       settlement_type: 'T0'
@@ -77,6 +93,7 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
       mobile_number: '9888800003',
       role: 'merchant',
       status: 'active',
+      company_id: companyId,
       franchaise_id: franchiseKaran.id,
       super_franchise_id: null,
       t0_daily_limit: 50000,
@@ -92,6 +109,7 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
       mobile_number: '9888800004',
       role: 'franchaise',
       status: 'active',
+      company_id: companyId,
       super_franchise_id: null,
       t0_daily_limit: 300000,
       settlement_type: 'T0'
@@ -106,6 +124,7 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
       mobile_number: '9888800005',
       role: 'merchant',
       status: 'active',
+      company_id: companyId,
       franchaise_id: otherFranchise.id,
       super_franchise_id: null,
       t0_daily_limit: 20000,
@@ -117,7 +136,8 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
         id: superFranchiseRam.id,
         role: 'super_franchise',
         email: superFranchiseRam.email,
-        super_franchise_id: null
+        super_franchise_id: null,
+        company_id: companyId
       }
     }, SECRET);
 
@@ -126,7 +146,8 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
         id: franchiseKaran.id,
         role: 'franchaise',
         email: franchiseKaran.email,
-        super_franchise_id: superFranchiseRam.id
+        super_franchise_id: superFranchiseRam.id,
+        company_id: companyId
       }
     }, SECRET);
   });
@@ -239,5 +260,37 @@ describe('Super Franchise Settlement Hierarchy & Merchant Filtering Tests', func
 
     expect(merchantIds).to.include(merchantUnderKaran.id);
     expect(merchantIds).to.not.include(otherMerchant.id);
+  });
+
+  it('7. GET /dashboard as Super Franchise Ram returns real dashboard metrics including Karan and downstream merchant', async () => {
+    const res = await request(app)
+      .get('/dashboard')
+      .set('Authorization', `Bearer ${ramToken}`);
+
+    expect(res.status).to.equal(200);
+    expect(res.body).to.have.property('data');
+    const { data } = res.body;
+
+    expect(data).to.have.property('franchaises');
+    expect(data.franchaises.count).to.be.at.least(1);
+
+    expect(data).to.have.property('merchants');
+    expect(data.merchants.count).to.be.at.least(1);
+
+    expect(data).to.have.property('pos_machines');
+    expect(data.pos_machines).to.have.property('total');
+    expect(data.pos_machines).to.have.property('active');
+    expect(data.pos_machines).to.have.property('inactive');
+
+    expect(data).to.have.property('pos_transactions');
+    expect(data.pos_transactions).to.have.property('total');
+    expect(data.pos_transactions).to.have.property('success');
+    expect(data.pos_transactions).to.have.property('t0_amount');
+    expect(data.pos_transactions).to.have.property('t1_amount');
+
+    expect(data).to.have.property('today_total_payout');
+    expect(data).to.have.property('ccBillPaymentTXN');
+    expect(data).to.have.property('ccBillPaymentSuccess');
+    expect(data).to.have.property('ccBillPaymentFailed');
   });
 });

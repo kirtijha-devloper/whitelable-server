@@ -242,11 +242,23 @@ const buildUserScope = async (req, qUserId = null, fieldName = 'user_id') => {
       scope[fieldName] = { [Op.in]: companyUserIds };
     }
   } else if (userRole === 'super_franchise') {
-    const downstreamUsers = await User.findAll({
-      where: { super_franchise_id: currentUserId, status: 'active' },
-      attributes: ['id']
+    const downstreamFranchises = await User.findAll({
+      where: { super_franchise_id: currentUserId, role: { [Op.in]: ['franchaise', 'franchise'] } },
+      attributes: ['id'],
+      raw: true
     }).then(rows => rows.map(r => r.id));
-    const allowedIds = Array.from(new Set([currentUserId, ...downstreamUsers]));
+    const downstreamUsers = await User.findAll({
+      where: {
+        status: 'active',
+        [Op.or]: [
+          { super_franchise_id: currentUserId },
+          ...(downstreamFranchises.length ? [{ franchaise_id: { [Op.in]: downstreamFranchises } }] : [])
+        ]
+      },
+      attributes: ['id'],
+      raw: true
+    }).then(rows => rows.map(r => r.id));
+    const allowedIds = Array.from(new Set([currentUserId, ...downstreamFranchises, ...downstreamUsers]));
     if (qUserId) {
       const parsedId = parseInt(qUserId);
       if (!allowedIds.includes(parsedId)) {
@@ -510,11 +522,23 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         where.user_id = { [Op.in]: companyUserIds };
       }
     } else if (normalizedRole === 'super_franchise') {
-      const downstreamUsers = await User.findAll({
-        where: { super_franchise_id: currentUserId, status: 'active' },
-        attributes: ['id']
+      const downstreamFranchises = await User.findAll({
+        where: { super_franchise_id: currentUserId, role: { [Op.in]: ['franchaise', 'franchise'] } },
+        attributes: ['id'],
+        raw: true
       }).then(rows => rows.map(r => r.id));
-      const allowedUserIds = Array.from(new Set([currentUserId, ...downstreamUsers]));
+      const downstreamUsers = await User.findAll({
+        where: {
+          status: 'active',
+          [Op.or]: [
+            { super_franchise_id: currentUserId },
+            ...(downstreamFranchises.length ? [{ franchaise_id: { [Op.in]: downstreamFranchises } }] : [])
+          ]
+        },
+        attributes: ['id'],
+        raw: true
+      }).then(rows => rows.map(r => r.id));
+      const allowedUserIds = Array.from(new Set([currentUserId, ...downstreamFranchises, ...downstreamUsers]));
       if (user_id) {
         const parsedUserId = parseInt(user_id);
         if (!allowedUserIds.includes(parsedUserId)) {
@@ -888,11 +912,23 @@ const getLedgerReport = asyncHandler(async (req, res) => {
         where.user_id = { [Op.in]: companyUserIds };
       }
     } else if (userRole === 'super_franchise') {
-      const downstreamUsers = await User.findAll({
-        where: { super_franchise_id: currentUserId, status: 'active' },
-        attributes: ['id']
+      const downstreamFranchises = await User.findAll({
+        where: { super_franchise_id: currentUserId, role: { [Op.in]: ['franchaise', 'franchise'] } },
+        attributes: ['id'],
+        raw: true
       }).then(rows => rows.map(r => r.id));
-      const allowedUserIds = Array.from(new Set([currentUserId, ...downstreamUsers]));
+      const downstreamUsers = await User.findAll({
+        where: {
+          status: 'active',
+          [Op.or]: [
+            { super_franchise_id: currentUserId },
+            ...(downstreamFranchises.length ? [{ franchaise_id: { [Op.in]: downstreamFranchises } }] : [])
+          ]
+        },
+        attributes: ['id'],
+        raw: true
+      }).then(rows => rows.map(r => r.id));
+      const allowedUserIds = Array.from(new Set([currentUserId, ...downstreamFranchises, ...downstreamUsers]));
 
       if (user_id) {
         const parsedUserId = parseInt(user_id);
