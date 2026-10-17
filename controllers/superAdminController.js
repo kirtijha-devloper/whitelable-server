@@ -14,6 +14,12 @@ const Ledger = require("../models/Ledger");
 const UsernameSequence = require("../models/UsernameSequence");
 const CompanyName = require("../models/CompanyName");
 const ServiceSetting = require("../models/ServiceSetting");
+const PosChargeRule = require("../models/PosChargeRule");
+const Rental = require("../models/Rental");
+const BbpsCcChargeRule = require("../models/BbpsCcChargeRule");
+const PayoutCharge = require("../models/PayoutCharge");
+const UserPayoutCharge = require("../models/UserPayoutCharge");
+const PosGlobalRate = require("../models/PosGlobalRate");
 const { parseIstBusinessDateRange } = require("../utils/dateRange");
 
 // Configure Cloudinary if environment variables are provided
@@ -2342,6 +2348,725 @@ const superAdminDebitAdminWallet = asyncHandler(async (req, res) => {
   }
 });
 
+// ── Rate Setting Controllers for Super Admin ─────────────────────────────────
+
+/**
+ * 1. GET Platform Default POS Rates
+ */
+const getSuperAdminPosDefaults = asyncHandler(async (req, res) => {
+  const {
+    payment_mode,
+    card_type,
+    card_brand,
+    card_classification,
+    settlement_type,
+    is_active,
+    page = 1,
+    limit = 100,
+  } = req.query;
+
+  const where = {
+    user_id: null,
+    scope: { [Op.in]: ['super_admin_default', 'admin_default'] },
+  };
+
+  if (payment_mode) where.payment_mode = payment_mode;
+  if (card_type) where.card_type = card_type;
+  if (card_brand) where.card_brand = card_brand;
+  if (card_classification) where.card_classification = card_classification;
+  if (settlement_type) where.settlement_type = settlement_type;
+  if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
+
+  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const { count, rows } = await PosChargeRule.findAndCountAll({
+    where,
+    limit: parseInt(limit, 10),
+    offset,
+    order: [['createdAt', 'DESC']],
+  });
+
+  return res.status(200).json({
+    success: true,
+    total: count,
+    page: parseInt(page, 10),
+    limit: parseInt(limit, 10),
+    totalPages: Math.ceil(count / parseInt(limit, 10)) || 1,
+    data: rows,
+  });
+});
+
+/**
+ * 2. POST Create Platform Default POS Rate
+ */
+const createSuperAdminPosDefault = asyncHandler(async (req, res) => {
+  const {
+    payment_mode,
+    card_type,
+    card_brand,
+    card_classification,
+    settlement_type,
+    min_amount = 0,
+    max_amount,
+    charge_percent,
+    charge_flat = 0,
+    gst_required = false,
+    gst_percent = 18,
+    company_name,
+    is_active = true,
+  } = req.body;
+
+  if (!payment_mode) {
+    return res.status(400).json({ success: false, message: 'payment_mode is required' });
+  }
+  if (charge_percent === undefined || charge_percent === null || isNaN(parseFloat(charge_percent))) {
+    return res.status(400).json({ success: false, message: 'charge_percent must be a valid number' });
+  }
+
+  // Check duplicate
+  const duplicate = await PosChargeRule.findOne({
+    where: {
+      user_id: null,
+      scope: { [Op.in]: ['super_admin_default', 'admin_default'] },
+      payment_mode: payment_mode || null,
+      card_type: card_type || null,
+      card_brand: card_brand || null,
+      card_classification: card_classification || null,
+      settlement_type: settlement_type || null,
+      min_amount: min_amount || 0,
+      max_amount: max_amount || null,
+      company_name: company_name || null,
+    },
+  });
+
+  if (duplicate) {
+    return res.status(400).json({
+      success: false,
+      message: 'A default rate rule with these exact parameters and slab already exists',
+    });
+  }
+
+  const newRule = await PosChargeRule.create({
+    user_id: null,
+    company_id: null,
+    created_by: req.user.id,
+    scope: 'super_admin_default',
+    payment_mode,
+    card_type: card_type || null,
+    card_brand: card_brand || null,
+    card_classification: card_classification || 'ANY',
+    settlement_type: settlement_type || null,
+    min_amount: parseFloat(min_amount) || 0,
+    max_amount: max_amount ? parseFloat(max_amount) : null,
+    charge_percent: parseFloat(charge_percent),
+    charge_flat: parseFloat(charge_flat) || 0,
+    gst_required: Boolean(gst_required),
+    gst_percent: parseFloat(gst_percent) || 0,
+    company_name: company_name || null,
+    is_active: is_active !== false,
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: 'Default platform POS rate rule created successfully',
+    data: newRule,
+  });
+});
+
+/**
+ * 3. PUT Update Platform Default POS Rate
+ */
+const updateSuperAdminPosDefault = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const rule = await PosChargeRule.findByPk(id);
+
+  if (!rule || rule.user_id !== null) {
+    return res.status(404).json({ success: false, message: 'Default platform rule not found' });
+  }
+
+  const updateFields = {};
+  [
+    'payment_mode',
+    'card_type',
+    'card_brand',
+    'card_classification',
+    'settlement_type',
+    'min_amount',
+    'max_amount',
+    'charge_percent',
+    'charge_flat',
+    'gst_required',
+    'gst_percent',
+    'company_name',
+    'is_active',
+  ].forEach((field) => {
+    if (req.body[field] !== undefined) {
+      updateFields[field] = req.body[field];
+    }
+  });
+
+  await rule.update(updateFields);
+
+  return res.status(200).json({
+    success: true,
+    message: 'Default platform POS rate rule updated successfully',
+    data: rule,
+  });
+});
+
+/**
+ * 4. DELETE Platform Default POS Rate
+ */
+const deleteSuperAdminPosDefault = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const rule = await PosChargeRule.findByPk(id);
+
+  if (!rule || rule.user_id !== null) {
+    return res.status(404).json({ success: false, message: 'Default platform rule not found' });
+  }
+
+  await rule.destroy();
+
+  return res.status(200).json({
+    success: true,
+    message: 'Default platform POS rate rule deleted successfully',
+  });
+});
+
+/**
+ * 5. GET Admins POS Rate Matrix / Listing
+ * Returns all Admin users along with their count of rate overrides (analogous to Admin's Franchise list)
+ */
+const getSuperAdminPosAdminsMatrix = asyncHandler(async (req, res) => {
+  const { search, page = 1, limit = 20 } = req.query;
+  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+  const adminWhere = { role: 'admin' };
+  if (search) {
+    adminWhere[Op.or] = [
+      { name: { [Op.like]: `%${search}%` } },
+      { email: { [Op.like]: `%${search}%` } },
+      { mobile: { [Op.like]: `%${search}%` } },
+      { company_id: { [Op.like]: `%${search}%` } },
+    ];
+  }
+
+  const { count, rows: admins } = await User.findAndCountAll({
+    where: adminWhere,
+    attributes: ['id', 'name', 'email', 'mobile', 'role', 'status', 'company_id', 'createdAt'],
+    limit: parseInt(limit, 10),
+    offset,
+    order: [['id', 'ASC']],
+  });
+
+  const adminIds = admins.map((a) => a.id);
+  const overrides = await PosChargeRule.findAll({
+    where: {
+      user_id: { [Op.in]: adminIds },
+      scope: 'super_admin_admin',
+    },
+  });
+
+  const overridesByAdmin = {};
+  overrides.forEach((rule) => {
+    if (!overridesByAdmin[rule.user_id]) {
+      overridesByAdmin[rule.user_id] = [];
+    }
+    overridesByAdmin[rule.user_id].push(rule);
+  });
+
+  const matrixData = admins.map((adm) => ({
+    admin: adm,
+    overrideCount: (overridesByAdmin[adm.id] || []).length,
+    overrides: overridesByAdmin[adm.id] || [],
+  }));
+
+  return res.status(200).json({
+    success: true,
+    total: count,
+    page: parseInt(page, 10),
+    limit: parseInt(limit, 10),
+    totalPages: Math.ceil(count / parseInt(limit, 10)) || 1,
+    data: matrixData,
+  });
+});
+
+/**
+ * 6. GET Specific Admin's POS Rates & Platform Baseline
+ */
+const getSuperAdminPosAdminRates = asyncHandler(async (req, res) => {
+  const { adminId } = req.params;
+  const adminUser = await User.findByPk(adminId, {
+    attributes: ['id', 'name', 'email', 'mobile', 'role', 'status', 'company_id'],
+  });
+
+  if (!adminUser || adminUser.role !== 'admin') {
+    return res.status(404).json({ success: false, message: 'Admin user not found' });
+  }
+
+  const [defaults, adminOverrides] = await Promise.all([
+    PosChargeRule.findAll({
+      where: {
+        user_id: null,
+        scope: { [Op.in]: ['super_admin_default', 'admin_default'] },
+      },
+      order: [['id', 'ASC']],
+    }),
+    PosChargeRule.findAll({
+      where: {
+        user_id: adminId,
+        scope: 'super_admin_admin',
+      },
+      order: [['id', 'ASC']],
+    }),
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    admin: adminUser,
+    defaults,
+    overrides: adminOverrides,
+  });
+});
+
+/**
+ * 7. POST / PUT Set or Override POS Rate for a Specific Admin
+ */
+const createOrUpdateSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
+  const { adminId } = req.params;
+  const adminUser = await User.findByPk(adminId);
+
+  if (!adminUser || adminUser.role !== 'admin') {
+    return res.status(404).json({ success: false, message: 'Admin user not found' });
+  }
+
+  const {
+    payment_mode,
+    card_type,
+    card_brand,
+    card_classification = 'ANY',
+    settlement_type,
+    min_amount = 0,
+    max_amount,
+    charge_percent,
+    charge_flat = 0,
+    gst_required = false,
+    gst_percent = 18,
+    company_name,
+    is_active = true,
+  } = req.body;
+
+  if (!payment_mode) {
+    return res.status(400).json({ success: false, message: 'payment_mode is required' });
+  }
+  if (charge_percent === undefined || charge_percent === null || isNaN(parseFloat(charge_percent))) {
+    return res.status(400).json({ success: false, message: 'charge_percent must be a valid number' });
+  }
+
+  // Find if an override already exists for this admin
+  const whereMatch = {
+    user_id: adminId,
+    scope: 'super_admin_admin',
+    payment_mode: payment_mode || null,
+    card_type: card_type || null,
+    card_brand: card_brand || null,
+    card_classification: card_classification || null,
+    settlement_type: settlement_type || null,
+    min_amount: parseFloat(min_amount) || 0,
+    max_amount: max_amount ? parseFloat(max_amount) : null,
+  };
+  if (company_name) whereMatch.company_name = company_name;
+
+  let rule = await PosChargeRule.findOne({ where: whereMatch });
+
+  if (rule) {
+    await rule.update({
+      charge_percent: parseFloat(charge_percent),
+      charge_flat: parseFloat(charge_flat) || 0,
+      gst_required: Boolean(gst_required),
+      gst_percent: parseFloat(gst_percent) || 0,
+      is_active: is_active !== false,
+      company_id: adminUser.company_id || null,
+    });
+  } else {
+    rule = await PosChargeRule.create({
+      user_id: adminId,
+      company_id: adminUser.company_id || null,
+      created_by: req.user.id,
+      scope: 'super_admin_admin',
+      payment_mode,
+      card_type: card_type || null,
+      card_brand: card_brand || null,
+      card_classification: card_classification || 'ANY',
+      settlement_type: settlement_type || null,
+      min_amount: parseFloat(min_amount) || 0,
+      max_amount: max_amount ? parseFloat(max_amount) : null,
+      charge_percent: parseFloat(charge_percent),
+      charge_flat: parseFloat(charge_flat) || 0,
+      gst_required: Boolean(gst_required),
+      gst_percent: parseFloat(gst_percent) || 0,
+      company_name: company_name || null,
+      is_active: is_active !== false,
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: 'Admin POS rate override saved successfully',
+    data: rule,
+  });
+});
+
+/**
+ * 8. PUT Update Specific Admin POS Rate by Rule ID
+ */
+const updateSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const rule = await PosChargeRule.findByPk(id);
+
+  if (!rule || rule.scope !== 'super_admin_admin') {
+    return res.status(404).json({ success: false, message: 'Admin-specific rule not found' });
+  }
+
+  const updateFields = {};
+  [
+    'charge_percent',
+    'charge_flat',
+    'gst_required',
+    'gst_percent',
+    'is_active',
+    'settlement_type',
+  ].forEach((field) => {
+    if (req.body[field] !== undefined) {
+      updateFields[field] = req.body[field];
+    }
+  });
+
+  await rule.update(updateFields);
+
+  return res.status(200).json({
+    success: true,
+    message: 'Admin rate rule updated successfully',
+    data: rule,
+  });
+});
+
+/**
+ * 9. DELETE Reset Admin POS Rate Override
+ */
+const deleteSuperAdminPosAdminRate = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const rule = await PosChargeRule.findByPk(id);
+
+  if (!rule || rule.scope !== 'super_admin_admin') {
+    return res.status(404).json({ success: false, message: 'Admin-specific rule not found' });
+  }
+
+  await rule.destroy();
+
+  return res.status(200).json({
+    success: true,
+    message: 'Admin rate override reset to platform default successfully',
+  });
+});
+
+/**
+ * 10. Rental Rates Management for Super Admin
+ */
+const getSuperAdminRentalRates = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 50, target_user_type } = req.query;
+  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const where = {};
+  if (target_user_type) where.target_user_type = target_user_type;
+
+  const { count, rows } = await Rental.findAndCountAll({
+    where,
+    limit: parseInt(limit, 10),
+    offset,
+    order: [['createdAt', 'DESC']],
+  });
+
+  return res.status(200).json({
+    success: true,
+    total: count,
+    data: rows,
+  });
+});
+
+const createSuperAdminRentalRate = asyncHandler(async (req, res) => {
+  const { amount, target_user_type = 'franchise', status = 'active', type = 'pos' } = req.body;
+  if (amount === undefined || isNaN(parseFloat(amount))) {
+    return res.status(400).json({ success: false, message: 'Valid amount is required' });
+  }
+
+  const rental = await Rental.create({
+    amount: parseFloat(amount),
+    target_user_type,
+    status,
+    type,
+    created_by: req.user.id,
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: 'Rental charge rule created successfully',
+    data: rental,
+  });
+});
+
+const updateSuperAdminRentalRate = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const rental = await Rental.findByPk(id);
+  if (!rental) {
+    return res.status(404).json({ success: false, message: 'Rental rule not found' });
+  }
+
+  await rental.update(req.body);
+  return res.status(200).json({
+    success: true,
+    message: 'Rental charge rule updated successfully',
+    data: rental,
+  });
+});
+
+const deleteSuperAdminRentalRate = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const rental = await Rental.findByPk(id);
+  if (!rental) {
+    return res.status(404).json({ success: false, message: 'Rental rule not found' });
+  }
+
+  await rental.destroy();
+  return res.status(200).json({
+    success: true,
+    message: 'Rental charge rule deleted successfully',
+  });
+});
+
+/**
+ * 11. CC Bill Pay (BBPS) Charge Slabs for Super Admin
+ */
+const getSuperAdminCcBillRules = asyncHandler(async (req, res) => {
+  const { adminId } = req.query;
+  const where = {};
+  if (adminId) {
+    where[Op.or] = [{ user_id: null }, { user_id: adminId }];
+  }
+
+  const rules = await BbpsCcChargeRule.findAll({
+    where,
+    order: [['from_amount', 'ASC']],
+  });
+
+  return res.status(200).json({
+    success: true,
+    data: rules,
+  });
+});
+
+const createSuperAdminCcBillRule = asyncHandler(async (req, res) => {
+  const { from_amount, to_amount, rate, rate_type = 'percentage', is_active = true, description, user_id } = req.body;
+  if (from_amount === undefined || to_amount === undefined || rate === undefined) {
+    return res.status(400).json({ success: false, message: 'from_amount, to_amount, and rate are required' });
+  }
+
+  let targetCompanyId = null;
+  if (user_id) {
+    const adminUser = await User.findByPk(user_id);
+    if (adminUser) targetCompanyId = adminUser.company_id;
+  }
+
+  const rule = await BbpsCcChargeRule.create({
+    from_amount: parseFloat(from_amount),
+    to_amount: parseFloat(to_amount),
+    rate: parseFloat(rate),
+    rate_type,
+    is_active: Boolean(is_active),
+    description,
+    user_id: user_id || null,
+    company_id: targetCompanyId,
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: 'CC bill pay charge rule created successfully',
+    data: rule,
+  });
+});
+
+const updateSuperAdminCcBillRule = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const rule = await BbpsCcChargeRule.findByPk(id);
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Rule not found' });
+  }
+
+  await rule.update(req.body);
+  return res.status(200).json({
+    success: true,
+    message: 'CC bill pay charge rule updated successfully',
+    data: rule,
+  });
+});
+
+const deleteSuperAdminCcBillRule = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const rule = await BbpsCcChargeRule.findByPk(id);
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Rule not found' });
+  }
+
+  await rule.destroy();
+  return res.status(200).json({
+    success: true,
+    message: 'CC bill pay charge rule deleted successfully',
+  });
+});
+
+/**
+ * 12. Payout Charge Slabs for Super Admin
+ */
+const getSuperAdminPayoutRules = asyncHandler(async (req, res) => {
+  const { adminId } = req.query;
+
+  const defaultRules = await PayoutCharge.findAll({
+    order: [['from_amount', 'ASC']],
+  });
+
+  let adminRules = [];
+  if (adminId) {
+    adminRules = await UserPayoutCharge.findAll({
+      where: { user_id: adminId },
+      order: [['from_amount', 'ASC']],
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    defaults: defaultRules,
+    adminOverrides: adminRules,
+    data: adminId ? adminRules : defaultRules,
+  });
+});
+
+const createSuperAdminPayoutRule = asyncHandler(async (req, res) => {
+  const { from_amount, to_amount, rate, rate_type = 'percentage', is_active = true, description, user_id } = req.body;
+  if (from_amount === undefined || to_amount === undefined || rate === undefined) {
+    return res.status(400).json({ success: false, message: 'from_amount, to_amount, and rate are required' });
+  }
+
+  if (user_id) {
+    const adminUser = await User.findByPk(user_id);
+    const rule = await UserPayoutCharge.create({
+      user_id: parseInt(user_id, 10),
+      company_id: adminUser?.company_id || null,
+      from_amount: parseFloat(from_amount),
+      to_amount: parseFloat(to_amount),
+      rate: parseFloat(rate),
+      rate_type,
+      is_active: Boolean(is_active),
+      description,
+    });
+    return res.status(201).json({
+      success: true,
+      message: 'Admin payout override rule created successfully',
+      data: rule,
+    });
+  }
+
+  const rule = await PayoutCharge.create({
+    from_amount: parseFloat(from_amount),
+    to_amount: parseFloat(to_amount),
+    rate: parseFloat(rate),
+    rate_type,
+    is_active: Boolean(is_active),
+    description,
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: 'Global default payout rule created successfully',
+    data: rule,
+  });
+});
+
+const updateSuperAdminPayoutRule = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { is_admin_override } = req.body;
+
+  const Model = is_admin_override ? UserPayoutCharge : PayoutCharge;
+  const rule = await Model.findByPk(id);
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Payout rule not found' });
+  }
+
+  await rule.update(req.body);
+  return res.status(200).json({
+    success: true,
+    message: 'Payout rule updated successfully',
+    data: rule,
+  });
+});
+
+const deleteSuperAdminPayoutRule = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { is_admin_override } = req.query;
+
+  const Model = is_admin_override === 'true' ? UserPayoutCharge : PayoutCharge;
+  const rule = await Model.findByPk(id);
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Payout rule not found' });
+  }
+
+  await rule.destroy();
+  return res.status(200).json({
+    success: true,
+    message: 'Payout rule deleted successfully',
+  });
+});
+
+/**
+ * 13. Universal Fallback POS Rate for Super Admin
+ */
+const getSuperAdminGlobalPosRate = asyncHandler(async (req, res) => {
+  let rateRecord = await PosGlobalRate.findByPk(1);
+  if (!rateRecord) {
+    rateRecord = await PosGlobalRate.findOne({ order: [['id', 'ASC']] });
+  }
+  return res.status(200).json({
+    success: true,
+    data: rateRecord || { percent_fee: 0, is_active: true },
+  });
+});
+
+const updateSuperAdminGlobalPosRate = asyncHandler(async (req, res) => {
+  const { percent_fee } = req.body;
+  if (percent_fee === undefined || isNaN(parseFloat(percent_fee))) {
+    return res.status(400).json({ success: false, message: 'Valid percent_fee is required' });
+  }
+
+  let rateRecord = await PosGlobalRate.findByPk(1);
+  if (rateRecord) {
+    await rateRecord.update({
+      percent_fee: parseFloat(percent_fee),
+      updated_by: req.user.id,
+      is_active: true,
+    });
+  } else {
+    rateRecord = await PosGlobalRate.create({
+      id: 1,
+      percent_fee: parseFloat(percent_fee),
+      updated_by: req.user.id,
+      is_active: true,
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: 'Universal fallback POS rate updated successfully',
+    data: rateRecord,
+  });
+});
+
 module.exports = {
   getSuperAdminData,
   getAdminDetails,
@@ -2356,4 +3081,28 @@ module.exports = {
   getSuperAdminDashboard,
   superAdminCreditAdminWallet,
   superAdminDebitAdminWallet,
+  // Rate Setting methods
+  getSuperAdminPosDefaults,
+  createSuperAdminPosDefault,
+  updateSuperAdminPosDefault,
+  deleteSuperAdminPosDefault,
+  getSuperAdminPosAdminsMatrix,
+  getSuperAdminPosAdminRates,
+  createOrUpdateSuperAdminPosAdminRate,
+  updateSuperAdminPosAdminRate,
+  deleteSuperAdminPosAdminRate,
+  getSuperAdminRentalRates,
+  createSuperAdminRentalRate,
+  updateSuperAdminRentalRate,
+  deleteSuperAdminRentalRate,
+  getSuperAdminCcBillRules,
+  createSuperAdminCcBillRule,
+  updateSuperAdminCcBillRule,
+  deleteSuperAdminCcBillRule,
+  getSuperAdminPayoutRules,
+  createSuperAdminPayoutRule,
+  updateSuperAdminPayoutRule,
+  deleteSuperAdminPayoutRule,
+  getSuperAdminGlobalPosRate,
+  updateSuperAdminGlobalPosRate,
 };
