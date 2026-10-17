@@ -2365,7 +2365,7 @@ const getSuperAdminPosDefaults = asyncHandler(async (req, res) => {
 
   const where = {
     user_id: null,
-    scope: { [Op.in]: ['super_admin_default', 'admin_default'] },
+    scope: { [Op.in]: ['super_admin_default'] },
   };
 
   if (payment_mode) where.payment_mode = payment_mode;
@@ -2630,7 +2630,7 @@ const getSuperAdminPosAdminsMatrix = asyncHandler(async (req, res) => {
 const getSuperAdminPosAdminRates = asyncHandler(async (req, res) => {
   const { adminId } = req.params;
   const adminUser = await User.findByPk(adminId, {
-    attributes: ['id', 'name', 'email', 'mobile', 'role', 'status', 'company_id'],
+    attributes: ['id', 'name', 'email', 'role', 'status', 'company_id'],
   });
 
   if (!adminUser || adminUser.role !== 'admin') {
