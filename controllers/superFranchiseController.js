@@ -16,10 +16,16 @@ const getSuperFranchises = asyncHandler(async (req, res) => {
     const offset = (page - 1) * limit;
     const search = req.query.search ? String(req.query.search).trim() : '';
 
+    const userRole = normalizeRole(req.user?.role);
     const whereClause = {
       role: 'super_franchise',
       status: 'active'
     };
+    if (userRole === 'admin') {
+      whereClause.admin_id = req.user.id;
+    } else if (userRole === 'employee') {
+      whereClause.admin_id = req.user.admin_id || req.user.id;
+    }
 
     if (search) {
       whereClause[Op.or] = [

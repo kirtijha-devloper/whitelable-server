@@ -463,8 +463,10 @@ const getUsers = asyncHandler(async (req, res) => {
         const where = {};
 
         // Role-based access control
-        if(userRole === "admin") {
-          where.company_id = req.company;
+        if (userRole === "admin") {
+          where.admin_id = userId;
+        } else if (isEmployee(req.user)) {
+          where.admin_id = req.user.admin_id || req.user.id;
         }
         if (userRole === 'super_franchise') {
             const subFranchises = await User.findAll({
@@ -1215,6 +1217,7 @@ const registerUser = asyncHandler(async (req, res) => {
                         username,
                         franchaise_id: assignedFranchiseId || (req.user && normalizeRole(req.user.role) === 'franchaise' && normalizedRole === 'merchant' ? req.user.id : null),
                         super_franchise_id: assignedSuperFranchiseId || (req.user && normalizeRole(req.user.role) === 'super_franchise' ? req.user.id : (req.user && normalizeRole(req.user.role) === 'franchaise' ? req.user.super_franchise_id : null)),
+                        admin_id: (requesterIsAdmin ? req.user.id : (req.user?.admin_id || (req.user?.role === 'super_franchise' || req.user?.role === 'franchaise' ? req.user.admin_id : null))),
                     }, { transaction: t });
                     break;
                 } catch (createErr) {
