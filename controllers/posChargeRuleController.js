@@ -453,9 +453,7 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   if (card_classification) where.card_classification = card_classification;
   if (settlement_type) where.settlement_type = settlement_type;
   if (scope) {
-    if (scope === 'admin_default' || scope === 'super_admin_default') {
-      where.scope = { [Op.in]: ['admin_default', 'super_admin_default'] };
-    } else if (Array.isArray(scope)) {
+    if (Array.isArray(scope)) {
       where.scope = { [Op.in]: scope };
     } else if (typeof scope === 'string' && scope.includes(',')) {
       where.scope = { [Op.in]: scope.split(',').map((s) => s.trim()) };
@@ -527,7 +525,14 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   }
 
   // apply role-based restrictions using scope
-  if (req.user.role === 'super_franchise') {
+  if (req.user.role === 'admin') {
+    const adminCompanyId = req.company || req.user.company_id;
+    where[Op.or] = [
+      { company_id: adminCompanyId },
+      { scope: { [Op.in]: ['super_admin_default', 'admin_default'] }, company_id: null },
+      { scope: 'super_admin_admin', user_id: req.user.id }
+    ];
+  } else if (req.user.role === 'super_franchise') {
     where[Op.or] = [
       { scope: 'admin_default' },
       { scope: 'admin_super_franchise', super_franchise_id: req.user.id },
@@ -748,11 +753,14 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     effectiveSuperFranchise = req.user.id;
   }
 
-  // admin update restriction: cannot target a merchant who has a franchise
+  // admin update validation: target user must belong to admin's company if user_id is provided
   if (req.user.role === 'admin' && user_id) {
     const target = await User.findByPk(user_id);
-    if (target && target.franchaise_id) {
-      return res.status(400).json({ success: false, message: 'Cannot modify merchant-specific rule for a franchised merchant; use franchise rule' });
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Target user not found' });
+    }
+    if (target.company_id && companyId && target.company_id !== companyId) {
+      return res.status(403).json({ success: false, message: 'Target user does not belong to your company' });
     }
   }
   if (isFranchiseRole(req.user.role)) {

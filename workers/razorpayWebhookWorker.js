@@ -411,6 +411,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
       userRole: posOperator.role,
       franchiseId: franchiseId,
       superFranchiseId: superFranchiseId,
+      companyId: posOperator.company_id || null,
       paymentMode: paymentMethod,
       cardType: paymentCardType || null,
       cardBrand: paymentCardBrand || null,
@@ -474,6 +475,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
       let franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
         franchiseId: posOperator.franchaise_id,
         superFranchiseId: resolvedSuperFranchiseId,
+        companyId: posOperator.company_id || null,
         paymentMode: paymentMethod,
         cardType: paymentCardType || null,
         cardBrand: paymentCardBrand || null,
@@ -500,13 +502,14 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
         }
         franchiseChargeAmount = parseFloat((parseFloat(transactionAmount) * (DEFAULT_MDR/100)).toFixed(2));
       }
-      franchiseEarning = chargeAmount - franchiseChargeAmount;
+      franchiseEarning = Math.max(0, parseFloat((chargeAmount - franchiseChargeAmount).toFixed(2)));
       logger.log(`[Razorpay Webhook Worker] Franchise charge: ${franchiseChargeAmount}, earning: ${franchiseEarning}`);
     }
 
     if (resolvedSuperFranchiseId) {
       let sfRule = await ChargeService.getAdminChargeRuleForSuperFranchise({
         superFranchiseId: resolvedSuperFranchiseId,
+        companyId: posOperator.company_id || null,
         paymentMode: paymentMethod,
         cardType: paymentCardType || null,
         cardBrand: paymentCardBrand || null,
@@ -532,8 +535,57 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
         superFranchiseChargeAmount = parseFloat((parseFloat(transactionAmount) * (DEFAULT_MDR / 100)).toFixed(2));
       }
       // SF earns: what franchise paid upward minus what SF pays admin
-      superFranchiseEarning = franchiseChargeAmount - superFranchiseChargeAmount;
+      superFranchiseEarning = Math.max(0, parseFloat((franchiseChargeAmount - superFranchiseChargeAmount).toFixed(2)));
       logger.log(`[Razorpay Webhook Worker] Super franchise charge: ${superFranchiseChargeAmount}, earning: ${superFranchiseEarning}`);
+    }
+
+    // Resolve Admin user to calculate Admin earning
+    let adminUser = null;
+    let adminCostAmount = 0;
+    let adminEarning = 0;
+    let paidUpwardToAdmin = chargeAmount;
+    if (resolvedSuperFranchiseId) {
+      paidUpwardToAdmin = superFranchiseChargeAmount;
+    } else if (posOperator.franchaise_id) {
+      paidUpwardToAdmin = franchiseChargeAmount;
+    }
+
+    if (posOperator.company_id) {
+      adminUser = await User.findOne({
+        where: { role: 'admin', company_id: posOperator.company_id }
+      });
+    }
+
+    if (adminUser) {
+      let adminRule = await ChargeService.getSuperAdminChargeRuleForAdmin({
+        adminId: adminUser.id,
+        paymentMode: paymentMethod,
+        cardType: paymentCardType || null,
+        cardBrand: paymentCardBrand || null,
+        classification: classificationFromJson,
+        settlement: posOperator.settlement_type || null,
+        amount: parseFloat(transactionAmount),
+        companyName
+      });
+
+      if (adminRule && isNormalEmi) {
+        adminRule = { ...adminRule };
+        adminRule.charge_percent = parseFloat(adminRule.charge_percent || 0) + 1;
+        logger.log(`[Razorpay Webhook Worker] NORMAL_EMI detected. Added 1% extra to admin charge rate. New rate: ${adminRule.charge_percent}%`);
+      }
+
+      if (adminRule) {
+        adminCostAmount = ChargeService.calculateCharge(parseFloat(transactionAmount), adminRule).charge;
+      } else {
+        let DEFAULT_MDR = 2.5;
+        if (isNormalEmi) {
+          DEFAULT_MDR += 1;
+        }
+        adminCostAmount = parseFloat((parseFloat(transactionAmount) * (DEFAULT_MDR / 100)).toFixed(2));
+      }
+
+      adminEarning = Math.max(0, parseFloat((paidUpwardToAdmin - adminCostAmount).toFixed(2)));
+      logger.log(`[Razorpay Webhook Worker] Admin cost to Super Admin: ${adminCostAmount}, earning: ${adminEarning}`);
     }
 
     // Step 4: Calculate net amount (deduct both charge and GST)
@@ -575,7 +627,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
         userId: posOperator.franchaise_id,
         razorpayTransactionId: txnId,
         amount: franchiseEarning,
-        description: `Merchant ${posOperator.name || posOperator.id} did a ₹${transactionAmount} POS txn (${paymentMethod || 'CARD'}) | Merchant charged ₹${chargeAmount} (${chargeRate}%) | Admin share ₹${franchiseChargeAmount} deducted | Net earning ₹${franchiseEarning} | Txn: ${txnId} | RRN: ${rrNumber || 'N/A'}`,
+        description: `Merchant ${posOperator.name || posOperator.id} did a ₹${transactionAmount} POS txn (${paymentMethod || 'CARD'}) | Merchant charged ₹${chargeAmount} (${chargeRate}%) | Upward share ₹${franchiseChargeAmount} deducted | Net earning ₹${franchiseEarning} | Txn: ${txnId} | RRN: ${rrNumber || 'N/A'}`,
         metadata: {
           merchant_id: posOperator.id,
           transaction_amount: transactionAmount,
@@ -606,6 +658,29 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
         }
       });
       logger.log(`[Razorpay Webhook Worker] ✅ Super franchise earning ₹${superFranchiseEarning} credited to SF ${resolvedSuperFranchiseId}`);
+    }
+
+    // Step 6c: If Admin is involved, credit the Admin its net earning
+    if (adminUser && adminEarning > 0) {
+      const ledgerService = require("../services/ledgerService");
+      await ledgerService.createAdminEarningEntry({
+        userId: adminUser.id,
+        razorpayTransactionId: txnId,
+        amount: adminEarning,
+        description: `Admin earning on ₹${transactionAmount} POS txn (${paymentMethod || 'CARD'}) | Downstream paid ₹${paidUpwardToAdmin} | Platform share ₹${adminCostAmount} deducted | Net earning ₹${adminEarning} | Txn: ${txnId} | RRN: ${rrNumber || 'N/A'}`,
+        metadata: {
+          merchant_id: posOperator.id,
+          franchise_id: posOperator.franchaise_id || null,
+          super_franchise_id: resolvedSuperFranchiseId || null,
+          admin_id: adminUser.id,
+          transaction_amount: transactionAmount,
+          charge_amount: chargeAmount,
+          admin_cost: adminCostAmount,
+          admin_earning: adminEarning,
+          charge_rate: chargeRate
+        }
+      });
+      logger.log(`[Razorpay Webhook Worker] ✅ Admin earning ₹${adminEarning} credited to Admin ${adminUser.id}`);
     }
 
     // Step 7: Create MerchantTransactionCharge record to track deducted amount

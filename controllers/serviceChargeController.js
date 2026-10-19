@@ -170,9 +170,9 @@ exports.getMyApplicableCharges = async (req, res) => {
     const isMerchant = userRole === "merchant";
 
     // ── 1. POS Rates ──────────────────────────────────────────────────────────
-    const defaultPosRules = await PosChargeRule.findAll({
+    let defaultPosRules = await PosChargeRule.findAll({
       where: {
-        scope: { [Op.in]: ["admin_default", "super_admin_default"] },
+        scope: "super_admin_default",
         user_id: null,
         franchaise_id: null,
         super_franchise_id: null,
@@ -180,6 +180,19 @@ exports.getMyApplicableCharges = async (req, res) => {
       },
       order: [["id", "ASC"]],
     });
+
+    if (defaultPosRules.length === 0) {
+      defaultPosRules = await PosChargeRule.findAll({
+        where: {
+          scope: "admin_default",
+          user_id: null,
+          franchaise_id: null,
+          super_franchise_id: null,
+          is_active: true,
+        },
+        order: [["id", "ASC"]],
+      });
+    }
 
     // Query candidate rules that might apply to this user based on hierarchy
     let applicablePosRules = [];
@@ -348,7 +361,7 @@ exports.getMyApplicableCharges = async (req, res) => {
         card_brand: activeRule.card_brand || "ANY",
         card_type: activeRule.card_type || "ANY",
         card_classification: activeRule.card_classification || "ANY",
-        settlement_type: activeRule.settlement_type || "today_settlement",
+        settlement_type: activeRule.settlement_type || null,
         min_amount: parseFloat(activeRule.min_amount || 0),
         max_amount: activeRule.max_amount !== null && activeRule.max_amount !== undefined ? parseFloat(activeRule.max_amount) : null,
         charge_percent: parseFloat(activeRule.charge_percent || 0),
@@ -385,7 +398,7 @@ exports.getMyApplicableCharges = async (req, res) => {
           card_brand: ar.card_brand || "ANY",
           card_type: ar.card_type || "ANY",
           card_classification: ar.card_classification || "ANY",
-          settlement_type: ar.settlement_type || "today_settlement",
+          settlement_type: ar.settlement_type || null,
           min_amount: parseFloat(ar.min_amount || 0),
           max_amount: ar.max_amount !== null && ar.max_amount !== undefined ? parseFloat(ar.max_amount) : null,
           charge_percent: parseFloat(ar.charge_percent || 0),
@@ -440,10 +453,10 @@ exports.getMyApplicableCharges = async (req, res) => {
       const label = !isOverridden
         ? "Inherited Default"
         : isAdmin
-        ? "Super Admin Override"
-        : overrideRule.user_id === currentUserId
-        ? "Account Override"
-        : "Parent Assignment";
+          ? "Super Admin Override"
+          : overrideRule.user_id === currentUserId
+            ? "Account Override"
+            : "Parent Assignment";
 
       payoutRows.push({
         id: activeRule.id,
@@ -472,8 +485,8 @@ exports.getMyApplicableCharges = async (req, res) => {
         const label = isAdmin
           ? "Super Admin Override"
           : ar.user_id === currentUserId
-          ? "Account Override"
-          : "Parent Assignment";
+            ? "Account Override"
+            : "Parent Assignment";
 
         payoutRows.push({
           id: ar.id,
@@ -533,8 +546,8 @@ exports.getMyApplicableCharges = async (req, res) => {
       const label = !isOverridden
         ? "Inherited Default"
         : isAdmin
-        ? "Super Admin Override"
-        : "Account Override";
+          ? "Super Admin Override"
+          : "Account Override";
 
       ccBillRows.push({
         id: activeRule.id,

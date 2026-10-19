@@ -172,6 +172,7 @@ function isAllowedTestUser(targetUser) {
 function canManageDirectLoginTokens(user) {
   const role = normalizeRole(user?.role);
   return role === 'admin'
+    || role === 'super_admin'
     || role === 'super_franchise'
     || hasPermission(user, EMPLOYEE_PERMISSIONS.USERS_IMPERSONATE);
 }
@@ -203,7 +204,7 @@ async function loadTokenOwner(ownerId) {
 function getImpersonatableRolesForOwner(owner) {
   const ownerRole = normalizeRole(owner?.role);
 
-  if (ownerRole === 'admin') {
+  if (ownerRole === 'admin' || ownerRole === 'super_admin') {
     return ADMIN_IMPERSONATABLE_ROLES;
   }
 
@@ -416,18 +417,27 @@ const directLogin = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── 4b. Enforce Primary Admin vs Rest of Admins/Employees/Super Franchise restriction ─────
-  // Primary admins can impersonate ANY user.
+  // ── 4b. Enforce Admin vs Employees/Super Franchise restriction ──────────────
+  // Admins can impersonate ANY user in their organization.
   // Super franchises can impersonate ANY user under their hierarchy.
-  // Rest of admins and employees can ONLY impersonate designated test users.
-  const isOwnerPrimaryAdmin = isPrimaryAdmin(tokenOwner);
+  // Employees can ONLY impersonate designated test users.
+  const isOwnerAdmin = normalizeRole(tokenOwner.role) === 'admin' || normalizeRole(tokenOwner.role) === 'super_admin';
   const isOwnerSuperFranchise = tokenOwner.role === 'super_franchise';
 
-  if (!isOwnerPrimaryAdmin && !isOwnerSuperFranchise && !isAllowedTestUser(targetUser)) {
+  if (!isOwnerAdmin && !isOwnerSuperFranchise && !isAllowedTestUser(targetUser)) {
     return res.status(403).json({
       success: false,
-      message: 'Only primary admins and super franchises can log in as their designated users.',
+      message: 'Only admins and super franchises can log in as their designated users.',
     });
+  }
+
+  if (isOwnerAdmin && normalizeRole(tokenOwner.role) !== 'super_admin') {
+    if (tokenOwner.company_id && targetUser.company_id && tokenOwner.company_id !== targetUser.company_id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot log in as a user from a different organization.',
+      });
+    }
   }
 
   if (isOwnerSuperFranchise) {
