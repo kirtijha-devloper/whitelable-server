@@ -233,16 +233,28 @@ exports.getMyApplicableCharges = async (req, res) => {
         order: [["id", "ASC"]],
       });
     } else if (isFranchise) {
+      let effectiveSuperFranchiseId = currentUser.super_franchise_id;
+      if (!effectiveSuperFranchiseId) {
+        const fUser = await User.findByPk(currentUserId, { attributes: ["id", "super_franchise_id", "created_by"] });
+        if (fUser?.super_franchise_id) {
+          effectiveSuperFranchiseId = fUser.super_franchise_id;
+        } else if (fUser?.created_by) {
+          const creator = await User.findByPk(fUser.created_by, { attributes: ["id", "role"] });
+          if (creator && (creator.role === "super_franchise" || creator.role === "superfranchise")) {
+            effectiveSuperFranchiseId = creator.id;
+          }
+        }
+      }
+
       const orConditions = [
-        { franchaise_id: currentUserId, user_id: null },
+        { franchaise_id: currentUserId },
         { user_id: currentUserId },
       ];
-      if (currentUser.super_franchise_id) {
-        orConditions.push({
-          super_franchise_id: currentUser.super_franchise_id,
-          user_id: null,
-          scope: { [Op.in]: ["super_franchise_default", "super_franchise_franchise"] },
-        });
+      if (effectiveSuperFranchiseId) {
+        orConditions.push(
+          { super_franchise_id: effectiveSuperFranchiseId, scope: "super_franchise_default" },
+          { super_franchise_id: effectiveSuperFranchiseId, franchaise_id: currentUserId, scope: "super_franchise_franchise" }
+        );
       }
       if (currentUser.company_id) {
         const adminUser = await User.findOne({
@@ -272,7 +284,17 @@ exports.getMyApplicableCharges = async (req, res) => {
       if (currentUser.franchaise_id) {
         orConditions.push({
           franchaise_id: currentUser.franchaise_id,
-          user_id: null,
+        });
+      }
+      if (currentUser.super_franchise_id) {
+        orConditions.push({
+          super_franchise_id: currentUser.super_franchise_id,
+        });
+      }
+      if (currentUser.company_id) {
+        orConditions.push({
+          company_id: currentUser.company_id,
+          scope: { [Op.in]: ["super_admin_admin", "admin_default"] },
         });
       }
       applicablePosRules = await PosChargeRule.findAll({
@@ -303,20 +325,45 @@ exports.getMyApplicableCharges = async (req, res) => {
         return rule.user_id === currentUserId ? 100 : 10;
       }
       if (isSuperFranchise) {
-        if (rule.super_franchise_id === currentUserId || (rule.user_id === currentUserId && rule.scope === "admin_super_franchise")) return 100;
+        if (rule.super_franchise_id === currentUserId && rule.scope === "admin_super_franchise") return 100;
+        if (rule.user_id === currentUserId && rule.scope === "admin_super_franchise") return 100;
         if (rule.scope === "super_admin_admin" || (currentUser.company_id && rule.company_id === currentUser.company_id)) return 50;
         return 10;
       }
       if (isFranchise) {
-        if (rule.user_id === currentUserId || (rule.franchaise_id === currentUserId && (rule.scope === "admin_franchise" || rule.scope === "super_franchise_franchise"))) return 100;
-        if (rule.super_franchise_id === currentUser.super_franchise_id) return 70;
-        if (rule.scope === "super_admin_admin" || (currentUser.company_id && rule.company_id === currentUser.company_id)) return 50;
+        // Nearest upline is Super Franchise override specifically for this franchise!
+        if (rule.scope === "super_franchise_franchise" && (Number(rule.franchaise_id) === Number(currentUserId) || Number(rule.franchaise_id) === Number(currentUser.id))) return 120;
+        if (rule.user_id === currentUserId && rule.scope === "franchise_default") return 110;
+        // Nearest upline default from Super Franchise
+        if (rule.scope === "super_franchise_default" && currentUser.super_franchise_id && Number(rule.super_franchise_id) === Number(currentUser.super_franchise_id)) return 95;
+        // Admin specific override for this franchise
+        if (rule.scope === "admin_franchise" && (Number(rule.franchaise_id) === Number(currentUserId) || Number(rule.user_id) === Number(currentUserId))) return 80;
+        // Admin default for company
+        if (rule.scope === "admin_default" || (currentUser.company_id && rule.company_id === currentUser.company_id) || rule.scope === "super_admin_admin") return 50;
         return 10;
       }
       if (isMerchant) {
-        if (rule.user_id === currentUserId) return 100;
-        if (rule.franchaise_id === currentUser.franchaise_id && rule.scope === "franchise_default") return 70;
-        if (rule.franchaise_id === currentUser.franchaise_id && rule.scope === "admin_franchise") return 40;
+        // 1. Direct merchant overrides:
+        if (Number(rule.user_id) === Number(currentUserId)) {
+          if (rule.scope === "franchise_merchant") return 140; // set by immediate upline franchise
+          if (rule.scope === "super_franchise_merchant") return 130; // set by super franchise
+          if (rule.scope === "admin_merchant") return 120; // set by admin
+          return 110;
+        }
+        // 2. Rules tied to merchant's franchise:
+        if (currentUser.franchaise_id && Number(rule.franchaise_id) === Number(currentUser.franchaise_id)) {
+          if (rule.scope === "super_franchise_franchise") return 95;
+          if (rule.scope === "franchise_default") return 90;
+          if (rule.scope === "admin_franchise") return 80;
+        }
+        // 3. Super franchise default:
+        if (currentUser.super_franchise_id && Number(rule.super_franchise_id) === Number(currentUser.super_franchise_id) && rule.scope === "super_franchise_default") {
+          return 70;
+        }
+        // 4. Admin default:
+        if (rule.scope === "admin_default" || (currentUser.company_id && rule.company_id === currentUser.company_id)) {
+          return 50;
+        }
         return 10;
       }
       return 10;
@@ -342,11 +389,17 @@ exports.getMyApplicableCharges = async (req, res) => {
         if (rule.scope === "franchise_merchant" || (rule.user_id === currentUserId && currentUser.franchaise_id)) {
           return "Franchise Rate";
         }
+        if (rule.scope === "super_franchise_merchant") {
+          return "Super Franchise Rate";
+        }
         if (rule.scope === "admin_merchant" || (rule.user_id === currentUserId && !currentUser.franchaise_id)) {
           return "Admin Override";
         }
         if (rule.scope === "franchise_default") {
           return "Franchise Default";
+        }
+        if (rule.scope === "super_franchise_franchise" || rule.scope === "super_franchise_default") {
+          return "Super Franchise Rate";
         }
         if (rule.scope === "admin_franchise") {
           return "Admin Override";
@@ -360,7 +413,9 @@ exports.getMyApplicableCharges = async (req, res) => {
     applicablePosRules.forEach((ar) => {
       const key = getPosRuleKey(ar);
       const existing = overrideMap.get(key);
-      if (!existing || getRulePrecedence(ar) > getRulePrecedence(existing)) {
+      const arPrec = getRulePrecedence(ar);
+      const exPrec = existing ? getRulePrecedence(existing) : -1;
+      if (!existing || arPrec > exPrec || (arPrec === exPrec && ar.id > existing.id)) {
         overrideMap.set(key, ar);
       }
     });

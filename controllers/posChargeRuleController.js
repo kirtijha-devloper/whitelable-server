@@ -349,15 +349,28 @@ const listFranchiseAdminRules = asyncHandler(async (req, res) => {
   if (settlement_type) where.settlement_type = settlement_type;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
-  // only global defaults or admin-set franchise rules (not editable by franchise)
+  const targetFranchiseId = req.query.franchaise_id ? parseInt(req.query.franchaise_id, 10) : req.user.id;
+  // only global defaults, admin-set franchise rules, or super franchise rules (not editable by franchise)
   const orConditions = [
     { scope: { [Op.in]: ['super_admin_default', 'admin_default'] } },
-    { scope: 'admin_franchise', franchaise_id: req.user.id }
+    { scope: 'admin_franchise', franchaise_id: targetFranchiseId }
   ];
-  if (req.user.super_franchise_id) {
+  let effectiveSfId = req.user.super_franchise_id;
+  if (!effectiveSfId && targetFranchiseId) {
+    const targetF = await User.findByPk(targetFranchiseId, { attributes: ['id', 'super_franchise_id', 'created_by'] });
+    if (targetF?.super_franchise_id) {
+      effectiveSfId = targetF.super_franchise_id;
+    } else if (targetF?.created_by) {
+      const creator = await User.findByPk(targetF.created_by, { attributes: ['id', 'role'] });
+      if (creator && (creator.role === 'super_franchise' || creator.role === 'superfranchise')) {
+        effectiveSfId = creator.id;
+      }
+    }
+  }
+  if (effectiveSfId) {
     orConditions.push(
-      { scope: 'super_franchise_default', super_franchise_id: req.user.super_franchise_id },
-      { scope: 'super_franchise_franchise', franchaise_id: req.user.id }
+      { scope: 'super_franchise_default', super_franchise_id: effectiveSfId },
+      { scope: 'super_franchise_franchise', franchaise_id: targetFranchiseId }
     );
   }
   if (req.user.company_id) {
