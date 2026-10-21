@@ -2413,6 +2413,10 @@ const createSuperAdminPosDefault = asyncHandler(async (req, res) => {
     is_active = true,
   } = req.body;
 
+  if(min_amount < 0 || max_amount < 0 || charge_flat < 0 || charge_percent < 0 || ( gst_required === true && gst_percent < 0)) {
+    return res.status(400).json({success: false, message: 'Please Enter correct amount'});
+  }
+
   if (!payment_mode) {
     return res.status(400).json({ success: false, message: 'payment_mode is required' });
   }
@@ -2536,6 +2540,10 @@ const updateSuperAdminPosDefault = asyncHandler(async (req, res) => {
   const effMax = updateFields.max_amount !== undefined ? updateFields.max_amount : (rule.max_amount !== null ? parseFloat(rule.max_amount) : null);
   if (effMax !== null && effMin > effMax) {
     return res.status(400).json({ success: false, message: 'min_amount cannot be greater than max_amount' });
+  }
+
+  if(updateFields.min_amount < 0 || updateFields.max_amount < 0 || updateFields.charge_flat < 0 || updateFields.charge_percent < 0 || (updateFields.gst_required === true && updateFields.gst_percent < 0)) {
+    return res.status(400).json({success: false, message: 'Please Enter correct amount'});
   }
 
   await rule.update(updateFields);
