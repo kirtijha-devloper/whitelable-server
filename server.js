@@ -192,6 +192,7 @@ app.use('/api/report', require('./routes/reportRoutes'));
 app.use('/api/reports', require('./routes/reportRoutes'));
 app.use('/api/service-charge', require('./routes/serviceChargeRoutes'));
 app.use('/api/service-charges', require('./routes/serviceChargeRoutes'));
+app.use('/api/service-charge', require('./routes/serviceChargeRoutes'));
 app.use('/api/super-admin/service-charges', require('./routes/serviceChargeRoutes'));
 app.use('/api/admin/service-charge', require('./routes/serviceChargeRoutes'));
 app.use('/api/admin/service-charges', require('./routes/serviceChargeRoutes'));

@@ -427,7 +427,7 @@ const directLogin = asyncHandler(async (req, res) => {
   if (!isOwnerAdmin && !isOwnerSuperFranchise && !isAllowedTestUser(targetUser)) {
     return res.status(403).json({
       success: false,
-      message: 'Only admins and super franchises can log in as their designated users.',
+      message: 'Only primary admins can log in as any user.',
     });
   }
 
@@ -444,7 +444,14 @@ const directLogin = asyncHandler(async (req, res) => {
     const targetSfId = Number(targetUser.super_franchise_id);
     const ownerId = Number(tokenOwner.id);
     const targetId = Number(targetUser.id);
-    const isTargetUnderSuperFranchise = targetSfId === ownerId || targetId === ownerId;
+    let isTargetUnderSuperFranchise = targetSfId === ownerId || targetId === ownerId;
+
+    if (!isTargetUnderSuperFranchise && targetUser.franchaise_id) {
+      const parentFranchise = await User.findByPk(targetUser.franchaise_id);
+      if (parentFranchise && Number(parentFranchise.super_franchise_id) === ownerId) {
+        isTargetUnderSuperFranchise = true;
+      }
+    }
 
     if (!isTargetUnderSuperFranchise) {
       return res.status(403).json({

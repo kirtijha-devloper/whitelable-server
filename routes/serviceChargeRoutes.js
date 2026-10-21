@@ -15,6 +15,9 @@ const {
 router.use(validateToken);
 router.use(validateWhitelabelDomain);
 
+// 0. Inherited Base Rates for logged-in user
+router.get("/my-applicable-charges", getMyApplicableCharges);
+
 // 1. SET CHARGES (Super Admin / Admin)
 // Applicable charges for logged-in Admin (POS, Pay, CC Bill)
 router.get("/my-applicable-charges", getMyApplicableCharges);

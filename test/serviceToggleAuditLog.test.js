@@ -34,8 +34,10 @@ describe('ServiceToggleAuditLog Integration & Transaction Tests', () => {
         password: '$2b$10$abcdefghijklmnopqrstuuv',
         role: 'admin',
         status: 'active',
+        wallet: 10000.00,
       },
     });
+    await adminUser.update({ wallet: 10000.00 });
 
     // Create test merchant user
     [merchantUser] = await User.findOrCreate({

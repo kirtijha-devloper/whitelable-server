@@ -43,11 +43,10 @@ router.route("/").get(getAdminDashboard);
 router.use("/service-charges", require("./serviceChargeRoutes"));
 
 function requireAdmin(req, res, next) {
-  if (req.user?.role !== "admin") {
-    return res.status(403).json({ success: false, message: "Admin access only." });
+  if (req.user?.role === "admin" || req.user?.role === "super_admin") {
+    return next();
   }
-
-  return next();
+  return res.status(403).json({ success: false, message: "Admin and super admin access only." });
 }
 
 function requireAdminOrFranchise(req, res, next) {
@@ -108,7 +107,7 @@ router.put("/users/settlement-type", validateToken, validateWhitelabelDomain, re
 // PUT /api/admin/user/:id/settlement-type
 //   Admin-only: update settlement type for a single merchant or franchise user.
 //   Body: { settlement_type: 'today_settlement' | 'next_day_settlement' }
-router.put("/user/:id/settlement-type", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdmin, setUserSettlementType);
+router.put("/user/:id/settlement-type", validateToken, validateWhitelabelDomain, requireSettlementManage, requireAdminOrFranchise, setUserSettlementType);
 
 // ── POS Settlement Settings Admin/Franchise Endpoints ──────────────────────
 // GET /api/admin/pos-setting and its legacy fallback
@@ -231,7 +230,7 @@ router.delete("/login-popups/:id", validateToken, validateWhitelabelDomain, dele
 
 router.get("/logs", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, {
   message: "You do not have permission to view server logs.",
-  elevateRole: "admin",
+  elevateRole: "super_admin",
 }), requireAdmin, listLogFiles);
 
 router.get("/logs/:filename/download", validateToken, validateWhitelabelDomain, ensureEmployeePermission(EMPLOYEE_PERMISSIONS.SYSTEM_LOGS_READ, {

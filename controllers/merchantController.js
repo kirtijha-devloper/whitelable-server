@@ -146,10 +146,15 @@ const getUsers = asyncHandler(async (req, res) => {
       ];
       if (status) where.status = status;
     } else {
-      // For admin or other roles, show all merchants
-      where.role = "merchant";
-      if (status) where.status = status;
-    }
+        // For admin or employee, strictly guard to this admin's merchants
+        where.role = "merchant";
+        if (req.user.role === "admin") {
+          where.admin_id = req.user.id;
+        } else if (req.user.role === "employee") {
+          where.admin_id = req.user.admin_id || req.user.id;
+        }
+        if (status) where.status = status;
+      }
 
     // Get total count and paginated results
     const { count, rows: users } = await User.findAndCountAll({
