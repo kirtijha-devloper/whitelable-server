@@ -16,50 +16,14 @@ async function seedTestData() {
     // ── 1. Seed 5 Admin Users & White-Label Tenant Companies ────────────────
     const adminSeedData = [
       {
-        name: 'Agro-Axis Fintech',
+        name: 'Super User',
         email: 'admin.axis@agroaxis.com',
         mobile_number: '9876543210',
         domain_name: 'axis.agrofintech.com',
         company_name: 'Agro Axis India Pvt Ltd',
         username: 'APA00001',
         company_id: 'COMP_AXIS_01',
-      },
-      {
-        name: 'PayNext Solutions',
-        email: 'contact@paynext.in',
-        mobile_number: '9876543211',
-        domain_name: 'portal.paynext.in',
-        company_name: 'PayNext Digital Services',
-        username: 'APA00002',
-        company_id: 'COMP_PAYNEXT_02',
-      },
-      {
-        name: 'BharatPay Merchant Services',
-        email: 'support@bharatpay.org',
-        mobile_number: '9876543212',
-        domain_name: 'merchant.bharatpay.org',
-        company_name: 'BharatPay Retail Network',
-        username: 'APA00003',
-        company_id: 'COMP_BHARAT_03',
-      },
-      {
-        name: 'ZetaPay Rural Banking',
-        email: 'info@zetapay.co.in',
-        mobile_number: '9876543213',
-        domain_name: 'rural.zetapay.co.in',
-        company_name: 'ZetaPay Financial Technologies',
-        username: 'APA00004',
-        company_id: 'COMP_ZETA_04',
-      },
-      {
-        name: 'OmniPayments Global',
-        email: 'admin@omnipayments.com',
-        mobile_number: '9876543214',
-        domain_name: 'app.omnipayments.com',
-        company_name: 'OmniPayments Networks',
-        username: 'APA00005',
-        company_id: 'COMP_OMNI_05',
-      },
+      }
     ];
 
     for (const data of adminSeedData) {
@@ -71,14 +35,14 @@ async function seedTestData() {
           mobile_number: data.mobile_number,
           mobile_number_country_code: '+91',
           password: defaultPassword,
-          role: 'admin',
+          role: 'super_admin',
           username: data.username,
           company_or_shop_name: data.company_name,
           status: 'active',
           is_approved: true,
           is_payout_enabled: true,
           settlement_type: 'today_settlement',
-          wallet: 150000.00,
+          wallet: 0.00,
         });
       }
 
