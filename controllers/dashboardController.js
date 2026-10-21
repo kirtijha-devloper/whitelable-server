@@ -8,6 +8,7 @@ const PayoutTransaction = require('../models/PayoutTransaction');
 const PayoutRequest = require('../models/PayoutRequest');
 const WalletTransaction = require("../models/WalletTransaction");
 const BillAvenuePayment = require('../models/BillAvenuePayment');
+const { normalizeRole } = require("../utils/permissions");
 
 const CC_BILL_SUCCESS_STATUS_CODES = ['TXN', 'TUP'];
 const CC_BILL_FAILURE_STATUSES = ['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'];
@@ -209,7 +210,7 @@ const getPayoutStats = async ({ userIds = [], start, end }) => {
 };
 
 const getDashboard = asyncHandler(async (req, res) => {
-  const role = req.user.role;
+  const role = normalizeRole(req.user?.original_role || req.user?.role);
   const userId = req.user.id;
   const { start, end } = getTodayRange();
 
@@ -225,13 +226,66 @@ const getDashboard = asyncHandler(async (req, res) => {
     const isEmployeeUser = requesterRole && String(requesterRole).toLowerCase() === 'employee';
 
     if (role === 'admin' || isEmployeeUser) {
-      const [activeMachineCount, deactiveMachineCount, activeMerchantCount, activeFranchaiseCount] =
-        await Promise.all([
-          PosMachine.count({ where: { status: { [Op.ne]: 'in_active' } } }),
-          PosMachine.count({ where: { status: 'in_active' } }),
-          User.count({ where: { role: 'merchant', status: 'active' } }),
-          User.count({ where: { role: 'franchaise', status: 'active' } })
-        ]);
+      const companyId = req.user?.company_id || req.company;
+      const userWhere = companyId ? { company_id: companyId } : {};
+
+      let allowedUserIds = [userId];
+      if (companyId) {
+        const companyUsers = await User.findAll({
+          where: { company_id: companyId },
+          attributes: ['id']
+        });
+        allowedUserIds = Array.from(new Set([userId, ...companyUsers.map(u => u.id)]));
+      }
+      const posWhere = {
+        assigned_to: { [Op.in]: allowedUserIds }
+      };
+
+      const [
+        activeMachineCount,
+        deactiveMachineCount,
+        totalMachineCount,
+        merchantCount,
+        franchaiseCount,
+        superFranchiseCount
+      ] = await Promise.all([
+        PosMachine.count({
+          where: {
+            ...posWhere,
+            status: { [Op.notIn]: ['in_active', 'inactive'] }
+          }
+        }),
+        PosMachine.count({
+          where: {
+            ...posWhere,
+            status: { [Op.in]: ['in_active', 'inactive'] }
+          }
+        }),
+        PosMachine.count({
+          where: posWhere
+        }),
+        User.count({
+          where: {
+            ...userWhere,
+            role: 'merchant',
+            status: 'active'
+          }
+        }),
+        User.count({
+          where: {
+            ...userWhere,
+            role: { [Op.in]: ['franchaise', 'franchise'] },
+            status: 'active'
+          }
+        }),
+        User.count({
+          where: {
+            ...userWhere,
+            role: 'super_franchise',
+            status: 'active'
+          }
+        })
+      ]);
 
       const [posStats, ccBillStats, baCcBillStats, today_total_payout] = await Promise.all([
         getRazorpayTransactionStats(dateWhere),
@@ -241,9 +295,14 @@ const getDashboard = asyncHandler(async (req, res) => {
       ]);
 
       data = {
-        pos_machines: { active: activeMachineCount, inactive: deactiveMachineCount },
-        merchants: { count: activeMerchantCount },
-        franchaises: { count: activeFranchaiseCount },
+        pos_machines: {
+          active: activeMachineCount,
+          inactive: deactiveMachineCount,
+          total: totalMachineCount || (activeMachineCount + deactiveMachineCount)
+        },
+        merchants: { count: merchantCount },
+        franchaises: { count: franchaiseCount },
+        super_franchises: { count: superFranchiseCount },
         pos_transactions: {
           total: posStats.total,
           success: posStats.success,
@@ -261,7 +320,103 @@ const getDashboard = asyncHandler(async (req, res) => {
       };
     }
 
-    if (role === 'franchaise') {
+    if (role === 'super_franchise') {
+      const downstreamFranchises = await User.findAll({
+        where: {
+          super_franchise_id: userId,
+          role: { [Op.in]: ['franchaise', 'franchise'] },
+          status: 'active'
+        },
+        attributes: ['id'],
+        raw: true
+      });
+      const franchiseIds = downstreamFranchises.map((f) => f.id);
+
+      const merchantWhere = {
+        role: 'merchant',
+        status: 'active',
+        [Op.or]: [
+          { super_franchise_id: userId },
+          ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
+        ]
+      };
+      const downstreamMerchants = await User.findAll({
+        where: merchantWhere,
+        attributes: ['id'],
+        raw: true
+      });
+      const merchantIds = downstreamMerchants.map((m) => m.id);
+
+      const allNetworkUserIds = toUniqueValues([userId, ...franchiseIds, ...merchantIds]);
+
+      const posWhere = {
+        [Op.or]: [
+          { super_franchise_id: userId },
+          ...(allNetworkUserIds.length > 0 ? [{ assigned_to: { [Op.in]: allNetworkUserIds } }] : [])
+        ]
+      };
+
+      const [sfMachines, ccBillStats, baCcBillStats, today_total_payout] = await Promise.all([
+        PosMachine.findAll({
+          where: posWhere,
+          attributes: ['id', 'mid_number', 'status', 'assigned_to'],
+          raw: true
+        }),
+        getCcBillTransactionStats({
+          createdAt: { [Op.between]: [start, end] },
+          user_id: { [Op.in]: allNetworkUserIds }
+        }),
+        getBillAvenueCcBillTransactionStats({
+          createdAt: { [Op.between]: [start, end] },
+          user_id: { [Op.in]: allNetworkUserIds }
+        }),
+        getPayoutStats({ userIds: allNetworkUserIds, start, end })
+      ]);
+
+      const totalMachineCount = sfMachines.length;
+      const deactiveMachineCount = sfMachines.filter((m) =>
+        ['in_active', 'inactive'].includes(String(m.status || '').toLowerCase())
+      ).length;
+      const activeMachineCount = totalMachineCount - deactiveMachineCount;
+      const allNetworkMids = toUniqueValues(sfMachines.map((m) => m.mid_number));
+
+      const sfRoleFilter = (allNetworkUserIds.length > 0 || allNetworkMids.length > 0)
+        ? {
+          [Op.or]: [
+            ...(allNetworkUserIds.length ? [{ user_id: { [Op.in]: allNetworkUserIds } }] : []),
+            ...(allNetworkMids.length ? [{ mid: { [Op.in]: allNetworkMids } }] : [])
+          ]
+        }
+        : { user_id: -1 };
+
+      const posStats = await getRazorpayTransactionStats({ [Op.and]: [dateWhere, sfRoleFilter] });
+
+      data = {
+        merchants: { count: merchantIds.length },
+        franchaises: { count: franchiseIds.length },
+        pos_machines: {
+          active: activeMachineCount,
+          inactive: deactiveMachineCount,
+          total: totalMachineCount
+        },
+        pos_transactions: {
+          total: posStats.total,
+          success: posStats.success,
+          fail: posStats.fail,
+          t0_amount: posStats.t0_amount,
+          t1_amount: posStats.t1_amount,
+          count: posStats.count,
+          success_rate: posStats.success_rate,
+          failure_rate: posStats.failure_rate
+        },
+        today_total_payout: Number(today_total_payout || 0),
+        ccBillPaymentTXN: ccBillStats.total + baCcBillStats.total,
+        ccBillPaymentSuccess: ccBillStats.success + baCcBillStats.success,
+        ccBillPaymentFailed: ccBillStats.fail + baCcBillStats.fail
+      };
+    }
+
+    if (role === 'franchaise' || role === 'franchise') {
       const franchiseMerchantIds = await User.findAll({
         where: { franchaise_id: userId, role: 'merchant', status: 'active' },
         attributes: ['id'],
@@ -385,7 +540,7 @@ const normalizeDate = (dateStr, isEnd = false) => {
 };
 
 const getTodayPayoutList = asyncHandler(async (req, res) => {
-  const { role, id: userId } = req.user;
+  const userId = req.user?.id;
   const { date, startDate, endDate } = req.query;
 
   let start, end;
@@ -410,7 +565,34 @@ const getTodayPayoutList = asyncHandler(async (req, res) => {
     createdAt: { [Op.between]: [start, end] }
   };
 
-  if (role === "franchaise") {
+  const rawRole = req.user?.original_role || req.user?.role;
+  const role = normalizeRole(rawRole);
+
+  if (role === "super_franchise") {
+    const downstreamFranchises = await User.findAll({
+      where: {
+        super_franchise_id: userId,
+        role: { [Op.in]: ['franchaise', 'franchise'] }
+      },
+      attributes: ["id"],
+      raw: true
+    });
+    const franchiseIds = downstreamFranchises.map((f) => f.id);
+    const downstreamMerchants = await User.findAll({
+      where: {
+        role: 'merchant',
+        [Op.or]: [
+          { super_franchise_id: userId },
+          ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
+        ]
+      },
+      attributes: ["id"],
+      raw: true
+    });
+    const merchantIds = downstreamMerchants.map((m) => m.id);
+    const allIds = toUniqueValues([userId, ...franchiseIds, ...merchantIds]);
+    where.requested_by = { [Op.in]: allIds };
+  } else if (role === "franchaise" || role === "franchise") {
     const merchants = await User.findAll({
       where: { franchaise_id: userId },
       attributes: ["id"],

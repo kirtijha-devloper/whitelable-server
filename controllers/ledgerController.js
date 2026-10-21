@@ -83,8 +83,9 @@ const listStatement = asyncHandler(async (req, res) => {
   try {
     const status = req.query.status;
     const searchedRole = req.query.searched_role || null;
-    const userRole = req.user.role;
+    const userRole = normalizeRole(req.user?.original_role || req.user.role);
     const userId = req.user.id;
+    const companyId = req.user?.company_id || req.company;
 
     const where = {
       status: status || "completed",
@@ -96,6 +97,10 @@ const listStatement = asyncHandler(async (req, res) => {
       const userFilter = {
         status: "active",
       };
+
+      if (companyId) {
+        userFilter.company_id = companyId;
+      }
 
       if (searchedRole) {
         userFilter.role = searchedRole;
@@ -217,31 +222,25 @@ const getLedgerEntries = asyncHandler(async (req, res) => {
       } else {
         targetUserId = userId;
       }
-    } else if (userRole === 'super_franchise') {
-      if (user_id && parseInt(user_id) !== userId) {
-        const targetUser = await User.findByPk(user_id);
-        const isAllowed = targetUser && (
-          targetUser.id === userId ||
-          targetUser.super_franchise_id === userId ||
-          (targetUser.franchaise_id && (await User.count({ where: { id: targetUser.franchaise_id, super_franchise_id: userId } })) > 0)
-        );
-        if (!isAllowed) {
-          return res.status(403).json({
-            success: false,
-            message: 'You do not have access to this user\'s ledger'
-          });
-        }
-        targetUserId = user_id;
-      } else {
-        targetUserId = userId;
-      }
-    } else if (userRole === 'admin' || userRole === 'super_admin') {
-      // Admin can see any user's ledger or their own
+    } else if (userRole === 'admin') {
       if (!user_id) {
         targetUserId = userId;
       } else {
         targetUserId = user_id;
       }
+      const companyId = req.user?.company_id || req.company;
+      if (companyId && parseInt(user_id) !== userId) {
+        const targetUser = await User.findOne({
+          where: { id: user_id, company_id: companyId }
+        });
+        if (!targetUser) {
+          return res.status(403).json({
+            success: false,
+            message: "You do not have access to this user's ledger"
+          });
+        }
+      }
+      targetUserId = user_id;
     } else {
       // Default: own ledger
       targetUserId = userId;

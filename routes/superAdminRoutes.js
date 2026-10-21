@@ -15,6 +15,30 @@ const {
   getSuperAdminDashboard,
   superAdminCreditAdminWallet,
   superAdminDebitAdminWallet,
+  // Rate setting controllers
+  getSuperAdminPosDefaults,
+  createSuperAdminPosDefault,
+  updateSuperAdminPosDefault,
+  deleteSuperAdminPosDefault,
+  getSuperAdminPosAdminsMatrix,
+  getSuperAdminPosAdminRates,
+  createOrUpdateSuperAdminPosAdminRate,
+  updateSuperAdminPosAdminRate,
+  deleteSuperAdminPosAdminRate,
+  getSuperAdminRentalRates,
+  createSuperAdminRentalRate,
+  updateSuperAdminRentalRate,
+  deleteSuperAdminRentalRate,
+  getSuperAdminCcBillRules,
+  createSuperAdminCcBillRule,
+  updateSuperAdminCcBillRule,
+  deleteSuperAdminCcBillRule,
+  getSuperAdminPayoutRules,
+  createSuperAdminPayoutRule,
+  updateSuperAdminPayoutRule,
+  deleteSuperAdminPayoutRule,
+  getSuperAdminGlobalPosRate,
+  updateSuperAdminGlobalPosRate,
 } = require("../controllers/superAdminController");
 const {
   getPosInventory,
@@ -41,10 +65,54 @@ const commissionRoutes = require("./commissionRoutes");
 
 const router = express.Router();
 
+function requireSuperAdmin(req, res, next) {
+  if (req.user?.role !== "super_admin") {
+    return res.status(403).json({ success: false, message: "Super Admin access only." });
+  }
+  return next();
+}
+
 // Super Admin Dashboard Route ________________________________________________
 
-router.get("/dashboard", validateToken, validateWhitelabelDomain , getSuperAdminDashboard);
+router.get("/dashboard", validateToken, validateWhitelabelDomain, getSuperAdminDashboard);
+
 // ── Rate & Charge Settings for Super Admin ─────────────────────────────────
+// 1. Platform Default POS Rates (Super Admin baseline)
+router.get("/rate-settings/pos/defaults", validateToken, validateWhitelabelDomain, requireSuperAdmin, getSuperAdminPosDefaults);
+router.post("/rate-settings/pos/defaults", validateToken, validateWhitelabelDomain, requireSuperAdmin, createSuperAdminPosDefault);
+router.put("/rate-settings/pos/defaults/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, updateSuperAdminPosDefault);
+router.delete("/rate-settings/pos/defaults/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, deleteSuperAdminPosDefault);
+
+// 2. Admin-Specific POS Rates (Matrix, Detail, Overrides, Reset)
+router.get("/rate-settings/pos/admins", validateToken, validateWhitelabelDomain, requireSuperAdmin, getSuperAdminPosAdminsMatrix);
+router.get("/rate-settings/pos/admin/:adminId", validateToken, validateWhitelabelDomain, requireSuperAdmin, getSuperAdminPosAdminRates);
+router.post("/rate-settings/pos/admin/:adminId", validateToken, validateWhitelabelDomain, requireSuperAdmin, createOrUpdateSuperAdminPosAdminRate);
+router.put("/rate-settings/pos/admin/rule/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, updateSuperAdminPosAdminRate);
+router.delete("/rate-settings/pos/admin/rule/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, deleteSuperAdminPosAdminRate);
+
+// 3. POS Rental Rates
+router.get("/rate-settings/rental", validateToken, validateWhitelabelDomain, requireSuperAdmin, getSuperAdminRentalRates);
+router.post("/rate-settings/rental", validateToken, validateWhitelabelDomain, requireSuperAdmin, createSuperAdminRentalRate);
+router.put("/rate-settings/rental/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, updateSuperAdminRentalRate);
+router.delete("/rate-settings/rental/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, deleteSuperAdminRentalRate);
+
+// 4. CC Bill Pay (BBPS) Charges
+router.get("/rate-settings/cc-bill", validateToken, validateWhitelabelDomain, requireSuperAdmin, getSuperAdminCcBillRules);
+router.post("/rate-settings/cc-bill", validateToken, validateWhitelabelDomain, requireSuperAdmin, createSuperAdminCcBillRule);
+router.put("/rate-settings/cc-bill/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, updateSuperAdminCcBillRule);
+router.delete("/rate-settings/cc-bill/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, deleteSuperAdminCcBillRule);
+
+// 5. Payout Charges
+router.get("/rate-settings/payout", validateToken, validateWhitelabelDomain, requireSuperAdmin, getSuperAdminPayoutRules);
+router.post("/rate-settings/payout", validateToken, validateWhitelabelDomain, requireSuperAdmin, createSuperAdminPayoutRule);
+router.put("/rate-settings/payout/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, updateSuperAdminPayoutRule);
+router.delete("/rate-settings/payout/:id", validateToken, validateWhitelabelDomain, requireSuperAdmin, deleteSuperAdminPayoutRule);
+
+// 6. Universal Fallback POS Rate
+router.get("/rate-settings/global-rate", validateToken, validateWhitelabelDomain, requireSuperAdmin, getSuperAdminGlobalPosRate);
+router.post("/rate-settings/global-rate", validateToken, validateWhitelabelDomain, requireSuperAdmin, updateSuperAdminGlobalPosRate);
+
+// ── Legacy Sub-Routers Mounting (Maintained for backward compatibility) ────
 router.use("/service-charges", serviceChargeRoutes);
 router.use("/rate-settings/pos", posChargeRuleRoutes);
 router.use("/pos-charge-rules", posChargeRuleRoutes);
@@ -100,6 +168,8 @@ router.patch("/:id/status", validateToken, validateWhitelabelDomain, updateAdmin
 router.put("/:id/status", validateToken, validateWhitelabelDomain, updateAdminStatus);
 
 // ── Super Admin Admin Wallet Credit / Debit ──────────────────────────────────
+router.post("/wallet/credit", validateToken, validateWhitelabelDomain, superAdminCreditAdminWallet);
+router.post("/wallet/debit", validateToken, validateWhitelabelDomain, superAdminDebitAdminWallet);
 router.post("/admin/:id/wallet/credit", validateToken, validateWhitelabelDomain, superAdminCreditAdminWallet);
 router.post("/:id/wallet/credit", validateToken, validateWhitelabelDomain, superAdminCreditAdminWallet);
 router.post("/admin/:id/wallet/debit", validateToken, validateWhitelabelDomain, superAdminDebitAdminWallet);

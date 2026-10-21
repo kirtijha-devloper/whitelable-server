@@ -463,24 +463,47 @@ const getUsers = asyncHandler(async (req, res) => {
         const where = {};
 
         // Role-based access control
-        if (userRole === "admin") {
-          where.admin_id = userId;
-        } else if (isEmployee(req.user)) {
-          where.admin_id = req.user.admin_id || req.user.id;
+        if (userRole === "admin" || userRole === "employee") {
+          where.company_id = req.user?.company_id || req.company;
         }
         if (userRole === 'super_franchise') {
-            const subFranchises = await User.findAll({
-              where: { super_franchise_id: userId, role: { [Op.in]: ['franchise', 'franchaise'] } },
-              attributes: ['id']
+            const downstreamFranchises = await User.findAll({
+                where: {
+                    super_franchise_id: userId,
+                    role: { [Op.in]: ['franchaise', 'franchise'] }
+                },
+                attributes: ['id']
             });
-            const subFranchiseIds = subFranchises.map((f) => f.id);
-            where[Op.or] = [
-              { super_franchise_id: userId },
-              ...(subFranchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: subFranchiseIds } }] : [])
-            ];
+            const franchiseIds = downstreamFranchises.map((f) => f.id);
+
+            if (requestedRole) {
+                if (requestedRole === 'merchant') {
+                    where.role = 'merchant';
+                    where[Op.or] = [
+                        { super_franchise_id: userId },
+                        ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
+                    ];
+                } else if (requestedRole === 'franchise' || requestedRole === 'franchaise') {
+                    where.role = { [Op.in]: ['franchise', 'franchaise'] };
+                    where.super_franchise_id = userId;
+                } else {
+                    where.role = requestedRole;
+                    where.super_franchise_id = userId;
+                }
+            } else {
+                where[Op.or] = [
+                    { super_franchise_id: userId },
+                    ...(franchiseIds.length > 0
+                        ? [{ franchaise_id: { [Op.in]: franchiseIds }, role: { [Op.in]: ['merchant', 'user'] } }]
+                        : [])
+                ];
+            }
         } else if (userRole === 'franchaise' || userRole === 'franchise') {
             // Franchise can only see their own merchants
             where.franchaise_id = userId;
+            if (requestedRole) {
+                where.role = requestedRole;
+            }
         }
 
         // Apply filters
@@ -488,7 +511,7 @@ const getUsers = asyncHandler(async (req, res) => {
             where.status = status;
         }
 
-        if (requestedRole) {
+        if (requestedRole && userRole !== 'super_franchise' && userRole !== 'franchaise' && userRole !== 'franchise') {
             where.role = requestedRole;
         }
 
@@ -636,26 +659,49 @@ const searchUsers = asyncHandler(async (req, res) => {
         const andConditions = [];
 
         if (userRole === 'super_franchise') {
-            const subFranchises = await User.findAll({
-              where: { super_franchise_id: userId, role: { [Op.in]: ['franchise', 'franchaise'] } },
-              attributes: ['id']
+            const downstreamFranchises = await User.findAll({
+                where: {
+                    super_franchise_id: userId,
+                    role: { [Op.in]: ['franchaise', 'franchise'] }
+                },
+                attributes: ['id']
             });
-            const subFranchiseIds = subFranchises.map((f) => f.id);
-            andConditions.push({
-              [Op.or]: [
-                { super_franchise_id: userId },
-                ...(subFranchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: subFranchiseIds } }] : [])
-              ]
-            });
+            const franchiseIds = downstreamFranchises.map((f) => f.id);
+
+            if (requestedRole) {
+                if (requestedRole === 'merchant') {
+                    where.role = 'merchant';
+                    where[Op.or] = [
+                        { super_franchise_id: userId },
+                        ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
+                    ];
+                } else if (requestedRole === 'franchise' || requestedRole === 'franchaise') {
+                    where.role = { [Op.in]: ['franchise', 'franchaise'] };
+                    where.super_franchise_id = userId;
+                } else {
+                    where.role = requestedRole;
+                    where.super_franchise_id = userId;
+                }
+            } else {
+                where[Op.or] = [
+                    { super_franchise_id: userId },
+                    ...(franchiseIds.length > 0
+                        ? [{ franchaise_id: { [Op.in]: franchiseIds }, role: { [Op.in]: ['merchant', 'user'] } }]
+                        : [])
+                ];
+            }
         } else if (userRole === 'franchaise' || userRole === 'franchise') {
             where.franchaise_id = userId;
+            if (requestedRole) {
+                where.role = requestedRole;
+            }
         }
 
         if (status) {
             where.status = status;
         }
 
-        if (requestedRole) {
+        if (requestedRole && userRole !== 'super_franchise' && userRole !== 'franchaise' && userRole !== 'franchise') {
             where.role = requestedRole;
         }
 
@@ -1150,7 +1196,14 @@ const registerUser = asyncHandler(async (req, res) => {
         }
 
         const assignedFranchiseId = req.body.franchaise_id || (req.user && normalizeRole(req.user.role) === 'franchaise' && normalizedRole === 'merchant' ? req.user.id : null);
-        const assignedSuperFranchiseId = req.body.super_franchise_id || (req.user && normalizeRole(req.user.role) === 'super_franchise' ? req.user.id : (req.user && normalizeRole(req.user.role) === 'franchaise' ? req.user.super_franchise_id : null));
+        let assignedSuperFranchiseId = req.body.super_franchise_id || (req.user && normalizeRole(req.user.role) === 'super_franchise' ? req.user.id : (req.user && normalizeRole(req.user.role) === 'franchaise' && req.user.super_franchise_id ? req.user.super_franchise_id : null));
+
+        if (!assignedSuperFranchiseId && assignedFranchiseId) {
+            const parentFranchiseUser = await User.findByPk(assignedFranchiseId, { attributes: ['id', 'super_franchise_id'] });
+            if (parentFranchiseUser?.super_franchise_id) {
+                assignedSuperFranchiseId = Number(parentFranchiseUser.super_franchise_id);
+            }
+        }
 
         const hashPassword = await bcrypt.hash(password, 10);
 
@@ -1216,8 +1269,7 @@ const registerUser = asyncHandler(async (req, res) => {
                         company_id: req.user?.company_id || req.body.company_id || null,
                         username,
                         franchaise_id: assignedFranchiseId || (req.user && normalizeRole(req.user.role) === 'franchaise' && normalizedRole === 'merchant' ? req.user.id : null),
-                        super_franchise_id: assignedSuperFranchiseId || (req.user && normalizeRole(req.user.role) === 'super_franchise' ? req.user.id : (req.user && normalizeRole(req.user.role) === 'franchaise' ? req.user.super_franchise_id : null)),
-                        admin_id: (requesterIsAdmin ? req.user.id : (req.user?.admin_id || (req.user?.role === 'super_franchise' || req.user?.role === 'franchaise' ? req.user.admin_id : null))),
+                        super_franchise_id: assignedSuperFranchiseId || null,
                     }, { transaction: t });
                     break;
                 } catch (createErr) {
@@ -1528,8 +1580,23 @@ const approveUser = asyncHandler( async (req, res) => {
                 if (!company) {
                     company = await Company.findOne({ where: { user_id: user.id } });
                 }
+                if (!company && (user.franchaise_id || user.super_franchise_id)) {
+                    const parent = await User.findByPk(user.franchaise_id || user.super_franchise_id);
+                    if (parent?.company_id) {
+                        company = await Company.findOne({ where: { company_id: parent.company_id } });
+                    }
+                }
 
-                const companyLogo = company?.company_logo || user.shop_with_photo_url || null;
+                let companyLogo = company?.company_logo || null;
+                if (company && !companyLogo) {
+                    const companyAdmin = await User.findOne({ where: { company_id: company.company_id, role: 'admin' } });
+                    if (companyAdmin?.shop_with_photo_url) {
+                        companyLogo = companyAdmin.shop_with_photo_url;
+                    }
+                }
+                if (!companyLogo && user.role === 'admin') {
+                    companyLogo = user.shop_with_photo_url || null;
+                }
 
                 res.json({
                     email: maskEmail(user.email),

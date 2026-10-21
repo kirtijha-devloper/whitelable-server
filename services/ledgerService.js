@@ -452,6 +452,24 @@ async function createSuperFranchiseEarningEntry({
   });
 }
 
+// convenience wrapper for admin earnings
+async function createAdminEarningEntry({
+  userId,
+  razorpayTransactionId,
+  amount,
+  description = null,
+  metadata = null,
+}) {
+  return await createLedgerEntry({
+    userId,
+    transactionType: 'pos_admin_earning',
+    transactionId: razorpayTransactionId,
+    description: description || `Admin earning on txn: ${razorpayTransactionId} — ₹${amount}`,
+    credit: amount,
+    metadata,
+  });
+}
+
 /**
  * Create a ledger debit entry for a rental charge.
  *
@@ -752,6 +770,7 @@ module.exports = {
   createCommissionEntry,
   createFranchiseEarningEntry,
   createSuperFranchiseEarningEntry,
+  createAdminEarningEntry,
   createRentalChargeEntry,
   createRentalCreditEntry,
   createPayoutEntry,

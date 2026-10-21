@@ -158,16 +158,21 @@ app.use('/api/commission', require('./routes/commissionRoutes'));
 app.use('/api/rental', require('./routes/rentalRoutes'));
 app.use('/api/service-fee', require('./routes/serviceFeeRoutes'));
 app.use('/api/payout-charge', require('./routes/payoutChargeRoutes'));
+app.use('/api/payout-charges', require('./routes/payoutChargeRoutes'));
 app.use('/api/user-payout-charge', require('./routes/userPayoutChargeRoutes'));
+app.use('/api/user-payout-charges', require('./routes/userPayoutChargeRoutes'));
 app.use('/api/payout', require('./routes/payoutRoutes'));
 app.use('/api/sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/payout-sevenpay', require('./routes/sevenpayPayout.routes'));
 app.use('/api/ndia5', require('./routes/ndia5Payout.routes'));
+app.use('/api/partner', require('./routes/partnerRoutes'));
+app.use('/partner', require('./routes/partnerRoutes'));
 app.use('/api/india5', require('./routes/ndia5Payout.routes'));
 // Note: /api/shared proxy is hosted on central API Portal (Reseller API), POS-SERVER consumes it as client only.
 app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRoutes'));
 // new charge rule engine (see posChargeRuleRoutes)
 app.use('/api/pos-charge-rules', require('./routes/posChargeRuleRoutes'));
+app.use('/api/pos-charge-rule', require('./routes/posChargeRuleRoutes'));
 
 // POS reconciliation
 app.use('/api/reconciliation', require('./routes/reconciliationRoutes'));
@@ -185,10 +190,11 @@ app.use('/api/complaint', require('./routes/complaintRoutes'));
 app.use('/api/kyc', require('./routes/kycRoutes'));
 app.use('/api/report', require('./routes/reportRoutes'));
 app.use('/api/reports', require('./routes/reportRoutes'));
-app.use('/reports', require('./routes/reportRoutes'));
+app.use('/api/service-charge', require('./routes/serviceChargeRoutes'));
 app.use('/api/service-charges', require('./routes/serviceChargeRoutes'));
 app.use('/api/service-charge', require('./routes/serviceChargeRoutes'));
 app.use('/api/super-admin/service-charges', require('./routes/serviceChargeRoutes'));
+app.use('/api/admin/service-charge', require('./routes/serviceChargeRoutes'));
 app.use('/api/admin/service-charges', require('./routes/serviceChargeRoutes'));
 app.use('/api/razorpay', require('./routes/razorpay/webhook/notificationRoutes'));
 app.use('/api/worldline', require('./routes/worldline/webhook/notificationRoutes'));

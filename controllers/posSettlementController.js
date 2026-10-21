@@ -22,8 +22,24 @@ const getPosSettings = asyncHandler(async (req, res) => {
 
   const where = {};
   if (role === 'super_franchise') {
-    where.super_franchise_id = req.user.id;
-    where.role = { [Op.in]: ['merchant', 'franchaise', 'franchise'] };
+    const downstreamFranchises = await User.findAll({
+      where: {
+        super_franchise_id: req.user.id,
+        role: { [Op.in]: ['franchaise', 'franchise'] }
+      },
+      attributes: ['id']
+    });
+    const franchiseIds = downstreamFranchises.map((f) => f.id);
+
+    where[Op.or] = [
+      {
+        super_franchise_id: req.user.id,
+        role: { [Op.in]: ['merchant', 'user', 'franchaise', 'franchise'] }
+      },
+      ...(franchiseIds.length > 0
+        ? [{ franchaise_id: { [Op.in]: franchiseIds }, role: { [Op.in]: ['merchant', 'user'] } }]
+        : [])
+    ];
   } else if (role === 'franchaise' || role === 'franchise') {
     where.franchaise_id = req.user.id;
     where.role = 'merchant';
@@ -250,16 +266,20 @@ async function resolveUserForT0Limit(rawId) {
     if (userByPk) return userByPk;
   }
 
-  // 2. Otherwise try matching id as string, mobile_number, phone, user_code, email
+  // 2. Otherwise try matching abheepay_id, username, mobile_number, email
+  const orConditions = [
+    { abheepay_id: cleanId },
+    { username: cleanId },
+    { mobile_number: cleanId },
+    { email: cleanId }
+  ];
+  if (!isNaN(numId) && Number.isInteger(numId) && numId > 0) {
+    orConditions.push({ id: numId });
+  }
+
   const userByQuery = await User.findOne({
     where: {
-      [Op.or]: [
-        { id: cleanId },
-        { mobile_number: cleanId },
-        { phone: cleanId },
-        { user_code: cleanId },
-        { email: cleanId }
-      ]
+      [Op.or]: orConditions
     }
   });
 
@@ -347,10 +367,19 @@ const updateT0Limit = asyncHandler(async (req, res) => {
           continue;
         }
 
-        if (role === 'super_franchise' && user.super_franchise_id !== req.user.id && user.id !== req.user.id) {
-          failedCount++;
-          results.push({ row, identifier: rawId, success: false, message: 'User not assigned to your super franchise' });
-          continue;
+        if (role === 'super_franchise') {
+          let isAuthorized = Number(user.super_franchise_id) === Number(req.user.id) || Number(user.id) === Number(req.user.id);
+          if (!isAuthorized && user.franchaise_id) {
+            const parentF = await User.findByPk(user.franchaise_id, { attributes: ['id', 'super_franchise_id'] });
+            if (parentF && Number(parentF.super_franchise_id) === Number(req.user.id)) {
+              isAuthorized = true;
+            }
+          }
+          if (!isAuthorized) {
+            failedCount++;
+            results.push({ row, identifier: rawId, success: false, message: 'User not assigned to your super franchise' });
+            continue;
+          }
         }
 
         if ((role === 'franchaise' || role === 'franchise') && user.franchaise_id !== req.user.id) {
@@ -412,7 +441,14 @@ const updateT0Limit = asyncHandler(async (req, res) => {
   }
 
   if (role === 'super_franchise') {
-    if (user.super_franchise_id !== req.user.id && user.id !== req.user.id) {
+    let isAuthorized = Number(user.super_franchise_id) === Number(req.user.id) || Number(user.id) === Number(req.user.id);
+    if (!isAuthorized && user.franchaise_id) {
+      const parentF = await User.findByPk(user.franchaise_id, { attributes: ['id', 'super_franchise_id'] });
+      if (parentF && Number(parentF.super_franchise_id) === Number(req.user.id)) {
+        isAuthorized = true;
+      }
+    }
+    if (!isAuthorized) {
       res.status(403);
       throw new Error('You can only update T0 limits for users assigned to your super franchise.');
     }
@@ -507,9 +543,12 @@ const updateSettlementType = asyncHandler(async (req, res) => {
     try {
       await ServiceToggleAuditLog.create({
         user_id: req.user.id,
+        affected_user_id: user.id,
         target_type: user.role === 'franchaise' ? 'franchise' : 'user',
         target_id: user.id,
         service_key: 'pos_t0_settlement',
+        previous_state: normalizeSettlementType(prevType) === 'T0',
+        new_state: normalized === 'T0',
         action: normalized === 'T0' ? 'ENABLE' : 'DISABLE',
         ip_address: req.ip || '127.0.0.1',
         user_agent: req.headers ? req.headers['user-agent'] : null,

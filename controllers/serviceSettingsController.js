@@ -64,13 +64,6 @@ const DEFAULT_SERVICES_METADATA = [
     target_roles: ['admin', 'franchise', 'merchant'],
   },
   {
-    key: 'mx_payout',
-    label: 'MeroRecharge Payout',
-    category: 'Payout & Banking',
-    description: 'MeroRecharge MX Payout Integration',
-    target_roles: ['admin', 'franchise', 'merchant'],
-  },
-  {
     key: 'pos_t0_settlement',
     label: 'POS T0 Instant Settlement',
     category: 'POS & Hardware',
@@ -212,7 +205,7 @@ const getServicesListController = asyncHandler(async (_req, res) => {
 
   // Include any extra custom services created in DB
   dbServices.forEach((s) => {
-    if (!DEFAULT_SERVICES_METADATA.some((m) => m.key === s.service_key)) {
+    if (s.service_key !== 'mx_payout' && !DEFAULT_SERVICES_METADATA.some((m) => m.key === s.service_key)) {
       merged.push({
         key: s.service_key,
         service_key: s.service_key,
@@ -377,7 +370,8 @@ const getServiceSettings = asyncHandler(async (req, res) => {
     const adminUserSettings = await getUserServiceSettingsForUser(targetAdminUser);
     const result = {};
     for (const [key, globalCfg] of Object.entries(globalMap)) {
-      const isTier1Disabled = globalCfg.is_enabled === false;
+      if (key === 'mx_payout') continue;
+      const isTier1Disabled = globalCfg.is_enabled === false && (globalCfg.updated_by === null || superAdminIds.has(Number(globalCfg.updated_by)));
       const adminRec = rawAdminMap.get(key);
       const isTier2Disabled = adminRec && adminRec.is_enabled === false && superAdminIds.has(Number(adminRec.updated_by));
       const isSuperAdminDisabled = isTier1Disabled || Boolean(isTier2Disabled);
@@ -396,9 +390,12 @@ const getServiceSettings = asyncHandler(async (req, res) => {
     });
   }
 
+  const filteredGlobalMap = { ...globalMap };
+  delete filteredGlobalMap.mx_payout;
+
   return res.status(200).json({
     success: true,
-    data: globalMap,
+    data: filteredGlobalMap,
   });
 });
 

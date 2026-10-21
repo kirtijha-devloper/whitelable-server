@@ -29,9 +29,9 @@ const USER_SERVICE_TARGET_ROLES = Object.freeze(['merchant', 'franchaise','super
 const USER_SERVICE_TARGET_ROLE_SET = new Set(USER_SERVICE_TARGET_ROLES);
 
 function buildDefaultServiceSettingsMap() {
-  return SERVICE_SETTING_KEY_LIST.reduce((acc, serviceKey) => {
+  return SERVICE_SETTING_KEY_LIST.filter(k => k !== SERVICE_SETTING_KEYS.MX_PAYOUT).reduce((acc, serviceKey) => {
     acc[serviceKey] = {
-      is_enabled: (serviceKey === SERVICE_SETTING_KEYS.MX_PAYOUT || serviceKey === SERVICE_SETTING_KEYS.NDIA5_PAYOUT) ? false : true,
+      is_enabled: serviceKey === SERVICE_SETTING_KEYS.NDIA5_PAYOUT ? false : true,
       updated_by: null,
       updated_at: null,
     };
@@ -46,7 +46,6 @@ function buildDefaultUserServiceSettings(user) {
     [SERVICE_SETTING_KEYS.VIMO_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.BRANCHX_PAYOUT]: payoutEnabledForUser,
     [SERVICE_SETTING_KEYS.SEVENPAY_PAYOUT]: payoutEnabledForUser,
-    [SERVICE_SETTING_KEYS.MX_PAYOUT]: false,
     [SERVICE_SETTING_KEYS.NDIA5_PAYOUT]: false,
     [SERVICE_SETTING_KEYS.CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]: true,
@@ -65,13 +64,14 @@ function normalizeGlobalServiceSettingsMap(records) {
   for (const recordLike of Array.isArray(records) ? records : []) {
     const record = toPlainRecord(recordLike);
 
-    if (!record?.service_key) {
+    if (!record?.service_key || record.service_key === SERVICE_SETTING_KEYS.MX_PAYOUT || record.service_key === 'mx_payout') {
       continue;
     }
 
     normalized[record.service_key] = {
       is_enabled: record.is_enabled !== false,
       updated_by: record.updated_by ?? null,
+      updated_by_role: null,
       updated_at: record.updatedAt || record.updated_at || null,
       label: record.label || null,
       category: record.category || 'General',
@@ -258,6 +258,17 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
     ...transactionOpts,
   });
 
+  const targetAdminId = companyAdminUser?.id || (options.user?.id ? Number(options.user.id) : null);
+  const rawAdminMap = new Map();
+
+  if (targetAdminId) {
+    const rawAdminRecords = await UserServiceSetting.findAll({
+      where: { user_id: targetAdminId },
+      ...transactionOpts,
+    });
+    rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
+  }
+
   if (companyAdminUser) {
     const superAdmins = await User.findAll({
       where: { role: 'super_admin' },
@@ -266,13 +277,6 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
     });
     const superAdminIds = new Set(superAdmins.map((u) => u.id));
     superAdminIds.add(1);
-
-    const rawAdminRecords = await UserServiceSetting.findAll({
-      where: { user_id: companyAdminUser.id },
-      ...transactionOpts,
-    });
-    const rawAdminMap = new Map();
-    rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
 
     for (const [serviceKey, isEnabled] of entries) {
       if (!isEnabled) continue;
@@ -316,11 +320,16 @@ async function upsertServiceSettings(updates, updatedBy, options = {}) {
         });
       }
 
+      const adminRec = rawAdminMap.get(serviceKey);
+      const previousState = adminRec !== undefined
+        ? Boolean(adminRec.is_enabled)
+        : (currentMap[serviceKey]?.is_enabled !== false);
+
       await ServiceToggleAuditLog.create({
         user_id: performingUserId,
         affected_user_id: null,
         service_key: serviceKey,
-        previous_state: null,
+        previous_state: Boolean(previousState),
         new_state: isEnabledBool,
         action: isEnabledBool ? 'COMPANY_ENABLE' : 'COMPANY_DISABLE',
         ip_address: ipAddress,
@@ -426,7 +435,7 @@ async function resolveUserForServiceEvaluation(userLike) {
 
   try {
     dbUser = await User.findByPk(userId, {
-      attributes: ['id', 'role', 'status', 'franchaise_id', 'is_payout_enabled'],
+      attributes: ['id', 'role', 'status', 'franchaise_id', 'company_id', 'is_payout_enabled'],
     });
   } catch (error) {
     if (isMissingTableError(error, 'users')) {
@@ -655,10 +664,10 @@ async function upsertUserServiceSettings(user, updates, updatedBy, options = {})
   };
 }
 
-function buildServiceDisabledPayload(serviceKey) {
+function buildServiceDisabledPayload(serviceKey, message = 'Service is currently disabled.') {
   return {
     success: false,
-    message: 'Service is currently disabled.',
+    message,
     code: 'SERVICE_DISABLED',
     service_key: serviceKey,
   };
@@ -670,14 +679,45 @@ async function assertServiceEnabledOrRespond(res, serviceKey, user) {
     getServiceSettingsMap(),
     getUserServiceSettingsForUser(resolvedUser),
   ]);
-  const effectiveFlags = getEffectiveServiceFlags(resolvedUser, serviceSettingsMap, userServiceSettings);
 
-  if (effectiveFlags[serviceKey]) {
-    return true;
+  // 1. Enforce Global Availability
+  if (serviceSettingsMap && serviceSettingsMap[serviceKey]?.is_enabled === false) {
+    res.status(403).json(buildServiceDisabledPayload(serviceKey, `Service '${serviceKey}' is currently disabled globally by Super Admin.`));
+    return false;
   }
 
-  res.status(403).json(buildServiceDisabledPayload(serviceKey));
-  return false;
+  // 2. Enforce Admin / Tenant Availability
+  const userRole = String(resolvedUser?.role || '').toLowerCase();
+  let companyAdminSettings = null;
+  if (userRole === 'admin') {
+    if (userServiceSettings[serviceKey] === false) {
+      res.status(403).json(buildServiceDisabledPayload(serviceKey, `Service '${serviceKey}' is currently disabled for this tenant.`));
+      return false;
+    }
+  } else if (userRole !== 'super_admin') {
+    const companyId = resolvedUser?.company_id;
+    if (companyId) {
+      const companyAdmin = await User.findOne({
+        where: { company_id: companyId, role: 'admin' },
+      });
+      if (companyAdmin) {
+        companyAdminSettings = await getUserServiceSettingsForUser(companyAdmin);
+        if (companyAdminSettings && companyAdminSettings[serviceKey] === false) {
+          res.status(403).json(buildServiceDisabledPayload(serviceKey, `Service '${serviceKey}' is currently disabled for this tenant.`));
+          return false;
+        }
+      }
+    }
+  }
+
+  // 3. Enforce User-level Availability via effective flags
+  const effectiveFlags = getEffectiveServiceFlags(resolvedUser, serviceSettingsMap, userServiceSettings, companyAdminSettings);
+  if (!effectiveFlags[serviceKey]) {
+    res.status(403).json(buildServiceDisabledPayload(serviceKey, `Service '${serviceKey}' is currently disabled.`));
+    return false;
+  }
+
+  return true;
 }
 
 async function getServiceToggleAuditLogs(filters = {}) {
@@ -843,6 +883,18 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
     company_id: companyId,
   }));
 
+  // Also update the performing admin's own record in UserServiceSetting so organization default is updated
+  if (performingUserId) {
+    rows.push({
+      user_id: Number(performingUserId),
+      service_key: serviceKey,
+      is_enabled: isEnabledBool,
+      updated_by: performingUserId ?? null,
+      updated_at: now,
+      company_id: companyId,
+    });
+  }
+
   await UserServiceSetting.bulkCreate(rows, {
     updateOnDuplicate: ['is_enabled', 'updated_by', 'updated_at', 'company_id'],
     ...transactionOpts,
@@ -869,12 +921,17 @@ async function bulkUpdateUserServiceSettingsForAllUsers(serviceKey, isEnabled, p
     }
   }
 
-  // Also update global default service_settings table
-  await ServiceSetting.upsert({
-    service_key: serviceKey,
-    is_enabled: isEnabledBool,
-    updated_by: performingUserId ?? null,
-  }, transactionOpts);
+  // Only update global platform ServiceSetting table if performing user is Super Admin
+  const requesterRole = String(options.role || options.user?.role || '').toLowerCase();
+  const isSuperAdminCaller = requesterRole === 'super_admin' || Boolean(options.isSuperAdmin);
+
+  if (isSuperAdminCaller) {
+    await ServiceSetting.upsert({
+      service_key: serviceKey,
+      is_enabled: isEnabledBool,
+      updated_by: performingUserId ?? null,
+    }, transactionOpts);
+  }
 
   // Record audit log
   const ipAddress = options.ip_address || options.ip || null;

@@ -72,40 +72,38 @@ const getPosInventory = asyncHandler(async (req, res) => {
     };
   });
 
-  // 2. Fetch records from PosInventory table (seed/mock records)
-  const inventoryRecords = await PosInventory.findAll({
-    order: [["createdAt", "DESC"]],
-  });
+  // // 2. Fetch records from PosInventory table (seed/mock records)
+  // const inventoryRecords = await PosInventory.findAll({
+  //   order: [["createdAt", "DESC"]],
+  // });
 
-  const existingTids = new Set(
-    mappedMachines.map((m) => String(m.tid_number || "").trim().toLowerCase())
-  );
+  // const existingTids = new Set(
+  //   mappedMachines.map((m) => String(m.tid_number || "").trim().toLowerCase())
+  // );
 
-  const mappedInventory = [];
-  for (const inv of inventoryRecords) {
-    const tidLower = String(inv.tid_number || "").trim().toLowerCase();
-    if (!existingTids.has(tidLower)) {
-      mappedInventory.push({
-        id: inv.id,
-        tid_number: inv.tid_number,
-        serial_number: inv.serial_number,
-        device_serial_number: inv.serial_number,
-        model: inv.model || "Pax A920",
-        company_name: inv.company_name || "-",
-        assigned_to: inv.assigned_to || "Unassigned",
-        assigned_user_id: inv.assigned_user_id || null,
-        status: inv.status || "available",
-        createdAt: inv.createdAt,
-        source_table: "PosInventory",
-      });
-      existingTids.add(tidLower);
-    }
-  }
+  // const mappedInventory = [];
+  // for (const inv of inventoryRecords) {
+  //   const tidLower = String(inv.tid_number || "").trim().toLowerCase();
+  //   if (!existingTids.has(tidLower)) {
+  //     mappedInventory.push({
+  //       id: inv.id,
+  //       tid_number: inv.tid_number,
+  //       serial_number: inv.serial_number,
+  //       device_serial_number: inv.serial_number,
+  //       model: inv.model || "Pax A920",
+  //       company_name: inv.company_name || "-",
+  //       assigned_to: inv.assigned_to || "Unassigned",
+  //       assigned_user_id: inv.assigned_user_id || null,
+  //       status: inv.status || "available",
+  //       createdAt: inv.createdAt,
+  //       source_table: "PosInventory",
+  //     });
+  //     existingTids.add(tidLower);
+  //   }
+  // }
 
   // 3. Combine both lists, newest first
-  let allCombined = [...mappedMachines, ...mappedInventory].sort(
-    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-  );
+  let allCombined = mappedMachines;
 
   // 4. Apply status filter
   if (status && status !== "all") {

@@ -83,7 +83,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     is_active,
     company_name
   } = req.body;
-  const companyId = req.company;
+  let companyId = req.company;
 
   if(!companyId){
     console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
@@ -106,17 +106,76 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   }
 
   // determine effective super franchise & franchise ids for this request
-  let effectiveFranchise = franchaise_id ? parseInt(franchaise_id, 10) : null;
-  let effectiveSuperFranchise = super_franchise_id ? parseInt(super_franchise_id, 10) : null;
+  let effectiveSuperFranchise = super_franchise_id || null;
+  let effectiveFranchise = franchaise_id || null;
   if (req.user.role === 'super_admin') {
     if (user_id) {
       const targetAdmin = await User.findByPk(user_id);
       if (!targetAdmin || targetAdmin.role !== 'admin') {
         return res.status(400).json({ success: false, message: 'Super Admin can only set rate rules for Admin users' });
       }
+      if (targetAdmin.company_id) {
+        companyId = targetAdmin.company_id;
+      }
     }
     effectiveSuperFranchise = null;
     effectiveFranchise = null;
+  }
+
+  let effectiveUserId = user_id || null;
+  let targetUserRole = null;
+
+  if (req.user.role === 'admin') {
+    if (user_id) {
+      const targetUser = await User.findByPk(user_id);
+      if (!targetUser) {
+        return res.status(404).json({ success: false, message: 'Target user not found' });
+      }
+      if (['super_admin', 'admin'].includes(targetUser.role)) {
+        return res.status(403).json({ success: false, message: 'Admin cannot configure rates for other admins or super admin' });
+      }
+      if (targetUser.company_id && companyId && targetUser.company_id !== companyId) {
+        return res.status(403).json({ success: false, message: 'Target user does not belong to your company' });
+      }
+      targetUserRole = targetUser.role;
+      if (targetUser.role === 'super_franchise') {
+        effectiveSuperFranchise = targetUser.id;
+        effectiveFranchise = null;
+        effectiveUserId = null;
+      } else if (isFranchiseRole(targetUser.role)) {
+        effectiveFranchise = targetUser.id;
+        effectiveSuperFranchise = targetUser.super_franchise_id || null;
+        effectiveUserId = null;
+      } else {
+        effectiveUserId = targetUser.id;
+        effectiveFranchise = targetUser.franchaise_id || null;
+        effectiveSuperFranchise = targetUser.super_franchise_id || null;
+      }
+    } else if (super_franchise_id) {
+      const targetSf = await User.findByPk(super_franchise_id);
+      if (!targetSf || targetSf.role !== 'super_franchise') {
+        return res.status(400).json({ success: false, message: 'Invalid super franchise user' });
+      }
+      if (targetSf.company_id && companyId && targetSf.company_id !== companyId) {
+        return res.status(403).json({ success: false, message: 'Super franchise does not belong to your company' });
+      }
+      effectiveSuperFranchise = targetSf.id;
+      effectiveFranchise = null;
+      effectiveUserId = null;
+      targetUserRole = 'super_franchise';
+    } else if (franchaise_id) {
+      const targetF = await User.findByPk(franchaise_id);
+      if (!targetF || !isFranchiseRole(targetF.role)) {
+        return res.status(400).json({ success: false, message: 'Invalid franchise user' });
+      }
+      if (targetF.company_id && companyId && targetF.company_id !== companyId) {
+        return res.status(403).json({ success: false, message: 'Franchise does not belong to your company' });
+      }
+      effectiveFranchise = targetF.id;
+      effectiveSuperFranchise = targetF.super_franchise_id || null;
+      effectiveUserId = null;
+      targetUserRole = 'franchaise';
+    }
   }
 
   if (req.user.role === 'super_franchise') {
@@ -180,14 +239,14 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
 
   // determine the scope of this rule
   const callerRole = isFranchiseRole(req.user.role) ? 'franchaise' : req.user.role;
-  const ruleScope = deriveScope(callerRole, user_id || null, effectiveFranchise, effectiveSuperFranchise);
+  const ruleScope = deriveScope(callerRole, effectiveUserId, effectiveFranchise, effectiveSuperFranchise, targetUserRole);
 
   // duplicate check: exact same combination including franchise and super franchise
   const normalizedCardBrand = normalizeCardBrand(card_brand);
 
   const duplicate = await PosChargeRule.findOne({
     where: {
-      user_id: user_id || null,
+      user_id: effectiveUserId,
       franchaise_id: effectiveFranchise,
       super_franchise_id: effectiveSuperFranchise,
       scope: ruleScope,
@@ -213,7 +272,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   const newMin = parseDecimal(min_amount) || 0;
   const newMax = parseDecimal(max_amount);
   const overlapCondition = {
-    user_id: user_id || null,
+    user_id: effectiveUserId,
     franchaise_id: effectiveFranchise,
     super_franchise_id: effectiveSuperFranchise,
     scope: ruleScope,
@@ -242,7 +301,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   let rec;
   try {
     rec = await PosChargeRule.create({
-      user_id: user_id || null,
+      user_id: effectiveUserId,
       franchaise_id: effectiveFranchise,
       super_franchise_id: effectiveSuperFranchise,
       scope: ruleScope,
@@ -314,11 +373,41 @@ const listFranchiseAdminRules = asyncHandler(async (req, res) => {
   if (settlement_type) where.settlement_type = settlement_type;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
-  // only global defaults or admin-set franchise rules (not editable by franchise)
-  where[Op.or] = [
-    { scope: 'admin_default' },
-    { scope: 'admin_franchise', franchaise_id: req.user.id }
+  const targetFranchiseId = req.query.franchaise_id ? parseInt(req.query.franchaise_id, 10) : req.user.id;
+  // only global defaults, admin-set franchise rules, or super franchise rules (not editable by franchise)
+  const orConditions = [
+    { scope: { [Op.in]: ['super_admin_default', 'admin_default'] } },
+    { scope: 'admin_franchise', franchaise_id: targetFranchiseId }
   ];
+  let effectiveSfId = req.user.super_franchise_id;
+  if (!effectiveSfId && targetFranchiseId) {
+    const targetF = await User.findByPk(targetFranchiseId, { attributes: ['id', 'super_franchise_id', 'created_by'] });
+    if (targetF?.super_franchise_id) {
+      effectiveSfId = targetF.super_franchise_id;
+    } else if (targetF?.created_by) {
+      const creator = await User.findByPk(targetF.created_by, { attributes: ['id', 'role'] });
+      if (creator && (creator.role === 'super_franchise' || creator.role === 'superfranchise')) {
+        effectiveSfId = creator.id;
+      }
+    }
+  }
+  if (effectiveSfId) {
+    orConditions.push(
+      { scope: 'super_franchise_default', super_franchise_id: effectiveSfId },
+      { scope: 'super_franchise_franchise', franchaise_id: targetFranchiseId }
+    );
+  }
+  if (req.user.company_id) {
+    const companyAdmin = await User.findOne({
+      where: { role: 'admin', company_id: req.user.company_id },
+      attributes: ['id']
+    });
+    if (companyAdmin) {
+      orConditions.push({ scope: 'super_admin_admin', user_id: companyAdmin.id });
+    }
+    orConditions.push({ company_id: req.user.company_id, scope: { [Op.in]: ['admin_default', 'super_admin_admin'] } });
+  }
+  where[Op.or] = orConditions;
 
   const { count, rows } = await PosChargeRule.findAndCountAll({
     where,
@@ -394,6 +483,7 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   const {
     user_id,
     franchaise_id,
+    super_franchise_id,
     payment_mode,
     card_type,
     card_brand,
@@ -410,15 +500,14 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   const where = {};
   if (user_id !== undefined) where.user_id = user_id || null;
   if (franchaise_id !== undefined) where.franchaise_id = franchaise_id || null;
+  if (super_franchise_id !== undefined) where.super_franchise_id = super_franchise_id || null;
   if (payment_mode) where.payment_mode = payment_mode;
   if (card_type) where.card_type = card_type;
   if (card_brand) where.card_brand = card_brand;
   if (card_classification) where.card_classification = card_classification;
   if (settlement_type) where.settlement_type = settlement_type;
   if (scope) {
-    if (scope === 'admin_default' || scope === 'super_admin_default') {
-      where.scope = { [Op.in]: ['admin_default', 'super_admin_default'] };
-    } else if (Array.isArray(scope)) {
+    if (Array.isArray(scope)) {
       where.scope = { [Op.in]: scope };
     } else if (typeof scope === 'string' && scope.includes(',')) {
       where.scope = { [Op.in]: scope.split(',').map((s) => s.trim()) };
@@ -490,23 +579,61 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
   }
 
   // apply role-based restrictions using scope
-  if (req.user.role === 'super_franchise') {
+  if (req.user.role === 'admin') {
+    const adminCompanyId = req.company || req.user.company_id;
     where[Op.or] = [
-      { scope: 'admin_default' },
+      { company_id: adminCompanyId },
+      { scope: { [Op.in]: ['super_admin_default', 'admin_default'] }, company_id: null },
+      { scope: 'super_admin_admin', user_id: req.user.id }
+    ];
+  } else if (req.user.role === 'super_franchise') {
+    delete where.super_franchise_id;
+    delete where.user_id;
+    delete where.franchaise_id;
+    const orConditions = [
+      { scope: { [Op.in]: ['super_admin_default', 'admin_default'] } },
       { scope: 'admin_super_franchise', super_franchise_id: req.user.id },
       { scope: 'super_franchise_default', super_franchise_id: req.user.id },
       { scope: 'super_franchise_franchise', super_franchise_id: req.user.id },
       { scope: 'super_franchise_merchant', super_franchise_id: req.user.id }
     ];
+    if (req.user.company_id) {
+      const companyAdmin = await User.findOne({
+        where: { role: 'admin', company_id: req.user.company_id },
+        attributes: ['id']
+      });
+      if (companyAdmin) {
+        orConditions.push({ scope: 'super_admin_admin', user_id: companyAdmin.id });
+      }
+      orConditions.push({ company_id: req.user.company_id, scope: { [Op.in]: ['admin_default', 'super_admin_admin'] } });
+    }
+    where[Op.or] = orConditions;
   } else if (isFranchiseRole(req.user.role)) {
-    // franchise sees: admin_default, admin_franchise (for them),
-    //   franchise_default (their own), franchise_merchant (their merchants)
-    where[Op.or] = [
-      { scope: 'admin_default' },
+    delete where.franchaise_id;
+    delete where.super_franchise_id;
+    const orConditions = [
+      { scope: { [Op.in]: ['super_admin_default', 'admin_default'] } },
       { scope: 'admin_franchise', franchaise_id: req.user.id },
       { scope: 'franchise_default', franchaise_id: req.user.id },
       { scope: 'franchise_merchant', franchaise_id: req.user.id }
     ];
+    if (req.user.super_franchise_id) {
+      orConditions.push(
+        { scope: 'super_franchise_default', super_franchise_id: req.user.super_franchise_id },
+        { scope: 'super_franchise_franchise', franchaise_id: req.user.id }
+      );
+    }
+    if (req.user.company_id) {
+      const companyAdmin = await User.findOne({
+        where: { role: 'admin', company_id: req.user.company_id },
+        attributes: ['id']
+      });
+      if (companyAdmin) {
+        orConditions.push({ scope: 'super_admin_admin', user_id: companyAdmin.id });
+      }
+      orConditions.push({ company_id: req.user.company_id, scope: { [Op.in]: ['admin_default', 'super_admin_admin'] } });
+    }
+    where[Op.or] = orConditions;
   } else if (req.user.role === 'merchant') {
     // merchant sees:
     //   * any rule explicitly tied to their user id (regardless of scope),
@@ -653,6 +780,16 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
   const rec = await PosChargeRule.findByPk(id);
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
 
+  // Admin cannot modify Super Admin rules or rules of another company
+  if (req.user.role === 'admin') {
+    if (rec.scope === 'super_admin_default' || rec.scope === 'super_admin_admin') {
+      return res.status(403).json({ success: false, message: 'Admins cannot modify Super Admin rules or global defaults' });
+    }
+    if (rec.company_id && companyId && rec.company_id !== companyId) {
+      return res.status(403).json({ success: false, message: 'Cannot modify rate rules belonging to another company' });
+    }
+  }
+
   // franchise users may only modify rules they created. treat null/absent
   // created_by as system-owned (not editable).
   if (req.user.role === 'franchaise' && rec.created_by !== req.user.id) {
@@ -710,11 +847,14 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     effectiveSuperFranchise = req.user.id;
   }
 
-  // admin update restriction: cannot target a merchant who has a franchise
+  // admin update validation: target user must belong to admin's company if user_id is provided
   if (req.user.role === 'admin' && user_id) {
     const target = await User.findByPk(user_id);
-    if (target && target.franchaise_id) {
-      return res.status(400).json({ success: false, message: 'Cannot modify merchant-specific rule for a franchised merchant; use franchise rule' });
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Target user not found' });
+    }
+    if (target.company_id && companyId && target.company_id !== companyId) {
+      return res.status(403).json({ success: false, message: 'Target user does not belong to your company' });
     }
   }
   if (isFranchiseRole(req.user.role)) {
@@ -851,6 +991,17 @@ const deletePosChargeRule = asyncHandler(async (req, res) => {
 
   const rec = await PosChargeRule.findByPk(id);
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
+
+  // Admin cannot delete Super Admin rules or rules of another company
+  if (req.user.role === 'admin') {
+    if (rec.scope === 'super_admin_default' || rec.scope === 'super_admin_admin') {
+      return res.status(403).json({ success: false, message: 'Admins cannot delete Super Admin rules or global defaults' });
+    }
+    const companyId = req.company;
+    if (rec.company_id && companyId && rec.company_id !== companyId) {
+      return res.status(403).json({ success: false, message: 'Cannot delete rate rules belonging to another company' });
+    }
+  }
 
   // franchise may only delete their own rules or those for their merchants
   if (req.user.role === 'franchaise') {

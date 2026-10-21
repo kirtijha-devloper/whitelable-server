@@ -29,6 +29,15 @@ const createUserPayoutCharge = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'User not found' });
   }
 
+  if (req.user?.role === 'admin') {
+    if (['admin', 'super_admin'].includes(user.role) && user.id !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Cannot configure payout rates for other admins or super admin' });
+    }
+    if (req.company && user.company_id && user.company_id !== req.company) {
+      return res.status(403).json({ success: false, message: 'Cannot configure rates for users of another company' });
+    }
+  }
+
   if (!['percentage', 'flat'].includes(rate_type)) {
     return res.status(400).json({ success: false, message: 'rate_type must be "percentage" or "flat"' });
   }
@@ -52,7 +61,7 @@ const createUserPayoutCharge = asyncHandler(async (req, res) => {
     });
   }
 
-  const companyId = req.company;
+  const companyId = user?.company_id || req.company;
 
   if(!companyId){
     console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
@@ -78,6 +87,10 @@ const listAllUserPayoutCharges = asyncHandler(async (req, res) => {
   const where = {};
   if (req.query.user_id) where.user_id = req.query.user_id;
   if (req.query.is_active !== undefined) where.is_active = req.query.is_active === 'true';
+
+  if (req.user?.role === 'admin' && req.company) {
+    where.company_id = req.company;
+  }
 
   const rules = await UserPayoutCharge.findAll({
     where,
@@ -107,17 +120,18 @@ const getUserPayoutChargeById = asyncHandler(async (req, res) => {
 
 // ── Update a rule ─────────────────────────────────────────────────────────────
 const updateUserPayoutCharge = asyncHandler(async (req, res) => {
-  const companyId = req.company;
-
-  if(!companyId){
-    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
-    return res.status(400).json({message : "No Domain Name is registered"});
-  }
-
   const rule = await UserPayoutCharge.findByPk(req.params.id);
   if (!rule) {
     return res.status(404).json({ success: false, message: 'User payout charge rule not found' });
   }
+
+  if (req.user?.role === 'admin') {
+    if (req.company && rule.company_id && rule.company_id !== req.company) {
+      return res.status(403).json({ success: false, message: 'Cannot modify rules of another company' });
+    }
+  }
+
+  const companyId = rule.company_id || req.company;
 
   const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
 
@@ -158,6 +172,13 @@ const deleteUserPayoutCharge = asyncHandler(async (req, res) => {
   if (!rule) {
     return res.status(404).json({ success: false, message: 'User payout charge rule not found' });
   }
+
+  if (req.user?.role === 'admin') {
+    if (req.company && rule.company_id && rule.company_id !== req.company) {
+      return res.status(403).json({ success: false, message: 'Cannot delete rules of another company' });
+    }
+  }
+
   await rule.destroy();
   return res.status(200).json({ success: true, message: 'User payout charge rule deleted' });
 });

@@ -6,6 +6,7 @@ const bbpsCCBillService = require('../../../services/cc/bbps/bbpsCCBillService')
 const CcBillPayment = require('../../../models/CcBillPayment');
 const Ledger = require('../../../models/Ledger');
 const BbpsCcChargeRule = require('../../../models/BbpsCcChargeRule');
+const User = require('../../../models/User');
 const ledgerService = require('../../../services/ledgerService');
 const {
   SERVICE_SETTING_KEYS,
@@ -101,33 +102,70 @@ function logInstantPayError(context, error) {
 }
 
 // Calculate the configured BBPS CC charge for a given transaction amount.
-// Falls back to a default ₹20 charge when no rule is configured.
-async function calculateBbpsCcCharge(txnAmount) {
-  const chargeRule = await BbpsCcChargeRule.findOne({
-    where: {
-      is_active: true,
-      from_amount: { [Op.lte]: txnAmount },
-      to_amount: { [Op.gte]: txnAmount },
-    },
-    order: [['from_amount', 'DESC']],
-  });
+// First resolves admin-specific override (if userId provided), then platform default (user_id IS NULL), then ₹20 fallback.
+async function calculateBbpsCcCharge(txnAmount, userId = null) {
+  const numAmount = parseFloat(txnAmount || 0);
+  let chargeRule = null;
+
+  if (userId) {
+    try {
+      const user = await User.findByPk(userId);
+      let targetAdminId = null;
+      if (user) {
+        if (user.role === 'admin') {
+          targetAdminId = user.id;
+        } else if (user.company_id) {
+          const adminUser = await User.findOne({
+            where: { company_id: user.company_id, role: 'admin' },
+          });
+          if (adminUser) targetAdminId = adminUser.id;
+        }
+      }
+
+      if (targetAdminId) {
+        chargeRule = await BbpsCcChargeRule.findOne({
+          where: {
+            user_id: targetAdminId,
+            is_active: true,
+            from_amount: { [Op.lte]: numAmount },
+            to_amount: { [Op.gte]: numAmount },
+          },
+          order: [['from_amount', 'DESC']],
+        });
+      }
+    } catch (err) {
+      console.warn('[bbpsCC] admin override lookup error:', err.message);
+    }
+  }
+
+  if (!chargeRule) {
+    chargeRule = await BbpsCcChargeRule.findOne({
+      where: {
+        user_id: null,
+        is_active: true,
+        from_amount: { [Op.lte]: numAmount },
+        to_amount: { [Op.gte]: numAmount },
+      },
+      order: [['from_amount', 'DESC']],
+    });
+  }
 
   let chargeAmount = 20;
   if (chargeRule) {
     if (chargeRule.rate_type === 'flat') {
       chargeAmount = parseFloat(chargeRule.rate);
     } else {
-      chargeAmount = parseFloat((txnAmount * parseFloat(chargeRule.rate)) / 100.0);
+      chargeAmount = parseFloat((numAmount * parseFloat(chargeRule.rate)) / 100.0);
     }
   }
 
-  return chargeAmount;
+  return +chargeAmount.toFixed(2);
 }
 
 // Validate that the user has sufficient active balance to cover the transaction,
 // the configured BBPS CC charge, and a safety buffer of ₹30.
 async function ensureSufficientBalance(userId, txnAmount) {
-  const chargeAmount = await calculateBbpsCcCharge(txnAmount);
+  const chargeAmount = await calculateBbpsCcCharge(txnAmount, userId);
   const minimumRequired = txnAmount + chargeAmount + 30;
   const currentBalance = await ledgerService.getAvailableBalance(userId);
 
@@ -380,7 +418,31 @@ const getBbpsCcChargeRules = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
-  const rules = await BbpsCcChargeRule.findAll({ order: [['from_amount', 'ASC']] });
+  const where = {};
+  const { user_id, is_active } = req.query;
+  if (user_id !== undefined) {
+    if (user_id === 'null' || user_id === 'default' || user_id === '') {
+      where.user_id = null;
+    } else if (user_id === 'all') {
+      if (req.user?.role === 'admin' && req.company) {
+        where[Op.or] = [
+          { company_id: req.company },
+          { user_id: null }
+        ];
+      }
+    } else {
+      where.user_id = parseInt(user_id, 10);
+    }
+  } else {
+    // Default to platform defaults
+    where.user_id = null;
+  }
+
+  if (is_active !== undefined) {
+    where.is_active = is_active === 'true' || is_active === true;
+  }
+
+  const rules = await BbpsCcChargeRule.findAll({ where, order: [['from_amount', 'ASC']] });
   return res.status(200).json({ success: true, data: rules });
 });
 
@@ -389,21 +451,75 @@ const createBbpsCcChargeRule = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
 
-  const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
-  if (!from_amount || !to_amount || !rate || !rate_type) {
+  const { from_amount, to_amount, rate, rate_type, is_active, description, user_id } = req.body;
+  if (from_amount === undefined || to_amount === undefined || rate === undefined || !rate_type) {
     return res.status(400).json({ success: false, message: 'from_amount, to_amount, rate, and rate_type are required' });
   }
   if (!['percentage', 'flat'].includes(rate_type)) {
     return res.status(400).json({ success: false, message: 'rate_type must be percentage or flat' });
   }
 
+  const numFrom = parseFloat(from_amount);
+  const numTo = parseFloat(to_amount);
+  const numRate = parseFloat(rate);
+
+  if (isNaN(numFrom) || isNaN(numTo) || numFrom >= numTo) {
+    return res.status(400).json({ success: false, message: 'from_amount must be strictly less than to_amount' });
+  }
+  if (isNaN(numRate) || numRate < 0) {
+    return res.status(400).json({ success: false, message: 'rate must be non-negative' });
+  }
+
+  const targetUserId = user_id ? parseInt(user_id, 10) : null;
+  let targetCompanyId = req.company || null;
+
+  if (targetUserId) {
+    const targetUser = await User.findByPk(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'Target user not found' });
+    }
+    if (req.user?.role === 'admin') {
+      if (req.company && targetUser.company_id && targetUser.company_id !== req.company) {
+        return res.status(403).json({ success: false, message: 'Cannot configure rates for users of another company' });
+      }
+      if (['admin', 'super_admin'].includes(targetUser.role) && targetUser.id !== req.user.id) {
+        return res.status(403).json({ success: false, message: 'Cannot configure rates for other admins or super admin' });
+      }
+    }
+    if (targetUser.company_id) {
+      targetCompanyId = targetUser.company_id;
+    }
+  } else {
+    // targetUserId is null -> Super Admin Global Default!
+    if (req.user?.role === 'admin') {
+      return res.status(403).json({ success: false, message: 'Only Super Admin can create global default CC bill charge rules' });
+    }
+  }
+
+  // Check overlap for the same user_id (or default if null)
+  const overlap = await BbpsCcChargeRule.findOne({
+    where: {
+      user_id: targetUserId,
+      from_amount: { [Op.lte]: numTo },
+      to_amount: { [Op.gte]: numFrom },
+    },
+  });
+  if (overlap) {
+    return res.status(400).json({
+      success: false,
+      message: `Range (${numFrom}–${numTo}) overlaps with existing slab ID ${overlap.id} (${overlap.from_amount}–${overlap.to_amount})`,
+    });
+  }
+
   const rule = await BbpsCcChargeRule.create({
-    from_amount,
-    to_amount,
-    rate,
+    from_amount: numFrom,
+    to_amount: numTo,
+    rate: numRate,
     rate_type,
-    is_active: is_active !== undefined ? is_active : true,
-    description,
+    is_active: is_active !== undefined ? Boolean(is_active) : true,
+    description: description || null,
+    user_id: targetUserId,
+    company_id: targetCompanyId,
   });
 
   return res.status(201).json({ success: true, data: rule });
@@ -419,17 +535,53 @@ const updateBbpsCcChargeRule = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Charge rule not found' });
   }
 
-  const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
-  if (from_amount !== undefined) rule.from_amount = from_amount;
-  if (to_amount !== undefined) rule.to_amount = to_amount;
-  if (rate !== undefined) rule.rate = rate;
-  if (rate_type !== undefined) {
-    if (!['percentage', 'flat'].includes(rate_type)) {
-      return res.status(400).json({ success: false, message: 'rate_type must be percentage or flat' });
+  if (req.user?.role === 'admin') {
+    if (rule.user_id === null) {
+      return res.status(403).json({ success: false, message: 'Admins cannot modify Super Admin default CC bill rates' });
     }
-    rule.rate_type = rate_type;
+    if (req.company && rule.company_id && rule.company_id !== req.company) {
+      return res.status(403).json({ success: false, message: 'Cannot modify rules of another company' });
+    }
   }
-  if (is_active !== undefined) rule.is_active = is_active;
+
+  const { from_amount, to_amount, rate, rate_type, is_active, description } = req.body;
+  const numFrom = from_amount !== undefined ? parseFloat(from_amount) : parseFloat(rule.from_amount);
+  const numTo = to_amount !== undefined ? parseFloat(to_amount) : parseFloat(rule.to_amount);
+  const numRate = rate !== undefined ? parseFloat(rate) : parseFloat(rule.rate);
+
+  if (isNaN(numFrom) || isNaN(numTo) || numFrom >= numTo) {
+    return res.status(400).json({ success: false, message: 'from_amount must be strictly less than to_amount' });
+  }
+  if (isNaN(numRate) || numRate < 0) {
+    return res.status(400).json({ success: false, message: 'rate must be non-negative' });
+  }
+  if (rate_type !== undefined && !['percentage', 'flat'].includes(rate_type)) {
+    return res.status(400).json({ success: false, message: 'rate_type must be percentage or flat' });
+  }
+
+  // Check overlap excluding this rule
+  if (from_amount !== undefined || to_amount !== undefined) {
+    const overlap = await BbpsCcChargeRule.findOne({
+      where: {
+        id: { [Op.ne]: rule.id },
+        user_id: rule.user_id,
+        from_amount: { [Op.lte]: numTo },
+        to_amount: { [Op.gte]: numFrom },
+      },
+    });
+    if (overlap) {
+      return res.status(400).json({
+        success: false,
+        message: `Range (${numFrom}–${numTo}) overlaps with existing slab ID ${overlap.id} (${overlap.from_amount}–${overlap.to_amount})`,
+      });
+    }
+  }
+
+  rule.from_amount = numFrom;
+  rule.to_amount = numTo;
+  rule.rate = numRate;
+  if (rate_type !== undefined) rule.rate_type = rate_type;
+  if (is_active !== undefined) rule.is_active = Boolean(is_active);
   if (description !== undefined) rule.description = description;
 
   await rule.save();
@@ -444,6 +596,15 @@ const deleteBbpsCcChargeRule = asyncHandler(async (req, res) => {
   const rule = await BbpsCcChargeRule.findByPk(req.params.id);
   if (!rule) {
     return res.status(404).json({ success: false, message: 'Charge rule not found' });
+  }
+
+  if (req.user?.role === 'admin') {
+    if (rule.user_id === null) {
+      return res.status(403).json({ success: false, message: 'Admins cannot delete Super Admin default CC bill rates' });
+    }
+    if (req.company && rule.company_id && rule.company_id !== req.company) {
+      return res.status(403).json({ success: false, message: 'Cannot delete rules of another company' });
+    }
   }
 
   await rule.destroy();
@@ -591,8 +752,8 @@ const payCCBill = asyncHandler(async (req, res) => {
 
     const isSuccess = ['TXN', 'TUP'].includes(result.data?.statuscode);
 
-    // Determine configured BBPS CC charge (percentage or flat) based on txn amount
-    const chargeAmount = await calculateBbpsCcCharge(txnAmount);
+    // Determine configured BBPS CC charge (percentage or flat) based on txn amount (admin override or default)
+    const chargeAmount = await calculateBbpsCcCharge(txnAmount, userId);
 
     // Persist final payment attempt details (success or failure)
     await ccPayment.update({

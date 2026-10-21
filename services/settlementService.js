@@ -368,6 +368,7 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
 
   const targetRole = String(targetUser.role || '').toLowerCase();
   const isTargetFranchise = targetRole === 'franchise' || targetRole === 'franchaise';
+  const isTargetSuperFranchise = targetRole === 'super_franchise' || targetRole === 'superfranchise';
 
   // 1. Calculate amount utilized today by targetUser (T0 transactions executed today)
   const { startOfDay, endOfDay } = getTodayIstDateWindow();
@@ -387,9 +388,21 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
     targetUsedToday = 0;
   }
 
-  // 2. Calculate amount allocated to downstream merchants if targetUser is a Franchise
-  let allocatedToMerchants = 0;
-  if (isTargetFranchise) {
+  // 2. Calculate amount allocated to downstream users (for Super Franchise OR Franchise)
+  let allocatedToDownstream = 0;
+  if (isTargetSuperFranchise) {
+    const downstreamUsers = await User.findAll({
+      where: {
+        super_franchise_id: targetUser.id,
+        t0_daily_limit: { [Op.not]: null }
+      },
+      attributes: ['t0_daily_limit']
+    });
+    allocatedToDownstream = downstreamUsers.reduce((sum, u) => {
+      const l = parseFloat(u.t0_daily_limit);
+      return sum + (isNaN(l) ? 0 : l);
+    }, 0);
+  } else if (isTargetFranchise) {
     const downstreamMerchants = await User.findAll({
       where: {
         franchaise_id: targetUser.id,
@@ -399,20 +412,25 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
       attributes: ['t0_daily_limit']
     });
 
-    allocatedToMerchants = downstreamMerchants.reduce((sum, m) => {
+    allocatedToDownstream = downstreamMerchants.reduce((sum, m) => {
       const l = parseFloat(m.t0_daily_limit);
       return sum + (isNaN(l) ? 0 : l);
     }, 0);
   }
 
   // 3. Minimum allowable limit for targetUser
-  const minRequiredLimit = allocatedToMerchants + targetUsedToday;
+  const minRequiredLimit = allocatedToDownstream + targetUsedToday;
 
   if (requestedLimitVal < minRequiredLimit) {
     let msg = '';
-    if (isTargetFranchise) {
+    if (isTargetSuperFranchise) {
       const details = [];
-      if (allocatedToMerchants > 0) details.push(`Allocated to merchants: ₹${allocatedToMerchants}`);
+      if (allocatedToDownstream > 0) details.push(`Allocated to child franchises: ₹${allocatedToDownstream}`);
+      if (targetUsedToday > 0) details.push(`Utilized today: ₹${targetUsedToday}`);
+      msg = `Super Franchise limit cannot be set lower than ₹${minRequiredLimit} as it is already allocated/utilized (${details.join(', ')}).`;
+    } else if (isTargetFranchise) {
+      const details = [];
+      if (allocatedToDownstream > 0) details.push(`Allocated to merchants: ₹${allocatedToDownstream}`);
       if (targetUsedToday > 0) details.push(`Utilized today: ₹${targetUsedToday}`);
       msg = `Franchise limit cannot be set lower than ₹${minRequiredLimit} as it is already utilized/allocated (${details.join(', ')}).`;
     } else {
@@ -486,6 +504,56 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
         err.status = 400;
         err.statusCode = 400;
         throw err;
+      }
+    }
+  }
+
+  // 4b. If targetUser is a Franchise under a Super Franchise, validate against Super Franchise pool
+  if (isTargetFranchise && targetUser.super_franchise_id) {
+    const parentSf = await User.findByPk(targetUser.super_franchise_id);
+    if (parentSf) {
+      const rawSfLimit = parentSf.t0_daily_limit;
+      const isSfNotSet = rawSfLimit === null || rawSfLimit === undefined || rawSfLimit === '';
+      const isSfUnlimited = !isSfNotSet && String(rawSfLimit).toLowerCase() === 'unlimited';
+
+      if (!isSfNotSet && !isSfUnlimited) {
+        const sfPool = parseFloat(rawSfLimit) || 0;
+        if (sfPool > 0) {
+          const otherFranchises = await User.findAll({
+            where: {
+              super_franchise_id: parentSf.id,
+              role: { [Op.in]: ['franchise', 'franchaise'] },
+              id: { [Op.ne]: targetUser.id },
+              t0_daily_limit: { [Op.not]: null }
+            },
+            attributes: ['t0_daily_limit']
+          });
+          const otherAllocated = otherFranchises.reduce((sum, f) => {
+            const l = parseFloat(f.t0_daily_limit);
+            return sum + (isNaN(l) ? 0 : l);
+          }, 0);
+          let sfUsedToday = 0;
+          try {
+            const sfUsedRaw = await RazorpayNotification.sum('amount', {
+              where: {
+                user_id: parentSf.id,
+                status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED'] },
+                settlement_type: { [Op.in]: ['T0', 'today_settlement'] },
+                createdAt: { [Op.between]: [startOfDay, endOfDay] }
+              }
+            });
+            sfUsedToday = parseFloat(sfUsedRaw) || 0;
+          } catch (err) {
+            sfUsedToday = 0;
+          }
+          const availableFromSf = Math.max(0, sfPool - otherAllocated - sfUsedToday);
+          if (requestedLimitVal > availableFromSf) {
+            const err = new Error(`Limit pool of Super Franchise (₹${sfPool.toLocaleString('en-IN')}) exceeded! Maximum limit available to assign to this franchise is ₹${availableFromSf.toLocaleString('en-IN')}.`);
+            err.status = 400;
+            err.statusCode = 400;
+            throw err;
+          }
+        }
       }
     }
   }

@@ -4,6 +4,7 @@ const validateToken = require("../middleware/validateTokenHandler");
 const validateWhitelabelDomain = require("../middleware/validateWhitelabelDomain");
 const {
   getAllServiceCharges,
+  getMyApplicableCharges,
   createServiceCharge,
   updateServiceCharge,
   deleteServiceCharge,
@@ -19,6 +20,9 @@ router.use(validateWhitelabelDomain);
 router.get("/my-applicable-charges", getMyApplicableCharges);
 
 // 1. SET CHARGES (Super Admin / Admin)
+// Applicable charges for logged-in Admin (POS, Pay, CC Bill)
+router.get("/my-applicable-charges", getMyApplicableCharges);
+
 // List all service charge rules
 router.get("/", getAllServiceCharges);
 

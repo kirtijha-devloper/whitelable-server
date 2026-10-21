@@ -91,7 +91,6 @@ const VALID_SCOPES = [
  * @param {string|null} opts.cardBrand        VISA, RUPAY, …
  * @param {string|null} opts.classification   CLASSIC, PLATINUM, …
  * @param {string|null} opts.settlement       today_settlement, next_day_settlement, …
- * @param {number}      opts.amount           Transaction amount
  * @returns {Promise<Object|null>}            Best matching rule row, or null
  */
 async function getTransactionChargeRule({
@@ -99,6 +98,7 @@ async function getTransactionChargeRule({
   userRole,
   franchiseId,
   superFranchiseId,
+  companyId,
   paymentMode,
   cardType,
   cardBrand,
@@ -107,15 +107,6 @@ async function getTransactionChargeRule({
   amount,
   companyName
 }) {
-  // Scope tier weights — determines precedence between rule origins.
-  // Within the same tier, optional-dimension specificity (0-15) breaks ties.
-  //
-  //   franchise_merchant  64    (franchise set rate for a specific merchant)
-  //   admin_merchant      48    (admin set rate for a specific non-franchised merchant)
-  //   franchise_default   32    (franchise default for all its merchants)
-  //   admin_franchise     16    (admin set rate for a franchise)
-  //   admin_default        0    (global default)
-
   const normalizedPaymentMode = normalizeLookupValue(paymentMode);
   const normalizedCardType = normalizeLookupValue(cardType);
   const normalizedClassification = normalizeLookupValue(classification);
@@ -132,16 +123,17 @@ async function getTransactionChargeRule({
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'super_admin_admin'         THEN 96
-        WHEN 'super_admin_default'       THEN 90
-        WHEN 'super_franchise_merchant'  THEN 80
-        WHEN 'franchise_merchant'        THEN 64
-        WHEN 'admin_merchant'            THEN 48
-        WHEN 'super_franchise_franchise' THEN 40
-        WHEN 'super_franchise_default'   THEN 36
-        WHEN 'franchise_default'         THEN 32
-        WHEN 'admin_super_franchise'     THEN 24
-        WHEN 'admin_franchise'           THEN 16
+        WHEN 'franchise_merchant'        THEN 96
+        WHEN 'super_franchise_merchant'  THEN 90
+        WHEN 'admin_merchant'            THEN 84
+        WHEN 'super_admin_admin'         THEN 80
+        WHEN 'super_franchise_franchise' THEN 72
+        WHEN 'admin_franchise'           THEN 64
+        WHEN 'admin_super_franchise'     THEN 56
+        WHEN 'franchise_default'         THEN 48
+        WHEN 'super_franchise_default'   THEN 40
+        WHEN 'admin_default'             THEN 32
+        WHEN 'super_admin_default'       THEN 16
         ELSE 0
       END
     ) AS specificity
@@ -155,6 +147,7 @@ async function getTransactionChargeRule({
          OR (user_id IS NULL
              AND ($2::integer IS NULL OR franchaise_id = $2::integer OR franchaise_id IS NULL)
              AND (super_franchise_id IS NULL OR ($10::integer IS NOT NULL AND super_franchise_id = $10::integer))
+             AND ($11::text IS NULL OR company_id IS NULL OR company_id = $11::text)
          )
       )
       -- dimension matching (each is optional in the rule)
@@ -191,7 +184,8 @@ async function getTransactionChargeRule({
     settlement || null,
     amount != null ? parseFloat(amount) : 0,
     normalizeLookupValue(companyName),
-    superFranchiseId ? parseInt(superFranchiseId, 10) : null
+    superFranchiseId ? parseInt(superFranchiseId, 10) : null,
+    companyId ? String(companyId).trim() : null
   ];
 
   let bestRule = null;
@@ -215,15 +209,15 @@ async function getTransactionChargeRule({
 /**
  * Resolve the admin-level charge that a franchise owes the platform.
  *
- * This only looks at rules scoped to: admin_franchise (for the given franchise)
- * or admin_default.  It explicitly excludes any franchise-created rules so that
- * franchise adjustments for merchants do not influence what the franchise owes.
+ * This only looks at rules scoped to: super_franchise_franchise, super_franchise_default,
+ * admin_franchise, admin_default, or super_admin_default.
  *
  * Used in the webhook worker to compute franchise earnings.
  */
 async function getAdminChargeRuleForFranchise({
   franchiseId,
   superFranchiseId,
+  companyId,
   paymentMode,
   cardType,
   cardBrand,
@@ -249,19 +243,22 @@ async function getAdminChargeRuleForFranchise({
       CASE scope
         WHEN 'super_franchise_franchise' THEN 40
         WHEN 'super_franchise_default'   THEN 36
-        WHEN 'admin_franchise'           THEN 16
+        WHEN 'admin_franchise'           THEN 24
+        WHEN 'admin_default'             THEN 16
+        WHEN 'super_admin_default'       THEN 8
         ELSE 0
       END
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      AND scope IN ('super_franchise_franchise', 'super_franchise_default', 'admin_franchise', 'admin_default')
+      AND scope IN ('super_franchise_franchise', 'super_franchise_default', 'admin_franchise', 'admin_default', 'super_admin_default')
       AND user_id IS NULL
       AND (
         (scope = 'super_franchise_franchise' AND super_franchise_id = $9 AND franchaise_id = $1)
         OR (scope = 'super_franchise_default' AND super_franchise_id = $9 AND franchaise_id IS NULL)
-        OR (scope IN ('admin_franchise', 'admin_default') AND (franchaise_id = $1 OR franchaise_id IS NULL))
+        OR (scope IN ('admin_franchise', 'admin_default', 'super_admin_default') AND (franchaise_id = $1 OR franchaise_id IS NULL))
       )
+      AND ($10::text IS NULL OR company_id IS NULL OR company_id = $10::text)
       AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
       AND (UPPER(card_type)    = $3 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
       AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
@@ -289,7 +286,8 @@ async function getAdminChargeRuleForFranchise({
     settlement || null,
     amount,
     normalizeLookupValue(companyName),
-    superFranchiseId || null
+    superFranchiseId || null,
+    companyId ? String(companyId).trim() : null
   ];
 
   let bestRule = null;
@@ -303,7 +301,8 @@ async function getAdminChargeRuleForFranchise({
       replacementBase[4],       // $6 settlement
       replacementBase[5],       // $7 amount
       replacementBase[6],       // $8 companyName
-      replacementBase[7]        // $9 superFranchiseId
+      replacementBase[7],       // $9 superFranchiseId
+      replacementBase[8]        // $10 companyId
     ];
     const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
     if (results && results.length) {
@@ -319,15 +318,12 @@ async function getAdminChargeRuleForFranchise({
 /**
  * Resolve the admin-level charge that a super franchise owes the platform.
  *
- * This only looks at rules scoped to: admin_super_franchise (for the given
- * super franchise) or admin_default.  It explicitly excludes franchise-created
- * and super-franchise-created rules so that downstream adjustments do not
- * influence what the super franchise owes.
- *
+ * Scopes: admin_super_franchise, admin_default, or super_admin_default.
  * Used in the webhook worker to compute super franchise earnings.
  */
 async function getAdminChargeRuleForSuperFranchise({
   superFranchiseId,
+  companyId,
   paymentMode,
   cardType,
   cardBrand,
@@ -352,15 +348,18 @@ async function getAdminChargeRuleForSuperFranchise({
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
         WHEN 'admin_super_franchise' THEN 24
+        WHEN 'admin_default'         THEN 16
+        WHEN 'super_admin_default'   THEN 8
         ELSE 0
       END
     ) AS specificity
     FROM pos_charge_rules
     WHERE is_active = true
-      AND scope IN ('admin_super_franchise', 'admin_default')
+      AND scope IN ('admin_super_franchise', 'admin_default', 'super_admin_default')
       AND user_id IS NULL
       AND franchaise_id IS NULL
       AND (super_franchise_id = $1 OR super_franchise_id IS NULL)
+      AND ($9::text IS NULL OR company_id IS NULL OR company_id = $9::text)
       AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
       AND (UPPER(card_type)    = $3 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
       AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
@@ -387,13 +386,111 @@ async function getAdminChargeRuleForSuperFranchise({
     normalizedClassification,
     settlement || null,
     amount,
-    normalizeLookupValue(companyName)
+    normalizeLookupValue(companyName),
+    companyId ? String(companyId).trim() : null
   ];
 
   let bestRule = null;
   for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
     const replacements = [
       replacementBase[0],       // $1 superFranchiseId
+      replacementBase[1],       // $2 paymentMode
+      replacementBase[2],       // $3 cardType
+      candidate || null,        // $4 cardBrand (per-loop)
+      replacementBase[3],       // $5 classification
+      replacementBase[4],       // $6 settlement
+      replacementBase[5],       // $7 amount
+      replacementBase[6],       // $8 companyName
+      replacementBase[7]        // $9 companyId
+    ];
+    const results = await db.query(query, { bind: replacements, type: db.QueryTypes.SELECT });
+    if (results && results.length) {
+      const candidateRule = results[0];
+      if (!bestRule || candidateRule.specificity > bestRule.specificity) {
+        bestRule = candidateRule;
+      }
+    }
+  }
+  return bestRule;
+}
+
+/**
+ * Resolve the platform-level charge that an admin owes to Super Admin.
+ *
+ * Scopes:
+ *   - super_admin_admin (override for the specific admin user)
+ *   - super_admin_default (global platform baseline)
+ */
+async function getSuperAdminChargeRuleForAdmin({
+  adminId,
+  paymentMode,
+  cardType,
+  cardBrand,
+  classification,
+  settlement,
+  amount,
+  companyName
+}) {
+  const normalizedPaymentMode = normalizeLookupValue(paymentMode);
+  const normalizedCardType = normalizeLookupValue(cardType);
+  const normalizedClassification = normalizeLookupValue(classification);
+  const cardBrandCandidates = getCardBrandCandidates(cardBrand);
+
+  const query = `
+    SELECT *,
+    (
+      (CASE WHEN company_name IS NOT NULL AND UPPER(company_name) != 'ANY' THEN 32000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
+      CASE scope
+        WHEN 'super_admin_admin'   THEN 24
+        WHEN 'super_admin_default' THEN 8
+        ELSE 0
+      END
+    ) AS specificity
+    FROM pos_charge_rules
+    WHERE is_active = true
+      AND scope IN ('super_admin_admin', 'super_admin_default')
+      AND (
+        ($1::integer IS NOT NULL AND user_id = $1::integer AND scope = 'super_admin_admin')
+        OR (user_id IS NULL AND scope = 'super_admin_default')
+      )
+      AND ($2::text IS NULL OR UPPER(payment_mode) = UPPER($2::text) OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY')
+      AND ($3::text IS NULL OR UPPER(card_type)    = UPPER($3::text)    OR card_type    IS NULL OR UPPER(card_type)    = 'ANY')
+      AND ($4::text IS NULL OR UPPER(card_brand)   = UPPER($4::text)   OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY')
+      AND (($5::text IS NOT NULL AND UPPER(card_classification) = UPPER($5::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
+      AND (
+        $6::text IS NULL
+        OR settlement_type IS NULL
+        OR UPPER(settlement_type) = 'ANY'
+        OR settlement_type = $6::text
+        OR ($6::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
+        OR ($6::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
+      )
+      AND (($8::text IS NOT NULL AND UPPER(company_name) = UPPER($8::text)) OR company_name IS NULL OR UPPER(company_name) = 'ANY')
+      AND $7::numeric >= min_amount
+      AND ($7::numeric <= max_amount OR max_amount IS NULL)
+    ORDER BY specificity DESC
+    LIMIT 1
+  `;
+
+  const replacementBase = [
+    adminId ? parseInt(adminId, 10) : null,
+    normalizedPaymentMode,
+    normalizedCardType,
+    normalizedClassification,
+    settlement || null,
+    amount != null ? parseFloat(amount) : 0,
+    normalizeLookupValue(companyName)
+  ];
+
+  let bestRule = null;
+  for (const candidate of cardBrandCandidates.length ? cardBrandCandidates : [null]) {
+    const replacements = [
+      replacementBase[0],       // $1 adminId
       replacementBase[1],       // $2 paymentMode
       replacementBase[2],       // $3 cardType
       candidate || null,        // $4 cardBrand (per-loop)
@@ -439,10 +536,12 @@ function calculateCharge(amount, rule) {
  * @param {number|null} userId            target merchant id (null → default rule)
  * @param {number|null} franchiseId       target franchise id
  * @param {number|null} superFranchiseId  target super franchise id
+ * @param {string|null} targetRole        optional target user role ('super_franchise'|'franchaise'|'merchant')
  * @returns {string}                      one of VALID_SCOPES
  */
-function deriveScope(callerRole, userId, franchiseId, superFranchiseId) {
+function deriveScope(callerRole, userId, franchiseId, superFranchiseId, targetRole = null) {
   const normalizedCaller = callerRole === 'franchise' ? 'franchaise' : callerRole;
+  const normalizedTarget = targetRole === 'franchise' ? 'franchaise' : targetRole;
 
   if (normalizedCaller === 'super_admin') {
     if (userId) return 'super_admin_admin';
@@ -451,7 +550,12 @@ function deriveScope(callerRole, userId, franchiseId, superFranchiseId) {
 
   if (normalizedCaller === 'admin') {
     if (userId) return 'admin_merchant';
-    if (franchiseId) return 'admin_franchise';
+    if (normalizedTarget === 'super_franchise' || (superFranchiseId && !franchiseId)) {
+      return 'admin_super_franchise';
+    }
+    if (normalizedTarget === 'franchaise' || franchiseId) {
+      return 'admin_franchise';
+    }
     if (superFranchiseId) return 'admin_super_franchise';
     return 'admin_default';
   }
@@ -472,6 +576,7 @@ module.exports = {
   getTransactionChargeRule,
   getAdminChargeRuleForFranchise,
   getAdminChargeRuleForSuperFranchise,
+  getSuperAdminChargeRuleForAdmin,
   calculateCharge,
   deriveScope,
   normalizeLookupValue,
