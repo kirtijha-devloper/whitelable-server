@@ -350,10 +350,27 @@ const listFranchiseAdminRules = asyncHandler(async (req, res) => {
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
   // only global defaults or admin-set franchise rules (not editable by franchise)
-  where[Op.or] = [
-    { scope: 'admin_default' },
+  const orConditions = [
+    { scope: { [Op.in]: ['super_admin_default', 'admin_default'] } },
     { scope: 'admin_franchise', franchaise_id: req.user.id }
   ];
+  if (req.user.super_franchise_id) {
+    orConditions.push(
+      { scope: 'super_franchise_default', super_franchise_id: req.user.super_franchise_id },
+      { scope: 'super_franchise_franchise', franchaise_id: req.user.id }
+    );
+  }
+  if (req.user.company_id) {
+    const companyAdmin = await User.findOne({
+      where: { role: 'admin', company_id: req.user.company_id },
+      attributes: ['id']
+    });
+    if (companyAdmin) {
+      orConditions.push({ scope: 'super_admin_admin', user_id: companyAdmin.id });
+    }
+    orConditions.push({ company_id: req.user.company_id, scope: { [Op.in]: ['admin_default', 'super_admin_admin'] } });
+  }
+  where[Op.or] = orConditions;
 
   const { count, rows } = await PosChargeRule.findAndCountAll({
     where,
@@ -533,22 +550,53 @@ const listPosChargeRules = asyncHandler(async (req, res) => {
       { scope: 'super_admin_admin', user_id: req.user.id }
     ];
   } else if (req.user.role === 'super_franchise') {
-    where[Op.or] = [
-      { scope: 'admin_default' },
+    delete where.super_franchise_id;
+    delete where.user_id;
+    delete where.franchaise_id;
+    const orConditions = [
+      { scope: { [Op.in]: ['super_admin_default', 'admin_default'] } },
       { scope: 'admin_super_franchise', super_franchise_id: req.user.id },
       { scope: 'super_franchise_default', super_franchise_id: req.user.id },
       { scope: 'super_franchise_franchise', super_franchise_id: req.user.id },
       { scope: 'super_franchise_merchant', super_franchise_id: req.user.id }
     ];
+    if (req.user.company_id) {
+      const companyAdmin = await User.findOne({
+        where: { role: 'admin', company_id: req.user.company_id },
+        attributes: ['id']
+      });
+      if (companyAdmin) {
+        orConditions.push({ scope: 'super_admin_admin', user_id: companyAdmin.id });
+      }
+      orConditions.push({ company_id: req.user.company_id, scope: { [Op.in]: ['admin_default', 'super_admin_admin'] } });
+    }
+    where[Op.or] = orConditions;
   } else if (isFranchiseRole(req.user.role)) {
-    // franchise sees: admin_default, admin_franchise (for them),
-    //   franchise_default (their own), franchise_merchant (their merchants)
-    where[Op.or] = [
-      { scope: 'admin_default' },
+    delete where.franchaise_id;
+    delete where.super_franchise_id;
+    const orConditions = [
+      { scope: { [Op.in]: ['super_admin_default', 'admin_default'] } },
       { scope: 'admin_franchise', franchaise_id: req.user.id },
       { scope: 'franchise_default', franchaise_id: req.user.id },
       { scope: 'franchise_merchant', franchaise_id: req.user.id }
     ];
+    if (req.user.super_franchise_id) {
+      orConditions.push(
+        { scope: 'super_franchise_default', super_franchise_id: req.user.super_franchise_id },
+        { scope: 'super_franchise_franchise', franchaise_id: req.user.id }
+      );
+    }
+    if (req.user.company_id) {
+      const companyAdmin = await User.findOne({
+        where: { role: 'admin', company_id: req.user.company_id },
+        attributes: ['id']
+      });
+      if (companyAdmin) {
+        orConditions.push({ scope: 'super_admin_admin', user_id: companyAdmin.id });
+      }
+      orConditions.push({ company_id: req.user.company_id, scope: { [Op.in]: ['admin_default', 'super_admin_admin'] } });
+    }
+    where[Op.or] = orConditions;
   } else if (req.user.role === 'merchant') {
     // merchant sees:
     //   * any rule explicitly tied to their user id (regardless of scope),

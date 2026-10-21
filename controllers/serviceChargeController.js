@@ -205,12 +205,29 @@ exports.getMyApplicableCharges = async (req, res) => {
         order: [["id", "ASC"]],
       });
     } else if (isSuperFranchise) {
+      const orConditions = [
+        { super_franchise_id: currentUserId, scope: "admin_super_franchise" },
+        { user_id: currentUserId },
+      ];
+      if (currentUser.company_id) {
+        const adminUser = await User.findOne({
+          where: { role: "admin", company_id: currentUser.company_id },
+          attributes: ["id"],
+        });
+        if (adminUser) {
+          orConditions.push({
+            user_id: adminUser.id,
+            scope: "super_admin_admin",
+          });
+        }
+        orConditions.push({
+          company_id: currentUser.company_id,
+          scope: { [Op.in]: ["super_admin_admin", "admin_default"] },
+        });
+      }
       applicablePosRules = await PosChargeRule.findAll({
         where: {
-          [Op.or]: [
-            { super_franchise_id: currentUserId, scope: "admin_super_franchise" },
-            { user_id: currentUserId },
-          ],
+          [Op.or]: orConditions,
           is_active: true,
         },
         order: [["id", "ASC"]],
@@ -225,6 +242,22 @@ exports.getMyApplicableCharges = async (req, res) => {
           super_franchise_id: currentUser.super_franchise_id,
           user_id: null,
           scope: { [Op.in]: ["super_franchise_default", "super_franchise_franchise"] },
+        });
+      }
+      if (currentUser.company_id) {
+        const adminUser = await User.findOne({
+          where: { role: "admin", company_id: currentUser.company_id },
+          attributes: ["id"],
+        });
+        if (adminUser) {
+          orConditions.push({
+            user_id: adminUser.id,
+            scope: "super_admin_admin",
+          });
+        }
+        orConditions.push({
+          company_id: currentUser.company_id,
+          scope: { [Op.in]: ["super_admin_admin", "admin_default"] },
         });
       }
       applicablePosRules = await PosChargeRule.findAll({
@@ -270,12 +303,14 @@ exports.getMyApplicableCharges = async (req, res) => {
         return rule.user_id === currentUserId ? 100 : 10;
       }
       if (isSuperFranchise) {
-        if (rule.user_id === currentUserId || rule.super_franchise_id === currentUserId) return 100;
+        if (rule.super_franchise_id === currentUserId || (rule.user_id === currentUserId && rule.scope === "admin_super_franchise")) return 100;
+        if (rule.scope === "super_admin_admin" || (currentUser.company_id && rule.company_id === currentUser.company_id)) return 50;
         return 10;
       }
       if (isFranchise) {
-        if (rule.user_id === currentUserId || (rule.franchaise_id === currentUserId && rule.scope === "admin_franchise")) return 100;
-        if (rule.super_franchise_id === currentUser.super_franchise_id) return 50;
+        if (rule.user_id === currentUserId || (rule.franchaise_id === currentUserId && (rule.scope === "admin_franchise" || rule.scope === "super_franchise_franchise"))) return 100;
+        if (rule.super_franchise_id === currentUser.super_franchise_id) return 70;
+        if (rule.scope === "super_admin_admin" || (currentUser.company_id && rule.company_id === currentUser.company_id)) return 50;
         return 10;
       }
       if (isMerchant) {
