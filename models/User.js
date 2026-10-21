@@ -160,6 +160,11 @@ const User = db.define("User", {
     type: Sequelize.INTEGER,
     allowNull: true,
   },
+  admin_id: {
+    type: Sequelize.INTEGER,
+    allowNull: true,
+    comment: "Parent Admin user ID",
+  },
   company_or_shop_name: {
     type: Sequelize.STRING,
     allowNull: true,
@@ -212,6 +217,14 @@ User.associate = function (models) {
   User.belongsTo(models.User, {
     foreignKey: "super_franchise_id",
     as: "super_franchise_details",
+  });
+  User.belongsTo(models.User, {
+    foreignKey: "admin_id",
+    as: "admin_details",
+  });
+  User.hasMany(models.User, {
+    foreignKey: "admin_id",
+    as: "admin_users",
   });
   User.hasMany(models.User, { foreignKey: "franchaise_id", as: "merchants" });
   User.hasMany(models.User, {

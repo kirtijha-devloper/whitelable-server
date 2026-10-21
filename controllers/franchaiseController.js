@@ -148,6 +148,13 @@ const getUsers = asyncHandler(async (req, res) => {
     // Role-based filtering
     if (userRole === "admin" || isEmployeeUser) {
       where.role = { [Op.in]: ["franchaise", "franchise"] };
+      const targetAdminId = isEmployeeUser ? (req.user?.admin_id || req.user.id) : req.user.id;
+      if (targetAdminId) {
+        where[Op.or] = [
+          { admin_id: targetAdminId },
+          { admin_id: null }
+        ];
+      }
       if (effectiveCompanyId) {
         where.company_id = effectiveCompanyId;
       }

@@ -158,8 +158,15 @@ const getUsers = asyncHandler(async (req, res) => {
       if (req.query.company_id) where.company_id = req.query.company_id;
       if (status && status !== 'all') where.status = status;
     } else {
-      // For admin or employee
+      // For admin or employee, strictly guard to this admin's merchants and company
       where.role = "merchant";
+      const targetAdminId = req.user.role === "admin" ? req.user.id : (req.user.admin_id || req.user.id);
+      if (targetAdminId) {
+        where[Op.or] = [
+          { admin_id: targetAdminId },
+          { admin_id: null }
+        ];
+      }
       if (effectiveCompanyId) {
         where.company_id = effectiveCompanyId;
       }

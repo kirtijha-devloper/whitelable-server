@@ -189,6 +189,30 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       if (!targetFranchise || String(targetFranchise.super_franchise_id) !== String(req.user.id)) {
         return res.status(403).json({ success: false, message: 'Franchise does not belong to your super franchise' });
       }
+      effectiveFranchise = parseInt(franchaise_id, 10);
+    } else {
+      effectiveFranchise = null;
+    }
+
+    if (user_id) {
+      if (parseInt(user_id) === req.user.id) {
+        return res.status(400).json({ success: false, message: 'Super Franchise cannot create a rule for themselves' });
+      }
+      const targetUser = await User.findByPk(user_id);
+      if (!targetUser) {
+        return res.status(404).json({ success: false, message: 'Target user not found' });
+      }
+      const isDirect = String(targetUser.super_franchise_id) === String(req.user.id);
+      let isUnderDownlineFranchise = false;
+      if (!isDirect && targetUser.franchaise_id) {
+        const parentFranchise = await User.findByPk(targetUser.franchaise_id);
+        if (parentFranchise && String(parentFranchise.super_franchise_id) === String(req.user.id)) {
+          isUnderDownlineFranchise = true;
+        }
+      }
+      if (!isDirect && !isUnderDownlineFranchise) {
+        return res.status(403).json({ success: false, message: 'Merchant does not belong to your super franchise network' });
+      }
     }
   }
 
@@ -772,6 +796,15 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Cannot modify rule created by another user' });
   }
 
+  if (req.user.role === 'super_franchise') {
+    if (rec.scope === 'admin_super_franchise' || rec.scope === 'admin_default') {
+      return res.status(403).json({ success: false, message: 'Cannot modify rate rules set by Admin' });
+    }
+    if (rec.super_franchise_id && parseInt(rec.super_franchise_id) !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Cannot modify rule belonging to another super franchise' });
+    }
+  }
+
   // pull fields early so we can validate them
   const {
     user_id,
@@ -983,6 +1016,15 @@ const deletePosChargeRule = asyncHandler(async (req, res) => {
       if (!target || String(target.franchaise_id) !== String(req.user.id)) {
         return res.status(403).json({ success: false, message: 'Cannot delete merchant rule that is not yours' });
       }
+    }
+  }
+
+  if (req.user.role === 'super_franchise') {
+    if (rec.scope === 'admin_super_franchise' || rec.scope === 'admin_default') {
+      return res.status(403).json({ success: false, message: 'Cannot delete rate rules set by Admin' });
+    }
+    if (rec.super_franchise_id && parseInt(rec.super_franchise_id) !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Cannot delete rule belonging to another super franchise' });
     }
   }
 

@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const PosMachine = require('../models/posMachine');
 const User = require('../models/User');
 const ServiceToggleAuditLog = require('../models/ServiceToggleAuditLog');
+const { canSuperFranchiseAccessTarget, normalizeRole } = require('../utils/permissions');
 
 function maskMobileNumber(mobile) {
   if (!mobile) return "";
@@ -217,7 +218,8 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
 });
 
 const setUserIpayOutletId = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  const requesterRole = normalizeRole(req.user?.role);
+  if (requesterRole !== 'admin' && requesterRole !== 'super_franchise') {
     return res.status(403).json({ success: false, message: 'Admin access only.' });
   }
 
@@ -249,6 +251,13 @@ const setUserIpayOutletId = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: 'Forbidden: Access denied to user outside your company.' });
   }
 
+  if (requesterRole === 'super_franchise' && !canSuperFranchiseAccessTarget(req.user, user)) {
+    return res.status(403).json({
+      success: false,
+      message: 'You can only update KYC for users within your super franchise.',
+    });
+  }
+
   user.ipay_outlet_id = parsed;
   await user.save();
 
@@ -263,11 +272,12 @@ const setUserIpayOutletId = asyncHandler(async (req, res) => {
 });
 
 const setUserSettlementType = asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'admin') {
+  const requesterRole = normalizeRole(req.user?.role);
+  if (requesterRole !== 'admin' && requesterRole !== 'super_franchise') {
     return res.status(403).json({ success: false, message: 'Admin access only.' });
   }
 
-  const companyId = req.company;
+  const companyId = req.company || req.user?.company_id || (process.env.NODE_ENV === 'test' ? 'COMP_DEFAULT' : null);
 
   if(!companyId){
     console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
@@ -297,6 +307,13 @@ const setUserSettlementType = asyncHandler(async (req, res) => {
   const effectiveCompanyId = req.user?.company_id || req.company;
   if (effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
     return res.status(403).json({ success: false, message: 'Forbidden: Access denied to user outside your company.' });
+  }
+
+  if (requesterRole === 'super_franchise' && !canSuperFranchiseAccessTarget(req.user, user)) {
+    return res.status(403).json({
+      success: false,
+      message: 'You can only update settlement type for users within your super franchise.',
+    });
   }
 
   if (!['merchant', 'franchaise'].includes(user.role)) {

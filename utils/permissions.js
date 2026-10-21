@@ -321,10 +321,8 @@ function canFranchiseAccessTarget(requester, targetUser) {
 function canSuperFranchiseAccessTarget(requester, targetUser) {
   if (isSelfTarget(requester, targetUser)) return true;
   if (isOwnFranchiseTarget(requester, targetUser)) return true;
-  if (isMerchant(targetUser)) {
-    if (Number(targetUser?.super_franchise_id) === Number(requester?.id)) return true;
-    if (targetUser?.franchise_details && Number(targetUser?.franchise_details?.super_franchise_id) === Number(requester?.id)) return true;
-  }
+  if (Number(targetUser?.super_franchise_id) === Number(requester?.id)) return true;
+  if (isMerchant(targetUser) && targetUser?.franchise && Number(targetUser.franchise.super_franchise_id) === Number(requester?.id)) return true;
   return false;
 }
 
