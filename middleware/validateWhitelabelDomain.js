@@ -46,9 +46,9 @@ const validateWhitelabelDomain = async (req, res, next) => {
 
     const possibleDomains = [
         ...new Set([
-            rawHost,
-            hostWithoutPort,
-            cleanHost,
+            // rawHost,
+            // hostWithoutPort,
+            // cleanHost,
             originHost,
             originWithoutPort,
             cleanOrigin,
