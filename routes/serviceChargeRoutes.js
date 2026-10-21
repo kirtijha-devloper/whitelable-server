@@ -9,7 +9,6 @@ const {
   updateServiceCharge,
   deleteServiceCharge,
   toggleServiceChargeStatus,
-  getMyApplicableCharges,
 } = require("../controllers/serviceChargeController");
 
 // Protect all service charge routes
