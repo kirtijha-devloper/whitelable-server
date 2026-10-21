@@ -308,12 +308,14 @@ exports.getMyApplicableCharges = async (req, res) => {
 
     const getPosRuleKey = (r) => {
       if (!r) return "";
-      const mode = String(r.payment_mode || "CARD").trim().toUpperCase();
-      const brand = String(r.card_brand || "ANY").trim().toUpperCase();
-      const type = String(r.card_type || "ANY").trim().toUpperCase();
-      const classf = String(r.card_classification || "ANY").trim().toUpperCase();
+      // Strip underscores/hyphens so MASTER_CARD and MASTERCARD are treated as the same token
+      const normalizeToken = (v) => String(v || "").trim().toUpperCase().replace(/[/_\-]/g, "");
+      const mode = normalizeToken(r.payment_mode || "CARD");
+      const brand = normalizeToken(r.card_brand || "ANY");
+      const type = normalizeToken(r.card_type || "ANY");
+      const classf = normalizeToken(r.card_classification || "ANY");
       const st = String(r.settlement_type || "ANY").trim().toLowerCase();
-      const comp = String(r.company_name || "ANY").trim().toUpperCase();
+      const comp = normalizeToken(r.company_name || "ANY");
       const minA = parseFloat(r.min_amount || 0).toFixed(2);
       const maxA = r.max_amount != null ? parseFloat(r.max_amount).toFixed(2) : "INF";
       return `${mode}|${brand}|${type}|${classf}|${st}|${comp}|${minA}|${maxA}`;
