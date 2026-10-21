@@ -1530,6 +1530,12 @@ const getUserReport = asyncHandler(async (req, res) => {
       where.id = userId;
     }
 
+    const requesterRole = req.user?.original_role || req.user?.role;
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (requesterRole !== 'super_admin' && effectiveCompanyId) {
+      where.company_id = effectiveCompanyId;
+    }
+
     const { count, rows: users } = await User.findAndCountAll({
       where,
       limit: parseInt(limit),

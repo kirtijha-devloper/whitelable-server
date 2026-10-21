@@ -107,10 +107,17 @@ const getUserById = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('User not found');
   }
-if (user.role !== "merchant") {
+  if (user.role !== "merchant") {
     res.status(404);
     throw new Error('User not found');
-}
+  }
+  if (req.user && req.user.role !== 'super_admin') {
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
+      res.status(403);
+      throw new Error('Merchant does not belong to your company');
+    }
+  }
   res.status(200).json(user);
 });
 
@@ -124,11 +131,12 @@ const getUsers = asyncHandler(async (req, res) => {
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const where = {};
+    const effectiveCompanyId = req.user?.company_id || req.company;
 
     if (req.user.role === "franchaise" || req.user.role === "franchise") {
       const userId = req.user.id;
       if (userId) where.franchaise_id = userId;
-      if (status) where.status = status;
+      if (status && status !== 'all') where.status = status;
     } else if (req.user.role === "super_franchise") {
       const downstreamFranchises = await User.findAll({
         where: {
@@ -144,11 +152,18 @@ const getUsers = asyncHandler(async (req, res) => {
         { super_franchise_id: req.user.id },
         ...(franchiseIds.length > 0 ? [{ franchaise_id: { [Op.in]: franchiseIds } }] : [])
       ];
-      if (status) where.status = status;
-    } else {
-      // For admin or other roles, show all merchants
+      if (status && status !== 'all') where.status = status;
+    } else if (req.user.role === "super_admin") {
       where.role = "merchant";
-      if (status) where.status = status;
+      if (req.query.company_id) where.company_id = req.query.company_id;
+      if (status && status !== 'all') where.status = status;
+    } else {
+      // For admin or employee
+      where.role = "merchant";
+      if (effectiveCompanyId) {
+        where.company_id = effectiveCompanyId;
+      }
+      if (status && status !== 'all') where.status = status;
     }
 
     // Get total count and paginated results

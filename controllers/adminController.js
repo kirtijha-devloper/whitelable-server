@@ -163,6 +163,11 @@ const getUnassignedMerchants = asyncHandler(async (req, res) => {
     franchaise_id: null,
   };
 
+  const effectiveCompanyId = req.user?.company_id || req.company;
+  if (effectiveCompanyId) {
+    where.company_id = effectiveCompanyId;
+  }
+
   if (req.query.status) {
     where.status = req.query.status;
   }
@@ -239,6 +244,11 @@ const setUserIpayOutletId = asyncHandler(async (req, res) => {
     throw new Error('User not found');
   }
 
+  const effectiveCompanyId = req.user?.company_id || req.company;
+  if (effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
+    return res.status(403).json({ success: false, message: 'Forbidden: Access denied to user outside your company.' });
+  }
+
   user.ipay_outlet_id = parsed;
   await user.save();
 
@@ -282,6 +292,11 @@ const setUserSettlementType = asyncHandler(async (req, res) => {
   if (!user) {
     res.status(404);
     throw new Error('User not found');
+  }
+
+  const effectiveCompanyId = req.user?.company_id || req.company;
+  if (effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
+    return res.status(403).json({ success: false, message: 'Forbidden: Access denied to user outside your company.' });
   }
 
   if (!['merchant', 'franchaise'].includes(user.role)) {
@@ -348,14 +363,20 @@ const setAllUsersSettlementType = asyncHandler(async (req, res) => {
     throw new Error('settlement_type must be either "today_settlement" or "next_day_settlement"');
   }
 
+  const effectiveCompanyId = req.user?.company_id || req.company;
+  const updateWhere = {
+    role: {
+      [Op.in]: ['merchant', 'franchaise'],
+    },
+  };
+  if (effectiveCompanyId) {
+    updateWhere.company_id = effectiveCompanyId;
+  }
+
   const [updatedCount] = await User.update(
     { settlement_type },
     {
-      where: {
-        role: {
-          [Op.in]: ['merchant', 'franchaise'],
-        },
-      },
+      where: updateWhere,
     }
   );
 

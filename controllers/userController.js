@@ -655,6 +655,10 @@ const searchUsers = asyncHandler(async (req, res) => {
         const offset = (parseInt(page) - 1) * parseInt(limit);
         const where = {};
 
+        if (userRole === "admin" || userRole === "employee") {
+          where.company_id = req.user?.company_id || req.company;
+        }
+
         if (userRole === 'super_franchise') {
             const downstreamFranchises = await User.findAll({
                 where: {
@@ -835,6 +839,14 @@ const updateUserStatus = asyncHandler(async (req, res) => {
     throw new Error('User not found');
   }
 
+  if (requesterRole !== 'super_admin') {
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (effectiveCompanyId && targetUser.company_id && targetUser.company_id !== effectiveCompanyId) {
+      res.status(403);
+      throw new Error('Target user does not belong to your company');
+    }
+  }
+
   if (requesterRole === 'franchaise') {
     const isOwnMerchant = targetUser.franchaise_id === requesterId;
     if (!isOwnMerchant) {
@@ -879,6 +891,16 @@ const getUserByID = asyncHandler(async (req, res) => {
     }
 
     const searchedUserRole = normalizeRole(searchedUser.role);
+
+    if (role === "admin" || role === "employee") {
+      const effectiveCompanyId = req.user?.company_id || req.company;
+      if (effectiveCompanyId && searchedUser.company_id && searchedUser.company_id !== effectiveCompanyId) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to view this user.",
+        });
+      }
+    }
 
     if (role === "franchaise") {
       if (!canFranchiseAccessTarget(req.user, searchedUser)) {
@@ -2284,6 +2306,16 @@ const updateUser = asyncHandler(async (req, res) => {
     }
 
     // ── Access control ────────────────────────────────────────────────────
+    if (requesterRole === 'admin' || requesterRole === 'employee') {
+      const effectiveCompanyId = req.user?.company_id || req.company;
+      if (effectiveCompanyId && targetUser.company_id && targetUser.company_id !== effectiveCompanyId) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not allowed to edit this user.',
+        });
+      }
+    }
+
     if (requesterRole === 'merchant') {
       if (requesterId !== targetId) {
         return res.status(403).json({ success: false, message: 'You can only edit your own profile.' });
@@ -2532,6 +2564,13 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'User not found.' });
   }
 
+  if (requesterRole !== 'super_admin') {
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (effectiveCompanyId && targetUser.company_id && targetUser.company_id !== effectiveCompanyId) {
+      return res.status(403).json({ success: false, message: 'User does not belong to your company.' });
+    }
+  }
+
   // Franchise can only promote their own merchants
   if (requesterRole === 'franchaise' && targetUser.franchaise_id !== requesterId) {
     return res.status(403).json({ success: false, message: 'You can only promote your own merchant users.' });
@@ -2611,6 +2650,13 @@ const promoteUserToSuperFranchise = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'User not found.' });
   }
 
+  if (requesterRole !== 'super_admin') {
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (effectiveCompanyId && targetUser.company_id && targetUser.company_id !== effectiveCompanyId) {
+      return res.status(403).json({ success: false, message: 'User does not belong to your company.' });
+    }
+  }
+
   const normalizedTargetRole = normalizeRole(targetUser.role);
   if (normalizedTargetRole === 'super_franchise') {
     return res.status(400).json({ success: false, message: 'User is already a super franchise.' });
@@ -2684,6 +2730,14 @@ const enableLedger = asyncHandler(async (req, res) => {
   if (!targetUser) {
     res.status(404);
     throw new Error('User not found');
+  }
+
+  const effectiveCompanyId = req.user?.company_id || req.company;
+  if (effectiveCompanyId && targetUser.company_id && targetUser.company_id !== effectiveCompanyId) {
+    return res.status(403).json({
+      success: false,
+      message: 'Forbidden: Access denied to user outside your company.',
+    });
   }
 
   if (targetUser.start_ledger) {

@@ -218,6 +218,7 @@ describe('Complete Rate Management Hierarchy End-to-End Tests', () => {
         role: 'super_franchise',
         company_id: 'COMP_TEST_01',
       });
+      sinon.stub(User, 'findOne').resolves({ id: 2 });
 
       const sfRule = {
         id: 402,
@@ -247,6 +248,133 @@ describe('Complete Rate Management Hierarchy End-to-End Tests', () => {
 
       expect(res.status).to.equal(200);
       expect(res.body.data.pos[0].source_label).to.equal('Admin Override');
+      expect(res.body.data.pos[0].is_override).to.be.true;
+    });
+
+    it('Franchise resolves nearest Super Franchise override (3.00%) over Admin default (2.00%)', async () => {
+      sinon.stub(User, 'findByPk').resolves({
+        id: 20,
+        role: 'franchaise',
+        company_id: 'COMP_TEST_01',
+        super_franchise_id: 10,
+      });
+      sinon.stub(User, 'findOne').resolves({ id: 2 });
+
+      const adminDefaultRule = {
+        id: 101,
+        scope: 'admin_default',
+        payment_mode: 'CARD',
+        card_brand: 'VISA',
+        card_type: 'CREDIT',
+        card_classification: 'PLATINUM',
+        settlement_type: 'today_settlement',
+        charge_percent: 2.0,
+        charge_flat: 0,
+        gst_required: false,
+        gst_percent: 0,
+        is_active: true,
+      };
+
+      const sfFranchiseOverride = {
+        id: 201,
+        super_franchise_id: 10,
+        franchaise_id: 20,
+        scope: 'super_franchise_franchise',
+        payment_mode: 'CARD',
+        card_brand: 'VISA',
+        card_type: 'CREDIT',
+        card_classification: 'PLATINUM',
+        settlement_type: 'today_settlement',
+        charge_percent: 3.0,
+        charge_flat: 0,
+        gst_required: false,
+        gst_percent: 0,
+        is_active: true,
+      };
+
+      sinon.stub(PosChargeRule, 'findAll').resolves([adminDefaultRule, sfFranchiseOverride]);
+      sinon.stub(PayoutCharge, 'findAll').resolves([]);
+      sinon.stub(UserPayoutCharge, 'findAll').resolves([]);
+      sinon.stub(BbpsCcChargeRule, 'findAll').resolves([]);
+      sinon.stub(Rental, 'findOne').resolves(null);
+
+      const res = await request(app)
+        .get('/api/service-charge/my-applicable-charges')
+        .set('Authorization', `Bearer ${franchiseToken}`);
+
+      expect(res.status).to.equal(200);
+      expect(res.body.data.pos).to.be.an('array');
+      // Must pick the nearest upline rate (3.00% from Super Franchise override)
+      expect(parseFloat(res.body.data.pos[0].charge_percent)).to.equal(3.0);
+      expect(res.body.data.pos[0].source_label).to.equal('Super Franchise Rate');
+      expect(res.body.data.pos[0].is_override).to.be.true;
+    });
+
+    it('Merchant resolves nearest Franchise override over Super Franchise and Admin', async () => {
+      sinon.stub(User, 'findByPk').resolves({
+        id: 30,
+        role: 'merchant',
+        company_id: 'COMP_TEST_01',
+        franchaise_id: 20,
+        super_franchise_id: 10,
+      });
+      sinon.stub(User, 'findOne').resolves({ id: 2 });
+
+      const adminDefaultRule = {
+        id: 101,
+        scope: 'admin_default',
+        payment_mode: 'CARD',
+        card_brand: 'VISA',
+        card_type: 'CREDIT',
+        card_classification: 'PLATINUM',
+        settlement_type: 'today_settlement',
+        charge_percent: 2.0,
+        charge_flat: 0,
+        is_active: true,
+      };
+
+      const sfDefaultRule = {
+        id: 201,
+        super_franchise_id: 10,
+        scope: 'super_franchise_default',
+        payment_mode: 'CARD',
+        card_brand: 'VISA',
+        card_type: 'CREDIT',
+        card_classification: 'PLATINUM',
+        settlement_type: 'today_settlement',
+        charge_percent: 2.5,
+        charge_flat: 0,
+        is_active: true,
+      };
+
+      const franchiseMerchantRule = {
+        id: 301,
+        user_id: 30,
+        franchaise_id: 20,
+        scope: 'franchise_merchant',
+        payment_mode: 'CARD',
+        card_brand: 'VISA',
+        card_type: 'CREDIT',
+        card_classification: 'PLATINUM',
+        settlement_type: 'today_settlement',
+        charge_percent: 3.2,
+        charge_flat: 0,
+        is_active: true,
+      };
+
+      sinon.stub(PosChargeRule, 'findAll').resolves([adminDefaultRule, sfDefaultRule, franchiseMerchantRule]);
+      sinon.stub(PayoutCharge, 'findAll').resolves([]);
+      sinon.stub(UserPayoutCharge, 'findAll').resolves([]);
+      sinon.stub(BbpsCcChargeRule, 'findAll').resolves([]);
+      sinon.stub(Rental, 'findOne').resolves(null);
+
+      const res = await request(app)
+        .get('/api/service-charge/my-applicable-charges')
+        .set('Authorization', `Bearer ${merchantToken}`);
+
+      expect(res.status).to.equal(200);
+      expect(parseFloat(res.body.data.pos[0].charge_percent)).to.equal(3.2);
+      expect(res.body.data.pos[0].source_label).to.equal('Franchise Rate');
       expect(res.body.data.pos[0].is_override).to.be.true;
     });
   });
@@ -320,6 +448,40 @@ describe('Complete Rate Management Hierarchy End-to-End Tests', () => {
         .delete('/api/payout-charges/801')
         .set('Authorization', `Bearer ${admin1Token}`);
       expect(delRes.status).to.equal(403);
+    });
+  });
+
+  describe('5. listFranchiseAdminRules queries Super Franchise rules for Franchise', () => {
+    it('returns super_franchise_franchise and super_franchise_default rules for target franchise', async () => {
+      sinon.stub(User, 'findByPk').resolves({
+        id: 20,
+        super_franchise_id: 10,
+        role: 'franchaise'
+      });
+      sinon.stub(User, 'findOne').resolves({ id: 2 });
+
+      const findStub = sinon.stub(PosChargeRule, 'findAndCountAll').resolves({
+        count: 2,
+        rows: [
+          { id: 1, scope: 'admin_default', charge_percent: 2.0 },
+          { id: 2, scope: 'super_franchise_franchise', super_franchise_id: 10, franchaise_id: 20, charge_percent: 3.0 }
+        ]
+      });
+
+      const res = await request(app)
+        .get('/api/pos-charge-rules/list/admin?franchaise_id=20')
+        .set('Authorization', `Bearer ${franchiseToken}`);
+
+      expect(res.status).to.equal(200);
+      expect(res.body.success).to.be.true;
+      expect(res.body.data).to.be.an('array');
+      expect(res.body.data.length).to.equal(2);
+
+      // Verify findAndCountAll where condition included super_franchise scopes
+      const whereCondition = findStub.firstCall.args[0].where;
+      const orClauses = whereCondition[Object.getOwnPropertySymbols(whereCondition)[0]];
+      expect(orClauses.some(c => c.scope === 'super_franchise_franchise' && c.franchaise_id === 20)).to.be.true;
+      expect(orClauses.some(c => c.scope === 'super_franchise_default' && c.super_franchise_id === 10)).to.be.true;
     });
   });
 });

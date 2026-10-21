@@ -122,6 +122,14 @@ const adminDirectCredit = asyncHandler(async (req, res) => {
     });
   }
 
+  const effectiveCompanyId = req.user?.company_id || req.company;
+  if (effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden: Access denied to user outside your company."
+    });
+  }
+
   // Ledger tracking must be enabled before any wallet adjustment
   if (!user.start_ledger) {
     return res.status(422).json({
@@ -339,6 +347,14 @@ const adminDirectDebit = asyncHandler(async (req, res) => {
     });
   }
 
+  const effectiveCompanyId = req.user?.company_id || req.company;
+  if (effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden: Access denied to user outside your company."
+    });
+  }
+
   // Ledger tracking must be enabled before any wallet adjustment
   if (!user.start_ledger) {
     return res.status(422).json({
@@ -545,8 +561,14 @@ const reconcileAllWallets = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: "Admin access required." });
   }
 
+  const walletWhere = { status: "active" };
+  const effectiveCompanyId = req.user?.company_id || req.company;
+  if (effectiveCompanyId) {
+    walletWhere.company_id = effectiveCompanyId;
+  }
+
   const users = await User.findAll({
-    where: { status: "active" },
+    where: walletWhere,
     attributes: ["id", "name", "role"]
   });
 

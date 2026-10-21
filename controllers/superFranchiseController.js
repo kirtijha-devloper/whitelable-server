@@ -16,10 +16,23 @@ const getSuperFranchises = asyncHandler(async (req, res) => {
     const offset = (page - 1) * limit;
     const search = req.query.search ? String(req.query.search).trim() : '';
 
+    const status = req.query.status || 'active';
     const whereClause = {
-      role: 'super_franchise',
-      status: 'active'
+      role: 'super_franchise'
     };
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+
+    const requesterRole = normalizeRole(req.user?.role);
+    if (requesterRole !== 'super_admin') {
+      const effectiveCompanyId = req.user?.company_id || req.company;
+      if (effectiveCompanyId) {
+        whereClause.company_id = effectiveCompanyId;
+      }
+    } else if (req.query.company_id) {
+      whereClause.company_id = req.query.company_id;
+    }
 
     if (search) {
       whereClause[Op.or] = [
@@ -38,7 +51,7 @@ const getSuperFranchises = asyncHandler(async (req, res) => {
       order: [['id', 'DESC']],
       attributes: [
         'id', 'name', 'email', 'mobile_number', 'username', 'abheepay_id',
-        'wallet', 'is_approved', 'status', 'createdAt'
+        'wallet', 'is_approved', 'status', 'createdAt', 'company_id'
       ]
     });
 
@@ -76,6 +89,16 @@ const getSuperFranchiseById = asyncHandler(async (req, res) => {
         success: false,
         message: "Super Franchise not found"
       });
+    }
+
+    if (req.user && normalizeRole(req.user.role) !== 'super_admin') {
+      const effectiveCompanyId = req.user?.company_id || req.company;
+      if (effectiveCompanyId && superFranchise.company_id && superFranchise.company_id !== effectiveCompanyId) {
+        return res.status(403).json({
+          success: false,
+          message: "Super Franchise does not belong to your company"
+        });
+      }
     }
 
     const totalFranchises = await User.count({
@@ -120,12 +143,21 @@ const getSuperFranchiseFranchises = asyncHandler(async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 20;
     const offset = (page - 1) * limit;
 
+    const whereClause = {
+      super_franchise_id: id,
+      role: { [Op.in]: ['franchise', 'franchaise'] },
+      status: 'active'
+    };
+
+    if (req.user && normalizeRole(req.user.role) !== 'super_admin') {
+      const effectiveCompanyId = req.user?.company_id || req.company;
+      if (effectiveCompanyId) {
+        whereClause.company_id = effectiveCompanyId;
+      }
+    }
+
     const { count, rows } = await User.findAndCountAll({
-      where: {
-        super_franchise_id: id,
-        role: { [Op.in]: ['franchise', 'franchaise'] },
-        status: 'active'
-      },
+      where: whereClause,
       limit,
       offset,
       order: [['id', 'DESC']]
@@ -172,12 +204,29 @@ const assignFranchiseToSuperFranchise = asyncHandler(async (req, res) => {
       });
     }
 
+    let sf = null;
     if (super_franchise_id) {
-      const sf = await User.findByPk(super_franchise_id);
+      sf = await User.findByPk(super_franchise_id);
       if (!sf || normalizeRole(sf.role) !== 'super_franchise') {
         return res.status(400).json({
           success: false,
           message: "Invalid Super Franchise specified"
+        });
+      }
+    }
+
+    if (req.user && normalizeRole(req.user.role) !== 'super_admin') {
+      const effectiveCompanyId = req.user?.company_id || req.company;
+      if (effectiveCompanyId && franchise.company_id && franchise.company_id !== effectiveCompanyId) {
+        return res.status(403).json({
+          success: false,
+          message: "Franchise does not belong to your company"
+        });
+      }
+      if (effectiveCompanyId && sf && sf.company_id && sf.company_id !== effectiveCompanyId) {
+        return res.status(403).json({
+          success: false,
+          message: "Super Franchise does not belong to your company"
         });
       }
     }

@@ -118,6 +118,11 @@ async function getSettlementUsers(req, res) {
     const { search, role } = req.query;
 
     const where = {};
+    const requesterRole = req.user?.original_role || req.user?.role;
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (requesterRole !== 'super_admin' && effectiveCompanyId) {
+      where.company_id = effectiveCompanyId;
+    }
     if (role) {
       where.role = role;
     }
@@ -206,6 +211,13 @@ async function updateUserCutoff(req, res) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
+    const requesterRole = req.user?.original_role || req.user?.role;
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (requesterRole !== 'super_admin' && effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
+      await transaction.rollback();
+      return res.status(403).json({ success: false, message: 'Forbidden: Access denied to user outside your company.' });
+    }
+
     const previousCutoff = user.cutoff_timestamp;
     const newCutoff = cutoff_timestamp ? String(cutoff_timestamp).trim() : null;
 
@@ -254,6 +266,13 @@ async function triggerUserSettlement(req, res) {
     if (!user) {
       await transaction.rollback();
       return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const requesterRole = req.user?.original_role || req.user?.role;
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (requesterRole !== 'super_admin' && effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
+      await transaction.rollback();
+      return res.status(403).json({ success: false, message: 'Forbidden: Access denied to user outside your company.' });
     }
 
     const t1Amt = parseFloat(user.t1_balance) || 0;

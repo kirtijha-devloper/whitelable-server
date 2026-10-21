@@ -83,7 +83,7 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
     is_active,
     company_name
   } = req.body;
-  let companyId = req.company;
+  let companyId = req.user?.company_id || req.company;
 
   if(!companyId){
     console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
@@ -743,7 +743,7 @@ const listMerchantChargeRules = asyncHandler(async (req, res) => {
 // update rule
 const updatePosChargeRule = asyncHandler(async (req, res) => {
   fileLog(`UPDATE request id=${req.params.id} body=${JSON.stringify(req.body)}`);
-  const companyId = req.company;
+  const companyId = req.user?.company_id || req.company;
 
   if(!companyId){
     console.log(`UserId --> ${req.user.id} :: Domain is not registered`);

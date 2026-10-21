@@ -110,10 +110,17 @@ const getUserById = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('User not found');
   }
-if (user.role !== "franchaise") {
+  if (user.role !== "franchaise" && user.role !== "franchise") {
     res.status(404);
     throw new Error('User not found');
-}
+  }
+  if (req.user && req.user.role !== 'super_admin') {
+    const effectiveCompanyId = req.user?.company_id || req.company;
+    if (effectiveCompanyId && user.company_id && user.company_id !== effectiveCompanyId) {
+      res.status(403);
+      throw new Error('Franchise does not belong to your company');
+    }
+  }
   res.status(200).json(user);
 });
 
@@ -136,19 +143,27 @@ const getUsers = asyncHandler(async (req, res) => {
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const where = {};
+    const effectiveCompanyId = req.user?.company_id || req.company;
 
     // Role-based filtering
     if (userRole === "admin" || isEmployeeUser) {
-      where.role = "franchaise";
-      if (status) where.status = status;
+      where.role = { [Op.in]: ["franchaise", "franchise"] };
+      if (effectiveCompanyId) {
+        where.company_id = effectiveCompanyId;
+      }
+      if (status && status !== 'all') where.status = status;
     } else if (userRole === "super_franchise") {
-      where.role = "franchaise";
+      where.role = { [Op.in]: ["franchaise", "franchise"] };
       where.super_franchise_id = req.user.id;
-      if (status) where.status = status;
+      if (status && status !== 'all') where.status = status;
     } else if (userRole === "franchaise" || userRole === "franchise") {
       // Franchise can only see themselves
       where.id = req.user.id;
-      if (status) where.status = status;
+      if (status && status !== 'all') where.status = status;
+    } else if (userRole === "super_admin") {
+      where.role = { [Op.in]: ["franchaise", "franchise"] };
+      if (req.query.company_id) where.company_id = req.query.company_id;
+      if (status && status !== 'all') where.status = status;
     }
 
     // Get total count and paginated results
