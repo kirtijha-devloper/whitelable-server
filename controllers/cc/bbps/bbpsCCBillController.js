@@ -219,7 +219,33 @@ const getCCBillers = asyncHandler(async (req, res) => {
   }
 
   try {
-    const billers = await bbpsCCBillService.getCCBillers(outletId);
+    let billers = [];
+    try {
+      billers = await bbpsCCBillService.getCCBillers(outletId);
+    } catch (serviceErr) {
+      logInstantPayError('getCCBillers', serviceErr);
+    }
+
+    if (!Array.isArray(billers) || billers.length === 0) {
+      // Fallback: Query active Credit Card billers from local database (BillAvenueBiller)
+      const BillAvenueBiller = require('../../../models/BillAvenueBiller');
+      const dbBillers = await BillAvenueBiller.findAll({
+        where: { category: 'Credit Card', is_active: true },
+        order: [['biller_name', 'ASC']],
+      });
+      if (dbBillers && dbBillers.length > 0) {
+        billers = dbBillers.map((b) => ({
+          billerId: b.biller_id,
+          billerName: b.biller_name,
+          category: b.category,
+          serviceType: b.service_type,
+          circle: b.circle,
+          state: b.state,
+          metadata: b.metadata,
+        }));
+      }
+    }
+
     return res.status(200).json({ success: true, count: billers.length, data: billers });
   } catch (error) {
     logInstantPayError('getCCBillers', error);
@@ -242,7 +268,32 @@ const getBillerDetails = asyncHandler(async (req, res) => {
     if (!billerId) {
       return res.status(400).json({ success: false, message: 'billerId is required' });
     }
-    const data = await bbpsCCBillService.getBillerDetails(billerId, getOutletId(req));
+    let data = null;
+    try {
+      data = await bbpsCCBillService.getBillerDetails(billerId, getOutletId(req));
+      if (data?.statuscode && data.statuscode !== 'TXN' && data.statuscode !== 'TUP') {
+        data = null;
+      }
+    } catch (_) {
+      data = null;
+    }
+
+    if (!data || !data.data) {
+      const BillAvenueBiller = require('../../../models/BillAvenueBiller');
+      const dbBiller = await BillAvenueBiller.findOne({ where: { biller_id: billerId } });
+      if (dbBiller?.metadata) {
+        data = {
+          statuscode: 'TXN',
+          status: 'SUCCESS',
+          data: {
+            billerId: dbBiller.biller_id,
+            billerName: dbBiller.biller_name,
+            ...dbBiller.metadata,
+          },
+        };
+      }
+    }
+
     return res.status(200).json({ success: true, data });
   } catch (error) {
     console.error('[bbpsCC] getBillerDetails error:', error.message);

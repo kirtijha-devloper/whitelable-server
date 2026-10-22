@@ -62,6 +62,11 @@ async function getCategories(outletId) {
  * PHP ref: getBillersForCreditCards()
  */
 async function getCCBillers(outletId) {
+  if (!process.env.IPAY_AUTH_CODE) {
+    svcLog('getCCBillers: IPAY_AUTH_CODE is not set in environment');
+    return [];
+  }
+
   const response = await axios.post(`${BASE_URL}/billers`, {
     pagination: { pageNumber: 1, recordsPerPage: 100 },
     filters: { categoryKey: CC_CATEGORY_KEY, updatedAfterDate: '' },
@@ -70,6 +75,11 @@ async function getCCBillers(outletId) {
   });
 
   svcLog(`getCCBillers RESPONSE: ${JSON.stringify(response.data)}`);
+
+  if (response.data?.statuscode && response.data.statuscode !== 'TXN' && response.data.statuscode !== 'TUP') {
+    svcLog(`getCCBillers upstream error statuscode=${response.data.statuscode} status=${response.data.status}`);
+    return [];
+  }
 
   const billers = response.data?.data?.records ?? [];
   const result = billers.map(b => ({ billerId: b.billerId, billerName: b.billerName }));
@@ -82,6 +92,10 @@ async function getCCBillers(outletId) {
  * PHP ref: getBillerDetails()
  */
 async function getBillerDetails(billerId, outletId) {
+  if (!process.env.IPAY_AUTH_CODE) {
+    svcLog('getBillerDetails: IPAY_AUTH_CODE is not set in environment');
+    return null;
+  }
   const response = await axios.post(`${BASE_URL}/billerDetails`, { billerId }, {
     headers: buildHeaders(outletId),
   });
