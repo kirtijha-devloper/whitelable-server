@@ -1030,6 +1030,13 @@ const getUserByID = asyncHandler(async (req, res) => {
         where: { assigned_to: searchedId, status: "active" }
       });
       response.pos_details = posDetails;
+      if (posDetails && posDetails.length > 0) {
+        response.user.is_pos_asigned = true;
+        if (!searchedUser.is_pos_asigned) {
+          searchedUser.is_pos_asigned = true;
+          await searchedUser.save().catch(() => {});
+        }
+      }
     }
 
     res.status(200).json(response);

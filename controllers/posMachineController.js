@@ -542,9 +542,9 @@ const assignPosMachineToUserID = asyncHandler ( async (req, res) => {
       await upsertRentalBilling(posMachine.id, user);
     }));
 
-    if (assigneeRole === "merchant"){
-      user.is_pos_asigned = true
-      await user.save()
+    if (['merchant', 'franchaise', 'super_franchise'].includes(assigneeRole)) {
+      user.is_pos_asigned = true;
+      await user.save();
     }
 
     res.status(200).json({
