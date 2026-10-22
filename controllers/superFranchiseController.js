@@ -25,10 +25,18 @@ const getSuperFranchises = asyncHandler(async (req, res) => {
       whereClause.status = status;
     }
 
-    if (userRole === 'admin') {
-      whereClause.admin_id = req.user.id;
-    } else if (userRole === 'employee') {
-      whereClause.admin_id = req.user.admin_id || req.user.id;
+    const andConditions = [];
+
+    if (userRole === 'admin' || userRole === 'employee') {
+      const targetAdminId = userRole === 'admin' ? req.user.id : (req.user.admin_id || req.user.id);
+      if (targetAdminId) {
+        andConditions.push({
+          [Op.or]: [
+            { admin_id: targetAdminId },
+            { admin_id: null }
+          ]
+        });
+      }
     }
 
     if (userRole !== 'super_admin') {
@@ -41,13 +49,19 @@ const getSuperFranchises = asyncHandler(async (req, res) => {
     }
 
     if (search) {
-      whereClause[Op.or] = [
-        { name: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
-        { mobile_number: { [Op.iLike]: `%${search}%` } },
-        { username: { [Op.iLike]: `%${search}%` } },
-        { abheepay_id: { [Op.iLike]: `%${search}%` } }
-      ];
+      andConditions.push({
+        [Op.or]: [
+          { name: { [Op.iLike]: `%${search}%` } },
+          { email: { [Op.iLike]: `%${search}%` } },
+          { mobile_number: { [Op.iLike]: `%${search}%` } },
+          { username: { [Op.iLike]: `%${search}%` } },
+          { abheepay_id: { [Op.iLike]: `%${search}%` } }
+        ]
+      });
+    }
+
+    if (andConditions.length > 0) {
+      whereClause[Op.and] = andConditions;
     }
 
     const { count, rows } = await User.findAndCountAll({

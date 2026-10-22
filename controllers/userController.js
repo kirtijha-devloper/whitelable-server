@@ -1227,6 +1227,25 @@ const registerUser = asyncHandler(async (req, res) => {
             }
         }
 
+        let assignedAdminId = req.body.admin_id || (
+            req.user && normalizeRole(req.user.role) === 'admin'
+                ? req.user.id
+                : (req.user && req.user.admin_id ? req.user.admin_id : null)
+        );
+
+        if (!assignedAdminId && assignedSuperFranchiseId) {
+            const parentSfUser = await User.findByPk(assignedSuperFranchiseId, { attributes: ['id', 'admin_id'] });
+            if (parentSfUser?.admin_id) {
+                assignedAdminId = Number(parentSfUser.admin_id);
+            }
+        }
+        if (!assignedAdminId && assignedFranchiseId) {
+            const parentFranchiseUser = await User.findByPk(assignedFranchiseId, { attributes: ['id', 'admin_id'] });
+            if (parentFranchiseUser?.admin_id) {
+                assignedAdminId = Number(parentFranchiseUser.admin_id);
+            }
+        }
+
         const hashPassword = await bcrypt.hash(password, 10);
 
         // abheepay_id is the same as the generated username (token) for this user.
@@ -1292,6 +1311,7 @@ const registerUser = asyncHandler(async (req, res) => {
                         username,
                         franchaise_id: assignedFranchiseId || (req.user && normalizeRole(req.user.role) === 'franchaise' && normalizedRole === 'merchant' ? req.user.id : null),
                         super_franchise_id: assignedSuperFranchiseId || null,
+                        admin_id: assignedAdminId || null,
                     }, { transaction: t });
                     break;
                 } catch (createErr) {
@@ -2647,6 +2667,9 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
     targetUser.franchaise_id = null;
     targetUser.is_approved = true;
     targetUser.status = 'active';
+    if (!targetUser.admin_id) {
+      targetUser.admin_id = req.user.id;
+    }
 
     await targetUser.save({ transaction: trx });
     await trx.commit();
@@ -2666,7 +2689,6 @@ const promoteUserToFranchise = asyncHandler(async (req, res) => {
 
 const promoteUserToSuperFranchise = asyncHandler(async (req, res) => {
   const requesterRole = normalizeRole(req.user?.role);
-
   if (requesterRole !== 'admin') {
     return res.status(403).json({ success: false, message: 'Admin role required to promote user to super franchise.' });
   }
@@ -2725,6 +2747,9 @@ const promoteUserToSuperFranchise = asyncHandler(async (req, res) => {
     targetUser.super_franchise_id = null;
     targetUser.is_approved = true;
     targetUser.status = 'active';
+    if (!targetUser.admin_id) {
+      targetUser.admin_id = req.user.id;
+    }
 
     await targetUser.save({ transaction: trx });
     await trx.commit();
