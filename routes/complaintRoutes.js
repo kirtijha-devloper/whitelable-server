@@ -167,6 +167,7 @@ router.get('/', async (req, res) => {
   try {
     const role = req.user.role;
     const userId = req.user.id;
+    const company_id = req.company;
     let whereCondition = {};
 
     // Non-admin / Non-employee users only see their own tickets
@@ -174,9 +175,11 @@ router.get('/', async (req, res) => {
       whereCondition.user_id = userId;
     }
 
+    whereCondition.company_id = company_id;
+
     const complaints = await Complaint.findAll({
       where: whereCondition,
-      order: [['createdAt', 'DESC']],
+      order: [['created_at', 'DESC']],
     });
 
     const complaintsWithUserDetails = await Promise.all(complaints.map(async (complaint) => {
@@ -195,8 +198,8 @@ router.get('/', async (req, res) => {
         message: complaint.message,
         admin_reply: complaint.admin_reply || '',
         status: complaint.status,
-        createdAt: complaint.createdAt,
-        updatedAt: complaint.updatedAt,
+        createdAt: complaint.created_at,
+        updatedAt: complaint.updated_at,
         user_details: userDetails ? {
           id: userDetails.id,
           name: userDetails.name,

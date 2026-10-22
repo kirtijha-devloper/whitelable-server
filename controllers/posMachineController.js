@@ -120,6 +120,14 @@ async function getAllowedUserIdsForPos(req) {
     return Array.from(new Set([userId, ...downstreamUsers.map(u => u.id)]));
   }
 
+  if (userRole === "franchaise") {
+    const downstreamUsers = await User.findAll({
+      where: { franchaise_id: userId },
+      attributes: ['id']
+    });
+    return Array.from(new Set([userId, ...downstreamUsers.map(u => u.id)]));
+  }
+
   // franchise, merchant
   return [userId];
 }
