@@ -972,7 +972,7 @@ const getLedgerReport = asyncHandler(async (req, res) => {
           model: User,
           as: 'user',
           required: false,
-          attributes: ['id', 'name', 'mobile_number', 'abheepay_id', 'organization_name']
+          attributes: ['id', 'name', 'mobile_number', 'abheepay_id', 'organization_name', 'role']
         }
       ],
       order: [['createdAt', 'DESC']]
@@ -1035,6 +1035,7 @@ const getLedgerReport = asyncHandler(async (req, res) => {
       date:            e.createdAt,
       user_id:         e.user_id,
       user:            userObj,
+      user_role:       userObj?.role || null,
       transaction_type:e.transaction_type,
       description:     description,
       rr_number,
