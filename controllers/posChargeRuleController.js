@@ -394,6 +394,7 @@ const listFranchiseAdminRules = asyncHandler(async (req, res) => {
   if (effectiveSfId) {
     orConditions.push(
       { scope: 'super_franchise_default', super_franchise_id: effectiveSfId },
+      { scope: 'admin_super_franchise', super_franchise_id: effectiveSfId },
       { scope: 'super_franchise_franchise', franchaise_id: targetFranchiseId }
     );
   }

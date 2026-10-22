@@ -252,7 +252,7 @@ exports.getMyApplicableCharges = async (req, res) => {
       ];
       if (effectiveSuperFranchiseId) {
         orConditions.push(
-          { super_franchise_id: effectiveSuperFranchiseId, scope: "super_franchise_default" },
+          { super_franchise_id: effectiveSuperFranchiseId, scope: { [Op.in]: ["super_franchise_default", "admin_super_franchise"] } },
           { super_franchise_id: effectiveSuperFranchiseId, franchaise_id: currentUserId, scope: "super_franchise_franchise" }
         );
       }
@@ -337,7 +337,7 @@ exports.getMyApplicableCharges = async (req, res) => {
         if (rule.scope === "super_franchise_franchise" && (Number(rule.franchaise_id) === Number(currentUserId) || Number(rule.franchaise_id) === Number(currentUser.id))) return 120;
         if (rule.user_id === currentUserId && rule.scope === "franchise_default") return 110;
         // Nearest upline default from Super Franchise
-        if (rule.scope === "super_franchise_default" && currentUser.super_franchise_id && Number(rule.super_franchise_id) === Number(currentUser.super_franchise_id)) return 95;
+        if ((rule.scope === "super_franchise_default" || rule.scope === "admin_super_franchise") && currentUser.super_franchise_id && Number(rule.super_franchise_id) === Number(currentUser.super_franchise_id)) return 95;
         // Admin specific override for this franchise
         if (rule.scope === "admin_franchise" && (Number(rule.franchaise_id) === Number(currentUserId) || Number(rule.user_id) === Number(currentUserId))) return 80;
         // Admin default for company
@@ -382,7 +382,7 @@ exports.getMyApplicableCharges = async (req, res) => {
         return "Admin Override";
       }
       if (isFranchise) {
-        if (rule.scope === "super_franchise_franchise" || rule.scope === "super_franchise_default") {
+        if (rule.scope === "super_franchise_franchise" || rule.scope === "super_franchise_default" || rule.scope === "admin_super_franchise") {
           return "Super Franchise Rate";
         }
         return "Admin Override";
@@ -448,6 +448,7 @@ exports.getMyApplicableCharges = async (req, res) => {
       posRows.push({
         id: activeRule.id,
         rule_key: key,
+        precedence: isOverridden ? getRulePrecedence(activeRule) : 10,
         service_name: serviceName,
         payment_mode: mode,
         card_brand: activeRule.card_brand || "ANY",
@@ -485,6 +486,7 @@ exports.getMyApplicableCharges = async (req, res) => {
         posRows.push({
           id: ar.id,
           rule_key: getPosRuleKey(ar),
+          precedence: getRulePrecedence(ar),
           service_name: serviceName,
           payment_mode: mode,
           card_brand: ar.card_brand || "ANY",
@@ -506,6 +508,26 @@ exports.getMyApplicableCharges = async (req, res) => {
         });
       }
     });
+
+    // Deduplicate posRows by core criteria so only the single most-nearest/highest-precedence rule is returned per criteria
+    const corePosMap = new Map();
+    posRows.forEach((row) => {
+      const coreKey = `${String(row.payment_mode || '').toUpperCase()}|${String(row.card_brand || 'ANY').toUpperCase()}|${String(row.card_type || 'ANY').toUpperCase()}|${String(row.card_classification || 'ANY').toUpperCase()}|${String(row.settlement_type || 'ANY').toLowerCase()}|${String(row.company_name || 'ANY').toUpperCase()}`;
+      const existing = corePosMap.get(coreKey);
+      if (!existing) {
+        corePosMap.set(coreKey, row);
+      } else {
+        const rowPrec = row.precedence ?? 0;
+        const exPrec = existing.precedence ?? 0;
+        if (rowPrec > exPrec) {
+          corePosMap.set(coreKey, row);
+        } else if (rowPrec === exPrec && row.id > existing.id) {
+          corePosMap.set(coreKey, row);
+        }
+      }
+    });
+    posRows.length = 0;
+    posRows.push(...corePosMap.values());
 
     // ── 2. Payout (Pay) Rates ─────────────────────────────────────────────────
     const defaultPayoutRules = await PayoutCharge.findAll({
