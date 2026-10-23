@@ -424,6 +424,10 @@ async function createFranchiseEarningEntry({
   description = null,
   metadata = null,
 }) {
+  const user = await User.findByPk(userId);
+  if (user && !user.start_ledger) {
+    await user.update({ start_ledger: true });
+  }
   return await createLedgerEntry({
     userId,
     transactionType: 'pos_franchise_earning',
@@ -442,6 +446,10 @@ async function createSuperFranchiseEarningEntry({
   description = null,
   metadata = null,
 }) {
+  const user = await User.findByPk(userId);
+  if (user && !user.start_ledger) {
+    await user.update({ start_ledger: true });
+  }
   return await createLedgerEntry({
     userId,
     transactionType: 'pos_super_franchise_earning',
@@ -460,6 +468,10 @@ async function createAdminEarningEntry({
   description = null,
   metadata = null,
 }) {
+  const user = await User.findByPk(userId);
+  if (user && !user.start_ledger) {
+    await user.update({ start_ledger: true });
+  }
   return await createLedgerEntry({
     userId,
     transactionType: 'pos_admin_earning',

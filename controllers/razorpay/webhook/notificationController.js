@@ -569,15 +569,11 @@ async function adminProcessNotification(req, res) {
 
 async function adminProcessNotificationWithCustomCharge(req, res) {
     try {
-        const companyId = req.company;
-
-        if(!companyId){
-            console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
-            return res.status(400).json({message : "No Domain Name is registered"});
-        }
-
         const userRole = String(req.user?.role || '').trim().toLowerCase();
-        if (!req.user || (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'superadmin')) {
+        const isSuperAdmin = userRole === 'super_admin' || userRole === 'superadmin';
+        const isAdmin = userRole === 'admin';
+
+        if (!req.user || (!isAdmin && !isSuperAdmin)) {
             res.status(403).json({ success: false, message: 'Admin or Super Admin role required' });
             return;
         }
@@ -585,11 +581,14 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
         const { id } = req.params;
         const { charge_percent, charge_flat } = req.body;
 
-        const parsedPercent = charge_percent !== undefined && charge_percent !== null ? parseFloat(charge_percent) : null;
-        const parsedFlat = charge_flat !== undefined && charge_flat !== null ? parseFloat(charge_flat) : null;
+        const parsedPercent = charge_percent !== undefined && charge_percent !== null && charge_percent !== '' ? parseFloat(charge_percent) : null;
+        const parsedFlat = charge_flat !== undefined && charge_flat !== null && charge_flat !== '' ? parseFloat(charge_flat) : null;
 
         if ((parsedPercent === null || Number.isNaN(parsedPercent)) && (parsedFlat === null || Number.isNaN(parsedFlat))) {
             return res.status(400).json({ success: false, message: 'charge_percent or charge_flat must be provided' });
+        }
+        if ((parsedPercent !== null && parsedPercent < 0) || (parsedFlat !== null && parsedFlat < 0)) {
+            return res.status(400).json({ success: false, message: 'Charge values cannot be negative' });
         }
 
         const notification = await RazorpayNotification.findByPk(id);
@@ -597,8 +596,14 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             return res.status(404).json({ success: false, message: 'Notification not found' });
         }
 
+        if (notification.processing_status === 'completed') {
+            return res.status(400).json({ success: false, message: 'Notification already processed' });
+        }
+
+        const companyId = req.company || notification.company_id || req.user?.company_id || null;
+
         // Whitelabel admins cannot process notifications belonging to another company
-        if (userRole === 'admin' && notification.company_id && notification.company_id !== companyId) {
+        if (isAdmin && notification.company_id && notification.company_id !== companyId) {
             return res.status(403).json({ success: false, message: 'Unauthorized: This notification does not belong to your company' });
         }
 
@@ -622,10 +627,14 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             return res.status(400).json({ success: false, message: 'Merchant transaction charge already exists for this notification' });
         }
 
+        const isNormalEmi = (String(eventData?.externalRefNumber6 || '').trim().toUpperCase() === 'NORMAL_EMI' || 
+                             String(eventData?.externalRefNumber7 || '').trim().toUpperCase() === 'NORMAL_EMI');
+
         const effectiveChargePercent = parsedPercent || 0;
+        const effectiveChargeFlat = parsedFlat || 0;
         const chargeRuleStub = {
             charge_percent: effectiveChargePercent,
-            charge_flat: parsedFlat || 0,
+            charge_flat: effectiveChargeFlat,
             gst_required: false,
             gst_percent: 0
         };
@@ -635,63 +644,152 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
         const gstAmount = chargeResult.gstAmount || 0;
         const netAmount = parseFloat((transactionAmount - chargeAmount - gstAmount).toFixed(2));
 
-        // Super franchise resolution
+        const effectiveCompanyId = posOperator.company_id || companyId || null;
+        const companyName = posMachine ? posMachine.company_name : null;
+
+        // ── Hierarchy Resolution & Rate Lookup (Upfront) ──────────────────────
+        // 1. Super franchise resolution
         let superFranchiseChargeAmount = 0;
         let superFranchiseEarning = 0;
         let resolvedSuperFranchiseId = null;
         if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
-            const User = require('../../../models/User');
             const franchiseUser = await User.findByPk(posOperator.franchaise_id);
             resolvedSuperFranchiseId = franchiseUser ? franchiseUser.super_franchise_id : null;
         } else if ((posOperator.role === 'franchaise' || posOperator.role === 'franchise') && posOperator.super_franchise_id) {
             resolvedSuperFranchiseId = posOperator.super_franchise_id;
         }
 
-        // Franchise handling (charge for franchise)
+        // 2. Franchise handling
         let franchiseChargeAmount = 0;
         let franchiseEarning = 0;
+        let franchiseRatePercent = 0;
 
         if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
-            const franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
+            let franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
                 franchiseId: posOperator.franchaise_id,
                 superFranchiseId: resolvedSuperFranchiseId,
+                companyId: effectiveCompanyId,
                 paymentMode,
                 cardType: paymentCardType,
                 cardBrand: paymentCardBrand,
                 classification: classificationFromJson,
                 settlement: posOperator.settlement_type || null,
-                amount: transactionAmount
+                amount: transactionAmount,
+                companyName
             });
+
+            if (franchiseRule && isNormalEmi) {
+                franchiseRule = { ...franchiseRule, charge_percent: parseFloat(franchiseRule.charge_percent || 0) + 1 };
+            }
 
             if (franchiseRule) {
                 franchiseChargeAmount = ChargeService.calculateCharge(transactionAmount, franchiseRule).charge;
+                franchiseRatePercent = parseFloat(franchiseRule.charge_percent || 0);
             } else {
-                const DEFAULT_MDR = 2.5;
-                franchiseChargeAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
+                let defaultMdr = 2.5 + (isNormalEmi ? 1 : 0);
+                franchiseChargeAmount = parseFloat((transactionAmount * (defaultMdr / 100)).toFixed(2));
+                franchiseRatePercent = defaultMdr;
             }
-            franchiseEarning = parseFloat((chargeAmount - franchiseChargeAmount).toFixed(2));
+            franchiseEarning = Math.max(0, parseFloat((chargeAmount - franchiseChargeAmount).toFixed(2)));
         }
 
+        // 3. Super Franchise handling
+        let sfRatePercent = 0;
         if (resolvedSuperFranchiseId) {
-            const sfRule = await ChargeService.getAdminChargeRuleForSuperFranchise({
+            let sfRule = await ChargeService.getAdminChargeRuleForSuperFranchise({
                 superFranchiseId: resolvedSuperFranchiseId,
+                companyId: effectiveCompanyId,
                 paymentMode,
                 cardType: paymentCardType,
                 cardBrand: paymentCardBrand,
                 classification: classificationFromJson,
                 settlement: posOperator.settlement_type || null,
-                amount: transactionAmount
+                amount: transactionAmount,
+                companyName
             });
+
+            if (sfRule && isNormalEmi) {
+                sfRule = { ...sfRule, charge_percent: parseFloat(sfRule.charge_percent || 0) + 1 };
+            }
 
             if (sfRule) {
                 superFranchiseChargeAmount = ChargeService.calculateCharge(transactionAmount, sfRule).charge;
+                sfRatePercent = parseFloat(sfRule.charge_percent || 0);
             } else {
-                const DEFAULT_MDR = 2.5;
-                superFranchiseChargeAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
+                let defaultMdr = 2.5 + (isNormalEmi ? 1 : 0);
+                superFranchiseChargeAmount = parseFloat((transactionAmount * (defaultMdr / 100)).toFixed(2));
+                sfRatePercent = defaultMdr;
             }
-            superFranchiseEarning = parseFloat((franchiseChargeAmount - superFranchiseChargeAmount).toFixed(2));
+            const upwardToSF = posOperator.franchaise_id ? franchiseChargeAmount : chargeAmount;
+            superFranchiseEarning = Math.max(0, parseFloat((upwardToSF - superFranchiseChargeAmount).toFixed(2)));
         }
 
+        // 4. Admin handling & Super Admin base cost
+        let adminUser = null;
+        let adminCostAmount = 0;
+        let adminCostPercent = 0;
+        let adminEarning = 0;
+        let paidUpwardToAdmin = chargeAmount;
+        if (resolvedSuperFranchiseId) {
+            paidUpwardToAdmin = superFranchiseChargeAmount;
+        } else if (posOperator.franchaise_id) {
+            paidUpwardToAdmin = franchiseChargeAmount;
+        }
+
+        if (posOperator.admin_id) {
+            adminUser = await User.findByPk(posOperator.admin_id);
+        }
+        if (!adminUser && effectiveCompanyId) {
+            adminUser = await User.findOne({
+                where: { role: 'admin', company_id: effectiveCompanyId }
+            });
+        }
+
+        if (adminUser) {
+            let adminRule = await ChargeService.getSuperAdminChargeRuleForAdmin({
+                adminId: adminUser.id,
+                paymentMode,
+                cardType: paymentCardType,
+                cardBrand: paymentCardBrand,
+                classification: classificationFromJson,
+                settlement: posOperator.settlement_type || null,
+                amount: transactionAmount,
+                companyName
+            });
+
+            if (adminRule && isNormalEmi) {
+                adminRule = { ...adminRule, charge_percent: parseFloat(adminRule.charge_percent || 0) + 1 };
+            }
+
+            if (adminRule) {
+                adminCostAmount = ChargeService.calculateCharge(transactionAmount, adminRule).charge;
+                adminCostPercent = parseFloat(adminRule.charge_percent || 0);
+            } else {
+                let defaultMdr = 2.5 + (isNormalEmi ? 1 : 0);
+                adminCostAmount = parseFloat((transactionAmount * (defaultMdr / 100)).toFixed(2));
+                adminCostPercent = defaultMdr;
+            }
+            adminEarning = Math.max(0, parseFloat((paidUpwardToAdmin - adminCostAmount).toFixed(2)));
+        }
+
+        // 5. Floor Rate Validation: Whitelabel Admin cannot undercut Super Admin base cost or Franchise rate
+        if (isAdmin) {
+            if (adminCostAmount > 0 && chargeAmount < adminCostAmount) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Custom charge (₹${chargeAmount}) cannot be less than Super Admin base cost (₹${adminCostAmount} / ${adminCostPercent}%).`
+                });
+            }
+
+            if (posOperator.franchaise_id && franchiseChargeAmount > 0 && chargeAmount < franchiseChargeAmount) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Custom charge (₹${chargeAmount}) cannot be less than Franchise rate (₹${franchiseChargeAmount} / ${franchiseRatePercent}%).`
+                });
+            }
+        }
+
+        // ── Database & Ledger Persistence ────────────────────────────────────
         const merchantTransactionCharge = await MerchantTransactionCharge.create({
             merchant_id: posOperator.id,
             pos_machine_id: posMachine.id,
@@ -718,7 +816,7 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             processing_status: 'completed',
             processed_at: new Date(),
             processing_error: null,
-            company_id : companyId,
+            company_id: effectiveCompanyId,
         });
 
         await ledgerService.createRazorpayChargeEntry({
@@ -734,7 +832,7 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                 razorpay_notification_id: notification.id,
                 payment_method: paymentMode,
                 charge_rate: effectiveChargePercent,
-                charge_flat: parsedFlat || 0,
+                charge_flat: effectiveChargeFlat,
                 gst_amount: gstAmount,
                 gst_percent: 0,
                 pos_machine_id: posMachine.id,
@@ -788,12 +886,46 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
             }
         }
 
+        // Admin earning credit
+        if (adminUser && adminEarning > 0) {
+            try {
+                await ledgerService.createAdminEarningEntry({
+                    userId: adminUser.id,
+                    razorpayTransactionId: notification.txn_id,
+                    amount: adminEarning,
+                    description: `Admin earning on Razorpay txn ${notification.txn_id} | RRN: ${rrNumber || 'N/A'}`,
+                    metadata: {
+                        merchant_id: posOperator.id,
+                        franchise_id: posOperator.franchaise_id || null,
+                        super_franchise_id: resolvedSuperFranchiseId || null,
+                        admin_id: adminUser.id,
+                        transaction_amount: transactionAmount,
+                        charge_amount: chargeAmount,
+                        admin_cost: adminCostAmount,
+                        admin_earning: adminEarning,
+                        charge_rate: effectiveChargePercent
+                    }
+                });
+            } catch (earnError) {
+                console.error('[adminProcessNotificationWithCustomCharge] Admin earning entry failed:', earnError);
+            }
+        }
+
         return res.status(200).json({
             success: true,
             message: 'Notification processed with custom charge',
             data: {
                 notification: await RazorpayNotification.findByPk(id),
-                merchantTransactionCharge
+                merchantTransactionCharge,
+                breakdown: {
+                    transactionAmount,
+                    merchantCharge: chargeAmount,
+                    merchantNet: netAmount,
+                    franchiseEarning,
+                    superFranchiseEarning,
+                    adminEarning,
+                    superAdminShare: adminCostAmount
+                }
             }
         });
     } catch (error) {

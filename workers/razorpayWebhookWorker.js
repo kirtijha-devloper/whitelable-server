@@ -534,8 +534,9 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
         }
         superFranchiseChargeAmount = parseFloat((parseFloat(transactionAmount) * (DEFAULT_MDR / 100)).toFixed(2));
       }
-      // SF earns: what franchise paid upward minus what SF pays admin
-      superFranchiseEarning = Math.max(0, parseFloat((franchiseChargeAmount - superFranchiseChargeAmount).toFixed(2)));
+      // SF earns: what downstream paid upward minus what SF pays admin
+      const upwardToSF = posOperator.franchaise_id ? franchiseChargeAmount : chargeAmount;
+      superFranchiseEarning = Math.max(0, parseFloat((upwardToSF - superFranchiseChargeAmount).toFixed(2)));
       logger.log(`[Razorpay Webhook Worker] Super franchise charge: ${superFranchiseChargeAmount}, earning: ${superFranchiseEarning}`);
     }
 
@@ -550,7 +551,10 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
       paidUpwardToAdmin = franchiseChargeAmount;
     }
 
-    if (posOperator.company_id) {
+    if (posOperator.admin_id) {
+      adminUser = await User.findByPk(posOperator.admin_id);
+    }
+    if (!adminUser && posOperator.company_id) {
       adminUser = await User.findOne({
         where: { role: 'admin', company_id: posOperator.company_id }
       });
