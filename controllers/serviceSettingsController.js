@@ -71,31 +71,10 @@ const DEFAULT_SERVICES_METADATA = [
     target_roles: ['admin', 'franchise', 'merchant', 'super_franchise'],
   },
   {
-    key: 'user_daily_limit',
-    label: 'User Daily Transaction Limit',
-    category: 'Security & Limits',
-    description: 'Daily transaction volume limit per user',
-    target_roles: ['admin', 'franchise', 'merchant'],
-  },
-  {
-    key: 'pos_inventory',
-    label: 'POS Inventory & Rentals',
-    category: 'POS & Hardware',
-    description: 'POS Machine Inventory & Terminal Management',
-    target_roles: ['admin', 'franchise', 'merchant', 'super_franchise'],
-  },
-  {
     key: 'aadhaar_pay',
     label: 'Aadhaar Pay',
     category: 'Payout & Banking',
     description: 'Biometric Aadhaar withdrawal service',
-    target_roles: ['admin', 'franchise', 'merchant'],
-  },
-  {
-    key: 'qr_payments',
-    label: 'QR & Soundbox Payments',
-    category: 'POS & Hardware',
-    description: '4G Soundbox & Standee QR payments',
     target_roles: ['admin', 'franchise', 'merchant'],
   },
 ];
@@ -190,9 +169,14 @@ const getServicesListController = asyncHandler(async (_req, res) => {
     dbMap.set(s.service_key, s.toJSON ? s.toJSON() : s);
   });
 
-  const merged = DEFAULT_SERVICES_METADATA.map((meta) => {
+  const seenKeys = new Set();
+  const merged = [];
+
+  DEFAULT_SERVICES_METADATA.forEach((meta) => {
+    if (seenKeys.has(meta.key)) return;
+    seenKeys.add(meta.key);
     const dbRecord = dbMap.get(meta.key);
-    return {
+    merged.push({
       key: meta.key,
       service_key: meta.key,
       label: dbRecord?.label || meta.label,
@@ -200,12 +184,13 @@ const getServicesListController = asyncHandler(async (_req, res) => {
       description: dbRecord?.description || meta.description,
       is_enabled: dbRecord ? dbRecord.is_enabled !== false : true,
       target_roles: dbRecord?.target_roles || meta.target_roles,
-    };
+    });
   });
 
   // Include any extra custom services created in DB
   dbServices.forEach((s) => {
-    if (s.service_key !== 'mx_payout' && !DEFAULT_SERVICES_METADATA.some((m) => m.key === s.service_key)) {
+    if (s.service_key !== 'mx_payout' && !seenKeys.has(s.service_key)) {
+      seenKeys.add(s.service_key);
       merged.push({
         key: s.service_key,
         service_key: s.service_key,
@@ -296,7 +281,17 @@ const createServiceController = asyncHandler(async (req, res) => {
     });
   }
   
+  const isUpdate = Boolean(req.body.is_update || req.body.is_editing);
   const existing = await ServiceSetting.findOne({ where: { service_key: finalKey } });
+  const isDefaultService = DEFAULT_SERVICES_METADATA.some((m) => m.key === finalKey);
+
+  if ((existing || isDefaultService) && !isUpdate) {
+    return res.status(409).json({
+      success: false,
+      message: `A service with key '${finalKey}' already exists. Cannot create duplicate service.`,
+    });
+  }
+
   if (existing) {
     existing.label = label;
     existing.category = category;

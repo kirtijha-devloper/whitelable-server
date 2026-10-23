@@ -340,15 +340,13 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
   if (!targetUser) return;
 
   const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
-  const isUserDailyLimitEnabled = await serviceSettingsService.getServiceFlagValue("user_daily_limit", true);
 
-  if (!isGlobalT0Enabled || !isUserDailyLimitEnabled) {
-    const disabledKey = !isGlobalT0Enabled ? 'pos_t0_settlement' : 'user_daily_limit';
-    const err = new Error('POS Settlement / Daily Limit service is globally disabled. T0 limit changes are not allowed while disabled.');
+  if (!isGlobalT0Enabled) {
+    const err = new Error('POS Settlement service is globally disabled. T0 limit changes are not allowed while disabled.');
     err.status = 403;
     err.statusCode = 403;
     err.code = 'SERVICE_DISABLED';
-    err.service_key = disabledKey;
+    err.service_key = 'pos_t0_settlement';
     throw err;
   }
 

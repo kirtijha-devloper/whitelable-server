@@ -1239,10 +1239,7 @@ const updateAdmin = asyncHandler(async (req, res) => {
     const UserServiceSetting = require("../models/UserServiceSetting");
 
     const serviceKeyMapping = {
-      pos: ['pos_inventory', 'pos_t0_settlement'],
-      pg: ['pg_inventory'],
-      qr: ['qr_payments'],
-      soundbox: ['qr_payments'],
+      pos: ['pos_t0_settlement'],
       dmt: ['vimo_payout', 'branchx_payout', 'sevenpay_payout', 'ndia5_payout'],
       billpayments: ['cc_bill_pay', 'ba_cc_bill_pay', 'cc_bill_3'],
     };
@@ -1845,9 +1842,8 @@ const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
     { key: "cc_bill_pay", label: "Credit Card Bill Pay", category: "Credit Card & Utility", description: "Direct Credit Card Bill Payment Engine" },
     { key: "ba_cc_bill_pay", label: "BillAvenue CC Bill Pay", category: "Credit Card & Utility", description: "BillAvenue BBPS Credit Card Bill Payment" },
     { key: "cc_bill_3", label: "CC Bill 3", category: "Credit Card & Utility", description: "CC Bill 3 Payment Route" },
-    { key: "pos_inventory", label: "POS Machine Hardware", category: "POS & Hardware", description: "POS Terminal Transaction Processing" },
     { key: "pos_t0_settlement", label: "POS Instant T0 Settlement", category: "Settlement & Limits", description: "Same-Day POS Settlement Engine" },
-    { key: "qr_payments", label: "Digital QR Collections", category: "Digital QR", description: "Dynamic Soundbox & Standee QR" },
+    { key: "aadhaar_pay", label: "Aadhaar Pay AEPS", category: "Payout & Banking", description: "Biometric Aadhaar cash withdrawal service" },
   ];
 
   // Merge default metadata with DB services
@@ -1904,7 +1900,7 @@ const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
     let commission = 0;
     let successRate = 100;
 
-    if (service.key === "pos_inventory" || service.key === "pos_t0_settlement") {
+    if (service.key === "pos_t0_settlement") {
       volume = posVolume;
       txns = posTxnCount;
       charges = posCharges;

@@ -215,19 +215,4 @@ describe('Service toggle enforcement', () => {
     expect(res.body.code).to.equal('SERVICE_DISABLED');
     expect(res.body.service_key).to.equal('pos_t0_settlement');
   });
-
-  it('blocks T0 daily limit Excel upload & changes when user_daily_limit is disabled globally', async () => {
-    ServiceSetting.findAll = async () => makeDisabledSetting('user_daily_limit');
-
-    const res = await request(app)
-      .post('/api/admin/pos-setting/update-t0-limit')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send([
-        { user_id: 101, amount: 50000 }
-      ]);
-
-    expect(res.status).to.equal(403);
-    expect(res.body.code).to.equal('SERVICE_DISABLED');
-    expect(res.body.service_key).to.equal('user_daily_limit');
-  });
 });

@@ -16,10 +16,7 @@ const SERVICE_SETTING_KEYS = Object.freeze({
   BA_CC_BILL_PAY: 'ba_cc_bill_pay',
   CC_BILL_3: 'cc_bill_3',
   POS_T0_SETTLEMENT: 'pos_t0_settlement',
-  USER_DAILY_LIMIT: 'user_daily_limit',
-  POS_INVENTORY: 'pos_inventory',
   AADHAAR_PAY: 'aadhaar_pay',
-  QR_PAYMENTS: 'qr_payments',
 });
 
 const SERVICE_SETTING_KEY_LIST = Object.freeze(Object.values(SERVICE_SETTING_KEYS));
@@ -500,22 +497,10 @@ function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings,
       resolvedSettings[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT]?.is_enabled !== false
       && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT] !== false : true)
       && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT] !== false,
-    [SERVICE_SETTING_KEYS.USER_DAILY_LIMIT]:
-      resolvedSettings[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT]?.is_enabled !== false
-      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT] !== false : true)
-      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.USER_DAILY_LIMIT] !== false,
-    pos_inventory:
-      resolvedSettings['pos_inventory']?.is_enabled !== false
-      && (adminOverrides ? adminOverrides['pos_inventory'] !== false : true)
-      && resolvedUserServiceSettings['pos_inventory'] !== false,
     aadhaar_pay:
       resolvedSettings['aadhaar_pay']?.is_enabled !== false
       && (adminOverrides ? adminOverrides['aadhaar_pay'] !== false : true)
       && resolvedUserServiceSettings['aadhaar_pay'] !== false,
-    qr_payments:
-      resolvedSettings['qr_payments']?.is_enabled !== false
-      && (adminOverrides ? adminOverrides['qr_payments'] !== false : true)
-      && resolvedUserServiceSettings['qr_payments'] !== false,
   };
 
   // Dynamically include any other services in resolvedSettings

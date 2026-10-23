@@ -17,8 +17,7 @@ const getPosSettings = asyncHandler(async (req, res) => {
 
   const serviceSettingsService = require('../services/serviceSettingsService');
   const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
-  const isUserDailyLimitEnabled = await serviceSettingsService.getServiceFlagValue("user_daily_limit", true);
-  const isGlobalEnabled = isGlobalT0Enabled && isUserDailyLimitEnabled;
+  const isGlobalEnabled = isGlobalT0Enabled;
 
   const where = {};
   if (role === 'super_franchise') {
@@ -239,7 +238,6 @@ const getPosSettings = asyncHandler(async (req, res) => {
         total_customers: formattedCustomers.length,
         is_global_t0_enabled: isGlobalEnabled,
         is_pos_t0_settlement_enabled: isGlobalT0Enabled,
-        is_user_daily_limit_enabled: isUserDailyLimitEnabled,
       },
       ...(franchisePool ? { franchise_pool: franchisePool } : {}),
       ...(adminLimits ? { admin_limits: adminLimits } : {}),
@@ -316,15 +314,13 @@ const updateT0Limit = asyncHandler(async (req, res) => {
 
   const serviceSettingsService = require('../services/serviceSettingsService');
   const isGlobalT0Enabled = await serviceSettingsService.getServiceFlagValue("pos_t0_settlement", true);
-  const isUserDailyLimitEnabled = await serviceSettingsService.getServiceFlagValue("user_daily_limit", true);
 
-  if (!isGlobalT0Enabled || !isUserDailyLimitEnabled) {
-    const disabledKey = !isGlobalT0Enabled ? 'pos_t0_settlement' : 'user_daily_limit';
+  if (!isGlobalT0Enabled) {
     return res.status(403).json({
       success: false,
-      message: 'POS Settlement / Daily Limit service is globally disabled. T0 daily limit changes are not allowed while disabled.',
+      message: 'POS Settlement service is globally disabled. T0 daily limit changes are not allowed while disabled.',
       code: 'SERVICE_DISABLED',
-      service_key: disabledKey
+      service_key: 'pos_t0_settlement'
     });
   }
 
