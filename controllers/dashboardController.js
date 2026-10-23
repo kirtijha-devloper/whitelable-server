@@ -230,40 +230,39 @@ const getDashboard = asyncHandler(async (req, res) => {
       const userWhere = companyId ? { company_id: companyId } : {};
 
       let allowedUserIds = [userId];
+      let downlineUserIds = [];
       if (companyId) {
         const companyUsers = await User.findAll({
           where: { company_id: companyId },
-          attributes: ['id']
+          attributes: ['id', 'role']
         });
         allowedUserIds = Array.from(new Set([userId, ...companyUsers.map(u => u.id)]));
+        downlineUserIds = companyUsers
+          .filter(u => !['admin', 'employee'].includes(normalizeRole(u.role)))
+          .map(u => u.id);
       }
       const posWhere = {
         assigned_to: { [Op.in]: allowedUserIds }
       };
 
       const [
-        activeMachineCount,
-        deactiveMachineCount,
         totalMachineCount,
+        activeMachineCount,
         merchantCount,
         franchaiseCount,
         superFranchiseCount
       ] = await Promise.all([
         PosMachine.count({
-          where: {
-            ...posWhere,
-            status: { [Op.notIn]: ['in_active', 'inactive'] }
-          }
-        }),
-        PosMachine.count({
-          where: {
-            ...posWhere,
-            status: { [Op.in]: ['in_active', 'inactive'] }
-          }
-        }),
-        PosMachine.count({
           where: posWhere
         }),
+        downlineUserIds.length > 0
+          ? PosMachine.count({
+              where: {
+                assigned_to: { [Op.in]: downlineUserIds },
+                status: { [Op.notIn]: ['in_active', 'inactive'] }
+              }
+            })
+          : 0,
         User.count({
           where: {
             ...userWhere,
@@ -294,11 +293,13 @@ const getDashboard = asyncHandler(async (req, res) => {
         getPayoutStats({ start, end })
       ]);
 
+      const deactiveMachineCount = Math.max(0, totalMachineCount - activeMachineCount);
+
       data = {
         pos_machines: {
           active: activeMachineCount,
           inactive: deactiveMachineCount,
-          total: totalMachineCount || (activeMachineCount + deactiveMachineCount)
+          total: totalMachineCount
         },
         merchants: { count: merchantCount },
         franchaises: { count: franchaiseCount },

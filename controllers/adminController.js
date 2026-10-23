@@ -61,33 +61,51 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
     let posWhere = {};
     let userWhere = {};
 
+    let activeMachineCount = 0;
+    let deactiveMachineCount = 0;
+
     if (!isSuperAdmin) {
       if (companyId) {
         userWhere.company_id = companyId;
       }
       let allowedUserIds = req.user?.id ? [req.user.id] : [];
+      let downlineUserIds = [];
       if (companyId) {
         const companyUsers = await User.findAll({
           where: { company_id: companyId },
-          attributes: ['id']
+          attributes: ['id', 'role']
         });
         allowedUserIds = Array.from(new Set([...allowedUserIds, ...companyUsers.map(u => u.id)]));
+        downlineUserIds = companyUsers
+          .filter(u => !['admin', 'employee'].includes(normalizeRole(u.role)))
+          .map(u => u.id);
       }
       posWhere.assigned_to = { [Op.in]: allowedUserIds };
-    }
 
-    const activeMachineCount = await PosMachine.count({
-      where: {
-        ...posWhere,
-        status: { [Op.notIn]: ['in_active', 'inactive'] }
-      }
-    });
-    const deactiveMachineCount = await PosMachine.count({
-      where: {
-        ...posWhere,
-        status: { [Op.in]: ['in_active', 'inactive'] }
-      }
-    });
+      const totalMachineCount = await PosMachine.count({ where: posWhere });
+      activeMachineCount = downlineUserIds.length > 0
+        ? await PosMachine.count({
+            where: {
+              assigned_to: { [Op.in]: downlineUserIds },
+              status: { [Op.notIn]: ['in_active', 'inactive'] }
+            }
+          })
+        : 0;
+      deactiveMachineCount = Math.max(0, totalMachineCount - activeMachineCount);
+    } else {
+      activeMachineCount = await PosMachine.count({
+        where: {
+          ...posWhere,
+          status: { [Op.notIn]: ['in_active', 'inactive'] }
+        }
+      });
+      deactiveMachineCount = await PosMachine.count({
+        where: {
+          ...posWhere,
+          status: { [Op.in]: ['in_active', 'inactive'] }
+        }
+      });
+    }
     const activeMerchantCount = await User.count({
       where: {
         ...userWhere,
