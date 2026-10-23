@@ -20,6 +20,9 @@ const BbpsCcChargeRule = require("../models/BbpsCcChargeRule");
 const PayoutCharge = require("../models/PayoutCharge");
 const UserPayoutCharge = require("../models/UserPayoutCharge");
 const PosGlobalRate = require("../models/PosGlobalRate");
+const CcBillPayment = require("../models/CcBillPayment");
+const BillAvenuePayment = require("../models/BillAvenuePayment");
+const PayoutTransaction = require("../models/PayoutTransaction");
 const { parseIstBusinessDateRange } = require("../utils/dateRange");
 
 // Configure Cloudinary if environment variables are provided
@@ -1969,7 +1972,6 @@ const getSuperAdminServiceWiseReport = asyncHandler(async (req, res) => {
  * Super Admin Dashboard Real-Time Metrics & Analytics
  */
 const getSuperAdminDashboard = asyncHandler(async (req, res) => {
-
   // check access of super admin
   checkSuperAdminAccess(req, res);
 
@@ -1987,61 +1989,93 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
     ]
   };
 
-  const SUCCESS_STATUSES = ["CAPTURED", "captured", "AUTHORIZED", "SETTLED"];
-  const FAILED_STATUSES = ["FAILED", "failed", "VOIDED", "DECLINED", "REJECTED"];
-  const PENDING_STATUSES = ["PENDING", "pending", "processing", "needs_admin"];
+  const todayCreatedAtWhere = {
+    createdAt: { [Op.between]: [todayStart, todayEnd] }
+  };
 
-  // Run Parallel Queries use promise.all for fast response
+  const SUCCESS_STATUSES = ["CAPTURED", "captured", "AUTHORIZED", "SETTLED", "SUCCESS", "success"];
+  const FAILED_STATUSES = ["FAILED", "failed", "VOIDED", "DECLINED", "REJECTED"];
+  const PENDING_STATUSES = ["PENDING", "pending", "processing", "needs_admin", "INITIATED", "initiated"];
+  const CC_BILL_SUCCESS_STATUS_CODES = ["TXN", "TUP"];
+
+  // Run parallel queries across all platform services
   const [
-    totalTransactions,
-    successfulTransactions,
-    pendingTransactions,
-    failedTransactions,
-    totalBusinessRaw,
-    todayBusinessRaw,
+    // POS transactions (with pos_machine_id)
+    posSuccess,
+    posPending,
+    posFailed,
+    posTotalAmount,
+    posTodayAmount,
+
+    // PG transactions (without pos_machine_id)
+    pgSuccess,
+    pgPending,
+    pgFailed,
+    pgTotalAmount,
+    pgTodayAmount,
+
+    // Bill Payments (CcBillPayment + BillAvenuePayment)
+    ccSuccess,
+    baCcSuccess,
+    ccPending,
+    baCcPending,
+    ccFailed,
+    baCcFailed,
+    ccTotalAmount,
+    baCcTotalAmount,
+    ccTodayAmount,
+    baCcTodayAmount,
+
+    // Payout / DMT
+    payoutSuccess,
+    payoutPending,
+    payoutFailed,
+    payoutTotalAmount,
+    payoutTodayAmount,
+
+    // Commission revenue
     totalCommissionRaw,
     todayCommissionRaw,
+
+    // Top Admins / Companies by Volume for spending chart
     topAdminsRaw
   ] = await Promise.all([
+    // POS
+    RazorpayNotification.count({ where: { pos_machine_id: { [Op.ne]: null }, status: { [Op.in]: SUCCESS_STATUSES } } }).catch(() => 0),
+    RazorpayNotification.count({ where: { pos_machine_id: { [Op.ne]: null }, status: { [Op.in]: PENDING_STATUSES } } }).catch(() => 0),
+    RazorpayNotification.count({ where: { pos_machine_id: { [Op.ne]: null }, status: { [Op.in]: FAILED_STATUSES } } }).catch(() => 0),
+    RazorpayNotification.sum("amount", { where: { pos_machine_id: { [Op.ne]: null }, status: { [Op.in]: SUCCESS_STATUSES } } }).catch(() => 0),
+    RazorpayNotification.sum("amount", { where: { pos_machine_id: { [Op.ne]: null }, ...todayWhere, status: { [Op.in]: SUCCESS_STATUSES } } }).catch(() => 0),
 
-    //Total transaction count
-    RazorpayNotification.count(),
+    // PG
+    RazorpayNotification.count({ where: { pos_machine_id: null, status: { [Op.in]: SUCCESS_STATUSES } } }).catch(() => 0),
+    RazorpayNotification.count({ where: { pos_machine_id: null, status: { [Op.in]: PENDING_STATUSES } } }).catch(() => 0),
+    RazorpayNotification.count({ where: { pos_machine_id: null, status: { [Op.in]: FAILED_STATUSES } } }).catch(() => 0),
+    RazorpayNotification.sum("amount", { where: { pos_machine_id: null, status: { [Op.in]: SUCCESS_STATUSES } } }).catch(() => 0),
+    RazorpayNotification.sum("amount", { where: { pos_machine_id: null, ...todayWhere, status: { [Op.in]: SUCCESS_STATUSES } } }).catch(() => 0),
 
-    // Success transaction count
-    RazorpayNotification.count({
-      where: { status: { [Op.in]: SUCCESS_STATUSES } }
-    }),
+    // Bill Payments
+    CcBillPayment.count({ where: { [Op.or]: [{ statuscode: { [Op.in]: CC_BILL_SUCCESS_STATUS_CODES } }, { status: { [Op.in]: ["SUCCESS", "success"] } }] } }).catch(() => 0),
+    BillAvenuePayment.count({ where: { status: { [Op.in]: ["SUCCESS", "success"] } } }).catch(() => 0),
+    CcBillPayment.count({ where: { status: { [Op.in]: ["PENDING", "pending", "processing"] } } }).catch(() => 0),
+    BillAvenuePayment.count({ where: { status: { [Op.in]: ["PENDING", "pending"] } } }).catch(() => 0),
+    CcBillPayment.count({ where: { [Op.or]: [{ statuscode: { [Op.notIn]: CC_BILL_SUCCESS_STATUS_CODES, [Op.not]: null } }, { status: { [Op.in]: ["FAILED", "FAILURE", "REJECTED", "CANCELLED", "REVERSED", "failed"] } }] } }).catch(() => 0),
+    BillAvenuePayment.count({ where: { status: { [Op.in]: ["FAILED", "failed"] } } }).catch(() => 0),
+    CcBillPayment.sum("transaction_amount", { where: { [Op.or]: [{ statuscode: { [Op.in]: CC_BILL_SUCCESS_STATUS_CODES } }, { status: { [Op.in]: ["SUCCESS", "success"] } }] } }).catch(() => 0),
+    BillAvenuePayment.sum("transaction_amount", { where: { status: { [Op.in]: ["SUCCESS", "success"] } } }).catch(() => 0),
+    CcBillPayment.sum("transaction_amount", { where: { ...todayCreatedAtWhere, [Op.or]: [{ statuscode: { [Op.in]: CC_BILL_SUCCESS_STATUS_CODES } }, { status: { [Op.in]: ["SUCCESS", "success"] } }] } }).catch(() => 0),
+    BillAvenuePayment.sum("transaction_amount", { where: { ...todayCreatedAtWhere, status: { [Op.in]: ["SUCCESS", "success"] } } }).catch(() => 0),
 
-    // Pending transaction count
-    RazorpayNotification.count({
-      where: { status: { [Op.in]: PENDING_STATUSES } }
-    }),
+    // Payout / DMT
+    PayoutTransaction.count({ where: { status: { [Op.in]: ["SUCCESS", "success", "COMPLETED", "completed", "PAID", "paid"] } } }).catch(() => 0),
+    PayoutTransaction.count({ where: { status: { [Op.in]: ["PENDING", "pending", "PROCESSING", "processing", "INITIATED", "initiated"] } } }).catch(() => 0),
+    PayoutTransaction.count({ where: { status: { [Op.in]: ["FAILED", "FAILURE", "REJECTED", "CANCELLED", "REVERSED", "failed"] } } }).catch(() => 0),
+    PayoutTransaction.sum("amount", { where: { status: { [Op.in]: ["SUCCESS", "success", "COMPLETED", "completed", "PAID", "paid"] } } }).catch(() => 0),
+    PayoutTransaction.sum("amount", { where: { ...todayCreatedAtWhere, status: { [Op.in]: ["SUCCESS", "success", "COMPLETED", "completed", "PAID", "paid"] } } }).catch(() => 0),
 
-    // Failed transaction count
-    RazorpayNotification.count({
-      where: { status: { [Op.in]: FAILED_STATUSES } }
-    }),
-
-    // Overall Total Business Volume (₹)
-    RazorpayNotification.sum("amount", {
-      where: { status: { [Op.in]: SUCCESS_STATUSES } }
-    }),
-
-    // Today's Business Volume (₹)
-    RazorpayNotification.sum("amount", {
-      where: {
-        ...todayWhere,
-        status: { [Op.in]: SUCCESS_STATUSES }
-      }
-    }),
-
-    //OverAll Commission Revenue from MerchantTransactionCharge
-    MerchantTransactionCharge.sum("charge_amount"),
-
-    //Today's Commision Revenue
-    MerchantTransactionCharge.sum("charge_amount", {
-      where: { createdAt: { [Op.between]: [todayStart, todayEnd] } }
-    }),
+    // Commission
+    MerchantTransactionCharge.sum("charge_amount").catch(() => 0),
+    MerchantTransactionCharge.sum("charge_amount", { where: { createdAt: { [Op.between]: [todayStart, todayEnd] } } }).catch(() => 0),
 
     // Top Admins / Companies by Volume for spending chart
     RazorpayNotification.findAll({
@@ -2057,88 +2091,72 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
       order: [[fn("SUM", col("amount")), "DESC"]],
       limit: 5,
       raw: true
-    })
+    }).catch(() => [])
   ]);
 
-  // resolve company names for chart lablel
+  // Aggregate across all services
+  const billPaymentSuccess = Number(ccSuccess || 0) + Number(baCcSuccess || 0);
+  const billPaymentPending = Number(ccPending || 0) + Number(baCcPending || 0);
+  const billPaymentFailed = Number(ccFailed || 0) + Number(baCcFailed || 0);
+  const billPaymentTotalAmount = Number(ccTotalAmount || 0) + Number(baCcTotalAmount || 0);
+  const billPaymentTodayAmount = Number(ccTodayAmount || 0) + Number(baCcTodayAmount || 0);
 
-  const companyIds = topAdminsRaw.map((r) => r.company_id).filter(Boolean);
+  const successfulTransactions = Number(posSuccess || 0) + Number(pgSuccess || 0) + billPaymentSuccess + Number(payoutSuccess || 0);
+  const pendingTransactions = Number(posPending || 0) + Number(pgPending || 0) + billPaymentPending + Number(payoutPending || 0);
+  const failedTransactions = Number(posFailed || 0) + Number(pgFailed || 0) + billPaymentFailed + Number(payoutFailed || 0);
+  const totalTransactions = successfulTransactions + pendingTransactions + failedTransactions;
+
+  const totalBusiness = Number(posTotalAmount || 0) + Number(pgTotalAmount || 0) + billPaymentTotalAmount + Number(payoutTotalAmount || 0);
+  const todaysBusiness = Number(posTodayAmount || 0) + Number(pgTodayAmount || 0) + billPaymentTodayAmount + Number(payoutTodayAmount || 0);
+
+  // resolve company names for chart label
+  const companyIds = (topAdminsRaw || []).map((r) => r.company_id).filter(Boolean);
   const companies = companyIds.length ? await Company.findAll({
     where: { company_id: { [Op.in]: companyIds } },
     attributes: ["company_id", "company_name"]
-  }) : [];
+  }).catch(() => []) : [];
 
-  const companyMap = new Map(companies.map((c) => [c.company_id,
-  c.company_name]));
+  const companyMap = new Map(companies.map((c) => [c.company_id, c.company_name]));
 
-  const spending = topAdminsRaw.map((row) => ({
+  const spending = (topAdminsRaw || []).map((row) => ({
     adminName: companyMap.get(row.company_id) || row.company_id || "Admin",
     amount: Number(row.total_amount || 0)
   }));
 
-  // Service Usages Calculation
-  const [posTxns, pgTxns, ccBillTxns, payoutTxns] = await Promise.all([
+  // Service Usage Calculation (based on actual successful transactions)
+  const posCount = Number(posSuccess || 0);
+  const pgCount = Number(pgSuccess || 0);
+  const billPaymentCount = billPaymentSuccess;
+  const payoutCount = Number(payoutSuccess || 0);
+  const totalServiceTxns = posCount + pgCount + billPaymentCount + payoutCount;
 
-    // POS transactions (jisme machine ID hai)
-    RazorpayNotification.count({
-      where: { pos_machine_id: { [Op.ne]: null } },
-    }).catch(() => 0),
-
-    // PG transactions (jisme machine ID nahi hai)
-    RazorpayNotification.count({
-      where: { pos_machine_id: null },
-    }).catch(() => 0),
-
-    // Bill Payments
-    (async () => {
-      try {
-        const CcBillPayment = require("../models/CcBillPayment");
-        return await CcBillPayment.count();
-      } catch (_) {
-        return 0;
-      }
-    })(),
-
-    // Payout / DMT
-    (async () => {
-      try {
-        const PayoutTransaction = require("../models/PayoutTransaction");
-        return await PayoutTransaction.count();
-      } catch (_) {
-        return 0;
-      }
-    })(),
-  ]);
-
-  const totalServiceTxns = posTxns + pgTxns + ccBillTxns + payoutTxns;
   const serviceUsage =
     totalServiceTxns > 0
       ? [
-        { name: "POS", value: Math.round((posTxns / totalServiceTxns) * 100) },
-        { name: "PG", value: Math.round((pgTxns / totalServiceTxns) * 100) },
-        { name: "Bill Payments", value: Math.round((ccBillTxns / totalServiceTxns) * 100) },
-        { name: "Payout / DMT", value: Math.round((payoutTxns / totalServiceTxns) * 100) },
-      ].filter((item) => item.value > 0)
+          { name: "POS", value: Math.round((posCount / totalServiceTxns) * 100), count: posCount },
+          { name: "PG", value: Math.round((pgCount / totalServiceTxns) * 100), count: pgCount },
+          { name: "Bill Payments", value: Math.round((billPaymentCount / totalServiceTxns) * 100), count: billPaymentCount },
+          { name: "Payout / DMT", value: Math.round((payoutCount / totalServiceTxns) * 100), count: payoutCount },
+        ].filter((item) => item.value > 0)
       : [];
 
   res.status(200).json({
     success: true,
     message: "Super admin dashboard data fetched successfully",
     data: {
-      todaysBusiness: Number(todayBusinessRaw || 0),
-      totalBusiness: Number(totalBusinessRaw || 0),
-      totalTransactions: Number(totalTransactions || 0),
-      successfulTransactions: Number(successfulTransactions || 0),
-      pendingTransactions: Number(pendingTransactions || 0),
-      failedTransactions: Number(failedTransactions || 0),
+      todaysBusiness,
+      totalBusiness,
+      totalTransactions,
+      successfulTransactions,
+      pendingTransactions,
+      failedTransactions,
       totalCommission: Number(totalCommissionRaw || 0),
       todaysCommission: Number(todayCommissionRaw || 0),
       spending: spending.length ? spending : [],
-      serviceUsage : serviceUsage.length ?
-      serviceUsage : [],
+      serviceUsage: serviceUsage.length ? serviceUsage : [],
     }
-  })
-})
+  });
+});
 
 /**
  * POST /api/super-admin/admin/:id/wallet/credit
