@@ -359,11 +359,13 @@ exports.getMyApplicableCharges = async (req, res) => {
           if (rule.scope === "admin_franchise") return 80;
         }
         // 3. Super franchise default:
-        if (currentUser.super_franchise_id && Number(rule.super_franchise_id) === Number(currentUser.super_franchise_id) && rule.scope === "super_franchise_default") {
-          return 70;
+        if (currentUser.super_franchise_id && Number(rule.super_franchise_id) === Number(currentUser.super_franchise_id)) {
+          if (rule.scope === "super_franchise_default" || rule.scope === "admin_super_franchise") {
+            return 70;
+          }
         }
         // 4. Admin default:
-        if (rule.scope === "admin_default" || (currentUser.company_id && rule.company_id === currentUser.company_id)) {
+        if (rule.scope === "admin_default" || (currentUser.company_id && rule.company_id === currentUser.company_id) || rule.scope === "super_admin_admin") {
           return 50;
         }
         return 10;
@@ -400,7 +402,7 @@ exports.getMyApplicableCharges = async (req, res) => {
         if (rule.scope === "franchise_default") {
           return "Franchise Default";
         }
-        if (rule.scope === "super_franchise_franchise" || rule.scope === "super_franchise_default") {
+        if (rule.scope === "super_franchise_franchise" || rule.scope === "super_franchise_default" || rule.scope === "admin_super_franchise") {
           return "Super Franchise Rate";
         }
         if (rule.scope === "admin_franchise") {
