@@ -273,8 +273,49 @@ worldlineWebhookQueue.process(async (job) => {
         const DEFAULT_MDR = 2.5;
         superFranchiseChargeAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
       }
-      superFranchiseEarning = parseFloat((franchiseChargeAmount - superFranchiseChargeAmount).toFixed(2));
+      const upwardToSF = posOperator.franchaise_id ? franchiseChargeAmount : chargeAmount;
+      superFranchiseEarning = Math.max(0, parseFloat((upwardToSF - superFranchiseChargeAmount).toFixed(2)));
       logger.log(`[Worldline Webhook Worker] Super franchise charge: ${superFranchiseChargeAmount}, earning: ${superFranchiseEarning}`);
+    }
+
+    // Resolve Admin user to calculate Admin earning
+    let adminUser = null;
+    let adminCostAmount = 0;
+    let adminEarning = 0;
+    let paidUpwardToAdmin = chargeAmount;
+    if (resolvedSuperFranchiseId) {
+      paidUpwardToAdmin = superFranchiseChargeAmount;
+    } else if (posOperator.franchaise_id) {
+      paidUpwardToAdmin = franchiseChargeAmount;
+    }
+
+    if (posOperator.admin_id) {
+      adminUser = await User.findByPk(posOperator.admin_id);
+    }
+    if (!adminUser && posOperator.company_id) {
+      adminUser = await User.findOne({
+        where: { role: 'admin', company_id: posOperator.company_id }
+      });
+    }
+
+    if (adminUser) {
+      const adminRule = await ChargeService.getSuperAdminChargeRuleForAdmin({
+        adminId: adminUser.id,
+        paymentMode: paymentMode,
+        cardType: 'CREDIT',
+        cardBrand: cardScheme,
+        settlement: posOperator.settlement_type || null,
+        amount: transactionAmount
+      });
+
+      if (adminRule) {
+        adminCostAmount = ChargeService.calculateCharge(transactionAmount, adminRule).charge;
+      } else {
+        const DEFAULT_MDR = 2.5;
+        adminCostAmount = parseFloat((transactionAmount * (DEFAULT_MDR / 100)).toFixed(2));
+      }
+      adminEarning = Math.max(0, parseFloat((paidUpwardToAdmin - adminCostAmount).toFixed(2)));
+      logger.log(`[Worldline Webhook Worker] Admin cost to Super Admin: ${adminCostAmount}, earning: ${adminEarning}`);
     }
 
     // Create MerchantTransactionCharge
@@ -360,6 +401,31 @@ worldlineWebhookQueue.process(async (job) => {
         });
       } catch (earnError) {
         logger.error(`[Worldline Webhook Worker] Super franchise earning entry failed: ${earnError.message}`);
+      }
+    }
+
+    // Handle admin earning entry if present
+    if (adminUser && adminEarning > 0) {
+      try {
+        await ledgerService.createAdminEarningEntry({
+          userId: adminUser.id,
+          razorpayTransactionId: txnId,
+          amount: adminEarning,
+          description: `Admin earning on Worldline POS txn ${txnId} | RRN: ${notification.rrn || 'N/A'}`,
+          metadata: {
+            merchant_id: posOperator.id,
+            franchise_id: posOperator.franchaise_id || null,
+            super_franchise_id: resolvedSuperFranchiseId || null,
+            admin_id: adminUser.id,
+            transaction_amount: transactionAmount,
+            charge_amount: chargeAmount,
+            admin_cost: adminCostAmount,
+            admin_earning: adminEarning
+          }
+        });
+        logger.log(`[Worldline Webhook Worker] ✅ Admin earning ₹${adminEarning} credited to Admin ${adminUser.id}`);
+      } catch (earnError) {
+        logger.error(`[Worldline Webhook Worker] Admin earning entry failed: ${earnError.message}`);
       }
     }
 

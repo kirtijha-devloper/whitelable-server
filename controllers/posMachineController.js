@@ -390,6 +390,7 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
   // If franchise unassigns from a merchant, return it to the franchise
   if (requesterRole === 'super_admin') {
     posMachine.assigned_to = null;
+    posMachine.status = "available";
   } else if (requesterRole === 'admin' || requesterRole === 'employee') {
     let returnToId = req.user.id;
     if (requesterRole === 'employee') {
@@ -402,7 +403,7 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
     posMachine.assigned_to = req.user.id;
   }
 
-  posMachine.status = "active"; // keep it available as inventory
+  posMachine.status = posMachine.assigned_to ? "active" : "available"; // available if returned to central stock
   await posMachine.save();
 
   // When unassigning, update any user flags that indicate they have a POS machine
