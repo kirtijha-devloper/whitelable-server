@@ -297,22 +297,30 @@ const createPosMachine = asyncHandler(async (req, res ) => {
 };
 });
 
-const getPosMachine = asyncHandler( async (req, res) => {
-    const id = req.params.id;
-    const posMachineById = await PosMachine.findByPk(id);
-    if (!posMachineById) {
-        res.status(404);
-        throw new Error ("NoT Found !");
-    }
+const getPosMachine = asyncHandler(async (req, res) => {
+  const id = req.params.id;
+  const posMachineById = await PosMachine.findByPk(id);
+  if (!posMachineById) {
+    res.status(404);
+    throw new Error("Not Found!");
+  }
 
+  const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+  if (requesterRole !== 'super_admin') {
     const allowedUserIds = await getAllowedUserIdsForPos(req);
-    if (allowedUserIds !== null && (!posMachineById.assigned_to || !allowedUserIds.includes(posMachineById.assigned_to))) {
-        res.status(403);
-        throw new Error("You do not have access to this POS machine.");
-    }
+    const companyId = req.user?.company_id || req.company;
+    const isCompanyMachine = companyId && posMachineById.company_name
+      ? String(posMachineById.company_name).trim().toLowerCase() === String(req.user?.company_name || '').trim().toLowerCase()
+      : false;
 
-    const formatted = await buildPosMachineWithAssignedUser(posMachineById, req);
-    res.status(200).json(formatted);
+    if (allowedUserIds !== null && posMachineById.assigned_to && !allowedUserIds.includes(posMachineById.assigned_to) && !isCompanyMachine) {
+      res.status(403);
+      throw new Error("You do not have access to this POS machine.");
+    }
+  }
+
+  const formatted = await buildPosMachineWithAssignedUser(posMachineById, req);
+  res.status(200).json(formatted);
 });
 
 const activatePosMachine = asyncHandler( async (req, res) => {
@@ -370,18 +378,75 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
   const posMachine = await PosMachine.findByPk(id);
 
   if (!posMachine) {
-    res.status(404);
-    throw new Error("Not Found!");
+    return res.status(404).json({
+      success: false,
+      message: "POS machine not found."
+    });
   }
 
   const previousAssignedTo = posMachine.assigned_to;
   const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
 
+  // Check whether the machine is already unassigned
+  let isAlreadyUnassigned = false;
+
+  if (!previousAssignedTo) {
+    isAlreadyUnassigned = true;
+  } else {
+    const assignedUser = await User.findByPk(previousAssignedTo, {
+      attributes: ['id', 'role', 'company_id']
+    });
+
+    if (!assignedUser) {
+      isAlreadyUnassigned = true;
+    } else {
+      const assignedRole = normalizeRole(assignedUser.role);
+
+      if (requesterRole === 'super_admin') {
+        isAlreadyUnassigned = false;
+      } else if (requesterRole === 'admin' || requesterRole === 'employee') {
+        let companyAdminId = req.user.id;
+        if (requesterRole === 'employee') {
+          const companyId = req.user?.company_id || req.company;
+          const companyAdmin = await User.findOne({ where: { company_id: companyId, role: 'admin' } });
+          if (companyAdmin) companyAdminId = companyAdmin.id;
+        }
+
+        if (assignedRole === 'admin' || previousAssignedTo === companyAdminId || previousAssignedTo === req.user.id) {
+          isAlreadyUnassigned = true;
+        }
+      } else if (requesterRole === 'super_franchise') {
+        if (assignedRole === 'super_franchise' || assignedRole === 'admin' || previousAssignedTo === req.user.id) {
+          isAlreadyUnassigned = true;
+        }
+      } else if (requesterRole === 'franchise' || requesterRole === 'franchaise') {
+        if (assignedRole === 'franchise' || assignedRole === 'franchaise' || assignedRole === 'super_franchise' || assignedRole === 'admin' || previousAssignedTo === req.user.id) {
+          isAlreadyUnassigned = true;
+        }
+      }
+    }
+  }
+
+  if (isAlreadyUnassigned) {
+    return res.status(400).json({
+      success: false,
+      already_unassigned: true,
+      message: "This POS machine is already unassigned."
+    });
+  }
+
   if (requesterRole !== 'super_admin') {
     const allowedUserIds = await getAllowedUserIdsForPos(req);
-    if (allowedUserIds !== null && (!posMachine.assigned_to || !allowedUserIds.includes(posMachine.assigned_to))) {
-      res.status(403);
-      throw new Error("You can only unassign POS machines that belong to you or your company.");
+    const companyId = req.user?.company_id || req.company;
+    const isCompanyMachine = companyId && posMachine.company_name
+      ? String(posMachine.company_name).trim().toLowerCase() === String(req.user?.company_name || '').trim().toLowerCase()
+      : false;
+
+    if (allowedUserIds !== null && (!previousAssignedTo || !allowedUserIds.includes(previousAssignedTo)) && !isCompanyMachine) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only unassign POS machines that belong to you or your company."
+      });
     }
   }
 
@@ -399,11 +464,12 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
       if (companyAdmin) returnToId = companyAdmin.id;
     }
     posMachine.assigned_to = returnToId;
+    posMachine.status = "active";
   } else {
     posMachine.assigned_to = req.user.id;
+    posMachine.status = "active";
   }
 
-  posMachine.status = posMachine.assigned_to ? "active" : "available"; // available if returned to central stock
   await posMachine.save();
 
   // When unassigning, update any user flags that indicate they have a POS machine
@@ -423,9 +489,9 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
     pos_machine_id: posMachine.id,
     action: 'unassign',
     assigned_from_user_id: previousAssignedTo,
-    assigned_to_user_id: null,
+    assigned_to_user_id: posMachine.assigned_to,
     performed_by_user_id: req.user.id,
-    details: { previous_assigned_to: previousAssignedTo }
+    details: { previous_assigned_to: previousAssignedTo, returned_to: posMachine.assigned_to }
   });
 
   // Stop the rental billing cycle for this machine
@@ -434,9 +500,12 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
     { where: { pos_machine_id: posMachine.id, status: 'active' } }
   );
 
-  res.status(200).json(posMachine);
+  res.status(200).json({
+    success: true,
+    message: "POS machine deassigned successfully",
+    data: posMachine
+  });
 });
-
 
 const deletePosMachine = asyncHandler( async (req, res) => {
     const id = req.params.id;
