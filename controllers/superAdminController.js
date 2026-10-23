@@ -2136,7 +2136,7 @@ const getSuperAdminDashboard = asyncHandler(async (req, res) => {
           { name: "POS", value: Math.round((posCount / totalServiceTxns) * 100), count: posCount },
           { name: "PG", value: Math.round((pgCount / totalServiceTxns) * 100), count: pgCount },
           { name: "Bill Payments", value: Math.round((billPaymentCount / totalServiceTxns) * 100), count: billPaymentCount },
-          { name: "Payout / DMT", value: Math.round((payoutCount / totalServiceTxns) * 100), count: payoutCount },
+          { name: "Payout", value: Math.round((payoutCount / totalServiceTxns) * 100), count: payoutCount },
         ].filter((item) => item.value > 0)
       : [];
 
