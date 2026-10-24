@@ -89,6 +89,8 @@ const {
   getEffectiveServiceFlags,
   getUserServiceSettingsForUser,
   getUserServiceSettingsMapForUsers,
+  getCompanyAdminServiceSettings,
+  getCompanyAdminServiceSettingsMapForUsers,
 } = require('../services/serviceSettingsService');
 const {
   EMPLOYEE_PERMISSIONS,
@@ -549,6 +551,7 @@ const getUsers = asyncHandler(async (req, res) => {
           superFranchiseSummaryMap,
           serviceSettingsMap,
           userServiceSettingsMap,
+          companyAdminSettingsMap,
         ] = await Promise.all([
           buildEmployeeAccessRoleMap(users),
           buildMerchantCountMap(users),
@@ -557,6 +560,7 @@ const getUsers = asyncHandler(async (req, res) => {
           buildSuperFranchiseSummaryMap(users),
           getServiceSettingsMap(),
           getUserServiceSettingsMapForUsers(users),
+          getCompanyAdminServiceSettingsMapForUsers(users),
         ]);
 
         const usersWithPosCount = users.map((u) => {
@@ -570,6 +574,9 @@ const getUsers = asyncHandler(async (req, res) => {
           const employeeAccessRole = employeeAccessRoleMap.get(u.employee_access_role_id) || null;
           const normalizedListedRole = normalizeRole(u.role);
           const userServiceSettings = getResolvedUserServiceSettingsFromMap(userServiceSettingsMap, u);
+          const adminOverrides = (u.role === 'admin' || u.role === 'super_admin')
+            ? null
+            : (companyAdminSettingsMap?.get(u.company_id) || null);
 
           const serialized = {
             ...serializeUserWithResolvedAccessRole(u, employeeAccessRole),
@@ -588,7 +595,7 @@ const getUsers = asyncHandler(async (req, res) => {
               ? (superFranchiseSummaryMap.get(Number(u.super_franchise_id)) || null)
               : null,
             user_service_settings: userServiceSettings,
-            service_flags: getEffectiveServiceFlags(u, serviceSettingsMap, userServiceSettings),
+            service_flags: getEffectiveServiceFlags(u, serviceSettingsMap, userServiceSettings, adminOverrides),
           };
 
           if (isEmployee(req.user)) {
@@ -754,12 +761,14 @@ const searchUsers = asyncHandler(async (req, res) => {
             franchiseSummaryMap,
             serviceSettingsMap,
             userServiceSettingsMap,
+            companyAdminSettingsMap,
         ] = await Promise.all([
             buildEmployeeAccessRoleMap(users),
             buildMerchantCountMap(users),
             buildFranchiseSummaryMap(users),
             getServiceSettingsMap(),
             getUserServiceSettingsMapForUsers(users),
+            getCompanyAdminServiceSettingsMapForUsers(users),
         ]);
 
         const results = users.map((u) => {
@@ -768,6 +777,9 @@ const searchUsers = asyncHandler(async (req, res) => {
             const employeeAccessRole = employeeAccessRoleMap.get(plain.employee_access_role_id) || null;
             const normalizedListedRole = normalizeRole(plain.role);
             const userServiceSettings = getResolvedUserServiceSettingsFromMap(userServiceSettingsMap, plain);
+            const adminOverrides = (plain.role === 'admin' || plain.role === 'super_admin')
+                ? null
+                : (companyAdminSettingsMap?.get(plain.company_id) || null);
 
             const serialized = {
                 ...serializeUserWithResolvedAccessRole(plain, employeeAccessRole),
@@ -780,7 +792,7 @@ const searchUsers = asyncHandler(async (req, res) => {
                     ? (franchiseSummaryMap.get(Number(plain.franchaise_id)) || null)
                     : null,
                 user_service_settings: userServiceSettings,
-                service_flags: getEffectiveServiceFlags(plain, serviceSettingsMap, userServiceSettings),
+                service_flags: getEffectiveServiceFlags(plain, serviceSettingsMap, userServiceSettings, adminOverrides),
             };
 
             if (isEmployee(req.user)) {
@@ -939,9 +951,10 @@ const getUserByID = asyncHandler(async (req, res) => {
     const employeeAccessRole = searchedUser.employee_access_role_id
       ? await getEmployeeAccessRoleById(searchedUser.employee_access_role_id)
       : null;
-    const [serviceSettingsMap, userServiceSettings] = await Promise.all([
+    const [serviceSettingsMap, userServiceSettings, companyAdminSettings] = await Promise.all([
       getServiceSettingsMap(),
       getUserServiceSettingsForUser(searchedUser),
+      getCompanyAdminServiceSettings(searchedUser),
     ]);
     response.user = {
       ...serializeUserWithResolvedAccessRole(
@@ -949,7 +962,7 @@ const getUserByID = asyncHandler(async (req, res) => {
         employeeAccessRole ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : employeeAccessRole) : null
       ),
       user_service_settings: userServiceSettings,
-      service_flags: getEffectiveServiceFlags(searchedUser, serviceSettingsMap, userServiceSettings),
+      service_flags: getEffectiveServiceFlags(searchedUser, serviceSettingsMap, userServiceSettings, companyAdminSettings),
     };
 
     if (isEmployee(req.user)) {
@@ -1616,11 +1629,12 @@ const approveUser = asyncHandler( async (req, res) => {
                 const currentEmployeeAccessRolePayload = employeeAccessRole
                     ? (employeeAccessRole.toJSON ? employeeAccessRole.toJSON() : { ...employeeAccessRole })
                     : null;
-                const [serviceSettingsMap, userServiceSettings] = await Promise.all([
+                const [serviceSettingsMap, userServiceSettings, companyAdminSettings] = await Promise.all([
                     getServiceSettingsMap(),
                     getUserServiceSettingsForUser(user),
+                    getCompanyAdminServiceSettings(user),
                 ]);
-                const serviceFlags = getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings);
+                const serviceFlags = getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings, companyAdminSettings);
 
                 let company = null;
                 if (user.company_id) {

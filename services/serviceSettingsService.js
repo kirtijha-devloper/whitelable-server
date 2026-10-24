@@ -449,6 +449,98 @@ async function resolveUserForServiceEvaluation(userLike) {
   return toPlainRecord(dbUser);
 }
 
+/**
+ * Resolves company admin service settings for a single user.
+ * Returns null if the user is an admin or super_admin (admin uses their own settings).
+ */
+async function getCompanyAdminServiceSettings(user, options = {}) {
+  const plainUser = user ? toPlainRecord(user) : null;
+  if (!plainUser) return null;
+  const role = String(plainUser.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'admin') {
+    return null;
+  }
+
+  let companyId = plainUser.company_id || null;
+  const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
+
+  if (!companyId && (plainUser.franchaise_id || plainUser.super_franchise_id)) {
+    const parent = await User.findByPk(plainUser.franchaise_id || plainUser.super_franchise_id, {
+      attributes: ['id', 'company_id'],
+      ...transactionOpts,
+    });
+    companyId = parent?.company_id || null;
+  }
+
+  if (!companyId && plainUser.id) {
+    const Company = require('../models/Company');
+    const company = await Company.findOne({
+      where: { user_id: plainUser.id },
+      attributes: ['company_id'],
+      ...transactionOpts,
+    });
+    companyId = company?.company_id || null;
+  }
+
+  if (!companyId) return null;
+
+  const companyAdmin = await User.findOne({
+    where: { company_id: companyId, role: 'admin' },
+    attributes: ['id', 'company_id', 'role'],
+    ...transactionOpts,
+  });
+
+  if (!companyAdmin) return null;
+
+  return await getUserServiceSettingsForUser(companyAdmin, options);
+}
+
+/**
+ * Efficiently resolves company admin service settings for a batch of users.
+ * Returns Map<company_id, userServiceSettings>.
+ */
+async function getCompanyAdminServiceSettingsMapForUsers(users = [], options = {}) {
+  const companyIds = new Set();
+  const transactionOpts = options.transaction ? { transaction: options.transaction } : {};
+
+  (Array.isArray(users) ? users : []).forEach((u) => {
+    const plain = u?.toJSON ? u.toJSON() : u;
+    const role = String(plain?.role || '').toLowerCase();
+    if (plain?.company_id && role !== 'admin' && role !== 'super_admin') {
+      companyIds.add(plain.company_id);
+    }
+  });
+
+  const resultMap = new Map();
+  if (companyIds.size === 0) {
+    return resultMap;
+  }
+
+  const adminUsers = await User.findAll({
+    where: {
+      company_id: { [Op.in]: Array.from(companyIds) },
+      role: 'admin',
+    },
+    attributes: ['id', 'company_id', 'role'],
+    ...transactionOpts,
+  });
+
+  if (adminUsers.length === 0) {
+    return resultMap;
+  }
+
+  const adminSettingsMap = await getUserServiceSettingsMapForUsers(adminUsers, options);
+  adminUsers.forEach((admin) => {
+    const plainAdmin = admin?.toJSON ? admin.toJSON() : admin;
+    const settings = adminSettingsMap.get(Number(plainAdmin.id));
+    if (settings) {
+      resultMap.set(plainAdmin.company_id, settings);
+    }
+  });
+
+  return resultMap;
+}
+
 function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings, companyAdminSettings) {
   const resolvedSettings = serviceSettingsMap || buildDefaultServiceSettingsMap();
   const resolvedUserServiceSettings = normalizeUserServiceSettings(user, userServiceSettings);
@@ -972,6 +1064,8 @@ module.exports = {
   getUserServiceSettingsForUser,
   upsertUserServiceSettings,
   bulkUpdateUserServiceSettingsForAllUsers,
+  getCompanyAdminServiceSettings,
+  getCompanyAdminServiceSettingsMapForUsers,
   getEffectiveServiceFlags,
   buildServiceDisabledPayload,
   assertServiceEnabledOrRespond,

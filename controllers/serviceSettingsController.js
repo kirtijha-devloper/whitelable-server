@@ -337,52 +337,57 @@ const getServiceSettings = asyncHandler(async (req, res) => {
   const globalMap = await getServiceSettingsMap();
   const requesterRole = String(req.user?.role || '').toLowerCase();
 
-  if (requesterRole === 'admin' || requesterRole === 'employee') {
-    const companyId = req.company || req.user?.company_id;
-    let targetAdminUser = req.user;
-    if (requesterRole === 'employee' && companyId) {
-      const companyAdmin = await User.findOne({
+  if (requesterRole !== 'super_admin') {
+    let companyId = req.company || req.user?.company_id;
+    if (!companyId && (req.user?.super_franchise_id || req.user?.franchaise_id)) {
+      const parent = await User.findByPk(req.user.super_franchise_id || req.user.franchaise_id, {
+        attributes: ['company_id'],
+      });
+      companyId = parent?.company_id;
+    }
+    let targetAdminUser = requesterRole === 'admin' ? req.user : null;
+    if (!targetAdminUser && companyId) {
+      targetAdminUser = await User.findOne({
         where: { company_id: companyId, role: 'admin' },
       });
-      if (companyAdmin) {
-        targetAdminUser = companyAdmin;
+    }
+
+    if (targetAdminUser) {
+      const superAdmins = await User.findAll({
+        where: { role: 'super_admin' },
+        attributes: ['id'],
+      });
+      const superAdminIds = new Set(superAdmins.map((u) => u.id));
+      superAdminIds.add(1);
+
+      const rawAdminRecords = await UserServiceSetting.findAll({
+        where: { user_id: targetAdminUser.id },
+      });
+      const rawAdminMap = new Map();
+      rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
+
+      const adminUserSettings = await getUserServiceSettingsForUser(targetAdminUser);
+      const result = {};
+      for (const [key, globalCfg] of Object.entries(globalMap)) {
+        if (key === 'mx_payout') continue;
+        const isTier1Disabled = globalCfg.is_enabled === false && (globalCfg.updated_by === null || superAdminIds.has(Number(globalCfg.updated_by)));
+        const adminRec = rawAdminMap.get(key);
+        const isTier2Disabled = adminRec && adminRec.is_enabled === false && superAdminIds.has(Number(adminRec.updated_by));
+        const isSuperAdminDisabled = isTier1Disabled || Boolean(isTier2Disabled);
+
+        const adminEnabled = adminUserSettings[key] !== false;
+        result[key] = {
+          ...globalCfg,
+          is_enabled: isSuperAdminDisabled ? false : adminEnabled,
+          is_super_admin_disabled: isSuperAdminDisabled,
+          admin_enabled: adminEnabled,
+        };
       }
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
     }
-
-    const superAdmins = await User.findAll({
-      where: { role: 'super_admin' },
-      attributes: ['id'],
-    });
-    const superAdminIds = new Set(superAdmins.map((u) => u.id));
-    superAdminIds.add(1);
-
-    const rawAdminRecords = await UserServiceSetting.findAll({
-      where: { user_id: targetAdminUser.id },
-    });
-    const rawAdminMap = new Map();
-    rawAdminRecords.forEach((r) => rawAdminMap.set(r.service_key, r.toJSON ? r.toJSON() : r));
-
-    const adminUserSettings = await getUserServiceSettingsForUser(targetAdminUser);
-    const result = {};
-    for (const [key, globalCfg] of Object.entries(globalMap)) {
-      if (key === 'mx_payout') continue;
-      const isTier1Disabled = globalCfg.is_enabled === false && (globalCfg.updated_by === null || superAdminIds.has(Number(globalCfg.updated_by)));
-      const adminRec = rawAdminMap.get(key);
-      const isTier2Disabled = adminRec && adminRec.is_enabled === false && superAdminIds.has(Number(adminRec.updated_by));
-      const isSuperAdminDisabled = isTier1Disabled || Boolean(isTier2Disabled);
-
-      const adminEnabled = adminUserSettings[key] !== false;
-      result[key] = {
-        ...globalCfg,
-        is_enabled: isSuperAdminDisabled ? false : adminEnabled,
-        is_super_admin_disabled: isSuperAdminDisabled,
-        admin_enabled: adminEnabled,
-      };
-    }
-    return res.status(200).json({
-      success: true,
-      data: result,
-    });
   }
 
   const filteredGlobalMap = { ...globalMap };
