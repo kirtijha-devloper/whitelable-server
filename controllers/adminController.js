@@ -401,7 +401,7 @@ const setAllUsersSettlementType = asyncHandler(async (req, res) => {
   const effectiveCompanyId = req.user?.company_id || req.company;
   const updateWhere = {
     role: {
-      [Op.in]: ['merchant', 'franchaise'],
+      [Op.in]: ['merchant', 'franchaise','super_franchise'],
     },
   };
   if (effectiveCompanyId) {
@@ -430,7 +430,7 @@ const setAllUsersSettlementType = asyncHandler(async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: `Settlement type updated to '${settlement_type}' for ${updatedCount} merchant/franchise users.`,
+    message: `Settlement type updated to '${settlement_type}' for ${updatedCount} merchant/franchise/super_franchise  users.`,
     data: {
       settlement_type,
       updatedCount,
@@ -440,3 +440,4 @@ const setAllUsersSettlementType = asyncHandler(async (req, res) => {
 
 module.exports = { getAdminDashboard, getUnassignedMerchants, setUserIpayOutletId, setUserSettlementType, setAllUsersSettlementType };
 
+        
