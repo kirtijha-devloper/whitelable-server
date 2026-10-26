@@ -832,6 +832,12 @@ async function getServiceToggleAuditLogs(filters = {}) {
     }
   }
 
+  const componyId = req.company;
+
+  if(companyId != null || componyId != undefined) {
+    res.status(403).json({message:"Access not allowed"});
+  }
+
   const search = String(filters.search || filters.q || filters.targetUser || '').trim();
   const models = require('../models/initAssociations');
   const UserModel = models.User || User;
@@ -853,6 +859,7 @@ async function getServiceToggleAuditLogs(filters = {}) {
           { mobile_number: { [likeOp]: searchPattern } },
           { abheepay_id: { [likeOp]: searchPattern } },
           { email: { [likeOp]: searchPattern } },
+          { company_id: componyId}
         ],
       },
       attributes: ['id'],
