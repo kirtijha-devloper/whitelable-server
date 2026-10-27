@@ -142,6 +142,7 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     company_name,
     bank_name,
     is_pos_asigned,
+    search,
     page = 1,
     limit = 10
   } = req.query;
@@ -159,6 +160,16 @@ const getAllPosMachine = asyncHandler(async (req, res) => {
     if (razorpay_id) where.razorpay_id = razorpay_id;
     if (company_name) where.company_name = { [Op.iLike]: `%${String(company_name).trim()}%` };
     if (bank_name) where.bank_name = { [Op.iLike]: `%${String(bank_name).trim()}%` };
+    if (search) {
+      const trimmedSearch = String(search).trim();
+      where[Op.or] = [
+        { tid_number: { [Op.iLike]: `%${trimmedSearch}%` } },
+        { mid_number: { [Op.iLike]: `%${trimmedSearch}%` } },
+        { device_serial_number: { [Op.iLike]: `%${trimmedSearch}%` } },
+        { company_name: { [Op.iLike]: `%${trimmedSearch}%` } },
+        { bank_name: { [Op.iLike]: `%${trimmedSearch}%` } },
+      ];
+    }
 
     if (status && String(status).toLowerCase().trim() !== 'all') {
       const normalizedStatus = String(status).toLowerCase().trim();
