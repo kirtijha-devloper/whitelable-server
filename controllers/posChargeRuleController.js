@@ -9,7 +9,12 @@ const User = require('../models/User');
 // historically the DB stored "franchaise" (typo) while front‑end sends
 // "franchise"; we accept either until all rows are normalised.
 function isFranchiseRole(role) {
-  return role === 'franchaise' || role === 'franchise';
+  const r = String(role || '').toLowerCase().replace(/[-_]/g, '');
+  return r === 'franchise' || r === 'franchaise';
+}
+function isSuperFranchiseRole(role) {
+  const r = String(role || '').toLowerCase().replace(/[-_]/g, '');
+  return r === 'superfranchise';
 }
 const ChargeService = require('../services/chargeService');
 const { deriveScope, normalizeCardBrand } = ChargeService;
@@ -262,10 +267,15 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
   });
 
   if (duplicate) {
-    return res.status(400).json({
-      success: false,
-      message: 'A rule with the same parameters and amount slab already exists'
+    await duplicate.update({
+      charge_percent,
+      charge_flat: charge_flat || 0,
+      gst_required: Boolean(gst_required),
+      gst_percent: gst_percent !== undefined && gst_percent !== null ? gst_percent : 0,
+      is_active: typeof is_active === 'boolean' ? is_active : true,
     });
+    fileLog(`CREATE upserted existing duplicate id=${duplicate.id}`);
+    return res.status(200).json({ success: true, message: 'Charge rule updated', record: duplicate });
   }
 
   // check for overlapping slabs in the same parameter combination
@@ -296,6 +306,57 @@ const createPosChargeRule = asyncHandler(async (req, res) => {
       success: false,
       message: 'Amount slab overlaps with an existing rule in the same category'
     });
+  }
+
+  // Minimum rate guard: downstream rates cannot be less than the platform/admin default cost
+  if (['admin_super_franchise', 'admin_franchise', 'admin_merchant', 'super_franchise_default', 'super_franchise_franchise', 'super_franchise_merchant', 'franchise_default', 'franchise_merchant'].includes(ruleScope)) {
+    let baseRule = await PosChargeRule.findOne({
+      where: {
+        scope: { [Op.in]: ['super_admin_default', 'admin_default', 'super_franchise_default', 'franchise_default'] },
+        payment_mode: payment_mode || null,
+        is_active: true,
+        [Op.or]: [
+          { card_brand: normalizedCardBrand || null },
+          { card_brand: 'ALL' },
+          { card_brand: 'ANY' },
+          { card_brand: null }
+        ]
+      },
+      order: [
+        ['scope', 'DESC'],
+        ['id', 'DESC']
+      ]
+    });
+    if (baseRule) {
+      const minPercent = parseFloat(baseRule.charge_percent || 0);
+      const minFlat = parseFloat(baseRule.charge_flat || 0);
+      const enteredPercent = parseFloat(charge_percent || 0);
+      const enteredFlat = parseFloat(charge_flat || 0);
+      if (minFlat > 0 && enteredFlat < minFlat && enteredPercent === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Flat fee (₹${enteredFlat}) cannot be less than default flat rate of ₹${minFlat} for this slab`
+        });
+      }
+      if (minFlat > 0 && enteredFlat > 0 && enteredFlat < minFlat) {
+        return res.status(400).json({
+          success: false,
+          message: `Flat fee (₹${enteredFlat}) cannot be less than default flat rate of ₹${minFlat} for this slab`
+        });
+      }
+      if (minPercent > 0 && enteredPercent < minPercent && enteredFlat === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Charge percent (${enteredPercent}%) cannot be less than default rate of ${minPercent}%`
+        });
+      }
+      if (minPercent > 0 && enteredPercent > 0 && enteredPercent < minPercent) {
+        return res.status(400).json({
+          success: false,
+          message: `Charge percent (${enteredPercent}%) cannot be less than default rate of ${minPercent}%`
+        });
+      }
+    }
   }
 
   let rec;
@@ -898,6 +959,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
       where: {
         id: { [Op.ne]: id },
         user_id: user_id !== undefined ? user_id || null : rec.user_id,
+        company_id: companyId,
         franchaise_id: effectiveFranchise,
         scope: updScope,
         payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
@@ -920,6 +982,7 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
     const checkMax = checkMaxVal != null ? checkMaxVal : null;
     const overlapCondition = {
       user_id: user_id !== undefined ? user_id || null : rec.user_id,
+      company_id: companyId,
       franchaise_id: effectiveFranchise,
       scope: updScope,
       payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
@@ -947,6 +1010,57 @@ const updatePosChargeRule = asyncHandler(async (req, res) => {
         success: false,
         message: 'Amount slab overlaps with an existing rule in the same category'
       });
+    }
+  }
+
+  // Minimum rate guard: downstream rates cannot be less than the platform/admin default cost
+  if (['admin_super_franchise', 'admin_franchise', 'admin_merchant', 'super_franchise_default', 'super_franchise_franchise', 'super_franchise_merchant', 'franchise_default', 'franchise_merchant'].includes(updScope)) {
+    let baseRule = await PosChargeRule.findOne({
+      where: {
+        scope: { [Op.in]: ['super_admin_default', 'admin_default', 'super_franchise_default', 'franchise_default'] },
+        payment_mode: payment_mode !== undefined ? payment_mode || null : rec.payment_mode,
+        is_active: true,
+        [Op.or]: [
+          { card_brand: normalizedCardBrand !== undefined ? normalizedCardBrand || null : rec.card_brand },
+          { card_brand: 'ALL' },
+          { card_brand: 'ANY' },
+          { card_brand: null }
+        ]
+      },
+      order: [
+        ['scope', 'DESC'],
+        ['id', 'DESC']
+      ]
+    });
+    if (baseRule) {
+      const minPercent = parseFloat(baseRule.charge_percent || 0);
+      const minFlat = parseFloat(baseRule.charge_flat || 0);
+      const enteredPercent = req.body.charge_percent !== undefined ? parseFloat(req.body.charge_percent || 0) : parseFloat(rec.charge_percent || 0);
+      const enteredFlat = req.body.charge_flat !== undefined ? parseFloat(req.body.charge_flat || 0) : parseFloat(rec.charge_flat || 0);
+      if (minFlat > 0 && enteredFlat < minFlat && enteredPercent === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Flat fee (₹${enteredFlat}) cannot be less than default flat rate of ₹${minFlat} for this slab`
+        });
+      }
+      if (minFlat > 0 && enteredFlat > 0 && enteredFlat < minFlat) {
+        return res.status(400).json({
+          success: false,
+          message: `Flat fee (₹${enteredFlat}) cannot be less than default flat rate of ₹${minFlat} for this slab`
+        });
+      }
+      if (minPercent > 0 && enteredPercent < minPercent && enteredFlat === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Charge percent (${enteredPercent}%) cannot be less than default rate of ${minPercent}%`
+        });
+      }
+      if (minPercent > 0 && enteredPercent > 0 && enteredPercent < minPercent) {
+        return res.status(400).json({
+          success: false,
+          message: `Charge percent (${enteredPercent}%) cannot be less than default rate of ${minPercent}%`
+        });
+      }
     }
   }
 
@@ -993,6 +1107,11 @@ const deletePosChargeRule = asyncHandler(async (req, res) => {
   const rec = await PosChargeRule.findByPk(id);
   if (!rec) return res.status(404).json({ success: false, message: 'Rule not found' });
 
+  // Merchants cannot delete rules
+  if (req.user.role === 'merchant') {
+    return res.status(403).json({ success: false, message: 'Merchants cannot delete charge rules' });
+  }
+
   // Admin cannot delete Super Admin rules or rules of another company
   if (req.user.role === 'admin') {
     if (rec.scope === 'super_admin_default' || rec.scope === 'super_admin_admin') {
@@ -1004,31 +1123,47 @@ const deletePosChargeRule = asyncHandler(async (req, res) => {
     }
   }
 
-  // franchise may only delete their own rules or those for their merchants
-  if (req.user.role === 'franchaise') {
-    if (rec.created_by !== req.user.id) {
-      return res.status(403).json({ success: false, message: 'Cannot delete rule created by another user' });
+  // Franchise may only delete their own rules or those for their merchants
+  if (isFranchiseRole(req.user.role)) {
+    if (!rec.scope || !rec.scope.startsWith('franchise')) {
+      return res.status(403).json({ success: false, message: 'Franchise can only delete rules in franchise scope' });
     }
-    if (rec.franchaise_id && parseInt(rec.franchaise_id) !== req.user.id) {
+    const userIdNum = parseInt(req.user.id, 10);
+    const fIdNum = rec.franchaise_id ? parseInt(rec.franchaise_id, 10) : null;
+    const createdByNum = rec.created_by ? parseInt(rec.created_by, 10) : null;
+
+    const matchesFranchise = fIdNum !== null && fIdNum === userIdNum;
+    const matchesCreator = createdByNum !== null && createdByNum === userIdNum;
+
+    if ((fIdNum !== null || createdByNum !== null) && !matchesFranchise && !matchesCreator) {
       return res.status(403).json({ success: false, message: 'Cannot delete rule for another franchise' });
     }
     if (rec.user_id) {
       const target = await User.findByPk(rec.user_id);
-      if (!target || String(target.franchaise_id) !== String(req.user.id)) {
+      if (!target || parseInt(target.franchaise_id, 10) !== userIdNum) {
         return res.status(403).json({ success: false, message: 'Cannot delete merchant rule that is not yours' });
       }
     }
   }
 
-  if (req.user.role === 'super_franchise') {
-    if (rec.scope === 'admin_super_franchise' || rec.scope === 'admin_default') {
-      return res.status(403).json({ success: false, message: 'Cannot delete rate rules set by Admin' });
+  // Super Franchise may only delete super_franchise scoped rules belonging to them
+  if (isSuperFranchiseRole(req.user.role)) {
+    if (!rec.scope || !rec.scope.startsWith('super_franchise')) {
+      return res.status(403).json({ success: false, message: 'Super Franchise can only delete rules in super_franchise scope' });
     }
-    if (rec.super_franchise_id && parseInt(rec.super_franchise_id) !== req.user.id) {
+    const userIdNum = parseInt(req.user.id, 10);
+    const sfIdNum = rec.super_franchise_id ? parseInt(rec.super_franchise_id, 10) : null;
+    const createdByNum = rec.created_by ? parseInt(rec.created_by, 10) : null;
+
+    const matchesSuperFranchise = sfIdNum !== null && sfIdNum === userIdNum;
+    const matchesCreator = createdByNum !== null && createdByNum === userIdNum;
+
+    if ((sfIdNum !== null || createdByNum !== null) && !matchesSuperFranchise && !matchesCreator) {
       return res.status(403).json({ success: false, message: 'Cannot delete rule belonging to another super franchise' });
     }
   }
 
+  fileLog(`DELETE rule id=${id} scope=${rec.scope} by user=${req.user.id} role=${req.user.role}`);
   await rec.destroy();
   res.status(200).json({ success: true, message: 'Rule deleted' });
 });
@@ -1057,17 +1192,27 @@ const calculateCharge = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'amount must be a non-negative number' });
   }
 
-  // determine franchise id if not explicitly supplied
+  // determine franchise & super franchise id if not explicitly supplied
   let franchiseId = req.body.franchaise_id;
-  if (!franchiseId && user_id) {
+  let superFranchiseId = req.body.super_franchise_id;
+  let companyId = req.body.company_id || req.user?.company_id || req.company;
+  let userRole = req.user?.role;
+  if (user_id) {
     const u = await User.findByPk(user_id);
-    if (u) franchiseId = u.franchaise_id;
+    if (u) {
+      if (!franchiseId) franchiseId = u.franchaise_id;
+      if (!superFranchiseId) superFranchiseId = u.super_franchise_id;
+      if (!companyId) companyId = u.company_id;
+      userRole = u.role;
+    }
   }
 
   let rule = await ChargeService.getTransactionChargeRule({
     userId: user_id,
-    userRole: user.role,
+    userRole,
     franchiseId,
+    superFranchiseId,
+    companyId,
     paymentMode: payment_mode,
     cardType: card_type,
     cardBrand: card_brand,

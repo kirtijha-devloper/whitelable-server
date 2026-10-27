@@ -416,7 +416,8 @@ const updateUserPosCharge = asyncHandler(async (req, res) => {
  */
 const deleteUserPosCharge = asyncHandler(async (req, res) => {
   const role = req.user.role;
-  if (!['admin', 'franchaise'].includes(role)) {
+  const normalizedRole = role === 'franchise' ? 'franchaise' : role;
+  if (!['admin', 'franchaise', 'super_franchise'].includes(normalizedRole)) {
     res.status(403);
     throw new Error('Access denied');
   }
@@ -427,8 +428,16 @@ const deleteUserPosCharge = asyncHandler(async (req, res) => {
     throw new Error('User POS charge not found');
   }
 
-  if (role === 'franchaise') {
+  if (normalizedRole === 'franchaise') {
     await assertFranchaiseOwnsMerchant(req.user.id, rec.user_id, res);
+  }
+
+  if (normalizedRole === 'super_franchise') {
+    const targetUser = await User.findByPk(rec.user_id);
+    if (!targetUser || (String(targetUser.super_franchise_id) !== String(req.user.id) && String(targetUser.id) !== String(req.user.id))) {
+      res.status(403);
+      throw new Error('Access denied: user does not belong to your super franchise');
+    }
   }
 
   await rec.destroy();

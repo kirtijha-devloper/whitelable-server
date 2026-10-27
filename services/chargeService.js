@@ -107,6 +107,36 @@ async function getTransactionChargeRule({
   amount,
   companyName
 }) {
+  // Automatically resolve missing hierarchy IDs from User record if userId is provided
+  if (userId) {
+    try {
+      const dbUser = await db.models.User.findByPk(userId, {
+        attributes: ['id', 'role', 'franchaise_id', 'super_franchise_id', 'company_id']
+      });
+      if (dbUser) {
+        if (!userRole) userRole = dbUser.role;
+        if (!franchiseId) franchiseId = dbUser.franchaise_id;
+        if (!superFranchiseId) superFranchiseId = dbUser.super_franchise_id;
+        if (!companyId) companyId = dbUser.company_id;
+      }
+    } catch (e) {
+      // ignore lookup error
+    }
+  }
+  if (franchiseId && !superFranchiseId) {
+    try {
+      const dbFranchise = await db.models.User.findByPk(franchiseId, {
+        attributes: ['id', 'super_franchise_id', 'company_id']
+      });
+      if (dbFranchise) {
+        if (!superFranchiseId) superFranchiseId = dbFranchise.super_franchise_id;
+        if (!companyId) companyId = dbFranchise.company_id;
+      }
+    } catch (e) {
+      // ignore lookup error
+    }
+  }
+
   const normalizedPaymentMode = normalizeLookupValue(paymentMode);
   const normalizedCardType = normalizeLookupValue(cardType);
   const normalizedClassification = normalizeLookupValue(classification);
@@ -123,17 +153,17 @@ async function getTransactionChargeRule({
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'franchise_merchant'        THEN 96
-        WHEN 'super_franchise_merchant'  THEN 90
-        WHEN 'admin_merchant'            THEN 84
-        WHEN 'super_admin_admin'         THEN 80
-        WHEN 'super_franchise_franchise' THEN 72
-        WHEN 'admin_franchise'           THEN 64
-        WHEN 'admin_super_franchise'     THEN 56
-        WHEN 'franchise_default'         THEN 48
-        WHEN 'super_franchise_default'   THEN 40
-        WHEN 'admin_default'             THEN 32
-        WHEN 'super_admin_default'       THEN 16
+        WHEN 'franchise_merchant'        THEN 1100000
+        WHEN 'super_franchise_merchant'  THEN 1000000
+        WHEN 'admin_merchant'            THEN 900000
+        WHEN 'franchise_default'         THEN 600000
+        WHEN 'super_franchise_franchise' THEN 550000
+        WHEN 'super_franchise_default'   THEN 500000
+        WHEN 'admin_franchise'           THEN 400000
+        WHEN 'admin_super_franchise'     THEN 350000
+        WHEN 'admin_default'             THEN 200000
+        WHEN 'super_admin_admin'         THEN 150000
+        WHEN 'super_admin_default'       THEN 100000
         ELSE 0
       END
     ) AS specificity
@@ -241,11 +271,11 @@ async function getAdminChargeRuleForFranchise({
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'super_franchise_franchise' THEN 40
-        WHEN 'super_franchise_default'   THEN 36
-        WHEN 'admin_franchise'           THEN 24
-        WHEN 'admin_default'             THEN 16
-        WHEN 'super_admin_default'       THEN 8
+        WHEN 'super_franchise_franchise' THEN 550000
+        WHEN 'super_franchise_default'   THEN 500000
+        WHEN 'admin_franchise'           THEN 400000
+        WHEN 'admin_default'             THEN 200000
+        WHEN 'super_admin_default'       THEN 100000
         ELSE 0
       END
     ) AS specificity
