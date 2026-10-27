@@ -22,7 +22,7 @@ module.exports = {
       model: {
         type: Sequelize.STRING(100),
         allowNull: false,
-        defaultValue: 'Pax A920',
+        defaultValue: '',
       },
       company_name: {
         type: Sequelize.STRING(100),

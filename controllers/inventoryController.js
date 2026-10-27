@@ -52,7 +52,7 @@ const getPosInventory = asyncHandler(async (req, res) => {
       serial_number: pm.device_serial_number || pm.serial_number || `SN-${pm.id}`,
       device_serial_number: pm.device_serial_number || pm.serial_number,
       mid_number: pm.mid_number,
-      model: pm.model_name || pm.model || "Pax A920",
+      model: pm.model_name || pm.model || "",
       company_name: pm.company_name || "-",
       bank_name: pm.bank_name || "-",
       assigned_to: assignedName,
@@ -155,7 +155,7 @@ const getPosInventory = asyncHandler(async (req, res) => {
  * Create POS Inventory item
  */
 const addPosInventory = asyncHandler(async (req, res) => {
-  const { tid_number, serial_number, model = "Pax A920", company_name, assigned_to = "Unassigned", assigned_user_id = null, status = "available" } = req.body;
+  const { tid_number, serial_number, model = "", company_name, assigned_to = "Unassigned", assigned_user_id = null, status = "available" } = req.body;
 
   if (!tid_number || !serial_number || !company_name) {
     res.status(400);

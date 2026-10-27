@@ -21,7 +21,6 @@ const PosInventory = db.define('PosInventory', {
   model: {
     type: Sequelize.STRING(100),
     allowNull: false,
-    defaultValue: 'Pax A920',
   },
   company_name: {
     type: Sequelize.STRING(100),
