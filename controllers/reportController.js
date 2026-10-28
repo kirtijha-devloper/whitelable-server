@@ -222,17 +222,43 @@ const buildUserScope = async (req, qUserId = null, fieldName = 'user_id') => {
     if (qUserId) scope[fieldName] = parseInt(qUserId);
     // super_admin without user_id → no restriction
   } else if (userRole === 'admin' || userRole === 'employee') {
-    let companyUserIds = [currentUserId];
-    if (companyId) {
-      const companyUsers = await User.findAll({
-        where: { company_id: companyId },
-        attributes: ['id']
-      });
-      companyUserIds = Array.from(new Set([currentUserId, ...companyUsers.map(u => u.id)]));
+    const targetAdminId = userRole === 'employee' ? (req.user?.admin_id || currentUserId) : currentUserId;
+    const adminOrConditions = [];
+    if (targetAdminId) adminOrConditions.push({ admin_id: targetAdminId });
+    if (companyId) adminOrConditions.push({ company_id: companyId });
+
+    let downlineFranchises = [];
+    try {
+      downlineFranchises = await User.findAll({
+        where: {
+          role: { [Op.in]: ['franchaise', 'franchise', 'super_franchise'] },
+          ...(adminOrConditions.length ? { [Op.or]: adminOrConditions } : {})
+        },
+        attributes: ['id'],
+        raw: true
+      }).then(r => r.map(x => x.id));
+    } catch (_) {}
+
+    const finalConditions = [...adminOrConditions];
+    if (downlineFranchises.length > 0) {
+      finalConditions.push({ franchaise_id: { [Op.in]: downlineFranchises } });
+      finalConditions.push({ super_franchise_id: { [Op.in]: downlineFranchises } });
     }
+
+    let companyUsers = [];
+    try {
+      companyUsers = await User.findAll({
+        where: finalConditions.length ? { [Op.or]: finalConditions } : {},
+        attributes: ['id'],
+        raw: true
+      });
+    } catch (_) {}
+
+    const companyUserIds = Array.from(new Set([currentUserId, ...companyUsers.map(u => u.id)]));
+
     if (qUserId) {
       const parsedId = parseInt(qUserId);
-      if (!companyUserIds.includes(parsedId)) {
+      if (companyUsers.length > 0 && !companyUserIds.includes(parsedId)) {
         const err = new Error('Access denied: user does not belong to your company');
         err.statusCode = 403;
         throw err;
@@ -501,17 +527,42 @@ const getRazorpayNotificationReport = asyncHandler(async (req, res) => {
         where.user_id = { [Op.ne]: null };
       }
     } else if (normalizedRole === 'admin' || normalizedRole === 'employee') {
-      let companyUserIds = [currentUserId];
-      if (companyId) {
-        const companyUsers = await User.findAll({
-          where: { company_id: companyId },
-          attributes: ['id']
-        });
-        companyUserIds = Array.from(new Set([currentUserId, ...companyUsers.map(u => u.id)]));
+      const targetAdminId = normalizedRole === 'employee' ? (req.user?.admin_id || currentUserId) : currentUserId;
+      const adminOrConditions = [];
+      if (targetAdminId) adminOrConditions.push({ admin_id: targetAdminId });
+      if (companyId) adminOrConditions.push({ company_id: companyId });
+
+      let downlineFranchises = [];
+      try {
+        downlineFranchises = await User.findAll({
+          where: {
+            role: { [Op.in]: ['franchaise', 'franchise', 'super_franchise'] },
+            ...(adminOrConditions.length ? { [Op.or]: adminOrConditions } : {})
+          },
+          attributes: ['id'],
+          raw: true
+        }).then(r => r.map(x => x.id));
+      } catch (_) {}
+
+      const finalConditions = [...adminOrConditions];
+      if (downlineFranchises.length > 0) {
+        finalConditions.push({ franchaise_id: { [Op.in]: downlineFranchises } });
+        finalConditions.push({ super_franchise_id: { [Op.in]: downlineFranchises } });
       }
+
+      let companyUsers = [];
+      try {
+        companyUsers = await User.findAll({
+          where: finalConditions.length ? { [Op.or]: finalConditions } : {},
+          attributes: ['id'],
+          raw: true
+        });
+      } catch (_) {}
+
+      const companyUserIds = Array.from(new Set([currentUserId, ...companyUsers.map(u => u.id)]));
       if (user_id) {
         const parsedUserId = parseInt(user_id);
-        if (!companyUserIds.includes(parsedUserId)) {
+        if (companyUsers.length > 0 && !companyUserIds.includes(parsedUserId)) {
           return res.status(403).json({
             success: false,
             message: 'Access denied: user does not belong to your company'
@@ -884,85 +935,11 @@ const getLedgerReport = asyncHandler(async (req, res) => {
     }
 
     // scope by role
-    if (userRole === 'super_admin') {
-      if (user_id) {
-        where.user_id = parseInt(user_id);
-      }
-      // super_admin without user_id sees all entries
-    } else if (userRole === 'admin' || userRole === 'employee') {
-      let companyUserIds = [currentUserId];
-      if (companyId) {
-        const companyUsers = await User.findAll({
-          where: { company_id: companyId },
-          attributes: ['id']
-        });
-        companyUserIds = Array.from(new Set([currentUserId, ...companyUsers.map(u => u.id)]));
-      }
-
-      if (user_id) {
-        const parsedUserId = parseInt(user_id);
-        if (!companyUserIds.includes(parsedUserId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Access denied: user does not belong to your company'
-          });
-        }
-        where.user_id = parsedUserId;
-      } else {
-        where.user_id = { [Op.in]: companyUserIds };
-      }
-    } else if (userRole === 'super_franchise') {
-      const downstreamFranchises = await User.findAll({
-        where: { super_franchise_id: currentUserId, role: { [Op.in]: ['franchaise', 'franchise'] } },
-        attributes: ['id'],
-        raw: true
-      }).then(rows => rows.map(r => r.id));
-      const downstreamUsers = await User.findAll({
-        where: {
-          status: 'active',
-          [Op.or]: [
-            { super_franchise_id: currentUserId },
-            ...(downstreamFranchises.length ? [{ franchaise_id: { [Op.in]: downstreamFranchises } }] : [])
-          ]
-        },
-        attributes: ['id'],
-        raw: true
-      }).then(rows => rows.map(r => r.id));
-      const allowedUserIds = Array.from(new Set([currentUserId, ...downstreamFranchises, ...downstreamUsers]));
-
-      if (user_id) {
-        const parsedUserId = parseInt(user_id);
-        if (!allowedUserIds.includes(parsedUserId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Access denied: user does not belong to your network'
-          });
-        }
-        where.user_id = parsedUserId;
-      } else {
-        where.user_id = { [Op.in]: allowedUserIds };
-      }
-    } else if (userRole === 'franchaise' || userRole === 'franchise') {
-      if (user_id) {
-        const targetUser = await User.findOne({
-          where: { id: user_id, franchaise_id: currentUserId, status: 'active' }
-        });
-        if (!targetUser) {
-          return res.status(403).json({
-            success: false,
-            message: 'Access denied: user does not belong to your franchise'
-          });
-        }
-        where.user_id = parseInt(user_id);
-      } else {
-        const merchantIds = await User.findAll({
-          where: { franchaise_id: currentUserId, status: 'active' },
-          attributes: ['id']
-        }).then(rows => rows.map(r => r.id));
-        where.user_id = { [Op.in]: [currentUserId, ...merchantIds] };
-      }
-    } else {
-      where.user_id = currentUserId;
+    try {
+      const scope = await buildUserScope(req, user_id, 'user_id');
+      Object.assign(where, scope);
+    } catch (scopeErr) {
+      return res.status(scopeErr.statusCode || 403).json({ success: false, message: scopeErr.message });
     }
 
     const entries = await Ledger.findAll({
@@ -1075,7 +1052,7 @@ const getLedgerReport = asyncHandler(async (req, res) => {
  */
 const getPayoutReport = asyncHandler(async (req, res) => {
   try {
-    const { from_date, to_date, user_id, status, page = 1, limit = 50 } = req.query;
+    const { from_date, to_date, user_id, user_search, user_query, status, page = 1, limit = 50 } = req.query;
 
     const parsedDateRange = parseIstBusinessDateRange(from_date, to_date);
     if (parsedDateRange.error) {
@@ -1091,6 +1068,29 @@ const getPayoutReport = asyncHandler(async (req, res) => {
       Object.assign(where, scope);
     } catch (scopeErr) {
       return res.status(scopeErr.statusCode || 403).json({ success: false, message: scopeErr.message });
+    }
+
+    const userSearch = pickFirstNonEmpty(user_search, user_query);
+    if (userSearch) {
+      const matchedUsers = await User.findAll({
+        where: {
+          [Op.or]: [
+            { name: { [Op.like]: `%${userSearch}%` } },
+            { mobile_number: { [Op.like]: `%${userSearch}%` } },
+            { abheepay_id: { [Op.like]: `%${userSearch}%` } },
+            ...(Number.isInteger(Number(userSearch)) ? [{ id: Number(userSearch) }] : [])
+          ]
+        },
+        attributes: ['id']
+      });
+      const matchedIds = matchedUsers.map(u => u.id);
+      if (where.merchant_id && typeof where.merchant_id === 'object' && Array.isArray(where.merchant_id[Op.in])) {
+        const existingIds = new Set(where.merchant_id[Op.in]);
+        const intersected = matchedIds.filter(id => existingIds.has(id));
+        where.merchant_id = intersected.length > 0 ? { [Op.in]: intersected } : -1;
+      } else {
+        where.merchant_id = matchedIds.length > 0 ? { [Op.in]: matchedIds } : -1;
+      }
     }
 
     if (status) where.status = status.toUpperCase();
