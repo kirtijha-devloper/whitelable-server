@@ -1091,6 +1091,42 @@ const registerUser = asyncHandler(async (req, res) => {
             });
         }
 
+        if (req.body.name && /[0-9]/.test(req.body.name)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Numbers are not allowed in Name',
+            });
+        }
+
+        const cleanedMobile = String(mobileNumber).trim();
+        if (!/^[6-9]\d{9}$/.test(cleanedMobile)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Mobile number must be a 10-digit number starting with 6-9',
+            });
+        }
+
+        if (req.body.pincode && !/^\d{6}$/.test(String(req.body.pincode).trim())) {
+            return res.status(400).json({
+                success: false,
+                message: 'Pincode must be exactly 6 digits',
+            });
+        }
+
+        if (req.body.aadhar_number && !/^\d{12}$/.test(String(req.body.aadhar_number).trim())) {
+            return res.status(400).json({
+                success: false,
+                message: 'Aadhaar number must contain exactly 12 digits',
+            });
+        }
+
+        if (req.body.pan_number && !/^[A-Z]{5}\d{4}[A-Z]$/.test(String(req.body.pan_number).trim().toUpperCase())) {
+            return res.status(400).json({
+                success: false,
+                message: 'PAN must be 5 letters, 4 digits, and 1 letter (e.g. ABCDE1234F)',
+            });
+        }
+
         const allowedRoles = ['merchant', 'franchise', 'super_franchise', 'admin', 'employee'];
         if (!allowedRoles.includes(role)) {
             return res.status(400).json({
@@ -2241,6 +2277,44 @@ const updateUser = asyncHandler(async (req, res) => {
 
     if (!targetId || isNaN(targetId)) {
       return res.status(400).json({ success: false, message: 'Valid user id is required.' });
+    }
+
+    if (req.body.name !== undefined && req.body.name && /[0-9]/.test(req.body.name)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Numbers are not allowed in Name',
+      });
+    }
+
+    if (req.body.mobile_number !== undefined && req.body.mobile_number) {
+      const cleanedMobile = String(req.body.mobile_number).trim();
+      if (!/^[6-9]\d{9}$/.test(cleanedMobile)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Mobile number must be a 10-digit number starting with 6-9',
+        });
+      }
+    }
+
+    if (req.body.pincode !== undefined && req.body.pincode && !/^\d{6}$/.test(String(req.body.pincode).trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pincode must be exactly 6 digits',
+      });
+    }
+
+    if (req.body.aadhar_number !== undefined && req.body.aadhar_number && !/^\d{12}$/.test(String(req.body.aadhar_number).trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Aadhaar number must contain exactly 12 digits',
+      });
+    }
+
+    if (req.body.pan_number !== undefined && req.body.pan_number && !/^[A-Z]{5}\d{4}[A-Z]$/.test(String(req.body.pan_number).trim().toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'PAN must be 5 letters, 4 digits, and 1 letter (e.g. ABCDE1234F)',
+      });
     }
 
     const settlementUpdateFields = new Set(['settlement_type', 't0_daily_limit']);
