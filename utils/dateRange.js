@@ -8,11 +8,13 @@ function getTodayInIst() {
 }
 
 function parseDateParts(dateText) {
-  if (!DATE_PATTERN.test(dateText)) {
+  if (!dateText) return null;
+  const cleaned = String(dateText).trim().split('T')[0].split(' ')[0];
+  if (!DATE_PATTERN.test(cleaned)) {
     return null;
   }
 
-  const [year, month, day] = dateText.split('-').map(Number);
+  const [year, month, day] = cleaned.split('-').map(Number);
   if (month < 1 || month > 12) {
     return null;
   }

@@ -130,9 +130,24 @@ async function createLedgerEntry({
 }, opts = {}) {
   // Check if ledger tracking is enabled for this user
   const userCheck = await User.findByPk(userId, { attributes: ['id', 'start_ledger', 'company_id'], ...opts });
-  if (!userCheck || !userCheck.start_ledger) {
-    // Ledger tracking not enabled — skip silently
+  if (!userCheck) {
     return null;
+  }
+  if (!userCheck.start_ledger) {
+    const autoEnableTypes = [
+      'payout', 'payout_refund', 'payout_commission', 'payout_profit',
+      'pos_credit', 'pos_charge', 'pos_admin_earning', 'pos_franchise_earning',
+      'bbps_payment', 'bbps_payment_reversal', 'direct_transfer',
+      'wallet_credit', 'wallet_debit', 'admin_credit', 'admin_debit',
+      'admin_transfer_out', 'admin_recovery_in'
+    ];
+    if (autoEnableTypes.includes(transactionType)) {
+      await User.update({ start_ledger: true }, { where: { id: userId }, ...opts });
+      userCheck.start_ledger = true;
+    } else {
+      // Ledger tracking not enabled — skip silently
+      return null;
+    }
   }
 
   // Validate amounts
