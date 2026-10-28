@@ -457,4 +457,115 @@ const setIpayOutletId = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = {onBoardUser, getUserById, getUsers, updateUserStatus, listMerchantTransactionCharges, setIpayOutletId}
+const getMerchantStockPos = asyncHandler(async (req, res) => {
+  const userId = req.user?.id;
+  const userRole = String(req.user?.role || '').toLowerCase();
+
+  // Enforce role check: only merchants can access merchant stock POS
+  if (userRole !== 'merchant') {
+    res.status(403);
+    throw new Error('Only merchants can access merchant stock POS');
+  }
+
+  const {
+    status,
+    search,
+    tid_number,
+    mid_number,
+    device_serial_number,
+    bank_name,
+    page = 1,
+    limit = 10
+  } = req.query;
+
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const where = { assigned_to: userId };
+
+  if (tid_number) where.tid_number = tid_number;
+  if (mid_number) where.mid_number = mid_number;
+  if (device_serial_number) where.device_serial_number = device_serial_number;
+  if (bank_name) where.bank_name = { [Op.iLike]: `%${String(bank_name).trim()}%` };
+
+  if (search) {
+    const trimmed = String(search).trim();
+    where[Op.or] = [
+      { tid_number: { [Op.iLike]: `%${trimmed}%` } },
+      { mid_number: { [Op.iLike]: `%${trimmed}%` } },
+      { device_serial_number: { [Op.iLike]: `%${trimmed}%` } },
+      { company_name: { [Op.iLike]: `%${trimmed}%` } },
+      { bank_name: { [Op.iLike]: `%${trimmed}%` } },
+    ];
+  }
+
+  if (status && String(status).toLowerCase().trim() !== 'all') {
+    const normalized = String(status).toLowerCase().trim();
+    if (normalized === 'active') {
+      where.status = { [Op.notIn]: ['in_active', 'inactive'] };
+    } else if (normalized === 'inactive' || normalized === 'in_active' || normalized === 'deactive') {
+      where.status = { [Op.in]: ['in_active', 'inactive'] };
+    } else {
+      where.status = status;
+    }
+  }
+
+  // Summary stats for the logged-in merchant
+  const [totalAssigned, activeMachines, inactiveMachines] = await Promise.all([
+    PosMachine.count({ where: { assigned_to: userId } }),
+    PosMachine.count({
+      where: {
+        assigned_to: userId,
+        status: { [Op.notIn]: ['in_active', 'inactive'] }
+      }
+    }),
+    PosMachine.count({
+      where: {
+        assigned_to: userId,
+        status: { [Op.in]: ['in_active', 'inactive'] }
+      }
+    })
+  ]);
+
+  const { count, rows: machines } = await PosMachine.findAndCountAll({
+    where,
+    limit: parseInt(limit),
+    offset: parseInt(offset),
+    order: [['createdAt', 'DESC']]
+  });
+
+  const formattedMachines = machines.map((machine) => ({
+    id: machine.id,
+    device_serial_number: machine.device_serial_number,
+    bank_name: machine.bank_name || '-',
+    tid_number: machine.tid_number,
+    mid_number: machine.mid_number,
+    status: machine.status,
+    company_name: machine.company_name || '-',
+    remarks: machine.remarks || '-',
+    assigned_to: machine.assigned_to,
+    createdAt: machine.createdAt,
+    updatedAt: machine.updatedAt,
+  }));
+
+  res.status(200).json({
+    success: true,
+    message: 'Merchant POS machines retrieved successfully',
+    summary: {
+      totalAssigned,
+      activeMachines,
+      inactiveMachines
+    },
+    totalItems: count,
+    currentPage: parseInt(page),
+    totalPages: Math.ceil(count / parseInt(limit)),
+    data: formattedMachines,
+    list: formattedMachines,
+    pagination: {
+      total: count,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(count / parseInt(limit))
+    }
+  });
+});
+
+module.exports = {onBoardUser, getUserById, getUsers, updateUserStatus, listMerchantTransactionCharges, setIpayOutletId, getMerchantStockPos}
