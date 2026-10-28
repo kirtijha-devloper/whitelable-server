@@ -534,12 +534,14 @@ const updateUserServiceSettings = asyncHandler(async (req, res) => {
 const getServiceToggleAuditLogsController = asyncHandler(async (req, res) => {
   const requesterRole = normalizeRole(req.user?.role);
 
-  if (requesterRole !== 'admin' && requesterRole !== 'employee') {
+  if (requesterRole !== 'admin' && requesterRole !== 'employee' && requesterRole !== 'super_admin') {
     return res.status(403).json({
       success: false,
-      message: 'Only admin or employee can view service toggle audit logs.',
+      message: 'Only admin, employee, or super admin can view service toggle audit logs.',
     });
   }
+
+  const companyId = requesterRole === 'super_admin' ? null : (req.company || req.user?.company_id || null);
 
   const filters = {
     userId: req.query.user_id || req.query.userId,
@@ -550,6 +552,7 @@ const getServiceToggleAuditLogsController = asyncHandler(async (req, res) => {
     endDate: req.query.end_date || req.query.endDate,
     page: req.query.page,
     limit: req.query.limit,
+    companyId: companyId,
   };
 
   const result = await getServiceToggleAuditLogs(filters);

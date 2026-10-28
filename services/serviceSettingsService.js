@@ -832,10 +832,13 @@ async function getServiceToggleAuditLogs(filters = {}) {
     }
   }
 
-  const componyId = req.company;
-
-  if(companyId != null || componyId != undefined) {
-    res.status(403).json({message:"Access not allowed"});
+  if (filters.companyId) {
+    where.company_id = {
+      [Op.or]: [
+        String(filters.companyId).trim(),
+        null
+      ]
+    };
   }
 
   const search = String(filters.search || filters.q || filters.targetUser || '').trim();
@@ -843,7 +846,7 @@ async function getServiceToggleAuditLogs(filters = {}) {
   const UserModel = models.User || User;
 
   const page = Math.max(1, Number(filters.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(filters.limit) || 20));
+  const limit = Math.min(1000, Math.max(1, Number(filters.limit) || 20));
   const offset = (page - 1) * limit;
 
   if (search) {
@@ -851,17 +854,21 @@ async function getServiceToggleAuditLogs(filters = {}) {
     const likeOp = isSqlite ? Op.like : Op.iLike;
     const searchPattern = `%${search}%`;
 
+    const userWhere = {
+      [Op.or]: [
+        { name: { [likeOp]: searchPattern } },
+        { username: { [likeOp]: searchPattern } },
+        { mobile_number: { [likeOp]: searchPattern } },
+        { abheepay_id: { [likeOp]: searchPattern } },
+        { email: { [likeOp]: searchPattern } },
+      ],
+    };
+    if (filters.companyId) {
+      userWhere.company_id = String(filters.companyId).trim();
+    }
+
     const matchingUsers = await UserModel.findAll({
-      where: {
-        [Op.or]: [
-          { name: { [likeOp]: searchPattern } },
-          { username: { [likeOp]: searchPattern } },
-          { mobile_number: { [likeOp]: searchPattern } },
-          { abheepay_id: { [likeOp]: searchPattern } },
-          { email: { [likeOp]: searchPattern } },
-          { company_id: componyId}
-        ],
-      },
+      where: userWhere,
       attributes: ['id'],
       raw: true,
     });

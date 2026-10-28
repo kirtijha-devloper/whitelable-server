@@ -13,12 +13,12 @@ function ensureEmployeePermission(permissions, options = {}) {
     message = 'You do not have permission to access this module.',
     elevateRole,
   } = options;
-
+  
   return (req, res, next) => {
     if (!isEmployee(req.user)) {
       return next();
     }
-
+    
     if (!hasAnyPermission(req.user, permissionList)) {
       return res.status(403).json({
         success: false,
