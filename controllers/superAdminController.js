@@ -544,6 +544,11 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
   }
 
   // 2. Format Validations
+  if (name && /[0-9]/.test(name)) {
+    res.status(400);
+    throw new Error("Numbers are not allowed in Director Name.");
+  }
+
   const cleanEmail = String(email).trim().toLowerCase();
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(cleanEmail)) {
@@ -884,6 +889,10 @@ const updateAdmin = asyncHandler(async (req, res) => {
 
   // 1. SURGICAL USER DIFF CHECKS (only update if provided and different from DB)
   if (name !== undefined && name !== null && String(name).trim() && String(name).trim() !== (admin.name || "")) {
+    if (/[0-9]/.test(name)) {
+      res.status(400);
+      throw new Error("Numbers are not allowed in Director Name.");
+    }
     userUpdates.name = String(name).trim();
   }
 
@@ -971,6 +980,10 @@ const updateAdmin = asyncHandler(async (req, res) => {
 
   if (pan_number !== undefined && pan_number !== null && String(pan_number).trim()) {
     const cleanPan = String(pan_number).replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10);
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(cleanPan)) {
+      res.status(400);
+      throw new Error("PAN number must be formatted as 5 letters, 4 digits, and 1 letter (e.g. ABCDE1234F).");
+    }
     if (cleanPan && cleanPan !== (admin.pan_number || "")) {
       userUpdates.pan_number = cleanPan;
     }
