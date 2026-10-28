@@ -1350,6 +1350,7 @@ const registerUser = asyncHandler(async (req, res) => {
                         district: req.body.district,
                         pincode: req.body.pincode,
                         state: req.body.state,
+                        country: req.body.country,
                         aadhar_number: req.body.aadhar_number,
                         pan_number: req.body.pan_number,
                         pan_number_url:        panUrl?.secure_url    || null,
