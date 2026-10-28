@@ -8,6 +8,7 @@ const {
   createUserPayoutCharge,
   listAllUserPayoutCharges,
   getUserPayoutChargesByUser,
+  getCompanyPayoutCharges,
   getUserPayoutChargeById,
   updateUserPayoutCharge,
   deleteUserPayoutCharge,
@@ -25,6 +26,16 @@ router.get('/list', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_
   message: 'You do not have permission to view user payout charges.',
   elevateRole: 'admin',
 }), listAllUserPayoutCharges);
+
+router.get('/company/:companyId?', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: 'You do not have permission to view user payout charges.',
+  elevateRole: 'admin',
+}), getCompanyPayoutCharges);
+
+router.get('/user', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
+  message: 'You do not have permission to view user payout charges.',
+  elevateRole: 'admin',
+}), getUserPayoutChargesByUser);
 
 router.get('/user/:userId', ensureEmployeePermission(EMPLOYEE_PERMISSIONS.RATE_SETTINGS_READ, {
   message: 'You do not have permission to view user payout charges.',

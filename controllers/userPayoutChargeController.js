@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const { Op } = require('sequelize');
 const UserPayoutCharge = require('../models/UserPayoutCharge');
 const User = require('../models/User');
+const Company = require('../models/Company');
 
 // ── Helper: check for overlapping slab range for a user ──────────────────────
 async function checkSlabOverlap(userId, fromAmount, toAmount, excludeId = null) {
@@ -14,6 +15,28 @@ async function checkSlabOverlap(userId, fromAmount, toAmount, excludeId = null) 
     where.id = { [Op.ne]: excludeId };
   }
   return UserPayoutCharge.findOne({ where });
+}
+
+// ── Helper: resolve company ID for a given user or request ───────────────────
+async function resolveCompanyId(targetUser, req) {
+  if (req.body?.company_id) return req.body.company_id;
+  if (targetUser?.company_id) return targetUser.company_id;
+  if (req.company) return req.company;
+  if (req.user?.company_id) return req.user.company_id;
+
+  if (targetUser?.id) {
+    try {
+      const comp = await Company.findOne({ where: { user_id: targetUser.id } });
+      if (comp?.company_id) return comp.company_id;
+    } catch (_) {}
+  }
+  if (req.user?.id) {
+    try {
+      const comp = await Company.findOne({ where: { user_id: req.user.id } });
+      if (comp?.company_id) return comp.company_id;
+    } catch (_) {}
+  }
+  return null;
 }
 
 // ── Create a new user payout charge rule ─────────────────────────────────────
@@ -61,11 +84,11 @@ const createUserPayoutCharge = asyncHandler(async (req, res) => {
     });
   }
 
-  const companyId = user?.company_id || req.company;
+  const companyId = await resolveCompanyId(user, req);
 
-  if(!companyId){
-    console.log(`UserId --> ${req.user.id} :: Domain is not registered`);
-    return res.status(400).json({message : "No Domain Name is registered"});
+  if (!companyId) {
+    console.log(`UserId --> ${req.user.id} :: Domain or Company is not registered`);
+    return res.status(400).json({ message: 'No Domain Name or Company is registered' });
   }
 
   const rule = await UserPayoutCharge.create({
@@ -76,7 +99,7 @@ const createUserPayoutCharge = asyncHandler(async (req, res) => {
     rate_type,
     is_active: is_active !== undefined ? is_active : true,
     description: description || null,
-    company_id : companyId,
+    company_id: companyId,
   });
 
   return res.status(201).json({ success: true, data: rule });
@@ -92,6 +115,15 @@ const listAllUserPayoutCharges = asyncHandler(async (req, res) => {
     where.company_id = req.company;
   }
 
+  // Super-admin can see all admin charges
+  if (req.user?.role === 'super_admin' && !req.query.user_id) {
+    const adminUsers = await User.findAll({
+      where: { role: 'admin' },
+      attributes: ['id'],
+    });
+    where.user_id = { [Op.in]: adminUsers.map((a) => a.id) };
+  }
+
   const rules = await UserPayoutCharge.findAll({
     where,
     order: [['user_id', 'ASC'], ['from_amount', 'ASC']],
@@ -100,13 +132,185 @@ const listAllUserPayoutCharges = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, data: rules });
 });
 
-// ── Get all rules for a specific user ────────────────────────────────────────
+// ── Get all rules for a specific user (returns franchise_id, super_franchise_id, user_id payouts) ────────
 const getUserPayoutChargesByUser = asyncHandler(async (req, res) => {
-  const rules = await UserPayoutCharge.findAll({
-    where: { user_id: req.params.userId },
+  const paramUserId = req.params.userId;
+  const isSuperAdminCaller = req.user?.role === 'super_admin';
+
+  // If super-admin is calling and no specific userId is passed (or 'me' is passed):
+  // Super-admin can see all the admin charges!
+  if (isSuperAdminCaller && (!paramUserId || paramUserId === 'me')) {
+    const adminUsers = await User.findAll({
+      where: { role: 'admin' },
+      attributes: ['id', 'name', 'username', 'email', 'mobile_number', 'company_id'],
+    });
+    const adminUserIds = adminUsers.map((a) => a.id);
+    const adminMap = new Map(adminUsers.map((a) => [Number(a.id), a]));
+
+    const rawRules = await UserPayoutCharge.findAll({
+      where: {
+        user_id: { [Op.in]: adminUserIds },
+        ...(req.query.is_active !== undefined ? { is_active: req.query.is_active === 'true' } : {}),
+      },
+      order: [['user_id', 'ASC'], ['from_amount', 'ASC']],
+    });
+
+    const annotatedRules = rawRules.map((r) => {
+      const item = r.toJSON ? r.toJSON() : { ...r };
+      const u = adminMap.get(Number(item.user_id));
+      return {
+        ...item,
+        payout_type: 'user_id',
+        user: u
+          ? {
+              id: u.id,
+              name: u.name,
+              username: u.username,
+              email: u.email,
+              mobile_number: u.mobile_number,
+              company_id: u.company_id,
+              role: 'admin',
+            }
+          : null,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: annotatedRules,
+      user_id: req.user.id,
+      payouts: {
+        user_id: annotatedRules,
+        franchise_id: [],
+        super_franchise_id: [],
+        company_id: [],
+      },
+      user_payouts: annotatedRules,
+      franchise_payouts: [],
+      super_franchise_payouts: [],
+      company_payouts: [],
+    });
+  }
+
+  const userId = !paramUserId || paramUserId === 'me' ? req.user?.id : paramUserId;
+
+  if (!userId) {
+    return res.status(400).json({ success: false, message: 'user_id is required' });
+  }
+
+  const targetUser = await User.findByPk(userId);
+  if (!targetUser) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+
+  const companyId = await resolveCompanyId(targetUser, req);
+
+  const targetId = Number(targetUser.id);
+  const userRole = String(targetUser.role || '').toLowerCase();
+  const franchiseId = ['franchise', 'franchaise'].includes(userRole)
+    ? targetId
+    : targetUser.franchaise_id
+    ? Number(targetUser.franchaise_id)
+    : null;
+  const superFranchiseId = userRole === 'super_franchise'
+    ? targetId
+    : targetUser.super_franchise_id
+    ? Number(targetUser.super_franchise_id)
+    : null;
+  const adminId = targetUser.admin_id ? Number(targetUser.admin_id) : null;
+
+  const candidateUserIds = [targetId];
+  if (franchiseId && !candidateUserIds.includes(franchiseId)) candidateUserIds.push(franchiseId);
+  if (superFranchiseId && !candidateUserIds.includes(superFranchiseId)) candidateUserIds.push(superFranchiseId);
+  if (adminId && !candidateUserIds.includes(adminId)) candidateUserIds.push(adminId);
+
+  const whereOrConditions = [
+    { user_id: { [Op.in]: candidateUserIds } }
+  ];
+  if (companyId) {
+    whereOrConditions.push({ company_id: companyId });
+  }
+
+  const rawRules = await UserPayoutCharge.findAll({
+    where: {
+      [Op.or]: whereOrConditions,
+      is_active: true,
+    },
     order: [['from_amount', 'ASC']],
   });
-  return res.status(200).json({ success: true, data: rules });
+
+  const annotatedRules = rawRules.map((r) => {
+    const item = r.toJSON ? r.toJSON() : { ...r };
+    const rUid = Number(item.user_id);
+    let pType = 'user_id';
+    if (rUid === targetId) {
+      pType = 'user_id';
+    } else if (franchiseId && rUid === franchiseId) {
+      pType = 'franchise_id';
+    } else if (superFranchiseId && rUid === superFranchiseId) {
+      pType = 'super_franchise_id';
+    } else if (adminId && rUid === adminId) {
+      pType = 'admin_id';
+    } else {
+      pType = 'company_id';
+    }
+
+    return {
+      ...item,
+      payout_type: pType,
+      franchise_id: franchiseId,
+      super_franchise_id: superFranchiseId,
+    };
+  });
+
+  const userPayouts = annotatedRules.filter((r) => r.payout_type === 'user_id');
+  const franchisePayouts = annotatedRules.filter((r) => r.payout_type === 'franchise_id');
+  const superFranchisePayouts = annotatedRules.filter((r) => r.payout_type === 'super_franchise_id');
+  const companyPayouts = annotatedRules.filter((r) => r.payout_type === 'company_id' || r.payout_type === 'admin_id');
+
+  return res.status(200).json({
+    success: true,
+    data: annotatedRules,
+    user_id: targetId,
+    franchise_id: franchiseId,
+    super_franchise_id: superFranchiseId,
+    company_id: companyId,
+    payouts: {
+      user_id: userPayouts,
+      franchise_id: franchisePayouts,
+      super_franchise_id: superFranchisePayouts,
+      company_id: companyPayouts,
+    },
+    user_payouts: userPayouts,
+    franchise_payouts: franchisePayouts,
+    super_franchise_payouts: superFranchisePayouts,
+    company_payouts: companyPayouts,
+  });
+});
+
+// ── Get all rules for a company ──────────────────────────────────────────────
+const getCompanyPayoutCharges = asyncHandler(async (req, res) => {
+  let companyId = req.params.companyId || req.company || req.user?.company_id;
+  if (!companyId) {
+    try {
+      const comp = await Company.findOne({ where: { user_id: req.user.id } });
+      if (comp) companyId = comp.company_id;
+    } catch (_) {}
+  }
+  if (!companyId) {
+    return res.status(400).json({ success: false, message: 'company_id could not be resolved' });
+  }
+
+  const rules = await UserPayoutCharge.findAll({
+    where: { company_id: companyId },
+    order: [['from_amount', 'ASC']],
+  });
+
+  return res.status(200).json({
+    success: true,
+    data: rules,
+    company_id: companyId,
+  });
 });
 
 // ── Get single rule by ID ─────────────────────────────────────────────────────
@@ -161,7 +365,7 @@ const updateUserPayoutCharge = asyncHandler(async (req, res) => {
   if (is_active !== undefined) rule.is_active = is_active;
   if (description !== undefined) rule.description = description;
 
-  rule.company_id = companyId;
+  if (companyId) rule.company_id = companyId;
   await rule.save();
   return res.status(200).json({ success: true, data: rule });
 });
@@ -187,6 +391,7 @@ module.exports = {
   createUserPayoutCharge,
   listAllUserPayoutCharges,
   getUserPayoutChargesByUser,
+  getCompanyPayoutCharges,
   getUserPayoutChargeById,
   updateUserPayoutCharge,
   deleteUserPayoutCharge,

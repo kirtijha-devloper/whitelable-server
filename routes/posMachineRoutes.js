@@ -30,6 +30,19 @@ const { EMPLOYEE_PERMISSIONS } = require("../utils/permissions");
 // 🛡️ Protect routes below this line (if needed)
 router.use(validateToken);
 router.use(validateWhitelabelDomain);
+router.use((req, res, next) => {
+  const role = String(req.user?.original_role || req.user?.role || '').toLowerCase();
+  if (role === 'merchant') {
+    const isAllowedGet = req.method === 'GET' && (req.path === '/' || req.path === '/list');
+    if (!isAllowedGet) {
+      return res.status(403).json({
+        success: false,
+        message: "Merchants cannot modify POS machines or access restricted machine operations."
+      });
+    }
+  }
+  next();
+});
 
 // 🔍 Get all + paginated list
 router.get("/", ensureEmployeePermission(EMPLOYEE_PERMISSIONS.STOCK_POS_READ, {

@@ -23,7 +23,7 @@ function maskMobileNumber(mobile) {
   return "*".repeat(str.length - 4) + str.slice(-4);
 }
 
-// Helper – create / refresh a PosRentalBilling record when a machine is
+// Helper ΓÇô create / refresh a PosRentalBilling record when a machine is
 // assigned to a user.  Any previously-active billing for this machine is
 // deactivated first so there is never more than one active record per machine.
 // ---------------------------------------------------------------------------
@@ -317,7 +317,12 @@ const getPosMachine = asyncHandler(async (req, res) => {
   }
 
   const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
-  if (requesterRole !== 'super_admin') {
+  if (requesterRole === 'merchant') {
+    if (posMachineById.assigned_to !== req.user?.id) {
+      res.status(403);
+      throw new Error("You do not have access to this POS machine.");
+    }
+  } else if (requesterRole !== 'super_admin') {
     const allowedUserIds = await getAllowedUserIdsForPos(req);
     const companyId = req.user?.company_id || req.company;
     const isCompanyMachine = companyId && posMachineById.company_name
@@ -335,6 +340,11 @@ const getPosMachine = asyncHandler(async (req, res) => {
 });
 
 const activatePosMachine = asyncHandler( async (req, res) => {
+    const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+    if (requesterRole === 'merchant') {
+        res.status(403);
+        throw new Error("Merchants cannot activate POS machines");
+    }
     const id = req.params.id;
     const posMachineById = await PosMachine.findByPk(id)
     if (posMachineById) {
@@ -348,6 +358,11 @@ const activatePosMachine = asyncHandler( async (req, res) => {
 });
 
 const deactivatePosMachine = asyncHandler(async (req, res) => {
+  const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+  if (requesterRole === 'merchant') {
+    res.status(403);
+    throw new Error("Merchants cannot deactivate POS machines");
+  }
   const id = req.params.id;
   const posMachineById = await PosMachine.findByPk(id);
 
@@ -385,6 +400,13 @@ const deactivatePosMachine = asyncHandler(async (req, res) => {
 });
 
 const unassignPosMachine = asyncHandler(async (req, res) => {
+  const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+  if (requesterRole === 'merchant') {
+    return res.status(403).json({
+      success: false,
+      message: "Merchants cannot unassign POS machines."
+    });
+  }
   const id = req.params.id;
   const posMachine = await PosMachine.findByPk(id);
 
@@ -396,7 +418,6 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
   }
 
   const previousAssignedTo = posMachine.assigned_to;
-  const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
 
   // Check whether the machine is already unassigned
   let isAlreadyUnassigned = false;
@@ -519,6 +540,11 @@ const unassignPosMachine = asyncHandler(async (req, res) => {
 });
 
 const deletePosMachine = asyncHandler( async (req, res) => {
+    const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+    if (requesterRole === 'merchant') {
+        res.status(403);
+        throw new Error("Merchants cannot delete POS machines");
+    }
     const id = req.params.id;
     const posMachineById = await PosMachine.findByPk(id);
     if (!posMachineById) {
@@ -538,6 +564,11 @@ const deletePosMachine = asyncHandler( async (req, res) => {
 });
 
 const markAsDelivered = asyncHandler( async (req, res) => {
+    const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+    if (requesterRole === 'merchant') {
+        res.status(403);
+        throw new Error("Merchants cannot update machine delivery status");
+    }
     const id = req.params.id;
     const posMachineById = await PosMachine.findByPk(id)
     if (posMachineById) {
@@ -551,6 +582,11 @@ const markAsDelivered = asyncHandler( async (req, res) => {
 });
 
 const markAsReturnInitiated = asyncHandler( async (req, res) => {
+    const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+    if (requesterRole === 'merchant') {
+        res.status(403);
+        throw new Error("Merchants cannot initiate machine return");
+    }
     const id = req.params.id;
     const remarks = req.body.remarks;
     const posMachineById = await PosMachine.findByPk(id)
@@ -955,6 +991,11 @@ const getPosMachinesByUserId = asyncHandler(async (req, res) => {
 
 
 const updatePosMachine = asyncHandler(async (req, res) => {
+  const requesterRole = normalizeRole(req.user?.original_role || req.user?.role);
+  if (requesterRole === 'merchant') {
+    res.status(403);
+    throw new Error("Merchants cannot update POS machines");
+  }
   try {
     const { id } = req.params; // Assuming the ID is passed as a route param
     const {
@@ -1212,7 +1253,7 @@ const bulkCreatePosMachines = asyncHandler(async (req, res) => {
   }
 });
 
-// ⚠️ TEMPORARY – delete ALL POS machines. Remove before production.
+// ΓÜá∩╕Å TEMPORARY ΓÇô delete ALL POS machines. Remove before production.
 const deleteAllPosMachines = asyncHandler(async (req, res) => {
   const deleted = await PosMachine.destroy({ where: {}, truncate: true });
   res.status(200).json({ success: true, message: `All POS machines deleted`, deleted });

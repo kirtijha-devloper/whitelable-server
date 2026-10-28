@@ -1,5 +1,6 @@
 const worldlineWebhookQueue = require("../queues/worldlineWebhookQueue");
 const WorldlineNotification = require("../models/WorldlineNotification");
+const RazorpayNotification = require("../models/RazorpayNotification");
 const PosMachine = require("../models/posMachine");
 const User = require("../models/User");
 const MerchantTransactionCharge = require("../models/MerchantTransactionCharge");
@@ -48,6 +49,148 @@ const normalizeId = (id) => {
   return stripped === "" ? digits : stripped;
 };
 
+/**
+ * Look up active POS machine by matching mid / tid candidates
+ */
+async function findActivePosMachine(merchantId, terminalId) {
+  if (!merchantId || !terminalId) return null;
+  const normalizedMid = normalizeId(merchantId);
+  const normalizedTid = normalizeId(terminalId);
+
+  const midCandidates = [merchantId.toString().trim()];
+  if (normalizedMid && normalizedMid !== midCandidates[0]) midCandidates.push(normalizedMid);
+
+  const tidCandidates = [terminalId.toString().trim()];
+  if (normalizedTid && normalizedTid !== tidCandidates[0]) tidCandidates.push(normalizedTid);
+
+  const posMachines = await PosMachine.findAll({
+    where: {
+      status: 'active',
+      tid_number: { [Op.in]: tidCandidates }
+    }
+  });
+
+  for (const pm of posMachines) {
+    const storedMid = normalizeId(pm.mid_number);
+    const storedTid = normalizeId(pm.tid_number);
+    if (storedMid === normalizedMid && storedTid === normalizedTid) {
+      return pm;
+    }
+  }
+
+  return await PosMachine.findOne({
+    where: {
+      status: 'active',
+      mid_number: { [Op.in]: midCandidates },
+      tid_number: { [Op.in]: tidCandidates }
+    }
+  });
+}
+
+/**
+ * Creates or updates an entry in RazorpayNotification for a Worldline transaction.
+ * Records the transaction whether it succeeds or fails.
+ */
+async function recordRazorpayNotification({
+  txnId,
+  notification,
+  eventData,
+  status,
+  isSuccess,
+  posMachine = null,
+  posOperator = null,
+  settlementType = null,
+  processingStatus = 'completed',
+  processingError = null
+}) {
+  try {
+    const merchantId = notification?.mid || eventData?.mid || null;
+    const terminalId = notification?.tid || eventData?.tid || null;
+    const rawAmount = notification?.amount != null ? notification.amount : (eventData?.amount != null ? eventData.amount : 0);
+    const amountVal = rawAmount != null ? Math.round(Number(rawAmount)) : null;
+
+    const rrnVal = notification?.rrn || eventData?.rrn || eventData?.rr_number || null;
+    const paymentMode = (eventData?.txn_type || 'CRDB').toUpperCase();
+    const cardScheme = (notification?.card_scheme || eventData?.card_scheme || 'VISA').toUpperCase();
+
+    // Map status: if isSuccess: 'SUCCESS', if failed: 'FAILED'
+    const statusVal = isSuccess ? 'SUCCESS' : (status ? String(status).toUpperCase() : 'FAILED');
+
+    let postingDateVal = null;
+    if (eventData?.txn_date) {
+      const d = eventData.txn_date;
+      const t = eventData.txn_time || '00:00:00';
+      const parsed = new Date(`${d} ${t}`);
+      postingDateVal = isNaN(parsed.getTime()) ? new Date() : parsed;
+    } else {
+      postingDateVal = new Date();
+    }
+
+    const companyId = posOperator?.company_id || posMachine?.company_id || notification?.company_id || null;
+
+    const defaults = {
+      txn_id: txnId,
+      mid: merchantId ? merchantId.toString() : null,
+      tid: terminalId ? terminalId.toString() : null,
+      amount: amountVal,
+      currency_code: eventData?.currency || eventData?.currency_code || 'INR',
+      payment_mode: paymentMode,
+      payment_card_type: 'CREDIT',
+      payment_card_brand: cardScheme,
+      rr_number: rrnVal,
+      device_serial: eventData?.device_serial || null,
+      posting_date: postingDateVal,
+      event_json: eventData || notification?.event_json || {},
+      status: statusVal,
+      source: notification?.source || 'worldline',
+      settlement_type: settlementType || posOperator?.settlement_type || null,
+      user_id: posOperator ? posOperator.id : null,
+      company_id: companyId,
+      pos_machine_id: posMachine ? posMachine.id : null,
+      processed: true,
+      processing_status: processingStatus,
+      processing_error: processingError,
+      processed_at: new Date()
+    };
+
+    const [record, created] = await RazorpayNotification.findOrCreate({
+      where: { txn_id: txnId },
+      defaults
+    });
+
+    if (!created) {
+      await record.update({
+        mid: defaults.mid,
+        tid: defaults.tid,
+        amount: defaults.amount,
+        currency_code: defaults.currency_code,
+        payment_mode: defaults.payment_mode,
+        payment_card_type: defaults.payment_card_type,
+        payment_card_brand: defaults.payment_card_brand,
+        rr_number: defaults.rr_number,
+        device_serial: defaults.device_serial,
+        posting_date: defaults.posting_date,
+        event_json: defaults.event_json,
+        status: statusVal,
+        source: defaults.source,
+        settlement_type: defaults.settlement_type,
+        user_id: defaults.user_id,
+        company_id: defaults.company_id,
+        pos_machine_id: defaults.pos_machine_id,
+        processed: true,
+        processing_status: processingStatus,
+        processing_error: processingError,
+        processed_at: new Date()
+      });
+    }
+
+    logger.log(`[Worldline Webhook Worker] ${created ? 'Created' : 'Updated'} RazorpayNotification for txn: ${txnId} (status=${statusVal}, processing_status=${processingStatus})`);
+    return record;
+  } catch (err) {
+    logger.error(`[Worldline Webhook Worker] Failed to record RazorpayNotification for txn: ${txnId}:`, err);
+  }
+}
+
 worldlineWebhookQueue.process(async (job) => {
   const { txnId, status, event, notificationId } = job.data;
   logger.log(`[Worldline Webhook Worker] Processing business logic for txn: ${txnId}, status: ${status}`);
@@ -65,12 +208,41 @@ worldlineWebhookQueue.process(async (job) => {
       ? JSON.parse(notification.event_json)
       : notification.event_json;
 
+    const merchantId = notification.mid || eventData.mid;
+    const terminalId = notification.tid || eventData.tid;
+    const transactionAmount = parseFloat(notification.amount || eventData.amount || 0);
+
     const isSuccessStatus = (status || '').toString().toLowerCase() === 'success' ||
                             (status || '').toString().toLowerCase() === 'approved';
 
     if (!isSuccessStatus) {
-      logger.warn(`[Worldline Webhook Worker] Transaction ${txnId} status is '${status}'. Marking completed without wallet credit.`);
+      logger.warn(`[Worldline Webhook Worker] Transaction ${txnId} status is '${status}'. Recording in RazorpayNotification and marking completed without wallet credit.`);
+      
+      let failedPosMachine = null;
+      let failedPosOperator = null;
+      if (merchantId && terminalId) {
+        failedPosMachine = await findActivePosMachine(merchantId, terminalId);
+        if (failedPosMachine && failedPosMachine.assigned_to) {
+          failedPosOperator = await User.findByPk(failedPosMachine.assigned_to);
+        }
+      }
+
+      await recordRazorpayNotification({
+        txnId,
+        notification,
+        eventData,
+        status: status || 'FAILED',
+        isSuccess: false,
+        posMachine: failedPosMachine,
+        posOperator: failedPosOperator,
+        settlementType: failedPosOperator?.settlement_type || null,
+        processingStatus: 'completed',
+        processingError: `Transaction status is '${status}'`
+      });
+
       await notification.update({
+        user_id: failedPosOperator ? failedPosOperator.id : null,
+        pos_machine_id: failedPosMachine ? failedPosMachine.id : null,
         processed: true,
         processing_status: 'completed',
         processing_error: `Transaction status is '${status}'`,
@@ -79,13 +251,18 @@ worldlineWebhookQueue.process(async (job) => {
       return;
     }
 
-    const merchantId = notification.mid || eventData.mid;
-    const terminalId = notification.tid || eventData.tid;
-    const transactionAmount = parseFloat(notification.amount || eventData.amount || 0);
-
     if (!merchantId || !terminalId || !transactionAmount || Number.isNaN(transactionAmount)) {
       const errMsg = `Missing mid (${merchantId}), tid (${terminalId}), or amount (${transactionAmount}) for txn: ${txnId}`;
       logger.error(`[Worldline Webhook Worker] ${errMsg}`);
+      await recordRazorpayNotification({
+        txnId,
+        notification,
+        eventData,
+        status: status || 'SUCCESS',
+        isSuccess: true,
+        processingStatus: 'needs_admin',
+        processingError: errMsg
+      });
       await notification.update({
         processed: false,
         processing_status: 'needs_admin',
@@ -96,45 +273,20 @@ worldlineWebhookQueue.process(async (job) => {
     }
 
     // Match active POS machine by tid / mid
-    const normalizedMid = normalizeId(merchantId);
-    const normalizedTid = normalizeId(terminalId);
-
-    const midCandidates = [merchantId.toString().trim()];
-    if (normalizedMid && normalizedMid !== midCandidates[0]) midCandidates.push(normalizedMid);
-
-    const tidCandidates = [terminalId.toString().trim()];
-    if (normalizedTid && normalizedTid !== tidCandidates[0]) tidCandidates.push(normalizedTid);
-
-    const posMachines = await PosMachine.findAll({
-      where: {
-        status: 'active',
-        tid_number: { [Op.in]: tidCandidates }
-      }
-    });
-
-    let posMachine = null;
-    for (const pm of posMachines) {
-      const storedMid = normalizeId(pm.mid_number);
-      const storedTid = normalizeId(pm.tid_number);
-      if (storedMid === normalizedMid && storedTid === normalizedTid) {
-        posMachine = pm;
-        break;
-      }
-    }
-
-    if (!posMachine) {
-      posMachine = await PosMachine.findOne({
-        where: {
-          status: 'active',
-          mid_number: { [Op.in]: midCandidates },
-          tid_number: { [Op.in]: tidCandidates }
-        }
-      });
-    }
+    const posMachine = await findActivePosMachine(merchantId, terminalId);
 
     if (!posMachine) {
       const errMsg = `POS machine not found for Worldline mid=${merchantId}, tid=${terminalId}`;
       logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Marking for admin review.`);
+      await recordRazorpayNotification({
+        txnId,
+        notification,
+        eventData,
+        status: status || 'SUCCESS',
+        isSuccess: true,
+        processingStatus: 'needs_admin',
+        processingError: errMsg
+      });
       await notification.update({
         processed: false,
         processing_status: 'needs_admin',
@@ -147,6 +299,16 @@ worldlineWebhookQueue.process(async (job) => {
     if (!posMachine.assigned_to) {
       const errMsg = `POS machine ${posMachine.id} has no assigned merchant`;
       logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Marking for admin review.`);
+      await recordRazorpayNotification({
+        txnId,
+        notification,
+        eventData,
+        status: status || 'SUCCESS',
+        isSuccess: true,
+        posMachine,
+        processingStatus: 'needs_admin',
+        processingError: errMsg
+      });
       await notification.update({
         pos_machine_id: posMachine.id,
         processed: false,
@@ -161,6 +323,16 @@ worldlineWebhookQueue.process(async (job) => {
     if (!posOperator) {
       const errMsg = `Assigned user ID ${posMachine.assigned_to} not found for POS machine ${posMachine.id}`;
       logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Marking for admin review.`);
+      await recordRazorpayNotification({
+        txnId,
+        notification,
+        eventData,
+        status: status || 'SUCCESS',
+        isSuccess: true,
+        posMachine,
+        processingStatus: 'needs_admin',
+        processingError: errMsg
+      });
       await notification.update({
         pos_machine_id: posMachine.id,
         processed: false,
@@ -178,6 +350,18 @@ worldlineWebhookQueue.process(async (job) => {
 
     if (existingCharge) {
       logger.log(`[Worldline Webhook Worker] MerchantTransactionCharge already exists for txn: ${txnId}`);
+      await recordRazorpayNotification({
+        txnId,
+        notification,
+        eventData,
+        status: status || 'SUCCESS',
+        isSuccess: true,
+        posMachine,
+        posOperator,
+        settlementType: posOperator.settlement_type || null,
+        processingStatus: 'completed',
+        processingError: null
+      });
       await notification.update({
         user_id: posOperator.id,
         pos_machine_id: posMachine.id,
@@ -429,6 +613,20 @@ worldlineWebhookQueue.process(async (job) => {
       }
     }
 
+    // Create/update entry in RazorpayNotification
+    await recordRazorpayNotification({
+      txnId,
+      notification,
+      eventData,
+      status: 'SUCCESS',
+      isSuccess: true,
+      posMachine,
+      posOperator,
+      settlementType: settlementTypeSnapshot,
+      processingStatus: 'completed',
+      processingError: null
+    });
+
     // Mark notification completed
     await notification.update({
       user_id: posOperator.id,
@@ -452,6 +650,16 @@ worldlineWebhookQueue.process(async (job) => {
           await notif.update({
             processing_status: 'needs_admin',
             processing_error: err.message || String(err)
+          });
+          const evData = typeof notif.event_json === 'string' ? JSON.parse(notif.event_json) : notif.event_json;
+          await recordRazorpayNotification({
+            txnId,
+            notification: notif,
+            eventData: evData,
+            status: notif.status || 'FAILED',
+            isSuccess: false,
+            processingStatus: 'needs_admin',
+            processingError: err.message || String(err)
           });
         }
       }
