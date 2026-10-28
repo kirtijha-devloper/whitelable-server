@@ -467,6 +467,10 @@ const getUsers = asyncHandler(async (req, res) => {
         // Role-based access control
         if (userRole === "admin" || userRole === "employee") {
           where.company_id = req.user?.company_id || req.company;
+          // Normal user directory excludes admin accounts
+          if (!requestedRole) {
+            where.role = { [Op.ne]: 'admin' };
+          }
         }
         if (userRole === 'super_franchise') {
             const downstreamFranchises = await User.findAll({

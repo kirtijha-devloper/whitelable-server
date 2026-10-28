@@ -286,11 +286,26 @@ const getDashboard = asyncHandler(async (req, res) => {
         })
       ]);
 
+      const adminMids = await getAssignedMachineMids(allowedUserIds);
+      const adminScopeFilter = {
+        [Op.or]: [
+          ...(companyId ? [{ company_id: companyId }] : []),
+          ...(allowedUserIds.length ? [{ user_id: { [Op.in]: allowedUserIds } }] : []),
+          ...(adminMids.length ? [{ mid: { [Op.in]: adminMids } }] : [])
+        ]
+      };
+
       const [posStats, ccBillStats, baCcBillStats, today_total_payout] = await Promise.all([
-        getRazorpayTransactionStats(dateWhere),
-        getCcBillTransactionStats({ createdAt: { [Op.between]: [start, end] } }),
-        getBillAvenueCcBillTransactionStats({ createdAt: { [Op.between]: [start, end] } }),
-        getPayoutStats({ start, end })
+        getRazorpayTransactionStats({ [Op.and]: [dateWhere, adminScopeFilter] }),
+        getCcBillTransactionStats({
+          createdAt: { [Op.between]: [start, end] },
+          ...(allowedUserIds.length ? { user_id: { [Op.in]: allowedUserIds } } : {})
+        }),
+        getBillAvenueCcBillTransactionStats({
+          createdAt: { [Op.between]: [start, end] },
+          ...(allowedUserIds.length ? { user_id: { [Op.in]: allowedUserIds } } : {})
+        }),
+        getPayoutStats({ userIds: allowedUserIds, start, end })
       ]);
 
       const deactiveMachineCount = Math.max(0, totalMachineCount - activeMachineCount);
@@ -602,6 +617,17 @@ const getTodayPayoutList = asyncHandler(async (req, res) => {
     where.requested_by = { [Op.in]: [...merchantIds, userId] };
   } else if (role === "merchant") {
     where.requested_by = userId;
+  } else if (role === "admin" || role === "employee") {
+    const companyId = req.user?.company_id || req.company;
+    if (companyId) {
+      const companyUsers = await User.findAll({
+        where: { company_id: companyId },
+        attributes: ["id"],
+        raw: true
+      });
+      const compUserIds = toUniqueValues([userId, ...companyUsers.map((u) => u.id)]);
+      where.requested_by = { [Op.in]: compUserIds };
+    }
   }
 
   const payouts = await WalletTransaction.findAll({
