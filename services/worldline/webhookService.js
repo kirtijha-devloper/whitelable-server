@@ -4,7 +4,7 @@ const worldlineWebhookQueue = require("../../queues/worldlineWebhookQueue");
 /**
  * Process incoming Worldline webhook notification
  * Step 1: Store/Upsert notification in DB
- * Step 2: Enqueue background job to worldlineWebhookQueue
+ * Step 2: Enqueue background job to worldlineWebhookQueue (with direct execution fallback)
  */
 async function processWorldlineNotification(event, source = 'worldline', companyId = null) {
     try {
@@ -20,14 +20,29 @@ async function processWorldlineNotification(event, source = 'worldline', company
         const urn = event.urn || event.billing_number || null;
         const tid = event.tid || null;
         const mid = event.mid || null;
-        const txnId = rrn || (urn && tid ? `${tid}-${urn}` : null) || `WL-${tid || 'UNK'}-${Date.now()}`;
-        const status = event.status || 'unknown';
         const rawAmount = event.amount != null ? parseFloat(event.amount) : 0;
+
+        // Auto-detect / normalize status:
+        // Worldline uses resp_code "00" for success, or explicit status "success"/"approved"
+        const respCode = event.resp_code || event.response_code || event.responseCode || null;
+        let status = "event.status ? String(event.status).toLowerCase() : null";
+        if (!status) {
+            if (respCode === '00' || respCode === '0' || respCode === 0) {
+                status = 'success';
+            } else if (respCode && respCode !== '00' && respCode !== '0') {
+                status = 'failed';
+            } else {
+                status = rawAmount > 0 ? 'success' : 'unknown';
+            }
+        }
+
+        const txnId = rrn || (urn && tid ? `${tid}-${urn}` : null) || `WL-${tid || 'UNK'}-${Date.now()}`;
 
         console.log("[Worldline Webhook Service] New Worldline Notification:", {
             txnId,
             rrn,
             status,
+            resp_code: respCode,
             amount: rawAmount,
             card_scheme: event.card_scheme,
             mid,
@@ -89,6 +104,7 @@ async function processWorldlineNotification(event, source = 'worldline', company
         console.log(`[Worldline Webhook Service] Notification ${created ? 'created' : 'updated'}: ${txnId}`);
 
         try {
+            const queueJobId = `wl-webhook-${txnId}-${Date.now()}`;
             await worldlineWebhookQueue.add(
                 {
                     txnId,
@@ -97,14 +113,34 @@ async function processWorldlineNotification(event, source = 'worldline', company
                     notificationId: notification.id
                 },
                 {
-                    jobId: `wl-webhook-${txnId}`,
+                    jobId: queueJobId,
+                    removeOnComplete: true,
                     priority: (status.toLowerCase() === 'failed') ? 10 : 5
                 }
             );
 
-            console.log(`[Worldline Webhook Service] ✅ Enqueued business logic processing for txn: ${txnId}`);
+            console.log(`[Worldline Webhook Service] ✅ Enqueued job ${queueJobId} for txn: ${txnId}`);
         } catch (queueError) {
-            console.error(`[Worldline Webhook Service] ⚠️ Failed to enqueue job for txn: ${txnId}`, queueError);
+            console.error(`[Worldline Webhook Service] ⚠️ Failed to enqueue job for txn: ${txnId} (${queueError.message}). Executing fallback directly...`);
+            try {
+                const { processWorldlineJob } = require("../../workers/worldlineWebhookWorker");
+                if (typeof processWorldlineJob === 'function') {
+                    setImmediate(async () => {
+                        try {
+                            await processWorldlineJob({
+                                txnId,
+                                status,
+                                event,
+                                notificationId: notification.id
+                            }, `direct-${Date.now()}`);
+                        } catch (directErr) {
+                            console.error(`[Worldline Webhook Service] Direct processing failed:`, directErr);
+                        }
+                    });
+                }
+            } catch (fallbackErr) {
+                console.error(`[Worldline Webhook Service] Fallback direct worker load failed:`, fallbackErr);
+            }
         }
 
         return notification;

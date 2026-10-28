@@ -42,6 +42,14 @@ const logger = {
   error: (...args) => { console.error(...args); _fileLog("ERROR", args); },
 };
 
+function getTodayIstDateWindow(refDate = new Date()) {
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(refDate.getTime() + istOffsetMs);
+  const startOfDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0) - istOffsetMs);
+  const endOfDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999) - istOffsetMs);
+  return { startOfDay, endOfDay };
+}
+
 const normalizeId = (id) => {
   if (id == null) return "";
   const digits = id.toString().trim().replace(/\D/g, "");
@@ -191,9 +199,10 @@ async function recordRazorpayNotification({
   }
 }
 
-worldlineWebhookQueue.process(async (job) => {
-  const { txnId, status, event, notificationId } = job.data;
-  logger.log(`[Worldline Webhook Worker] Processing business logic for txn: ${txnId}, status: ${status}`);
+async function processWorldlineJob(jobData, jobId = null) {
+  const { txnId, status, event, notificationId } = jobData || {};
+  const currentJobId = jobId || `direct-${Date.now()}`;
+  logger.log(`[Worldline Webhook Worker] Processing business logic for txn: ${txnId}, status: ${status} (jobId: ${currentJobId})`);
 
   try {
     const notification = await WorldlineNotification.findOne({
@@ -212,8 +221,10 @@ worldlineWebhookQueue.process(async (job) => {
     const terminalId = notification.tid || eventData.tid;
     const transactionAmount = parseFloat(notification.amount || eventData.amount || 0);
 
+    const respCode = (eventData && (eventData.resp_code || eventData.response_code || eventData.responseCode)) || '';
     const isSuccessStatus = (status || '').toString().toLowerCase() === 'success' ||
-                            (status || '').toString().toLowerCase() === 'approved';
+                            (status || '').toString().toLowerCase() === 'approved' ||
+                            respCode === '00' || respCode === '0' || respCode === 0;
 
     if (!isSuccessStatus) {
       logger.warn(`[Worldline Webhook Worker] Transaction ${txnId} status is '${status}'. Recording in RazorpayNotification and marking completed without wallet credit.`);
@@ -231,7 +242,7 @@ worldlineWebhookQueue.process(async (job) => {
         txnId,
         notification,
         eventData,
-        status: status || 'FAILED',
+        status: 'FAILED',
         isSuccess: false,
         posMachine: failedPosMachine,
         posOperator: failedPosOperator,
@@ -258,13 +269,14 @@ worldlineWebhookQueue.process(async (job) => {
         txnId,
         notification,
         eventData,
-        status: status || 'SUCCESS',
-        isSuccess: true,
+        status: 'FAILED',
+        isSuccess: false,
         processingStatus: 'needs_admin',
         processingError: errMsg
       });
       await notification.update({
-        processed: false,
+        status: 'failed',
+        processed: true,
         processing_status: 'needs_admin',
         processing_error: errMsg,
         processed_at: new Date()
@@ -277,18 +289,19 @@ worldlineWebhookQueue.process(async (job) => {
 
     if (!posMachine) {
       const errMsg = `POS machine not found for Worldline mid=${merchantId}, tid=${terminalId}`;
-      logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Marking for admin review.`);
+      logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Transaction marked as FAILED.`);
       await recordRazorpayNotification({
         txnId,
         notification,
         eventData,
-        status: status || 'SUCCESS',
-        isSuccess: true,
+        status: 'FAILED',
+        isSuccess: false,
         processingStatus: 'needs_admin',
         processingError: errMsg
       });
       await notification.update({
-        processed: false,
+        status: 'failed',
+        processed: true,
         processing_status: 'needs_admin',
         processing_error: errMsg,
         processed_at: new Date()
@@ -297,21 +310,22 @@ worldlineWebhookQueue.process(async (job) => {
     }
 
     if (!posMachine.assigned_to) {
-      const errMsg = `POS machine ${posMachine.id} has no assigned merchant`;
-      logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Marking for admin review.`);
+      const errMsg = `POS machine ${posMachine.id} (mid=${merchantId}, tid=${terminalId}) has no assigned merchant`;
+      logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Transaction marked as FAILED.`);
       await recordRazorpayNotification({
         txnId,
         notification,
         eventData,
-        status: status || 'SUCCESS',
-        isSuccess: true,
+        status: 'FAILED',
+        isSuccess: false,
         posMachine,
         processingStatus: 'needs_admin',
         processingError: errMsg
       });
       await notification.update({
+        status: 'failed',
         pos_machine_id: posMachine.id,
-        processed: false,
+        processed: true,
         processing_status: 'needs_admin',
         processing_error: errMsg,
         processed_at: new Date()
@@ -322,25 +336,72 @@ worldlineWebhookQueue.process(async (job) => {
     const posOperator = await User.findByPk(posMachine.assigned_to);
     if (!posOperator) {
       const errMsg = `Assigned user ID ${posMachine.assigned_to} not found for POS machine ${posMachine.id}`;
-      logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Marking for admin review.`);
+      logger.warn(`[Worldline Webhook Worker] ⚠️ ${errMsg}. Transaction marked as FAILED.`);
       await recordRazorpayNotification({
         txnId,
         notification,
         eventData,
-        status: status || 'SUCCESS',
-        isSuccess: true,
+        status: 'FAILED',
+        isSuccess: false,
         posMachine,
         processingStatus: 'needs_admin',
         processingError: errMsg
       });
       await notification.update({
+        status: 'failed',
         pos_machine_id: posMachine.id,
-        processed: false,
+        processed: true,
         processing_status: 'needs_admin',
         processing_error: errMsg,
         processed_at: new Date()
       });
       return;
+    }
+
+    // Settlement Type Evaluation:
+    // If the settlement amount exceeds the merchant's assigned T0 limit, transaction goes to T1 (T+1), otherwise T0.
+    // If merchant is explicitly configured for T1 (next_day_settlement), it always goes to T1.
+    let settlementTypeSnapshot = 'T0';
+    const userSettlementMode = String(posOperator.settlement_type || 'T0').toUpperCase();
+    const isExplicitT1 = userSettlementMode === 'T1' || userSettlementMode === 'NEXT_DAY_SETTLEMENT';
+
+    if (isExplicitT1) {
+      settlementTypeSnapshot = 'T1';
+      logger.log(`[Worldline Webhook Worker] Merchant ${posOperator.id} is explicitly configured for Next-Day Settlement (T1).`);
+    } else {
+      const rawLimit = posOperator.t0_daily_limit;
+      const isLimitAssigned = rawLimit !== null && rawLimit !== undefined && rawLimit !== '' && String(rawLimit).toLowerCase() !== 'unlimited';
+      const t0Limit = isLimitAssigned ? Number(rawLimit) : null;
+
+      if (isLimitAssigned && !isNaN(t0Limit)) {
+        let todayT0Total = 0;
+        try {
+          const { startOfDay, endOfDay } = getTodayIstDateWindow(new Date());
+          const sumResult = await RazorpayNotification.sum('amount', {
+            where: {
+              user_id: posOperator.id,
+              status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED', 'captured', 'success', 'authorized'] },
+              settlement_type: { [Op.in]: ['T0', 'today_settlement', 'TODAY_SETTLEMENT', 't0'] },
+              createdAt: { [Op.between]: [startOfDay, endOfDay] }
+            }
+          });
+          todayT0Total = parseFloat(sumResult) || 0;
+        } catch (sumErr) {
+          todayT0Total = 0;
+        }
+
+        const projectedTotal = todayT0Total + transactionAmount;
+        if (transactionAmount > t0Limit || projectedTotal > t0Limit) {
+          settlementTypeSnapshot = 'T1';
+          logger.warn(`[Worldline Webhook Worker] ⚠️ Settlement limit exceeded for merchant ${posOperator.id} (Txn: ₹${transactionAmount}, Today T0: ₹${todayT0Total}, Limit: ₹${t0Limit}). Shifted to T1 (T+1).`);
+        } else {
+          settlementTypeSnapshot = 'T0';
+          logger.log(`[Worldline Webhook Worker] Settlement within T0 limit for merchant ${posOperator.id} (Txn: ₹${transactionAmount}, Projected: ₹${projectedTotal}, Limit: ₹${t0Limit}). Assigned T0.`);
+        }
+      } else {
+        // No limit assigned or unlimited -> default to T0
+        settlementTypeSnapshot = 'T0';
+      }
     }
 
     // Check duplicate processing
@@ -354,11 +415,11 @@ worldlineWebhookQueue.process(async (job) => {
         txnId,
         notification,
         eventData,
-        status: status || 'SUCCESS',
+        status: 'SUCCESS',
         isSuccess: true,
         posMachine,
         posOperator,
-        settlementType: posOperator.settlement_type || null,
+        settlementType: settlementTypeSnapshot,
         processingStatus: 'completed',
         processingError: null
       });
@@ -371,13 +432,6 @@ worldlineWebhookQueue.process(async (job) => {
       });
       return;
     }
-
-    const { resolveEffectiveSettlement } = require("../services/settlementService");
-    const settlementResolution = await resolveEffectiveSettlement({
-      user: posOperator,
-      incomingTxnAmount: transactionAmount
-    });
-    const settlementTypeSnapshot = settlementResolution.effectiveSettlement;
 
     // Calculate MDR charges via ChargeService
     const paymentMode = (eventData.txn_type || 'CRDB').toUpperCase();
@@ -428,7 +482,7 @@ worldlineWebhookQueue.process(async (job) => {
         paymentMode: paymentMode,
         cardType: 'CREDIT',
         cardBrand: cardScheme,
-        settlement: posOperator.settlement_type || null,
+        settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
       });
 
@@ -447,7 +501,7 @@ worldlineWebhookQueue.process(async (job) => {
         paymentMode: paymentMode,
         cardType: 'CREDIT',
         cardBrand: cardScheme,
-        settlement: posOperator.settlement_type || null,
+        settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
       });
 
@@ -488,7 +542,7 @@ worldlineWebhookQueue.process(async (job) => {
         paymentMode: paymentMode,
         cardType: 'CREDIT',
         cardBrand: cardScheme,
-        settlement: posOperator.settlement_type || null,
+        settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
       });
 
@@ -539,6 +593,8 @@ worldlineWebhookQueue.process(async (job) => {
         source: 'worldline',
         payment_method: paymentMode,
         card_scheme: cardScheme,
+        settlement_type: settlementTypeSnapshot,
+        effective_settlement: settlementTypeSnapshot,
         pos_machine_id: posMachine.id,
         mid_number: merchantId.toString(),
         tid_number: terminalId.toString(),
@@ -640,7 +696,7 @@ worldlineWebhookQueue.process(async (job) => {
     logger.log(`[Worldline Webhook Worker] ✅ Successfully processed Worldline transaction ${txnId} for merchant ${posOperator.id}`);
 
   } catch (err) {
-    logger.error(`[Worldline Webhook Worker] ❌ Error processing Worldline job ${job.id}:`, err);
+    logger.error(`[Worldline Webhook Worker] ❌ Error processing Worldline job ${currentJobId}:`, err);
     try {
       if (notificationId || txnId) {
         const notif = await WorldlineNotification.findOne({
@@ -648,6 +704,7 @@ worldlineWebhookQueue.process(async (job) => {
         });
         if (notif) {
           await notif.update({
+            status: 'failed',
             processing_status: 'needs_admin',
             processing_error: err.message || String(err)
           });
@@ -656,7 +713,7 @@ worldlineWebhookQueue.process(async (job) => {
             txnId,
             notification: notif,
             eventData: evData,
-            status: notif.status || 'FAILED',
+            status: 'FAILED',
             isSuccess: false,
             processingStatus: 'needs_admin',
             processingError: err.message || String(err)
@@ -666,6 +723,15 @@ worldlineWebhookQueue.process(async (job) => {
     } catch (_) {}
     throw err;
   }
+}
+
+worldlineWebhookQueue.process(async (job) => {
+  return await processWorldlineJob(job.data, job.id);
 });
 
-module.exports = worldlineWebhookQueue;
+module.exports = {
+  worldlineWebhookQueue,
+  processWorldlineJob,
+  recordRazorpayNotification,
+  findActivePosMachine
+};

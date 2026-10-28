@@ -7,13 +7,31 @@ const queuesDisabled =
   (process.env.NODE_ENV === 'development' && !process.env.REDIS_HOST && !process.env.REDIS_URL);
 
 if (queuesDisabled) {
-  console.warn('[Worldline Webhook Queue] Queues are disabled (no Redis config detected). Set REDIS_URL or DISABLE_QUEUES=false to enable.');
+  console.warn('[Worldline Webhook Queue] Queues are disabled (no Redis config detected or DISABLE_QUEUES=true). Running jobs inline via setImmediate.');
   const stub = new EventEmitter();
-  stub.add = async (data) => {
-    console.warn('[Worldline Webhook Queue] add() called while queues disabled — job skipped.');
-    return { id: `stub-${Date.now()}` };
+  let workerHandler = null;
+  stub.process = (handler) => {
+    workerHandler = handler;
   };
-  stub.process = () => {};
+  stub.add = async (data, opts) => {
+    const jobId = (opts && opts.jobId) || `inline-${Date.now()}`;
+    console.log(`[Worldline Webhook Queue] Inline execution triggered for txn: ${data?.txnId} (jobId: ${jobId})`);
+    if (workerHandler) {
+      setImmediate(async () => {
+        try {
+          await workerHandler({
+            id: jobId,
+            data
+          });
+        } catch (err) {
+          console.error('[Worldline Webhook Queue] Inline job execution error:', err);
+        }
+      });
+    } else {
+      console.warn('[Worldline Webhook Queue] add() called but no process handler registered yet.');
+    }
+    return { id: jobId };
+  };
   stub.on = stub.addListener.bind(stub);
   module.exports = stub;
   return;
@@ -43,10 +61,7 @@ const worldlineWebhookQueue = new Queue("worldline-webhook-processing", {
       type: "exponential",
       delay: 2000,
     },
-    removeOnComplete: {
-      age: 24 * 3600,
-      count: 1000,
-    },
+    removeOnComplete: true,
     removeOnFail: {
       age: 7 * 24 * 3600,
     },
@@ -58,19 +73,19 @@ const worldlineWebhookQueue = new Queue("worldline-webhook-processing", {
 });
 
 worldlineWebhookQueue.on("error", (error) => {
-  console.error("[Worldline Webhook Queue] Error:", error);
+  console.error("[Worldline Webhook Queue] Error:", error.message || error);
 });
 
 worldlineWebhookQueue.on("active", (job) => {
-  console.log(`[Worldline Webhook Queue] Processing job ${job.id} for txn: ${job.data.txnId}`);
+  console.log(`[Worldline Webhook Queue] Processing job ${job.id} for txn: ${job.data?.txnId}`);
 });
 
 worldlineWebhookQueue.on("completed", (job, result) => {
-  console.log(`[Worldline Webhook Queue] Job ${job.id} completed for txn: ${job.data.txnId}`);
+  console.log(`[Worldline Webhook Queue] Job ${job.id} completed for txn: ${job.data?.txnId}`);
 });
 
 worldlineWebhookQueue.on("failed", (job, err) => {
-  console.error(`[Worldline Webhook Queue] Job ${job.id} failed for txn: ${job.data.txnId}`, err.message);
+  console.error(`[Worldline Webhook Queue] Job ${job.id} failed for txn: ${job.data?.txnId}`, err.message);
 });
 
 module.exports = worldlineWebhookQueue;
