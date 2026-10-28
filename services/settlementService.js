@@ -69,19 +69,22 @@ async function evaluateDynamicSettlement({ user, transactionAmount = 0, todayT0S
     const rawNum = parseFloat(user.t0_daily_limit) || 0;
     if (rawNum > 0) {
       const User = require('../models/User');
-      const downstreamFranchises = await User.findAll({
+      const downstreamChildren = await User.findAll({
         where: {
           super_franchise_id: user.id,
-          role: { [Op.in]: ['franchise', 'franchaise'] },
           t0_daily_limit: { [Op.not]: null }
         },
-        attributes: ['t0_daily_limit']
+        attributes: ['t0_daily_limit', 'role', 'franchaise_id']
       });
-      const allocatedToFranchises = downstreamFranchises.reduce((sum, m) => {
+      const allocatedToChildren = downstreamChildren.reduce((sum, m) => {
+        const mRole = String(m.role || '').toLowerCase();
+        if ((mRole === 'merchant' || mRole === 'user') && m.franchaise_id) {
+          return sum;
+        }
         const mLimit = parseFloat(m.t0_daily_limit);
         return sum + (isNaN(mLimit) ? 0 : mLimit);
       }, 0);
-      t0Limit = Math.max(0, rawNum - allocatedToFranchises);
+      t0Limit = Math.max(0, rawNum - allocatedToChildren);
     } else {
       t0Limit = 0;
     }
@@ -394,9 +397,14 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
         super_franchise_id: targetUser.id,
         t0_daily_limit: { [Op.not]: null }
       },
-      attributes: ['t0_daily_limit']
+      attributes: ['t0_daily_limit', 'role', 'franchaise_id']
     });
     allocatedToDownstream = downstreamUsers.reduce((sum, u) => {
+      const uRole = String(u.role || '').toLowerCase();
+      // Exclude grandchild merchants who belong to child franchises (their limit comes out of their parent franchise's pool)
+      if ((uRole === 'merchant' || uRole === 'user') && u.franchaise_id) {
+        return sum;
+      }
       const l = parseFloat(u.t0_daily_limit);
       return sum + (isNaN(l) ? 0 : l);
     }, 0);
@@ -506,8 +514,8 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
     }
   }
 
-  // 4b. If targetUser is a Franchise under a Super Franchise, validate against Super Franchise pool
-  if (isTargetFranchise && targetUser.super_franchise_id) {
+  // 4b. If targetUser is directly under a Super Franchise (Franchise or direct Merchant), validate against Super Franchise pool
+  if ((isTargetFranchise || !targetUser.franchaise_id) && targetUser.super_franchise_id && !isTargetSuperFranchise) {
     const parentSf = await User.findByPk(targetUser.super_franchise_id);
     if (parentSf) {
       const rawSfLimit = parentSf.t0_daily_limit;
@@ -517,16 +525,19 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
       if (!isSfNotSet && !isSfUnlimited) {
         const sfPool = parseFloat(rawSfLimit) || 0;
         if (sfPool > 0) {
-          const otherFranchises = await User.findAll({
+          const otherDownstream = await User.findAll({
             where: {
               super_franchise_id: parentSf.id,
-              role: { [Op.in]: ['franchise', 'franchaise'] },
               id: { [Op.ne]: targetUser.id },
               t0_daily_limit: { [Op.not]: null }
             },
-            attributes: ['t0_daily_limit']
+            attributes: ['t0_daily_limit', 'role', 'franchaise_id']
           });
-          const otherAllocated = otherFranchises.reduce((sum, f) => {
+          const otherAllocated = otherDownstream.reduce((sum, f) => {
+            const fRole = String(f.role || '').toLowerCase();
+            if ((fRole === 'merchant' || fRole === 'user') && f.franchaise_id) {
+              return sum;
+            }
             const l = parseFloat(f.t0_daily_limit);
             return sum + (isNaN(l) ? 0 : l);
           }, 0);
@@ -546,7 +557,8 @@ async function validateMerchantT0Limit({ targetUser, requestedLimit, requesterUs
           }
           const availableFromSf = Math.max(0, sfPool - otherAllocated - sfUsedToday);
           if (requestedLimitVal > availableFromSf) {
-            const err = new Error(`Limit pool of Super Franchise (₹${sfPool.toLocaleString('en-IN')}) exceeded! Maximum limit available to assign to this franchise is ₹${availableFromSf.toLocaleString('en-IN')}.`);
+            const roleLabel = isTargetFranchise ? 'franchise' : 'merchant';
+            const err = new Error(`Limit pool of Super Franchise (₹${sfPool.toLocaleString('en-IN')}) exceeded! Maximum limit available to assign to this ${roleLabel} is ₹${availableFromSf.toLocaleString('en-IN')}.`);
             err.status = 400;
             err.statusCode = 400;
             throw err;
