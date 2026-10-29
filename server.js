@@ -41,6 +41,11 @@ require('./cron/autoSettlementCron');
 require('./cron/chargeRentals');
 
 const app = express();
+if (process.env.TRUST_PROXY) {
+  const tp = process.env.TRUST_PROXY.trim().toLowerCase();
+  app.set("trust proxy", tp === "true" ? true : tp === "false" ? false : process.env.TRUST_PROXY);
+}
+
 
 const port = process.env.PORT || 5000;
 const cors = require('cors');
@@ -130,6 +135,8 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
+app.use('/api/branding', require('./routes/brandingRoutes'));
+app.use('/branding', require('./routes/brandingRoutes'));
 app.use('/', require('./routes/pinelabsTestPageRoutes'));
 app.use("/api/pos-machine", require("./routes/posMachineRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));

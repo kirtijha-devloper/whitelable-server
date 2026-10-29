@@ -53,6 +53,37 @@ function maskingEmail(email) {
  * E.g. "https://www.google.com/path" -> "google.com"
  * E.g. "www.google.com" -> "google.com"
  */
+
+const ALLOWED_IMAGE_MIMETYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/svg+xml',
+  'image/gif',
+];
+const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.svg', '.gif'];
+const MAX_IMAGE_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+
+function validateImageFile(file, fieldLabel = 'Company Logo') {
+  if (!file) return;
+  if (file.truncated || (file.size && file.size > MAX_IMAGE_FILE_SIZE_BYTES)) {
+    const err = new Error(`${fieldLabel} exceeds maximum allowed size of 5MB.`);
+    err.status = 400;
+    throw err;
+  }
+  const mime = String(file.mimetype || '').toLowerCase();
+  const ext = path.extname(file.name || '').toLowerCase();
+  const isMimeValid = ALLOWED_IMAGE_MIMETYPES.includes(mime) || mime.startsWith('image/');
+  const isExtValid = ALLOWED_IMAGE_EXTENSIONS.includes(ext);
+
+  if (!isMimeValid && !isExtValid) {
+    const err = new Error(`${fieldLabel} must be a valid image file (PNG, JPG, JPEG, WEBP, SVG, GIF).`);
+    err.status = 400;
+    throw err;
+  }
+}
+
 function sanitizeDomainName(rawDomain) {
   if (!rawDomain) return "";
   let domain = String(rawDomain).trim().toLowerCase();
@@ -653,6 +684,9 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
   const shopFile = req.files?.shop_photo;
   const bankPassbookFile = req.files?.bank_passbook;
   const companyLogoFile = req.files?.company_logo;
+  if (companyLogoFile) {
+    validateImageFile(companyLogoFile, "Company Logo");
+  }
 
   let panUrl = null;
   let aadharUrl = null;
@@ -677,6 +711,11 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
     aadharBkUrl = aadharBkRes;
     shopUrl = shopRes;
     bankPassbookUrl = bankRes;
+    if (companyLogoFile && !logoRes) {
+      const lErr = new Error("Failed to save or upload company logo.");
+      lErr.status = 500;
+      throw lErr;
+    }
     logoUrl = logoRes;
 
     [panUrl, aadharUrl, aadharBkUrl, shopUrl, bankPassbookUrl, logoUrl].forEach((u) => {
@@ -1062,7 +1101,12 @@ const updateAdmin = asyncHandler(async (req, res) => {
   // File uploads
   let newLogoUrl = null;
   if (req.files?.company_logo) {
+    validateImageFile(req.files.company_logo, "Company Logo");
     const logoRes = await uploadOrSaveFile(req.files.company_logo, "company_logos");
+    if (!logoRes) {
+      res.status(500);
+      throw new Error("Failed to upload company logo.");
+    }
     if (logoRes) {
       newLogoUrl = logoRes;
       if (typeof logoRes === "string" && (logoRes.startsWith("/uploads/") || logoRes.startsWith("uploads/"))) {
@@ -3177,6 +3221,7 @@ const updateSuperAdminGlobalPosRate = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  validateImageFile,
   getSuperAdminData,
   getAdminDetails,
   getAdminServicesController,
