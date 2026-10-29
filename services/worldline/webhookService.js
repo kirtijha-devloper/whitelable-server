@@ -25,7 +25,7 @@ async function processWorldlineNotification(event, source = 'worldline', company
         // Auto-detect / normalize status:
         // Worldline uses resp_code "00" for success, or explicit status "success"/"approved"
         const respCode = event.resp_code || event.response_code || event.responseCode || null;
-        let status = "event.status ? String(event.status).toLowerCase() : null";
+        let status = event.status ? String(event.status).toLowerCase() : null;
         if (!status) {
             if (respCode === '00' || respCode === '0' || respCode === 0) {
                 status = 'success';
