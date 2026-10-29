@@ -4,7 +4,7 @@ const db = require('../config/database');
 
 async function createSuperAdmin() {
   try {
-    const mobile_number = '9953192528';
+    const mobile_number = '9876543210';
     const rawPassword = '1234';
     const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
