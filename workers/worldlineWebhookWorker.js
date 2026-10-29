@@ -433,15 +433,28 @@ async function processWorldlineJob(jobData, jobId = null) {
       return;
     }
 
+    // Resolve Super Franchise ID upfront so it's available for chargeRule and earnings
+    let resolvedSuperFranchiseId = posOperator.super_franchise_id || null;
+    if (!resolvedSuperFranchiseId && posOperator.franchaise_id) {
+      const franchiseUser = await User.findByPk(posOperator.franchaise_id);
+      resolvedSuperFranchiseId = franchiseUser ? franchiseUser.super_franchise_id : null;
+    }
+
     // Calculate MDR charges via ChargeService
     const paymentMode = (eventData.txn_type || 'CRDB').toUpperCase();
     const cardScheme = (notification.card_scheme || eventData.card_scheme || 'VISA').toUpperCase();
 
     let chargeRule = await ChargeService.getChargeRule({
       userId: posOperator.id,
+      userRole: posOperator.role,
+      franchiseId: posOperator.franchaise_id || null,
+      superFranchiseId: resolvedSuperFranchiseId || null,
+      companyId: posOperator.company_id || null,
+      companyName: posMachine ? posMachine.company_name : null,
       paymentMode: paymentMode,
       cardType: 'CREDIT',
       cardBrand: cardScheme,
+      classification: eventData?.card_classification || null,
       settlement: settlementTypeSnapshot || null,
       amount: transactionAmount
     });
@@ -464,13 +477,6 @@ async function processWorldlineJob(jobData, jobId = null) {
     // Super franchise earning calculation resolution
     let superFranchiseChargeAmount = 0;
     let superFranchiseEarning = 0;
-    let resolvedSuperFranchiseId = null;
-    if (posOperator.role === 'merchant' && posOperator.franchaise_id) {
-      const franchiseUser = await User.findByPk(posOperator.franchaise_id);
-      resolvedSuperFranchiseId = franchiseUser ? franchiseUser.super_franchise_id : null;
-    } else if ((posOperator.role === 'franchaise' || posOperator.role === 'franchise') && posOperator.super_franchise_id) {
-      resolvedSuperFranchiseId = posOperator.super_franchise_id;
-    }
 
     // Franchise earning calculation if applicable
     let franchiseChargeAmount = 0;

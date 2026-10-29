@@ -237,6 +237,103 @@ async function getTransactionChargeRule({
 }
 
 /**
+ * Universal Charge Rule Resolver
+ * Fulfills all duties:
+ * 1. Accepts flexible input options (userId, user object, paymentMode, cardType, cardBrand, settlement, amount, etc.)
+ * 2. Automatically resolves missing user hierarchy (userRole, franchaise_id, super_franchise_id, company_id) if only userId is supplied.
+ * 3. Normalizes card brand, payment mode, and settlement (T0 vs T1).
+ * 4. Resolves the most specific matching charge rule across all hierarchical scopes.
+ * 5. Provides fallback to baseline default rule if no custom rule exists.
+ *
+ * @param {Object} opts
+ * @returns {Promise<Object>} The resolved charge rule row (or default fallback rule)
+ */
+async function getChargeRule(opts = {}) {
+  let {
+    userId,
+    user,
+    userRole,
+    franchiseId,
+    superFranchiseId,
+    companyId,
+    companyName,
+    paymentMode,
+    cardType,
+    cardBrand,
+    classification,
+    settlement,
+    amount
+  } = opts;
+
+  // If user object is provided directly
+  if (user && typeof user === 'object') {
+    if (!userId) userId = user.id;
+    if (!userRole) userRole = user.role;
+    if (!franchiseId) franchiseId = user.franchaise_id || user.franchise_id;
+    if (!superFranchiseId) superFranchiseId = user.super_franchise_id;
+    if (!companyId) companyId = user.company_id;
+  }
+
+  // Auto-resolve missing user hierarchy from User model
+  if (userId && (!userRole || !companyId || (franchiseId === undefined && superFranchiseId === undefined))) {
+    try {
+      const dbUser = await db.models.User.findByPk(userId, {
+        attributes: ['id', 'role', 'franchaise_id', 'super_franchise_id', 'company_id']
+      });
+      if (dbUser) {
+        if (!userRole) userRole = dbUser.role;
+        if (!franchiseId) franchiseId = dbUser.franchaise_id;
+        if (!superFranchiseId) superFranchiseId = dbUser.super_franchise_id;
+        if (!companyId) companyId = dbUser.company_id;
+      }
+    } catch (e) {
+      // ignore lookup error
+    }
+  }
+
+  // Map alternative parameter aliases
+  const resolvedPaymentMode = paymentMode || opts.paymentMethod || opts.txn_type || 'CRDB';
+  const resolvedCardType = cardType || opts.paymentCardType || 'CREDIT';
+  const resolvedCardBrand = cardBrand || opts.paymentCardBrand || opts.card_scheme || 'VISA';
+  const resolvedClassification = classification || opts.cardClassification || opts.card_classification || null;
+  const resolvedSettlement = settlement || opts.settlementType || opts.settlement_type || null;
+  const resolvedAmount = amount != null ? parseFloat(amount) : (opts.transactionAmount != null ? parseFloat(opts.transactionAmount) : 0);
+
+  // Call the core specificity-ranked transaction rule resolver
+  const rule = await getTransactionChargeRule({
+    userId,
+    userRole,
+    franchiseId,
+    superFranchiseId,
+    companyId,
+    paymentMode: resolvedPaymentMode,
+    cardType: resolvedCardType,
+    cardBrand: resolvedCardBrand,
+    classification: resolvedClassification,
+    settlement: resolvedSettlement,
+    amount: resolvedAmount,
+    companyName
+  });
+
+  if (rule) {
+    return rule;
+  }
+
+  // If no specific or default rule matched in the database, return a safe platform default MDR
+  const defaultMdr = 2.5;
+  return {
+    id: null,
+    scope: 'super_admin_default',
+    charge_percent: defaultMdr,
+    charge_flat: 0,
+    gst_required: false,
+    gst_percent: 0,
+    is_active: true,
+    is_fallback: true
+  };
+}
+
+/**
  * Resolve the admin-level charge that a franchise owes the platform.
  *
  * This only looks at rules scoped to: super_franchise_franchise, super_franchise_default,
@@ -603,6 +700,7 @@ function deriveScope(callerRole, userId, franchiseId, superFranchiseId, targetRo
 
 module.exports = {
   VALID_SCOPES,
+  getChargeRule,
   getTransactionChargeRule,
   getAdminChargeRuleForFranchise,
   getAdminChargeRuleForSuperFranchise,
