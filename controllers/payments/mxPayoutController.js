@@ -438,6 +438,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
                 }
               }, { transaction: tr });
             } catch (logError) {
+              writeDevLog('payout', { error: logError?.message || logError }, 'Failed to log failed MX initiation audit');
               console.error('Failed to log failed MX initiation audit:', logError);
             }
           }

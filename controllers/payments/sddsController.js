@@ -189,6 +189,7 @@ router.post('/remitter-beneficiaries', async (req, res) => {
     res.status(200).json({ message: 'Beneficiaries fetched', data });
 
   } catch (error) {
+    writeDevLog('payout', ' sdds Fetch Beneficiaries Error:', error);
     console.error("Error fetching beneficiaries:", error);
     res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
@@ -461,6 +462,7 @@ router.post('/transfer-imps', async (req, res) => {
 
     res.json({ message: 'IMPS transfer successful', data });
   } catch (error) {
+    writeDevLog('payout', ' sdds IMPS Transfer Error:', error);
       if (pending_transaction) {
       pending_transaction.status = "failed"
       pending_transaction.reason = `IMPS FAILED`
@@ -627,6 +629,7 @@ router.get('/remitter-list', async (req, res) => {
       transactions: formattedTransactions,
     });
     } catch (error) {
+      writeDevLog('payout', ' sdds IMPS Transaction List Error:', error);
       console.error("IMPS Transaction List Error:", error);
       res.status(500).json({ success: false, message: "Failed to fetch transactions." });
     }

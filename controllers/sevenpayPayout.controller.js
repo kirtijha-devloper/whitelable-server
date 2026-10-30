@@ -328,6 +328,7 @@ async function upsertPayoutTransaction({
               refundAmount,
             };
           } catch (refundErr) {
+            writeDevLog('payout', refundErr, 'Failed to create SevenPay auto-refund ledger entry');
             console.error('Failed to create SevenPay auto-refund ledger entry:', refundErr);
           }
         } else {
@@ -352,6 +353,7 @@ async function upsertPayoutTransaction({
         }
       });
     } catch (e) {
+      writeDevLog('payout', e, 'Failed to create PayoutAuditLog for SevenPay status update');
       console.error('Failed to create PayoutAuditLog:', e);
     }
 
@@ -371,6 +373,7 @@ async function upsertPayoutTransaction({
       }
     });
   } catch (e) {
+    writeDevLog('payout', e, 'Failed to create PayoutAuditLog for SevenPay status update');
     console.error('Failed to create PayoutAuditLog:', e);
   }
 
@@ -575,6 +578,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
       });
     }
   } catch (balanceError) {
+    writeDevLog('payout', balanceError, 'Failed to check SevenPay provider balance before initiate');
     console.error('SevenPay provider balance check error before initiate:', balanceError?.message || balanceError);
     return res.status(400).json({
       success: false,
@@ -765,6 +769,7 @@ const initiatePayout = asyncHandler(async (req, res) => {
         }
       });
     } catch (logError) {
+      writeDevLog('payout', logError, 'Failed to log failed payout initiation');
       console.error('Failed to log failed payout initiation:', logError);
     }
     throw error;
@@ -863,7 +868,7 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
           }
         });
       } catch (logError) {
-        console.error('Failed to log failed status check:', logError);
+        writeDevLog('payout', logError, 'Failed to log failed status check');
       }
     }
     throw error;
@@ -948,7 +953,9 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
                   rawResponse: initialServiceResponse.rawResponse || null
                 }
               });
-            } catch (e) {}
+            } catch (e) {
+              writeDevLog('payout', e, 'Failed to create PayoutAuditLog for SevenPay status update');
+            }
           } else {
             await dbTx.rollback();
           }
@@ -1055,7 +1062,9 @@ const processPendingPayouts = asyncHandler(async (req, res) => {
         error: null,
       });
     } catch (error) {
+      writeDevLog('payout', error, 'Failed to refresh SevenPay transaction status');
       results.push({
+        
         id: payoutTransaction.id,
         reference_id: payoutTransaction.reference_id,
         beforeStatus,
