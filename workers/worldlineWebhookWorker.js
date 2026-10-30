@@ -361,8 +361,8 @@ async function processWorldlineJob(jobData, jobId = null) {
     // Settlement Type Evaluation:
     // If the settlement amount exceeds the merchant's assigned T0 limit, transaction goes to T1 (T+1), otherwise T0.
     // If merchant is explicitly configured for T1 (next_day_settlement), it always goes to T1.
-    let settlementTypeSnapshot = 'T0';
-    const userSettlementMode = String(posOperator.settlement_type || 'T0').toUpperCase();
+    let settlementTypeSnapshot = 'T1';
+    const userSettlementMode = String(posOperator.settlement_type || 'T1').toUpperCase();
     const isExplicitT1 = userSettlementMode === 'T1' || userSettlementMode === 'NEXT_DAY_SETTLEMENT';
 
     if (isExplicitT1) {
@@ -400,7 +400,7 @@ async function processWorldlineJob(jobData, jobId = null) {
         }
       } else {
         // No limit assigned or unlimited -> default to T0
-        settlementTypeSnapshot = 'T0';
+        settlementTypeSnapshot = 'T1';
       }
     }
 
