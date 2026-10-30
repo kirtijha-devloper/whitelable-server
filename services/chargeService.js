@@ -320,7 +320,7 @@ async function getChargeRule(opts = {}) {
   }
 
   // If no specific or default rule matched in the database, return a safe platform default MDR
-  const defaultMdr = 2.5;
+  const defaultMdr = process.env.DefaultMdr ? parseFloat(process.env.DefaultMdr) : 2.5;
   return {
     id: null,
     scope: 'super_admin_default',
