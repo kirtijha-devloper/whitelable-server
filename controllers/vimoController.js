@@ -164,7 +164,7 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
         ifsc = ifsc || beneficiary.ifsc_code;
       }
     } catch (err) {
-      writeDevLog('vimo', {
+      writeDevLog('payout', {
         event: 'BENEFICIARY_RESOLUTION_ERROR',
         error: err.message,
         beneficiaryId
@@ -634,7 +634,7 @@ async function createPayout(req, res) {
           data: JSON.stringify(updatedData)
         });
       } catch (updateErr) {
-        writeDevLog('vimo', {
+        writeDevLog('payout', {
           event: 'PAYOUT_DATA_UPDATE_ERROR',
           error: updateErr.message
         });
@@ -690,7 +690,7 @@ async function createPayout(req, res) {
           data: JSON.stringify(updatedData)
         });
       } catch (updateErr) {
-        writeDevLog('vimo', {
+        writeDevLog('payout', {
           event: 'PAYOUT_DATA_UPDATE_ERROR',
           error: updateErr.message
         });
@@ -722,7 +722,7 @@ async function fetchBankList(req, res) {
       data: result.data
     });
   } catch (error) {
-    writeDevLog('vimo', {
+    writeDevLog('payout', {
       event: 'FETCH_BANK_LIST_ERROR',
       error: error.message
     });
@@ -891,7 +891,7 @@ async function fetchPurposeList(req, res) {
       data: result.data
     });
   } catch (error) {
-    writeDevLog('vimo', {
+    writeDevLog('payout', {
       event: 'FETCH_PURPOSE_LIST_ERROR',
       error: error.message
     });
@@ -918,7 +918,7 @@ async function fetchStateList(req, res) {
       data: result.data
     });
   } catch (error) {
-    writeDevLog('vimo', {
+    writeDevLog('payout', {
       event: 'FETCH_STATE_LIST_ERROR',
       error: error.message
     });
@@ -968,7 +968,7 @@ async function fetchTokenStatus(req, res) {
       data: result.data
     });
   } catch (error) {
-    writeDevLog('vimo', {
+    writeDevLog('payout', {
       event: 'FETCH_TOKEN_STATUS_ERROR',
       error: error.message
     });
@@ -997,7 +997,7 @@ async function getWalletBalance(req, res) {
       data: result.data,
     });
   } catch (error) {
-    writeDevLog('vimo', {
+    writeDevLog('payout', {
       event: 'FETCH_WALLET_BALANCE_ERROR',
       error: error.message
     });
@@ -1056,7 +1056,7 @@ async function getPayoutAuditLogsByReference(req, res) {
       data: logs
     });
   } catch (error) {
-    writeDevLog('vimo', {
+    writeDevLog('payout', {
       event: 'FETCH_PAYOUT_AUDIT_LOGS_ERROR',
       error: error.message
     });
@@ -1142,7 +1142,7 @@ async function handleCallback(req, res) {
             }
           }, { transaction: tr });
         } catch (auditErr) {
-          writeDevLog('vimo', {
+          writeDevLog('payout', {
             event: 'PAYOUT_AUDIT_LOG_ERROR',
             error: auditErr.message
           });
@@ -1457,7 +1457,7 @@ async function checkBeneficiaryLimit(req, res) {
         return vimoService.fetchWalletBalance(merchantRefId);
     }).catch(err => {
         console.error("Vimo Wallet Balance fetch error in limit check:", err);
-        writeDevLog('vimo', {
+        writeDevLog('payout', {
             event: 'FETCH_WALLET_BALANCE_ERROR',
             error: err.message
         });
@@ -1481,10 +1481,11 @@ async function checkBeneficiaryLimit(req, res) {
       walletBalanceMessage: walletBalanceResult.error || walletBalanceResult.message || null
     });
   } catch (error) {
-    writeDevLog('vimo', {
-      event: 'CHECK_BENEFICIARY_LIMIT_ERROR',
-      error: error.message
-    });
+  writeDevLog('payout', {
+    event: 'CHECK_BENEFICIARY_LIMIT_ERROR',
+    status: 'FAILED',
+    error: error.message
+  });
     const normalized = normalizeError(error, {
       statusCode: 500,
       message: 'Failed to check beneficiary limit',
@@ -1567,6 +1568,10 @@ async function checkPayoutStatus(req, res) {
         }
       }
     } catch (dbErr) {
+      writeDevLog('payout', {
+        event: 'CHECK_PAYOUT_STATUS_DB_UPDATE_ERROR',
+        error: dbErr.message
+      });
       console.error('Failed to auto-update Vimo payout status on checkStatus', dbErr);
     }
 
@@ -1579,7 +1584,7 @@ async function checkPayoutStatus(req, res) {
       decryptedResponse: result.decryptedResponse,
     });
   } catch (error) {
-    writeDevLog('vimo', {
+    writeDevLog('payout', {
       event: 'CHECK_PAYOUT_STATUS_ERROR',
       error: error.message
     });
