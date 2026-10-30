@@ -77,6 +77,11 @@ async function processWorldlineNotification(event, source = 'worldline', company
         });
 
         if (!created) {
+            const prevTransactionStatus = notification.status;
+            if(prevTransactionStatus && prevTransactionStatus.toLowerCase() === 'success' && status.toLowerCase() === 'failed') {
+                console.warn(`[Worldline Webhook Service] ⚠️ Received a failed notification for an already successful transaction (txnId: ${txnId}). Ignoring update to prevent overwriting success status.`);
+                return notification;
+            }
             await notification.update({
                 rrn: rrn,
                 mid: mid,
