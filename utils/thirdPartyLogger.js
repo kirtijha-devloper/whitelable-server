@@ -1,19 +1,17 @@
-
 const fs = require("fs");
 const path = require("path");
 
-const ENV = process.env.NODE_ENV || "development";
+function getLogDir() {
+  const env = process.env.NODE_ENV || "development";
+  const subDir = env === "production" ? "production" : env === "test" ? "test" : "dev";
+  const logDir = path.join(process.cwd(), "logs", subDir);
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  return logDir;
+}
 
-const LOG_DIR = path.join(
-  process.cwd(),
-  "logs",
-  ENV === "production" ? "production" :
-  ENV === "test" ? "test" : "dev"
-);
-
-fs.mkdirSync(LOG_DIR, { recursive: true });
-
-function writeDevLog(module, data) {
+function writeDevLog(module, data = {}) {
   const allowedModules = [
     "payout",
     "payin",
@@ -27,32 +25,43 @@ function writeDevLog(module, data) {
     throw new Error(`Invalid log module: ${module}`);
   }
 
-  const LOG_FILE = path.join(LOG_DIR, `${module}.log`);
+  const logDir = getLogDir();
+  const logFile = path.join(logDir, `${module}.log`);
 
-  const logEntry = `
-==================================================
-TIME        : ${new Date().toISOString()}
-ENVIRONMENT : ${ENV}
-MODULE      : ${module.toUpperCase()}
-EVENT       : ${data.event || "UNKNOWN"}
-STATUS      : ${data.status || "N/A"}
-REFERENCE   : ${data.reference || "N/A"}
-REQUEST     :
-${JSON.stringify(data.request ?? null, null, 2)}
-RESPONSE    :
-${JSON.stringify(data.response ?? null, null, 2)}
-ERROR       :
-${data.error || "N/A"}
-DURATION    : ${data.durationMs ?? "N/A"} ms
-==================================================
+  const time = new Date().toISOString();
 
-`;
+  let file = "unknown";
+  if (data && data.file) {
+    file = path.basename(String(data.file));
+  }
 
-  fs.appendFile(LOG_FILE, logEntry, (error) => {
-    if (error) {
-      console.error("Log write failed:", error.message);
+  let error = "Unknown error";
+  if (data) {
+    const rawError = data.error?.message || data.error;
+    if (rawError !== undefined && rawError !== null && rawError !== "") {
+      if (typeof rawError === "object") {
+        try {
+          error = JSON.stringify(rawError);
+        } catch {
+          error = String(rawError);
+        }
+      } else {
+        error = String(rawError);
+      }
+    }
+  }
+
+  const sanitizedError = error.replace(/[\r\n\t]+/g, " ").trim() || "Unknown error";
+
+  const logEntry = `[TIME: ${time}] [FILE: ${file}] [ERROR: ${sanitizedError}]\n`;
+
+  fs.appendFile(logFile, logEntry, "utf8", (err) => {
+    if (err) {
+      console.error("Log write failed:", err.message);
     }
   });
 }
+
+global.writeDevLog = writeDevLog;
 
 module.exports = { writeDevLog };

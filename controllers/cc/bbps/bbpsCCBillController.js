@@ -386,7 +386,10 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('[bbpsCC] prePaymentEnquiry error:', error.message);
-    writeDevLog('payin', `prePaymentEnquiry error: ${error.message || error}`);
+    writeDevLog('payin', {
+      file: 'bbpsCCBillController.js',
+      error: error.message
+    });
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });

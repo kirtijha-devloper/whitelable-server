@@ -106,7 +106,10 @@ const getBillerInfoById = asyncHandler(async (req, res) => {
     fileLog(`getBillerInfoById billerId=${billerId} response=${JSON.stringify(result)}`);
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
-    writeDevLog('payin', `getBillerInfoById error: ${error.message || error}`);
+    writeDevLog('payin', {
+      file: 'billAvenueBillController.js',
+      error: error.message
+    });
     console.error('[billAvenue] getBillerInfoById error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
@@ -125,7 +128,10 @@ const getBillerInfoByIdJson = asyncHandler(async (req, res) => {
     fileLog(`getBillerInfoByIdJson (via XML) billerId=${JSON.stringify(billerId)} response=${JSON.stringify(result)}`);
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
-    writeDevLog('payin', `getBillerInfoByIdJson error: ${error.message || error}`);
+    writeDevLog('payin', {
+      file: 'billAvenueBillController.js',
+      error: error.message
+    });
     console.error('[billAvenue] getBillerInfoByIdJson error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
@@ -531,7 +537,10 @@ const payBill = asyncHandler(async (req, res) => {
       data: result,
     });
   } catch (error) {
-    writeDevLog('payin', `payBill error: ${error.message || error}`);
+    writeDevLog('payin', {
+      file: 'billAvenueBillController.js',
+      error: error.message
+    });
     console.error('[billAvenue] payBill error:', error.message);
     fileLog(`payBill error: ${error.message}`);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
@@ -646,7 +655,10 @@ const registerComplaint = asyncHandler(async (req, res) => {
 
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
-    writeDevLog('payin', `registerComplaint error: ${error.message || error}`);
+    writeDevLog('payin', {
+      file: 'billAvenueBillController.js',
+      error: error.message
+    });
     console.error('[billAvenue] registerComplaint error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
@@ -698,7 +710,10 @@ const depositEnquiry = asyncHandler(async (req, res) => {
 
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
-    writeDevLog('payin', `depositEnquiry error: ${error.message || error}`);
+    writeDevLog('payin', {
+      file: 'billAvenueBillController.js',
+      error: error.message
+    });
     console.error('[billAvenue] depositEnquiry error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
@@ -775,7 +790,10 @@ const getTransactionStatus = asyncHandler(async (req, res) => {
 
     return res.status(200).json({ success: true, data: result });
   } catch (error) {
-    writeDevLog('payin', `getTransactionStatus error: ${error.message || error}`);
+    writeDevLog('payin', {
+      file: 'billAvenueBillController.js',
+      error: error.message
+    });
     console.error('[billAvenue] getTransactionStatus error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }

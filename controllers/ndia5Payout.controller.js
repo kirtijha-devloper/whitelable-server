@@ -209,7 +209,10 @@ const createBeneficiary = asyncHandler(async (req, res) => {
         validationSuccess = true;
       }
     } catch (ipError) {
-      writeDevLog('payout', ipError, 'Failed to verify bank account with InstantPay');
+      writeDevLog('payout', {
+        file: 'ndia5Payout.controller.js',
+        error: ipError.message
+      });
       console.error('[ndia5-payout] InstantPay verification failed:', ipError.message || ipError);
     }
 
@@ -247,7 +250,10 @@ const createBeneficiary = asyncHandler(async (req, res) => {
           }
         }
       } catch (bxError) {
-        writeDevLog('payout', bxError, 'Failed to verify bank account with BranchX');
+        writeDevLog('payout', {
+          file: 'ndia5Payout.controller.js',
+          error: bxError.message
+        });
       }
     }
 
@@ -518,7 +524,10 @@ const initiatePayout = asyncHandler(async (req, res) => {
 
     await transaction.commit();
   } catch (dbError) {
-    writeDevLog('payout', dbError, 'Failed to set up transaction internally');
+    writeDevLog('payout', {
+      file: 'ndia5Payout.controller.js',
+      error: dbError.message
+    });
     await transaction.rollback();
     console.error('[NDIA5 DB Payout Setup Error]:', dbError);
     return res.status(500).json({
@@ -580,7 +589,10 @@ const initiatePayout = asyncHandler(async (req, res) => {
       },
     });
   } catch (error) {
-    writeDevLog('payout', error, 'NDIA5 Payout initiation failed');
+    writeDevLog('payout', {
+      file: 'ndia5Payout.controller.js',
+      error: error.message
+    });
     const isProper = error.isProperError === true;
     
     // Mark payout transaction status
@@ -631,7 +643,10 @@ const initiatePayout = asyncHandler(async (req, res) => {
           autoRefundCompleted = true;
         }
       } catch (ledgerError) {
-        writeDevLog('payout', ledgerError, 'Failed to create NDIA5 auto-refund ledger entry');
+        writeDevLog('payout', {
+          file: 'ndia5Payout.controller.js',
+          error: ledgerError.message
+        });
       }
     }
 
@@ -725,7 +740,10 @@ const getPayoutStatus = asyncHandler(async (req, res) => {
         autoRefundCompleted = true;
       }
     } catch (ledgerError) {
-      writeDevLog('payout', ledgerError, 'Failed to create NDIA5 auto-refund ledger entry');
+      writeDevLog('payout', {
+        file: 'ndia5Payout.controller.js',
+        error: ledgerError.message
+      });
     }
   }
 
@@ -831,7 +849,10 @@ const manualRefundPayout = asyncHandler(async (req, res) => {
       });
     }
   } catch (ledgerError) {
-    writeDevLog('payout', ledgerError, 'Failed to create NDIA5 manual refund ledger entry');
+    writeDevLog('payout', {
+      file: 'ndia5Payout.controller.js',
+      error: ledgerError.message
+    });
   }
 
   existingData.manualRefundProcessed = true;

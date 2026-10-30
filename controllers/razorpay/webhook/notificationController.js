@@ -79,14 +79,20 @@ async function handleRzpNotification(req, res) {
                         timeout: 5000
                     }
                 ).catch((err) => {
-                    writeDevLog('webhook', { error: err?.message || err }, 'Forward notification error');
+                    writeDevLog('webhook', {
+                        file: 'notificationController.js',
+                        error: err.message
+                    });
                     console.error("[Webhook Controller] Forward notification error:", err?.message || err);
                 });
 
                 // include source so service can store it
                 await processRzpNotification(body, source);
             } catch (error) {
-                writeDevLog('webhook', { error: error?.message || error }, 'Background processing error');
+                writeDevLog('webhook', {
+                    file: 'notificationController.js',
+                    error: error.message
+                });
                 // Errors are already handled in processRzpNotification
                 // But we catch here to prevent unhandled promise rejection
                 console.error("[Webhook Controller] Background processing error:", error);
@@ -94,7 +100,10 @@ async function handleRzpNotification(req, res) {
         });
         
     } catch (err) {
-        writeDevLog('webhook', { error: err?.message || err }, 'Error handling webhook');
+        writeDevLog('webhook', {
+            file: 'notificationController.js',
+            error: err.message
+        });
         console.error("[Webhook Controller] Error handling webhook:", err);
         // still return OK to avoid retries, but in XML format
         return res.status(200)
@@ -406,7 +415,10 @@ const getNotificationById = asyncHandler(async (req, res) => {
             data: formatted
         });
     } catch (error) {
-        writeDevLog('webhook', { error: error?.message || error }, 'Get notification error');
+        writeDevLog('webhook', {
+            file: 'notificationController.js',
+            error: error.message
+        });
         console.error('Get notification error:', error);
         res.status(500).json({
             success: false,
@@ -566,7 +578,10 @@ async function adminProcessNotification(req, res) {
         const reloaded = await RazorpayNotification.findByPk(id);
         return res.status(200).json({ success: true, message: 'Notification processed by admin', notification: reloaded });
     } catch (error) {
-        writeDevLog('webhook', { error: error?.message || error }, 'Error processing notification');
+        writeDevLog('webhook', {
+            file: 'notificationController.js',
+            error: error.message
+        });
         console.error('adminProcessNotification error:', error);
         return res.status(500).json({ success: false, message: error.message || 'Error processing notification' });
     }
@@ -865,7 +880,10 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                 });
             } catch (earnError) {
                 console.error('[adminProcessNotificationWithCustomCharge] Franchise earning entry failed:', earnError);
-                writeDevLog('webhook', { error: earnError?.message || earnError }, 'Franchise earning entry error');
+                writeDevLog('webhook', {
+                    file: 'notificationController.js',
+                    error: earnError.message
+                });
             }
         }
 
@@ -889,7 +907,10 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                 });
             } catch (earnError) {
                 console.error('[adminProcessNotificationWithCustomCharge] Super franchise earning entry failed:', earnError);
-                writeDevLog('webhook', { error: earnError?.message || earnError }, 'Super franchise earning entry error');
+                writeDevLog('webhook', {
+                    file: 'notificationController.js',
+                    error: earnError.message
+                });
             }
         }
 
@@ -914,7 +935,10 @@ async function adminProcessNotificationWithCustomCharge(req, res) {
                     }
                 });
             } catch (earnError) {
-                writeDevLog('webhook', { error: earnError?.message || earnError }, 'Admin earning entry error');
+                writeDevLog('webhook', {
+                    file: 'notificationController.js',
+                    error: earnError.message
+                });
             }
         }
 
@@ -1047,7 +1071,10 @@ async function replayNotificationsToApi(req, res) {
         });
 
     } catch (error) {
-        writeDevLog('webhook', { error: error?.message || error }, 'Replay notifications error');
+        writeDevLog('webhook', {
+            file: 'notificationController.js',
+            error: error.message
+        });
         console.error('[replayNotificationsToApi] Error:', error);
         return res.status(500).json({ success: false, message: error.message || 'Internal error' });
     }
