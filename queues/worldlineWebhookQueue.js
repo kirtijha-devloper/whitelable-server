@@ -24,6 +24,7 @@ if (queuesDisabled) {
             data
           });
         } catch (err) {
+          wrapWriteDevLog("webhook", { file: "worldlineWebhookQueue.js", error: err });
           console.error('[Worldline Webhook Queue] Inline job execution error:', err);
         }
       });
