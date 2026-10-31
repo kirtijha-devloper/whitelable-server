@@ -164,10 +164,6 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
         ifsc = ifsc || beneficiary.ifsc_code;
       }
     } catch (err) {
-      writeDevLog('payout', {
-        file: 'vimoController.js',
-        error: err.message
-      });
       vimoLog && vimoLog('WARN', 'Error resolving beneficiary in getVimoBeneficiaryMonthlyTotal', { error: err.message, beneficiaryId });
     }
   }
@@ -1140,10 +1136,6 @@ async function handleCallback(req, res) {
             }
           }, { transaction: tr });
         } catch (auditErr) {
-          writeDevLog('payout', {
-            file: 'vimoController.js',
-            error: auditErr.message
-          });
           vimoCallbackLog('WARN', 'Failed to save Vimo callback audit log', { message: auditErr.message, merchantRefId });
         }
 
