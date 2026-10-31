@@ -212,6 +212,10 @@ async function getVimoBeneficiaryMonthlyTotal({ beneficiaryId, beneficiaryAccoun
         accountNo,
         error: err.message
       });
+      writeDevLog('payout', {
+        file: 'vimoController.js',
+        error: err.message
+      });
     }
   }
 
@@ -564,6 +568,10 @@ async function createPayout(req, res) {
 
       await transaction.commit();
     } catch (err) {
+      writeDevLog('payout', {
+        file: 'vimoController.js',
+        error: err.message
+      });
       await transaction.rollback();
       const normalized = normalizeError(err);
       return res.status(normalized.statusCode || 500).json({ success: false, message: normalized.message, error: normalized });
@@ -620,6 +628,10 @@ async function createPayout(req, res) {
           data: JSON.stringify(updatedData)
         });
       } catch (updateErr) {
+        writeDevLog('payout', {
+          file: 'vimoController.js',
+          error: updateErr.message
+        });
         console.error('Failed to update PayoutTransaction data after success response', updateErr);
       }
 
@@ -672,6 +684,10 @@ async function createPayout(req, res) {
           data: JSON.stringify(updatedData)
         });
       } catch (updateErr) {
+        writeDevLog('payout', {
+          file: 'vimoController.js',
+          error: updateErr.message
+        });
         console.error('Failed to update PayoutTransaction data after failure response', updateErr);
       }
 
@@ -700,6 +716,10 @@ async function fetchBankList(req, res) {
       data: result.data
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'vimoController.js',
+      error: error.message
+    });
     const normalized = normalizeError(error, {
       statusCode: 502,
       message: 'Failed to fetch bank list',
@@ -865,6 +885,10 @@ async function fetchPurposeList(req, res) {
       data: result.data
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'vimoController.js',
+      error: error.message
+    });
     const normalized = normalizeError(error, {
       statusCode: 502,
       message: 'Failed to fetch purpose list',
@@ -888,6 +912,10 @@ async function fetchStateList(req, res) {
       data: result.data
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'vimoController.js',
+      error: error.message
+    });
     const normalized = normalizeError(error, {
       statusCode: 502,
       message: 'Failed to fetch state list',
@@ -934,6 +962,10 @@ async function fetchTokenStatus(req, res) {
       data: result.data
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'vimoController.js',
+      error: error.message
+    });
     const normalized = normalizeError(error);
     return res.status(normalized.statusCode || 500).json({
       success: false,
@@ -959,6 +991,10 @@ async function getWalletBalance(req, res) {
       data: result.data,
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'vimoController.js',
+      error: error.message
+    });
     const normalized = normalizeError(error);
     return res.status(normalized.statusCode || 500).json({
       success: false,
@@ -1014,6 +1050,10 @@ async function getPayoutAuditLogsByReference(req, res) {
       data: logs
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'vimoController.js',
+      error: error.message
+    });
     console.error('Get Vimo payout audit logs by reference error:', error);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
@@ -1407,6 +1447,10 @@ async function checkBeneficiaryLimit(req, res) {
         return vimoService.fetchWalletBalance(merchantRefId);
     }).catch(err => {
         console.error("Vimo Wallet Balance fetch error in limit check:", err);
+        writeDevLog('payout', {
+            file: 'vimoController.js',
+            error: err.message
+        });
         return { error: err.message, data: null };
     });
 
@@ -1427,6 +1471,10 @@ async function checkBeneficiaryLimit(req, res) {
       walletBalanceMessage: walletBalanceResult.error || walletBalanceResult.message || null
     });
   } catch (error) {
+  writeDevLog('payout', {
+    file: 'vimoController.js',
+    error: error.message
+  });
     const normalized = normalizeError(error, {
       statusCode: 500,
       message: 'Failed to check beneficiary limit',
@@ -1509,6 +1557,10 @@ async function checkPayoutStatus(req, res) {
         }
       }
     } catch (dbErr) {
+      writeDevLog('payout', {
+        file: 'vimoController.js',
+        error: dbErr.message
+      });
       console.error('Failed to auto-update Vimo payout status on checkStatus', dbErr);
     }
 
@@ -1521,6 +1573,10 @@ async function checkPayoutStatus(req, res) {
       decryptedResponse: result.decryptedResponse,
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'vimoController.js',
+      error: error.message
+    });
     const normalized = normalizeError(error, {
       statusCode: 502,
       message: 'Failed to fetch payout status',

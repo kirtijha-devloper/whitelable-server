@@ -110,6 +110,7 @@ razorpayWebhookQueue.process(async (job) => {
     return { success: true, txnId, status };
 
   } catch (error) {
+    writeDevLog("webhook", { file: "razorpayWebhookWorker.js", error });
     logger.error(`[Razorpay Webhook Worker] ❌ Error processing txn: ${txnId}`, error);
     // Re-throw to trigger Bull's retry mechanism
     throw error;
@@ -767,6 +768,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
         logger.log(`[Razorpay Webhook Worker] ✅ Created ledger entries for user: ${posOperator.id}, txn: ${txnId}`);
       }
     } catch (ledgerError) {
+      writeDevLog("webhook", { file: "razorpayWebhookWorker.js", error: ledgerError });
       logger.error(`[Razorpay Webhook Worker] ⚠️ Error creating ledger entry for txn: ${txnId}`, ledgerError);
       // Don't throw - ledger is for tracking, transaction is already processed
     }
@@ -789,6 +791,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
         });
         logger.log(`[Razorpay Webhook Worker] ✅ System log created for manual telering upload (Admin: ${adminContext.admin_id}, User: ${posOperator.id})`);
       } catch (logErr) {
+
         logger.warn(`[Razorpay Webhook Worker] ⚠️ Failed to create system log for manual upload: ${logErr.message}`);
       }
     }
@@ -799,6 +802,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
     // A separate createFranchiseEarningEntry here would double-credit the franchise.
 
   } catch (error) {
+    writeDevLog("webhook", { file: "razorpayWebhookWorker.js", error });
     logger.error(`[Razorpay Webhook Worker] Error in handleAuthorizedTransaction for txn: ${txnId}`, error);
     // mark failure so admin can inspect; leave processed=false so manual action needed
     try {
@@ -809,6 +813,7 @@ async function handleAuthorizedTransaction(txnId, event, notification, inputSrc,
         processed_at: new Date()
       });
     } catch (updErr) {
+      writeDevLog("webhook", { file: "razorpayWebhookWorker.js", error: updErr });
       logger.error('[Razorpay Webhook Worker] Failed to update notification status after error', updErr);
     }
     throw error; // Re-throw to trigger retry mechanism

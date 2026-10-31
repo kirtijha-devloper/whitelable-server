@@ -195,6 +195,7 @@ async function recordRazorpayNotification({
     logger.log(`[Worldline Webhook Worker] ${created ? 'Created' : 'Updated'} RazorpayNotification for txn: ${txnId} (status=${statusVal}, processing_status=${processingStatus})`);
     return record;
   } catch (err) {
+    writeDevLog("webhook", { file: "worldlineWebhookWorker.js", error: err });
     logger.error(`[Worldline Webhook Worker] Failed to record RazorpayNotification for txn: ${txnId}:`, err);
   }
 }
@@ -624,6 +625,7 @@ async function processWorldlineJob(jobData, jobId = null) {
           }
         });
       } catch (earnError) {
+        writeDevLog("webhook", { file: "worldlineWebhookWorker.js", error: earnError });
         logger.error(`[Worldline Webhook Worker] Franchise earning entry failed: ${earnError.message}`);
       }
     }
@@ -646,6 +648,7 @@ async function processWorldlineJob(jobData, jobId = null) {
           }
         });
       } catch (earnError) {
+        writeDevLog("webhook", { file: "worldlineWebhookWorker.js", error: earnError });
         logger.error(`[Worldline Webhook Worker] Super franchise earning entry failed: ${earnError.message}`);
       }
     }
@@ -671,6 +674,7 @@ async function processWorldlineJob(jobData, jobId = null) {
         });
         logger.log(`[Worldline Webhook Worker] ✅ Admin earning ₹${adminEarning} credited to Admin ${adminUser.id}`);
       } catch (earnError) {
+        writeDevLog("webhook", { file: "worldlineWebhookWorker.js", error: earnError });
         logger.error(`[Worldline Webhook Worker] Admin earning entry failed: ${earnError.message}`);
       }
     }
@@ -702,6 +706,7 @@ async function processWorldlineJob(jobData, jobId = null) {
     logger.log(`[Worldline Webhook Worker] ✅ Successfully processed Worldline transaction ${txnId} for merchant ${posOperator.id}`);
 
   } catch (err) {
+    writeDevLog("webhook", { file: "worldlineWebhookWorker.js", error: err });
     logger.error(`[Worldline Webhook Worker] ❌ Error processing Worldline job ${currentJobId}:`, err);
     try {
       if (notificationId || txnId) {

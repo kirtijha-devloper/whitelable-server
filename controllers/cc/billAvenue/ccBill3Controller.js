@@ -535,6 +535,10 @@ async function executeCcBill3Payment(req, res, options = {}) {
       },
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'ccBill3Controller.js',
+      error: error.message
+    });
     const refundAmount = +(finalAmount + serviceCharge).toFixed(2);
 
     await db.transaction(async (refundTransaction) => {

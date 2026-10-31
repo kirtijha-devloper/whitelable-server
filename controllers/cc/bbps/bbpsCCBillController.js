@@ -195,6 +195,7 @@ const getCategories = asyncHandler(async (req, res) => {
     const data = await bbpsCCBillService.getCategories(outletId);
     return res.status(200).json({ success: true, data });
   } catch (error) {
+    writeDevlog('payin', `getCategories error: ${error.message || error}`);
     logInstantPayError('getCategories', error);
     const message = getInstantPayErrorMessage(error);
     return res.status(error?.response ? 502 : 500).json({ success: false, message });
@@ -296,6 +297,7 @@ const getBillerDetails = asyncHandler(async (req, res) => {
 
     return res.status(200).json({ success: true, data });
   } catch (error) {
+      writeDevlog('payin', `getBillerDetails error: ${error.message || error}`);
     console.error('[bbpsCC] getBillerDetails error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
@@ -384,6 +386,10 @@ const prePaymentEnquiry = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('[bbpsCC] prePaymentEnquiry error:', error.message);
+    writeDevLog('payin', {
+      file: 'bbpsCCBillController.js',
+      error: error.message
+    });
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }
 });
@@ -895,6 +901,7 @@ const payCCBill = asyncHandler(async (req, res) => {
       data:        result.data,
     });
   } catch (error) {
+    writeDevlog('payin', `payCCBill error: ${error.message || error}`);
     console.error('[bbpsCC] payCCBill error:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Something went wrong' });
   }

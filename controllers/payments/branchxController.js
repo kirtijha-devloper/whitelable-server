@@ -377,6 +377,10 @@ router.post('/payout', asyncHandler(async (req, res) => {
     try {
       data = await branchxService.payout(payload);
     } catch (branchxError) {
+      writeDevLog('payout', {
+        file: 'branchxController.js',
+        error: branchxError.message
+      });
       // BranchX call failed — record and debit already saved.
       // Status remains PENDING; refund will only be issued via BranchX callback or cron job.
       await payoutTx.update({ data: JSON.stringify({ error: branchxError?.message || branchxError }) });
@@ -861,6 +865,10 @@ router.get('/payout-transactions', asyncHandler(async (req, res) => {
       data: formattedTransactions
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'branchxController.js',
+      error: error.message
+    });
     console.error('Get payout transactions error:', error);
     res.status(500).json({
       success: false,
@@ -994,6 +1002,10 @@ router.post('/payout/status-check', asyncHandler(async (req, res) => {
       data
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'branchxController.js',
+      error: error.message
+    });
     console.error('Status check error:', error);
     res.status(error.status || 500).json({
       success: false,
@@ -1114,6 +1126,10 @@ router.post('/payout/manual-refund', asyncHandler(async (req, res) => {
       data: branchxResponse
     });
   } catch (error) {
+    writeDevLog('payout', {
+      file: 'branchxController.js',
+      error: error.message
+    });
     console.error('Manual refund error:', error);
     res.status(error.status || 500).json({
       success: false,
