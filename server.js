@@ -203,6 +203,8 @@ app.use('/api/vimo', require('./routes/vimoRoutes'));
 // Direct-login feature: DL token management (admin-protected) + exchange endpoint (uses dl_token as credential)
 app.use('/api/admin',   require('./routes/directLoginRoutes'));
 
+app.use('/api/logo', require('./routes/logoRoutes'));
+
 app.get('/api/ping', async (req, res) => {
   try {
     const User = require('./models/User');
