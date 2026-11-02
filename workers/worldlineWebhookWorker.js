@@ -2,6 +2,7 @@ const worldlineWebhookQueue = require("../queues/worldlineWebhookQueue");
 const WorldlineNotification = require("../models/WorldlineNotification");
 const RazorpayNotification = require("../models/RazorpayNotification");
 const PosMachine = require("../models/posMachine");
+const { writeDevLog } = require("../utils/thirdPartyLogger");
 const User = require("../models/User");
 const MerchantTransactionCharge = require("../models/MerchantTransactionCharge");
 const ChargeService = require("../services/chargeService");
@@ -453,12 +454,14 @@ async function processWorldlineJob(jobData, jobId = null) {
       companyId: posOperator.company_id || null,
       companyName: posMachine ? posMachine.company_name : null,
       paymentMode: paymentMode,
-      cardType: 'CREDIT',
+      cardType: "CREDIT",
       cardBrand: cardScheme,
       classification: eventData?.card_classification || null,
       settlement: settlementTypeSnapshot || null,
       amount: transactionAmount
     });
+
+    console.log(`[Worldline Webhook Worker] Resolved charge rule for txn ${txnId}:`, chargeRule);
 
     if (!chargeRule) {
       const defaultMdr = 2.5;

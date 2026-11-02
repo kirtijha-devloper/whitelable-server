@@ -32,6 +32,7 @@ const {
 } = require('../services/serviceSettingsService');
 const { verifyTpinForUser } = require('../services/tpinService');
 const { serviceNames } = require('../constants');
+const { writeDevLog } = require('../utils/thirdPartyLogger');
 
 /**
  * Safely parse JSON strings

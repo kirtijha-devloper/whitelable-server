@@ -18,6 +18,7 @@ const {
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../utils/permissions');
 const instantpayService = require('../services/payments/instantpayService');
 const { verifyTpinForUser } = require('../services/tpinService');
+const { writeDevLog } = require('../utils/thirdPartyLogger');
 
 const SEVENPAY_TEST_MAX_AMOUNT = 100000;
 const SEVENPAY_IMMEDIATE_STATUS_RETRIES = Number(process.env.SEVENPAY_IMMEDIATE_STATUS_RETRIES || 2);

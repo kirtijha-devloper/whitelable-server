@@ -273,7 +273,7 @@ async function getChargeRule(opts = {}) {
     if (!superFranchiseId) superFranchiseId = user.super_franchise_id;
     if (!companyId) companyId = user.company_id;
   }
-
+  
   // Auto-resolve missing user hierarchy from User model
   if (userId && (!userRole || !companyId || (franchiseId === undefined && superFranchiseId === undefined))) {
     try {
@@ -293,10 +293,10 @@ async function getChargeRule(opts = {}) {
 
   // Map alternative parameter aliases
   const resolvedPaymentMode = paymentMode || opts.paymentMethod || opts.txn_type || 'CRDB';
-  const resolvedCardType = cardType || opts.paymentCardType || 'CREDIT';
-  const resolvedCardBrand = cardBrand || opts.paymentCardBrand || opts.card_scheme || 'VISA';
-  const resolvedClassification = classification || opts.cardClassification || opts.card_classification || null;
-  const resolvedSettlement = settlement || opts.settlementType || opts.settlement_type || null;
+  const resolvedCardType = (String(paymentMode).toUpperCase() === 'UPI' ? "UNKNOWN" : "CREDIT");
+  const resolvedCardBrand = cardBrand || opts.paymentCardBrand || opts.card_scheme;
+  const resolvedClassification = classification || opts.cardClassification || opts.card_classification;
+  const resolvedSettlement = settlement || opts.settlementType || opts.settlement_type;
   const resolvedAmount = amount != null ? parseFloat(amount) : (opts.transactionAmount != null ? parseFloat(opts.transactionAmount) : 0);
 
   // Call the core specificity-ranked transaction rule resolver

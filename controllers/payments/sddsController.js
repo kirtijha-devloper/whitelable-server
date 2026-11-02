@@ -12,6 +12,7 @@ const { Op } = require("sequelize");
 const db = require("../../config/database");
 const instantpayService = require('../../services/payments/instantpayService');
 const { verifyTpinForUser } = require('../../services/tpinService');
+const { writeDevLog } = require('../../utils/thirdPartyLogger');
 
 // Login Controller
 router.post('/login', async (req, res) => {

@@ -1,5 +1,6 @@
 const Queue = require("bull");
 const EventEmitter = require("events");
+const { writeDevLog } = require("../utils/thirdPartyLogger");
 
 // Allow disabling queues in local/dev to avoid Redis connection errors
 const queuesDisabled = 
@@ -24,7 +25,7 @@ if (queuesDisabled) {
             data
           });
         } catch (err) {
-          wrapWriteDevLog("webhook", { file: "worldlineWebhookQueue.js", error: err });
+          writeDevLog("webhook", { file: "worldlineWebhookQueue.js", error: err });
           console.error('[Worldline Webhook Queue] Inline job execution error:', err);
         }
       });

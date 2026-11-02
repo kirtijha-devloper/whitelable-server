@@ -4,6 +4,7 @@ const { Op } = require("sequelize");
 const fs = require("fs");
 const path = require("path");
 const { WEBHOOK_SOURCES, extractCardClassification } = require("../utils/razorpay/sources");
+const { writeDevLog } = require("../utils/thirdPartyLogger");
 
 // ── File-based logger for diagnostics ────────────────────────────────────────
 const LOG_DIR = path.join(__dirname, "../logs");

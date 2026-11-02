@@ -22,6 +22,7 @@ const {
 } = require('../../services/serviceSettingsService');
 const { verifyTpinForUser } = require('../../services/tpinService');
 const { hasPermission, EMPLOYEE_PERMISSIONS } = require('../../utils/permissions');
+const { writeDevLog } = require('../../utils/thirdPartyLogger');
 
 const payoutLocks = new Map();
 

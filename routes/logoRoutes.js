@@ -11,7 +11,8 @@ const Company = require('../models/Company');
  */
 router.get('/', async (req, res) => {
   try {
-    const origin = req.headers['origin'] || '';
+    const {hostname} = req.query;
+    const origin = req.header['origin'] || hostname ;
 
     const domain = new URL(origin).hostname;
 

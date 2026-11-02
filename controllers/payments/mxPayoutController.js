@@ -17,6 +17,7 @@ const {
 } = require('../../services/serviceSettingsService');
 const { hasPermission, EMPLOYEE_PERMISSIONS, normalizeRole } = require('../../utils/permissions');
 const { verifyTpinForUser } = require('../../services/tpinService');
+const { writeDevLog } = require('../../utils/thirdPartyLogger');
 
 const MX_TEST_MAX_AMOUNT = 100000;
 

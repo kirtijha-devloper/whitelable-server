@@ -14,6 +14,7 @@ const {
 } = require('../../../services/serviceSettingsService');
 const { normalizeRole } = require('../../../utils/permissions');
 const sharedCcBillLimitService = require('../../../services/sharedCcBillLimitService');
+const { writeDevLog } = require('../../../utils/thirdPartyLogger');
 
 // Debug logging helper for this controller
 // Logs are written to the shared root /logs folder (same as auth.log etc.)
@@ -195,7 +196,7 @@ const getCategories = asyncHandler(async (req, res) => {
     const data = await bbpsCCBillService.getCategories(outletId);
     return res.status(200).json({ success: true, data });
   } catch (error) {
-    writeDevlog('payin', `getCategories error: ${error.message || error}`);
+    writeDevLog('payin', `getCategories error: ${error.message || error}`);
     logInstantPayError('getCategories', error);
     const message = getInstantPayErrorMessage(error);
     return res.status(error?.response ? 502 : 500).json({ success: false, message });

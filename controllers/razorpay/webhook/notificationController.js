@@ -13,6 +13,7 @@ const MerchantTransactionCharge = require("../../../models/MerchantTransactionCh
 const { Op } = require("sequelize");
 const { EMPLOYEE_PERMISSIONS, hasPermission } = require("../../../utils/permissions");
 const { WEBHOOK_SOURCES, LEGACY_AGRO_SOURCE, extractCardClassification } = require("../../../utils/razorpay/sources");
+const { writeDevLog } = require("../../../utils/thirdPartyLogger");
 
 // ── Minimal file logger for incoming webhook notifications ────────────────────
 const LOG_FILE = path.join(__dirname, "../../../logs/webhookNotifications.log");

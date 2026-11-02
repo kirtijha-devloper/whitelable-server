@@ -1306,6 +1306,7 @@ async function handleCallback(req, res) {
 }
 
 const instantpayService = require('../services/payments/instantpayService');
+const { writeDevLog } = require('../utils/thirdPartyLogger');
 
 // Vimo beneficiary management
 async function createBeneficiary(req, res) {
