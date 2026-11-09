@@ -77,6 +77,20 @@ const DEFAULT_SERVICES_METADATA = [
     description: 'Biometric Aadhaar withdrawal service',
     target_roles: ['admin', 'franchise', 'merchant'],
   },
+  {
+    key: 'pg_1',
+    label: 'PG 1',
+    category: 'Payment Gateway',
+    description: 'PG 1 Payment Gateway Service',
+    target_roles: ['admin', 'franchise', 'merchant', 'super_franchise'],
+  },
+  {
+    key: 'pg_2',
+    label: 'PG 2',
+    category: 'Payment Gateway',
+    description: 'PG 2 Payment Gateway Service',
+    target_roles: ['admin', 'franchise', 'merchant', 'super_franchise'],
+  },
 ];
 
 function getValidatedServiceSettingsPayload(body) {

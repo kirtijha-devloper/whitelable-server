@@ -18,6 +18,9 @@ const USER_SERVICE_ALLOWED_KEYS = [
   'soundbox',
   'dmt',
   'billpayments',
+  'pg_1',
+  'pg_2',
+  'pg_3',
 ];
 
 const UserServiceSetting = db.define('UserServiceSetting', {

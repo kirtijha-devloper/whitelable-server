@@ -200,6 +200,7 @@ app.use('/api/razorpay', require('./routes/razorpay/webhook/notificationRoutes')
 app.use('/api/worldline', require('./routes/worldline/webhook/notificationRoutes'));
 app.use('/api/worldline-notifications', require('./routes/worldline/webhook/notificationRoutes'));
 app.use('/api/vimo', require('./routes/vimoRoutes'));
+app.use('/api/pg', require('./routes/pgRoutes'));
 // Direct-login feature: DL token management (admin-protected) + exchange endpoint (uses dl_token as credential)
 app.use('/api/admin',   require('./routes/directLoginRoutes'));
 

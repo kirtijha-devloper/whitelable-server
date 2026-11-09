@@ -17,6 +17,9 @@ const SERVICE_SETTING_KEYS = Object.freeze({
   CC_BILL_3: 'cc_bill_3',
   POS_T0_SETTLEMENT: 'pos_t0_settlement',
   AADHAAR_PAY: 'aadhaar_pay',
+  PG_1: 'pg_1',
+  PG_2: 'pg_2',
+  PG_3: 'pg_3',
 });
 
 const SERVICE_SETTING_KEY_LIST = Object.freeze(Object.values(SERVICE_SETTING_KEYS));
@@ -48,6 +51,9 @@ function buildDefaultUserServiceSettings(user) {
     [SERVICE_SETTING_KEYS.BA_CC_BILL_PAY]: true,
     [SERVICE_SETTING_KEYS.CC_BILL_3]: true,
     [SERVICE_SETTING_KEYS.POS_T0_SETTLEMENT]: true,
+    [SERVICE_SETTING_KEYS.PG_1]: true,
+    [SERVICE_SETTING_KEYS.PG_2]: true,
+    [SERVICE_SETTING_KEYS.PG_3]: true,
   };
 }
 
@@ -593,6 +599,18 @@ function getEffectiveServiceFlags(user, serviceSettingsMap, userServiceSettings,
       resolvedSettings['aadhaar_pay']?.is_enabled !== false
       && (adminOverrides ? adminOverrides['aadhaar_pay'] !== false : true)
       && resolvedUserServiceSettings['aadhaar_pay'] !== false,
+    [SERVICE_SETTING_KEYS.PG_1]:
+      resolvedSettings[SERVICE_SETTING_KEYS.PG_1]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.PG_1] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.PG_1] !== false,
+    [SERVICE_SETTING_KEYS.PG_2]:
+      resolvedSettings[SERVICE_SETTING_KEYS.PG_2]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.PG_2] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.PG_2] !== false,
+    [SERVICE_SETTING_KEYS.PG_3]:
+      resolvedSettings[SERVICE_SETTING_KEYS.PG_3]?.is_enabled !== false
+      && (adminOverrides ? adminOverrides[SERVICE_SETTING_KEYS.PG_3] !== false : true)
+      && resolvedUserServiceSettings[SERVICE_SETTING_KEYS.PG_3] !== false,
   };
 
   // Dynamically include any other services in resolvedSettings

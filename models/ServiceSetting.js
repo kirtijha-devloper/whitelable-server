@@ -12,6 +12,9 @@ const SERVICE_SETTING_ALLOWED_KEYS = [
   'mx_payout',
   'pos_t0_settlement',
   'aadhaar_pay',
+  'pg_1',
+  'pg_2',
+  'pg_3',
 ];
 
 const ServiceSetting = db.define('ServiceSetting', {

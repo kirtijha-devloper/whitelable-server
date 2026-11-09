@@ -363,50 +363,19 @@ async function processWorldlineJob(jobData, jobId = null) {
       return;
     }
 
-    // Settlement Type Evaluation:
-    // If the settlement amount exceeds the merchant's assigned T0 limit, transaction goes to T1 (T+1), otherwise T0.
-    // If merchant is explicitly configured for T1 (next_day_settlement), it always goes to T1.
-    let settlementTypeSnapshot = 'T1';
-    const userSettlementMode = String(posOperator.settlement_type || 'T1').toUpperCase();
-    const isExplicitT1 = userSettlementMode === 'T1' || userSettlementMode === 'NEXT_DAY_SETTLEMENT';
+    // Settlement Type Evaluation via centralized settlementService:
+    // Dynamically evaluates limits including upstream/downstream allocations (e.g. SF to Franchise)
+    const { resolveEffectiveSettlement } = require("../services/settlementService");
+    const settlementResolution = await resolveEffectiveSettlement({
+      user: posOperator,
+      incomingTxnAmount: parseFloat(transactionAmount)
+    });
+    const settlementTypeSnapshot = settlementResolution.effectiveSettlement;
 
-    if (isExplicitT1) {
-      settlementTypeSnapshot = 'T1';
-      logger.log(`[Worldline Webhook Worker] Merchant ${posOperator.id} is explicitly configured for Next-Day Settlement (T1).`);
+    if (settlementResolution.isLimitExceeded) {
+      logger.warn(`[Worldline Webhook Worker] ⚠️ ${settlementResolution.note || settlementResolution.reason || 'Settlement limit exceeded'}. Effective settlement shifted to ${settlementTypeSnapshot}.`);
     } else {
-      const rawLimit = posOperator.t0_daily_limit;
-      const isLimitAssigned = rawLimit !== null && rawLimit !== undefined && rawLimit !== '' && String(rawLimit).toLowerCase() !== 'unlimited';
-      const t0Limit = isLimitAssigned ? Number(rawLimit) : null;
-
-      if (isLimitAssigned && !isNaN(t0Limit)) {
-        let todayT0Total = 0;
-        try {
-          const { startOfDay, endOfDay } = getTodayIstDateWindow(new Date());
-          const sumResult = await RazorpayNotification.sum('amount', {
-            where: {
-              user_id: posOperator.id,
-              status: { [Op.in]: ['CAPTURED', 'SUCCESS', 'AUTHORIZED', 'captured', 'success', 'authorized'] },
-              settlement_type: { [Op.in]: ['T0', 'today_settlement', 'TODAY_SETTLEMENT', 't0'] },
-              createdAt: { [Op.between]: [startOfDay, endOfDay] }
-            }
-          });
-          todayT0Total = parseFloat(sumResult) || 0;
-        } catch (sumErr) {
-          todayT0Total = 0;
-        }
-
-        const projectedTotal = todayT0Total + transactionAmount;
-        if (transactionAmount > t0Limit || projectedTotal > t0Limit) {
-          settlementTypeSnapshot = 'T1';
-          logger.warn(`[Worldline Webhook Worker] ⚠️ Settlement limit exceeded for merchant ${posOperator.id} (Txn: ₹${transactionAmount}, Today T0: ₹${todayT0Total}, Limit: ₹${t0Limit}). Shifted to T1 (T+1).`);
-        } else {
-          settlementTypeSnapshot = 'T0';
-          logger.log(`[Worldline Webhook Worker] Settlement within T0 limit for merchant ${posOperator.id} (Txn: ₹${transactionAmount}, Projected: ₹${projectedTotal}, Limit: ₹${t0Limit}). Assigned T0.`);
-        }
-      } else {
-        // No limit assigned or unlimited -> default to T0
-        settlementTypeSnapshot = 'T1';
-      }
+      logger.log(`[Worldline Webhook Worker] Settlement resolution for merchant ${posOperator.id}: ${settlementTypeSnapshot} (${settlementResolution.note || settlementResolution.reason || 'Within limit'})`);
     }
 
     // Check duplicate processing
@@ -484,6 +453,17 @@ async function processWorldlineJob(jobData, jobId = null) {
     const gstAmount = chargeResult.gstAmount || 0;
     const netAmount = parseFloat((transactionAmount - chargeAmount - gstAmount).toFixed(2));
 
+    // Resolve Admin user upfront to calculate upstream rules and earnings
+    let adminUser = null;
+    if (posOperator.admin_id) {
+      adminUser = await User.findByPk(posOperator.admin_id);
+    }
+    if (!adminUser && posOperator.company_id) {
+      adminUser = await User.findOne({
+        where: { role: 'admin', company_id: posOperator.company_id }
+      });
+    }
+
     // Super franchise earning calculation resolution
     let superFranchiseChargeAmount = 0;
     let superFranchiseEarning = 0;
@@ -495,9 +475,13 @@ async function processWorldlineJob(jobData, jobId = null) {
       const franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
         franchiseId: posOperator.franchaise_id,
         superFranchiseId: resolvedSuperFranchiseId,
+        companyId: posOperator.company_id || null,
+        adminId: adminUser ? adminUser.id : (posOperator.admin_id || null),
+        companyName: posMachine ? posMachine.company_name : null,
         paymentMode: paymentMode,
         cardType: cardType,
         cardBrand: cardScheme,
+        classification: eventData?.card_classification || null,
         settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
       });
@@ -514,9 +498,13 @@ async function processWorldlineJob(jobData, jobId = null) {
     if (resolvedSuperFranchiseId) {
       const sfRule = await ChargeService.getAdminChargeRuleForSuperFranchise({
         superFranchiseId: resolvedSuperFranchiseId,
+        companyId: posOperator.company_id || null,
+        adminId: adminUser ? adminUser.id : (posOperator.admin_id || null),
+        companyName: posMachine ? posMachine.company_name : null,
         paymentMode: paymentMode,
         cardType: cardType,
         cardBrand: cardScheme,
+        classification: eventData?.card_classification || null,
         settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
       });
@@ -532,8 +520,7 @@ async function processWorldlineJob(jobData, jobId = null) {
       logger.log(`[Worldline Webhook Worker] Super franchise charge: ${superFranchiseChargeAmount}, earning: ${superFranchiseEarning}`);
     }
 
-    // Resolve Admin user to calculate Admin earning
-    let adminUser = null;
+    // Calculate Admin earning
     let adminCostAmount = 0;
     let adminEarning = 0;
     let paidUpwardToAdmin = chargeAmount;
@@ -543,21 +530,14 @@ async function processWorldlineJob(jobData, jobId = null) {
       paidUpwardToAdmin = franchiseChargeAmount;
     }
 
-    if (posOperator.admin_id) {
-      adminUser = await User.findByPk(posOperator.admin_id);
-    }
-    if (!adminUser && posOperator.company_id) {
-      adminUser = await User.findOne({
-        where: { role: 'admin', company_id: posOperator.company_id }
-      });
-    }
-
     if (adminUser) {
       const adminRule = await ChargeService.getSuperAdminChargeRuleForAdmin({
         adminId: adminUser.id,
+        companyName: posMachine ? posMachine.company_name : null,
         paymentMode: paymentMode,
         cardType: cardType,
         cardBrand: cardScheme,
+        classification: eventData?.card_classification || null,
         settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
       });
