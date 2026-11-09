@@ -119,7 +119,10 @@ async function recordRazorpayNotification({
     const amountVal = rawAmount != null ? Math.round(Number(rawAmount)) : null;
 
     const rrnVal = notification?.rrn || eventData?.rrn || eventData?.rr_number || null;
-    const paymentMode = (eventData?.txn_type || 'CRDB').toUpperCase();
+    const rawTxnType = String(eventData?.txn_type || eventData?.type || '').toUpperCase();
+    const isUpi = rawTxnType === 'UPI' || Boolean(eventData?.upi_txn_id);
+    const paymentMode = isUpi ? 'UPI' : 'CARD';
+    const cardType = isUpi ? 'UNKNOWN' : (rawTxnType === 'DEBIT' || String(eventData?.type || '').toUpperCase() === 'DEBIT' ? 'DEBIT' : 'CREDIT');
     const cardScheme = (notification?.card_scheme || eventData?.card_scheme || 'VISA').toUpperCase();
 
     // Map status: if isSuccess: 'SUCCESS', if failed: 'FAILED'
@@ -144,7 +147,7 @@ async function recordRazorpayNotification({
       amount: amountVal,
       currency_code: eventData?.currency || eventData?.currency_code || 'INR',
       payment_mode: paymentMode,
-      payment_card_type: 'CREDIT',
+      payment_card_type: cardType,
       payment_card_brand: cardScheme,
       rr_number: rrnVal,
       device_serial: eventData?.device_serial || null,
@@ -443,7 +446,10 @@ async function processWorldlineJob(jobData, jobId = null) {
     }
 
     // Calculate MDR charges via ChargeService
-    const paymentMode = (eventData.txn_type || 'CRDB').toUpperCase();
+    const rawTxnType = String(eventData?.txn_type || eventData?.type || '').toUpperCase();
+    const isUpi = rawTxnType === 'UPI' || Boolean(eventData?.upi_txn_id);
+    const paymentMode = isUpi ? 'UPI' : 'CARD';
+    const cardType = isUpi ? 'UNKNOWN' : (rawTxnType === 'DEBIT' || String(eventData?.type || '').toUpperCase() === 'DEBIT' ? 'DEBIT' : 'CREDIT');
     const cardScheme = (notification.card_scheme || eventData.card_scheme || 'VISA').toUpperCase();
 
     let chargeRule = await ChargeService.getChargeRule({
@@ -454,7 +460,7 @@ async function processWorldlineJob(jobData, jobId = null) {
       companyId: posOperator.company_id || null,
       companyName: posMachine ? posMachine.company_name : null,
       paymentMode: paymentMode,
-      cardType: "CREDIT",
+      cardType: cardType,
       cardBrand: cardScheme,
       classification: eventData?.card_classification || null,
       settlement: settlementTypeSnapshot || null,
@@ -490,7 +496,7 @@ async function processWorldlineJob(jobData, jobId = null) {
         franchiseId: posOperator.franchaise_id,
         superFranchiseId: resolvedSuperFranchiseId,
         paymentMode: paymentMode,
-        cardType: 'CREDIT',
+        cardType: cardType,
         cardBrand: cardScheme,
         settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
@@ -509,7 +515,7 @@ async function processWorldlineJob(jobData, jobId = null) {
       const sfRule = await ChargeService.getAdminChargeRuleForSuperFranchise({
         superFranchiseId: resolvedSuperFranchiseId,
         paymentMode: paymentMode,
-        cardType: 'CREDIT',
+        cardType: cardType,
         cardBrand: cardScheme,
         settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
@@ -550,7 +556,7 @@ async function processWorldlineJob(jobData, jobId = null) {
       const adminRule = await ChargeService.getSuperAdminChargeRuleForAdmin({
         adminId: adminUser.id,
         paymentMode: paymentMode,
-        cardType: 'CREDIT',
+        cardType: cardType,
         cardBrand: cardScheme,
         settlement: settlementTypeSnapshot || null,
         amount: transactionAmount
@@ -579,7 +585,7 @@ async function processWorldlineJob(jobData, jobId = null) {
       charge_rate: chargeRule.charge_percent || 0,
       charge_config_id: chargeRule.id || null,
       payment_method: paymentMode,
-      payment_card_type: 'CREDIT',
+      payment_card_type: cardType,
       payment_card_brand: cardScheme,
       wallet_transaction_id: null,
       rr_number: notification.rrn || eventData.rrn || null,
