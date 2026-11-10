@@ -1725,6 +1725,7 @@ const approveUser = asyncHandler( async (req, res) => {
                         logo: companyLogo,
                         company_id: company.company_id,
                         domain_name: company.domain_name,
+                        theme_colors: company.theme_colors || null,
                         payout_limit: parseFloat(company.payout_limit || 0),
                         bill_payment_limit: parseFloat(company.bill_payment_limit || 0),
                     } : (companyLogo ? {

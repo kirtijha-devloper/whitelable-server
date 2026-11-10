@@ -36,6 +36,12 @@ const Company = db.define('Company', {
     type: Sequelize.STRING
   },
 
+  theme_colors: {
+    allowNull: true,
+    type: Sequelize.JSONB,
+    defaultValue: null,
+  },
+
   director_name: {
     allowNull: true,
     type: Sequelize.STRING
