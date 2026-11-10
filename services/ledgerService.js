@@ -17,6 +17,8 @@ const REFERENCE_TABLE_MODEL_MAP = {
   PosRentalBillings: () => require('../models/PosRentalBilling'),
   BillAvenuePayments: () => require('../models/BillAvenuePayment'),
   CcBillPayments: () => require('../models/CcBillPayment'),
+  PgTransactions: () => require('../models/PgTransaction'),
+  pg_transactions: () => require('../models/PgTransaction'),
 };
 
 /**

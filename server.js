@@ -173,6 +173,8 @@ app.use('/api/pos-transaction-charge', require('./routes/posTransactionChargeRou
 // new charge rule engine (see posChargeRuleRoutes)
 app.use('/api/pos-charge-rules', require('./routes/posChargeRuleRoutes'));
 app.use('/api/pos-charge-rule', require('./routes/posChargeRuleRoutes'));
+app.use('/api/pg-charge-rules', require('./routes/pgChargeRuleRoutes'));
+app.use('/api/pg-charge-rule', require('./routes/pgChargeRuleRoutes'));
 
 // POS reconciliation
 app.use('/api/reconciliation', require('./routes/reconciliationRoutes'));

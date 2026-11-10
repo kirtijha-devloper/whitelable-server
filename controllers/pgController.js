@@ -2,10 +2,13 @@ const asyncHandler = require('express-async-handler');
 const { Op } = require('sequelize');
 const db = require('../config/database');
 const PgTransaction = require('../models/PgTransaction');
+const PgChargeRule = require('../models/PgChargeRule');
 const User = require('../models/User');
 const UserServiceSetting = require('../models/UserServiceSetting');
 const Ledger = require('../models/Ledger');
+const SettlementHold = require('../models/SettlementHold');
 const ChargeService = require('../services/chargeService');
+const PgChargeService = require('../services/pgChargeService');
 const pgService = require('../services/pgService');
 
 /**
@@ -53,18 +56,32 @@ const createOrder = asyncHandler(async (req, res) => {
     returnUrl: effectiveReturnUrl
   });
 
+  // Ensure unique order_id - never allow duplicate order_id
+  const existingOrder = await PgTransaction.findOne({ where: { order_id: gatewayOrder.order_id } });
+  if (existingOrder) {
+    return res.status(409).json({ success: false, message: `Order ID '${gatewayOrder.order_id}' already exists.` });
+  }
+
   // Save Transaction in local DB
-  const txn = await PgTransaction.create({
-    user_id: userId,
-    company_id: req.user?.company_id || null,
-    gateway: gatewayConfig.key,
-    order_id: gatewayOrder.order_id,
-    amount: numAmount,
-    status: 'pending',
-    payment_url: gatewayOrder.payment_url,
-    return_url: effectiveReturnUrl,
-    payment_mode: 'CARD'
-  });
+  let txn;
+  try {
+    txn = await PgTransaction.create({
+      user_id: userId,
+      company_id: req.user?.company_id || null,
+      gateway: gatewayConfig.key,
+      order_id: gatewayOrder.order_id,
+      amount: numAmount,
+      status: 'pending',
+      payment_url: gatewayOrder.payment_url,
+      return_url: effectiveReturnUrl,
+      payment_mode: 'CARD'
+    });
+  } catch (createErr) {
+    if (createErr.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ success: false, message: `Order ID '${gatewayOrder.order_id}' already exists.` });
+    }
+    throw createErr;
+  }
 
   res.status(200).json({
     success: true,
@@ -86,14 +103,69 @@ const createOrder = asyncHandler(async (req, res) => {
  * @access  Public (Authenticated via Gateway Security Headers)
  */
 const handleWebhook = asyncHandler(async (req, res) => {
-  const gateway = req.params.gateway || req.body.gateway || 'pg_1';
-  const gatewayConfig = pgService.getGatewayConfig(gateway);
+  // 1. Parse Payload
+  const {
+    status,
+    order_id,
+    payment_id,
+    amount,
+    payment_amount,
+    method,
+    payment_mode,
+    brand,
+    card_brand,
+    card_type,
+    issuer,
+    sub_type,
+    card,
+    gateway: payloadGateway
+  } = req.body || {};
 
-  if (!gatewayConfig) {
-    return res.status(400).json({ error: `Unknown gateway route '${gateway}'` });
+  const rawAmount = amount !== undefined && amount !== null ? amount : payment_amount;
+  if (!order_id || rawAmount === undefined || rawAmount === null) {
+    return res.status(400).json({ success: false, message: 'Missing order_id or amount in webhook payload' });
   }
 
-  // 1. Verify Security Headers
+  const parsedAmount = parseFloat(rawAmount);
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({ success: false, message: 'Invalid transaction amount in webhook payload' });
+  }
+
+  // 2. Search in pg_transactions table with order_id and payment_amount
+  const txn = await PgTransaction.findOne({ where: { order_id } });
+  if (!txn) {
+    console.warn(`[PG Webhook] Order '${order_id}' not found in pg_transactions table`);
+    return res.status(404).json({
+      success: false,
+      message: `Transaction not found for order_id '${order_id}'`
+    });
+  }
+
+  if (Math.abs(parseFloat(txn.amount) - parsedAmount) >= 0.01) {
+    console.warn(`[PG Webhook] Amount mismatch for order '${order_id}'. Txn amount: ${txn.amount}, payload amount: ${parsedAmount}`);
+    return res.status(404).json({
+      success: false,
+      message: `Transaction not found with matching payment_amount for order_id '${order_id}'. Expected ${txn.amount}, received ${parsedAmount}`
+    });
+  }
+
+  // 3. Resolve Gateway (PG 1 - Cognate vs PG 2 - BharatGrain)
+  // Priority: URL param (/webhook/:gateway) > Transaction saved gateway > Webhook headers > Payload gateway > Default pg_1
+  let detectedGateway = req.params.gateway || txn.gateway || payloadGateway;
+  if (!detectedGateway) {
+    if (req.headers['x-bharatgrain-client-id'] || req.headers['x-pg3-client-id']) {
+      detectedGateway = 'pg_2';
+    } else {
+      detectedGateway = 'pg_1';
+    }
+  }
+
+  const gatewayConfig = pgService.getGatewayConfig(detectedGateway);
+  if (!gatewayConfig) {
+    return res.status(400).json({ success: false, error: `Unknown gateway route '${detectedGateway}'` });
+  }
+
+  // 4. Verify Security Headers (if gateway signature is enforced)
   const isValid = pgService.verifyWebhookHeaders({
     gateway: gatewayConfig.key,
     headers: req.headers
@@ -101,30 +173,18 @@ const handleWebhook = asyncHandler(async (req, res) => {
 
   if (!isValid) {
     console.warn(`[PG Webhook] Unauthorized attempt on ${gatewayConfig.key} from IP ${req.ip}`);
-    return res.status(401).json({ error: 'Unauthorized webhook request' });
+    return res.status(401).json({ success: false, error: 'Unauthorized webhook request' });
   }
 
-  // 2. Parse Payload
-  const { status, order_id, payment_id, amount, method, card } = req.body || {};
-  if (!order_id) {
-    return res.status(400).json({ error: 'Missing order_id in webhook payload' });
-  }
-
-  // 3. Find matching transaction
-  const txn = await PgTransaction.findOne({ where: { order_id } });
-  if (!txn) {
-    console.warn(`[PG Webhook] Order ${order_id} not found in database`);
-    return res.status(200).json({ status: 'ignored', message: 'Order not found' });
-  }
-
-  // 4. Idempotency Check: if already success, do not double-credit
+  // 5. Idempotency check: if already success, do not duplicate credit
   if (txn.status === 'success') {
     return res.status(200).json({ status: 'success', message: 'Payment already processed' });
   }
 
-  // 5. Handle Failure / Cancellation
+  // Handle failure / cancellation status
   if (String(status).toLowerCase() !== 'success') {
     await txn.update({
+      gateway: gatewayConfig.key,
       status: 'failed',
       payment_id: payment_id || txn.payment_id,
       webhook_payload: req.body
@@ -132,76 +192,440 @@ const handleWebhook = asyncHandler(async (req, res) => {
     return res.status(200).json({ status: 'success', message: 'Payment marked as failed' });
   }
 
-  // 6. Handle Success: Calculate MDR & Credit Wallet/Ledger
-  const network = String(card?.network || 'VISA').toUpperCase();
-  const cardType = String(card?.card_type || 'CREDIT').toUpperCase();
-  const subType = card?.sub_type || 'consumer';
+  // 3. Get user_id and calculate charges from charge service functions
+  const user = await User.findByPk(txn.user_id);
+  if (!user) {
+    return res.status(404).json({ success: false, message: `User id ${txn.user_id} not found` });
+  }
 
-  // Resolve charge rule via hierarchical engine
-  const chargeRule = await ChargeService.getChargeRule({
-    userId: txn.user_id,
-    companyId: txn.company_id,
-    paymentMode: 'CARD',
-    cardType: cardType,
-    cardBrand: network,
-    amount: txn.amount,
-    companyName: gatewayConfig.providerName
+  // Normalize specifications from payload or transaction record
+  const normalizedMethod = String(method || payment_mode || card?.payment_mode || txn.payment_mode || 'CARD').toUpperCase();
+  const normalizedBrand = String(brand || card_brand || card?.network || card?.brand || txn.card_network || 'VISA').toUpperCase();
+  const normalizedCardType = String(card_type || card?.card_type || txn.card_type || 'CREDIT').toUpperCase();
+  const normalizedSubType = String(sub_type || card?.sub_type || txn.card_sub_type || 'consumer').toLowerCase();
+  const settlementType = user.settlement_type || 'T0';
+
+  // Calculate merchant charge using PgChargeService (falling back to PosChargeRule if not configured)
+  let chargeRule = await PgChargeService.getChargeRule({
+    userId: user.id,
+    userRole: user.role,
+    franchiseId: user.franchaise_id || null,
+    superFranchiseId: user.super_franchise_id || null,
+    companyId: user.company_id || null,
+    gateway: txn.gateway,
+    paymentMode: normalizedMethod,
+    cardType: normalizedCardType,
+    cardBrand: normalizedBrand,
+    classification: normalizedSubType,
+    sub_type: normalizedSubType,
+    settlement: settlementType,
+    amount: parsedAmount
   });
 
-  const chargeResult = ChargeService.calculateCharge(txn.amount, chargeRule);
-  const feeAmount = chargeResult.charge;
-  const gstAmount = chargeResult.gstAmount || 0;
-  const netAmount = parseFloat((txn.amount - feeAmount - gstAmount).toFixed(2));
+  let chargeResult;
+  if (chargeRule && !chargeRule.is_fallback) {
+    chargeResult = PgChargeService.calculateCharge(parsedAmount, chargeRule);
+  } else {
+    const posRule = await ChargeService.getChargeRule({
+      userId: user.id,
+      userRole: user.role,
+      franchiseId: user.franchaise_id || null,
+      superFranchiseId: user.super_franchise_id || null,
+      companyId: user.company_id || null,
+      paymentMode: normalizedMethod,
+      cardType: normalizedCardType,
+      cardBrand: normalizedBrand,
+      classification: normalizedSubType,
+      settlement: settlementType,
+      amount: parsedAmount,
+      companyName: gatewayConfig.providerName
+    });
+    chargeRule = posRule || chargeRule || {
+      charge_percent: 2.5,
+      charge_flat: 0,
+      gst_required: false,
+      gst_percent: 0
+    };
+    chargeResult = PgChargeService.calculateCharge(parsedAmount, chargeRule);
+  }
 
-  // Execute database transaction to guarantee ledger and wallet consistency
+  const feeAmount = parseFloat((chargeResult.charge || 0).toFixed(2));
+  const gstAmount = parseFloat((chargeResult.gstAmount || 0).toFixed(2));
+  const totalDeduction = parseFloat((feeAmount + gstAmount).toFixed(2));
+  const netAmount = parseFloat(Math.max(0, parsedAmount - totalDeduction).toFixed(2));
+
+  // 7. Calculate upstream commissions (Franchise, Super Franchise, Admin) following worldlineWebhookWorker.js
+  let resolvedSuperFranchiseId = user.super_franchise_id || null;
+  if (!resolvedSuperFranchiseId && user.franchaise_id) {
+    const franchiseUserRec = await User.findByPk(user.franchaise_id);
+    resolvedSuperFranchiseId = franchiseUserRec ? franchiseUserRec.super_franchise_id : null;
+  }
+
+  let adminUser = null;
+  if (user.admin_id) {
+    adminUser = await User.findByPk(user.admin_id);
+  }
+  if (!adminUser && user.company_id) {
+    adminUser = await User.findOne({
+      where: { role: 'admin', company_id: user.company_id }
+    });
+  }
+
+  // Franchise commission calculation
+  let franchiseChargeAmount = 0;
+  let franchiseEarning = 0;
+  let franchiseUser = null;
+  if (user.role === 'merchant' && user.franchaise_id) {
+    franchiseUser = await User.findByPk(user.franchaise_id);
+    let franchiseRule = await PgChargeService.getAdminChargeRuleForFranchise({
+      franchiseId: user.franchaise_id,
+      superFranchiseId: resolvedSuperFranchiseId,
+      companyId: user.company_id || null,
+      adminId: adminUser ? adminUser.id : (user.admin_id || null),
+      gateway: txn.gateway,
+      paymentMode: normalizedMethod,
+      cardType: normalizedCardType,
+      cardBrand: normalizedBrand,
+      classification: normalizedSubType,
+      settlement: settlementType,
+      amount: parsedAmount
+    });
+
+    if (!franchiseRule) {
+      franchiseRule = await ChargeService.getAdminChargeRuleForFranchise({
+        franchiseId: user.franchaise_id,
+        superFranchiseId: resolvedSuperFranchiseId,
+        companyId: user.company_id || null,
+        adminId: adminUser ? adminUser.id : (user.admin_id || null),
+        paymentMode: normalizedMethod,
+        cardType: normalizedCardType,
+        cardBrand: normalizedBrand,
+        classification: normalizedSubType,
+        settlement: settlementType,
+        amount: parsedAmount
+      });
+    }
+
+    if (franchiseRule) {
+      franchiseChargeAmount = PgChargeService.calculateCharge(parsedAmount, franchiseRule).charge;
+    } else {
+      const DEFAULT_MDR = 2.5;
+      franchiseChargeAmount = parseFloat((parsedAmount * (DEFAULT_MDR / 100)).toFixed(2));
+    }
+    franchiseEarning = Math.max(0, parseFloat((feeAmount - franchiseChargeAmount).toFixed(2)));
+  }
+
+  // Super Franchise commission calculation
+  let superFranchiseChargeAmount = 0;
+  let superFranchiseEarning = 0;
+  let superFranchiseUser = null;
+  if (resolvedSuperFranchiseId) {
+    superFranchiseUser = await User.findByPk(resolvedSuperFranchiseId);
+    let sfRule = await PgChargeService.getAdminChargeRuleForSuperFranchise({
+      superFranchiseId: resolvedSuperFranchiseId,
+      companyId: user.company_id || null,
+      adminId: adminUser ? adminUser.id : (user.admin_id || null),
+      gateway: txn.gateway,
+      paymentMode: normalizedMethod,
+      cardType: normalizedCardType,
+      cardBrand: normalizedBrand,
+      classification: normalizedSubType,
+      settlement: settlementType,
+      amount: parsedAmount
+    });
+
+    if (!sfRule) {
+      sfRule = await ChargeService.getAdminChargeRuleForSuperFranchise({
+        superFranchiseId: resolvedSuperFranchiseId,
+        companyId: user.company_id || null,
+        adminId: adminUser ? adminUser.id : (user.admin_id || null),
+        paymentMode: normalizedMethod,
+        cardType: normalizedCardType,
+        cardBrand: normalizedBrand,
+        classification: normalizedSubType,
+        settlement: settlementType,
+        amount: parsedAmount
+      });
+    }
+
+    if (sfRule) {
+      superFranchiseChargeAmount = PgChargeService.calculateCharge(parsedAmount, sfRule).charge;
+    } else {
+      const DEFAULT_MDR = 2.5;
+      superFranchiseChargeAmount = parseFloat((parsedAmount * (DEFAULT_MDR / 100)).toFixed(2));
+    }
+
+    const upwardToSF = user.franchaise_id ? franchiseChargeAmount : feeAmount;
+    superFranchiseEarning = Math.max(0, parseFloat((upwardToSF - superFranchiseChargeAmount).toFixed(2)));
+  }
+
+  // Admin commission calculation
+  let adminCostAmount = 0;
+  let adminEarning = 0;
+  let paidUpwardToAdmin = feeAmount;
+  if (resolvedSuperFranchiseId) {
+    paidUpwardToAdmin = superFranchiseChargeAmount;
+  } else if (user.franchaise_id) {
+    paidUpwardToAdmin = franchiseChargeAmount;
+  }
+
+  if (adminUser) {
+    let adminRule = await PgChargeService.getSuperAdminChargeRuleForAdmin({
+      adminId: adminUser.id,
+      gateway: txn.gateway,
+      paymentMode: normalizedMethod,
+      cardType: normalizedCardType,
+      cardBrand: normalizedBrand,
+      classification: normalizedSubType,
+      settlement: settlementType,
+      amount: parsedAmount
+    });
+
+    if (!adminRule) {
+      adminRule = await ChargeService.getSuperAdminChargeRuleForAdmin({
+        adminId: adminUser.id,
+        paymentMode: normalizedMethod,
+        cardType: normalizedCardType,
+        cardBrand: normalizedBrand,
+        classification: normalizedSubType,
+        settlement: settlementType,
+        amount: parsedAmount
+      });
+    }
+
+    if (adminRule) {
+      adminCostAmount = PgChargeService.calculateCharge(parsedAmount, adminRule).charge;
+    } else {
+      const DEFAULT_MDR = 2.5;
+      adminCostAmount = parseFloat((parsedAmount * (DEFAULT_MDR / 100)).toFixed(2));
+    }
+
+    adminEarning = Math.max(0, parseFloat((paidUpwardToAdmin - adminCostAmount).toFixed(2)));
+  }
+
+  // 8. Atomic Database Transaction: all table updates performed inside the transaction block
   await db.transaction(async (t) => {
-    const user = await User.findByPk(txn.user_id, { transaction: t });
-    if (!user) throw new Error(`User id ${txn.user_id} not found`);
+    // 1. Lock merchant user
+    const lockedUser = await User.findByPk(user.id, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!lockedUser) throw new Error(`User id ${user.id} not found during lock`);
 
-    const balanceBefore = parseFloat(user.wallet || 0);
-    const balanceAfter = parseFloat((balanceBefore + netAmount).toFixed(2));
+    const balanceBefore = parseFloat(lockedUser.wallet || 0);
+    const creditBalance = parseFloat((balanceBefore + parsedAmount).toFixed(2));
+    const balanceAfter = parseFloat((creditBalance - totalDeduction).toFixed(2));
 
-    // Update User Wallet
-    await user.update({ wallet: balanceAfter }, { transaction: t });
-
-    // Create Ledger Entry
-    await Ledger.create({
-      user_id: user.id,
-      company_id: user.company_id,
-      transaction_type: 'wallet_credit',
+    // 4. Deduct amount of commission and update ledger
+    // 4a. Merchant Gross Credit Ledger Entry
+    const creditEntry = await Ledger.create({
+      user_id: lockedUser.id,
+      company_id: lockedUser.company_id,
+      transaction_type: 'pg_credit',
       transaction_id: order_id,
       reference_id: txn.id,
       reference_table: 'pg_transactions',
-      description: `PG payment credit: ${order_id} (${gatewayConfig.displayName})`,
+      description: `PG payment credit: ${order_id} (${gatewayConfig.displayName || txn.gateway})`,
       balance_before: balanceBefore,
       debit: 0.00,
-      credit: netAmount,
-      balance: balanceAfter,
+      credit: parsedAmount,
+      balance: creditBalance,
       metadata: JSON.stringify({
-        gross_amount: txn.amount,
-        fee_amount: feeAmount,
-        gst_amount: gstAmount,
+        gross_amount: parsedAmount,
+        order_id,
         payment_id,
-        card: { network, cardType, subType }
+        gateway: txn.gateway,
+        payment_mode: normalizedMethod,
+        card: {
+          brand: normalizedBrand,
+          card_type: normalizedCardType,
+          sub_type: normalizedSubType,
+          issuer: issuer || null
+        }
       })
     }, { transaction: t });
 
-    // Update Transaction
+    // 4b. Merchant Fee/GST Deduction Ledger Entry
+    await Ledger.create({
+      user_id: lockedUser.id,
+      company_id: lockedUser.company_id,
+      transaction_type: 'pg_charge',
+      transaction_id: order_id,
+      reference_id: txn.id,
+      reference_table: 'pg_transactions',
+      description: `PG charge deducted: ${order_id} - Fee: ₹${feeAmount}, GST: ₹${gstAmount}`,
+      balance_before: creditBalance,
+      debit: totalDeduction,
+      credit: 0.00,
+      balance: balanceAfter,
+      metadata: JSON.stringify({
+        gross_amount: parsedAmount,
+        fee_amount: feeAmount,
+        gst_amount: gstAmount,
+        total_deduction: totalDeduction,
+        net_amount: netAmount,
+        order_id,
+        payment_id
+      })
+    }, { transaction: t });
+
+    // Handle T1 Settlement Hold if applicable
+    const upperSettlement = String(settlementType || '').trim().toUpperCase();
+    if (upperSettlement === 'T1' || upperSettlement === 'NEXT_DAY_SETTLEMENT') {
+      try {
+        const now = new Date();
+        const istOffset = 5.5 * 60 * 60 * 1000;
+        const istNow = new Date(now.getTime() + istOffset);
+        const holdDate = istNow.toISOString().slice(0, 10);
+        const releaseIST = new Date(holdDate + 'T10:30:00+05:30');
+        releaseIST.setDate(releaseIST.getDate() + 1);
+
+        await SettlementHold.create({
+          user_id: lockedUser.id,
+          company_id: lockedUser.company_id,
+          ledger_id: creditEntry.id,
+          amount: netAmount,
+          hold_date: holdDate,
+          release_at: releaseIST,
+          released: false
+        }, { transaction: t });
+      } catch (holdErr) {
+        console.error(`[PG Webhook] Settlement hold error: ${holdErr.message}`);
+      }
+    }
+
+    // 4c. Upstream Franchise Earning & Ledger
+    if (franchiseUser && franchiseEarning > 0) {
+      const lockedFranchise = await User.findByPk(franchiseUser.id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (lockedFranchise) {
+        const fBalBefore = parseFloat(lockedFranchise.wallet || 0);
+        const fBalAfter = parseFloat((fBalBefore + franchiseEarning).toFixed(2));
+
+        await Ledger.create({
+          user_id: lockedFranchise.id,
+          company_id: lockedFranchise.company_id,
+          transaction_type: 'pg_franchise_earning',
+          transaction_id: order_id,
+          reference_id: txn.id,
+          reference_table: 'pg_transactions',
+          description: `Franchise earning on PG txn ${order_id} - ₹${franchiseEarning}`,
+          balance_before: fBalBefore,
+          debit: 0.00,
+          credit: franchiseEarning,
+          balance: fBalAfter,
+          metadata: JSON.stringify({
+            merchant_id: lockedUser.id,
+            order_id,
+            payment_id,
+            transaction_amount: parsedAmount,
+            merchant_fee: feeAmount,
+            franchise_charge: franchiseChargeAmount,
+            earning: franchiseEarning
+          })
+        }, { transaction: t });
+
+        await lockedFranchise.update({ wallet: fBalAfter, start_ledger: true }, { transaction: t });
+      }
+    }
+
+    // 4d. Upstream Super Franchise Earning & Ledger
+    if (superFranchiseUser && superFranchiseEarning > 0) {
+      const lockedSf = await User.findByPk(superFranchiseUser.id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (lockedSf) {
+        const sfBalBefore = parseFloat(lockedSf.wallet || 0);
+        const sfBalAfter = parseFloat((sfBalBefore + superFranchiseEarning).toFixed(2));
+
+        await Ledger.create({
+          user_id: lockedSf.id,
+          company_id: lockedSf.company_id,
+          transaction_type: 'pg_super_franchise_earning',
+          transaction_id: order_id,
+          reference_id: txn.id,
+          reference_table: 'pg_transactions',
+          description: `Super Franchise earning on PG txn ${order_id} - ₹${superFranchiseEarning}`,
+          balance_before: sfBalBefore,
+          debit: 0.00,
+          credit: superFranchiseEarning,
+          balance: sfBalAfter,
+          metadata: JSON.stringify({
+            merchant_id: lockedUser.id,
+            order_id,
+            payment_id,
+            transaction_amount: parsedAmount,
+            super_franchise_charge: superFranchiseChargeAmount,
+            earning: superFranchiseEarning
+          })
+        }, { transaction: t });
+
+        await lockedSf.update({ wallet: sfBalAfter, start_ledger: true }, { transaction: t });
+      }
+    }
+
+    // 4e. Upstream Admin Earning & Ledger
+    if (adminUser && adminEarning > 0) {
+      const lockedAdmin = await User.findByPk(adminUser.id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (lockedAdmin) {
+        const aBalBefore = parseFloat(lockedAdmin.wallet || 0);
+        const aBalAfter = parseFloat((aBalBefore + adminEarning).toFixed(2));
+
+        await Ledger.create({
+          user_id: lockedAdmin.id,
+          company_id: lockedAdmin.company_id,
+          transaction_type: 'pg_admin_earning',
+          transaction_id: order_id,
+          reference_id: txn.id,
+          reference_table: 'pg_transactions',
+          description: `Admin earning on PG txn ${order_id} - ₹${adminEarning}`,
+          balance_before: aBalBefore,
+          debit: 0.00,
+          credit: adminEarning,
+          balance: aBalAfter,
+          metadata: JSON.stringify({
+            merchant_id: lockedUser.id,
+            order_id,
+            payment_id,
+            transaction_amount: parsedAmount,
+            admin_cost: adminCostAmount,
+            earning: adminEarning
+          })
+        }, { transaction: t });
+
+        await lockedAdmin.update({ wallet: aBalAfter, start_ledger: true }, { transaction: t });
+      }
+    }
+
+    // 5. Update the transaction status
     await txn.update({
+      gateway: gatewayConfig.key,
       payment_id: payment_id || txn.payment_id,
       fee_amount: feeAmount,
       gst_amount: gstAmount,
       net_amount: netAmount,
       status: 'success',
-      card_network: network,
-      card_type: cardType,
-      card_sub_type: subType,
+      payment_mode: normalizedMethod,
+      card_network: normalizedBrand,
+      card_type: normalizedCardType,
+      card_sub_type: normalizedSubType,
       webhook_payload: req.body
+    }, { transaction: t });
+
+    // 6. Last: Update the wallet of user with the amount from which we deduct the commission and all
+    await lockedUser.update({
+      wallet: balanceAfter,
+      start_ledger: true
     }, { transaction: t });
   });
 
-  console.log(`[PG Webhook] Order ${order_id} processed successfully. Credited ₹${netAmount} to user ${txn.user_id}`);
-  return res.status(200).json({ status: 'success', message: 'Payment processed successfully' });
+  console.log(`[PG Webhook] Order ${order_id} processed successfully. Gross: ₹${parsedAmount}, Deduction: ₹${totalDeduction}, Net credited: ₹${netAmount} to user ${txn.user_id}`);
+  return res.status(200).json({
+    status: 'success',
+    message: 'Payment processed successfully',
+    data: {
+      order_id,
+      payment_id: payment_id || txn.payment_id,
+      amount: parsedAmount,
+      fee_amount: feeAmount,
+      gst_amount: gstAmount,
+      net_amount: netAmount
+    }
+  });
 });
 
 /**
@@ -283,9 +707,602 @@ const getOrderStatus = asyncHandler(async (req, res) => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CHARGE RULE CRUD
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @desc    Get PG charge rules visible to the calling user (hierarchy-aware)
+ * @route   GET /api/pg/charge-rules
+ * @access  Private
+ *
+ * Visibility by role:
+ *   super_admin    → admin_default + super_admin_admin + super_admin_default
+ *   admin          → all scopes under their company (admin_default and below)
+ *   super_franchise→ super_franchise_* + admin_franchise + admin_super_franchise + admin_default + super_admin_*
+ *   franchise      → franchise_* + super_franchise_franchise + admin_franchise + admin_default + super_admin_*
+ *   merchant       → all rules that can apply to them (read-only view)
+ */
+const getChargeRules = asyncHandler(async (req, res) => {
+  const { id: callerId, role: callerRole, company_id: companyId,
+          franchaise_id: franchiseId, super_franchise_id: superFranchiseId } = req.user;
+
+  const PgChargeRule = db.models.PgChargeRule;
+  const { Op } = require('sequelize');
+
+  let where = { is_active: true };
+
+  const normalizedRole = String(callerRole || '').trim().toLowerCase().replace(/[-\s]/g, '_');
+
+  const {
+    scope,
+    user_id,
+    franchaise_id,
+    super_franchise_id,
+    gateway,
+    payment_mode,
+    card_type,
+    card_brand,
+    sub_type,
+    card_classification,
+    settlement_type,
+    page,
+    limit,
+    all
+  } = req.query;
+
+  // Base scope filters by role
+  if (normalizedRole === 'super_admin') {
+    if (scope) {
+      where.scope = scope;
+      if (scope === 'super_admin_default') {
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+        where.super_franchise_id = { [Op.is]: null };
+      }
+    } else {
+      where.scope = { [Op.in]: ['super_admin_default', 'super_admin_admin', 'admin_default'] };
+    }
+  } else if (normalizedRole === 'admin') {
+    if (scope) {
+      where.scope = scope;
+      if (scope === 'super_admin_default') {
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+        where.super_franchise_id = { [Op.is]: null };
+      } else if (scope === 'admin_default') {
+        where.company_id = companyId;
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+        where.super_franchise_id = { [Op.is]: null };
+      } else if (scope === 'super_admin_admin') {
+        where.user_id = callerId;
+      } else {
+        where[Op.or] = [
+          { company_id: companyId },
+          { scope: { [Op.in]: ['super_admin_default', 'super_admin_admin', 'admin_default'] } }
+        ];
+      }
+    } else {
+      where[Op.or] = [
+        { company_id: companyId },
+        { scope: 'super_admin_default', user_id: { [Op.is]: null } },
+        { scope: 'super_admin_admin', user_id: callerId }
+      ];
+    }
+  } else if (normalizedRole === 'super_franchise') {
+    if (scope) {
+      where.scope = scope;
+      if (scope === 'super_franchise_default') {
+        where.super_franchise_id = callerId;
+        where.franchaise_id = { [Op.is]: null };
+        where.user_id = { [Op.is]: null };
+      }
+    } else {
+      where[Op.or] = [
+        { super_franchise_id: callerId },
+        { scope: { [Op.in]: ['admin_super_franchise', 'admin_default', 'super_admin_default', 'super_admin_admin'] }, company_id: companyId },
+      ];
+    }
+  } else if (normalizedRole === 'franchise' || normalizedRole === 'franchaise') {
+    if (scope) {
+      where.scope = scope;
+      if (scope === 'franchise_default') {
+        where.franchaise_id = callerId;
+        where.user_id = { [Op.is]: null };
+      }
+    } else {
+      where[Op.or] = [
+        { franchaise_id: callerId },
+        { super_franchise_id: superFranchiseId, scope: { [Op.in]: ['super_franchise_franchise', 'super_franchise_default'] } },
+        { scope: { [Op.in]: ['admin_franchise', 'admin_default', 'super_admin_default', 'super_admin_admin'] }, company_id: companyId }
+      ];
+    }
+  } else {
+    // Merchant: Fetch all active applicable rules according to hierarchy
+    if (scope) {
+      where.scope = scope;
+    } else {
+      where[Op.or] = [
+        { user_id: callerId },
+        ...(franchiseId ? [{ franchaise_id: franchiseId, scope: { [Op.in]: ['franchise_merchant', 'franchise_default'] } }] : []),
+        ...(superFranchiseId ? [{ super_franchise_id: superFranchiseId, scope: { [Op.in]: ['super_franchise_merchant', 'super_franchise_default'] } }] : []),
+        ...(companyId ? [{ company_id: companyId, scope: { [Op.in]: ['admin_merchant', 'admin_default'] } }] : [{ scope: { [Op.in]: ['admin_merchant', 'admin_default'] } }]),
+        { scope: 'super_admin_default' }
+      ];
+    }
+  }
+
+  // Parameter-level overrides
+  if (user_id) where.user_id = parseInt(user_id, 10);
+  if (franchaise_id) where.franchaise_id = parseInt(franchaise_id, 10);
+  if (super_franchise_id) where.super_franchise_id = parseInt(super_franchise_id, 10);
+  if (gateway && gateway !== 'ALL') where.gateway = gateway;
+  if (payment_mode && payment_mode !== 'ALL') where.payment_mode = payment_mode;
+  if (card_type && card_type !== 'ALL') where.card_type = card_type;
+  if (card_brand && card_brand !== 'ALL') where.card_brand = card_brand;
+  if (sub_type && sub_type !== 'ALL' && sub_type !== 'any') where.sub_type = sub_type;
+  if (card_classification && card_classification !== 'ANY') where.card_classification = card_classification;
+  if (settlement_type && settlement_type !== 'all') where.settlement_type = settlement_type;
+
+  const queryOptions = {
+    where,
+    order: [['createdAt', 'DESC']]
+  };
+
+  if (limit) {
+    const pageNum = parseInt(page || '1', 10);
+    const limitNum = parseInt(limit, 10);
+    queryOptions.limit = limitNum;
+    queryOptions.offset = (pageNum - 1) * limitNum;
+    const { count, rows } = await PgChargeRule.findAndCountAll(queryOptions);
+    return res.status(200).json({
+      success: true,
+      data: rows,
+      total: count,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(count / limitNum)
+    });
+  }
+
+  let rules = await PgChargeRule.findAll(queryOptions);
+
+  // For merchants viewing applicable charges: collapse to effective rules by specificity
+  const isMerchantViewer = (normalizedRole === 'merchant' || normalizedRole === 'retailer' || normalizedRole === 'user');
+  if (isMerchantViewer && !scope) {
+    const SCOPE_PRIORITY = {
+      franchise_merchant: 60,
+      franchise_default: 50,
+      super_franchise_merchant: 40,
+      super_franchise_default: 30,
+      admin_merchant: 25,
+      admin_default: 20,
+      super_admin_default: 10
+    };
+
+    const map = new Map();
+    const sorted = [...rules].sort((a, b) => {
+      const pA = a.user_id ? 100 : (SCOPE_PRIORITY[a.scope] || 0);
+      const pB = b.user_id ? 100 : (SCOPE_PRIORITY[b.scope] || 0);
+      return pA - pB;
+    });
+
+    for (const rule of sorted) {
+      const mode = String(rule.payment_mode || 'ALL').toUpperCase();
+      const cType = String(rule.card_type || 'ALL').toUpperCase();
+      const brand = String(rule.card_brand || 'ALL').toUpperCase();
+      const subType = String(rule.card_classification || rule.sub_type || 'ANY').toLowerCase();
+      const st = String(rule.settlement_type || 'ANY').toLowerCase();
+      const min = parseFloat(rule.min_amount || 0);
+      const max = rule.max_amount !== null && rule.max_amount !== undefined ? parseFloat(rule.max_amount) : 'INF';
+      const key = `${mode}_${cType}_${brand}_${subType}_${st}_${min}_${max}`;
+      map.set(key, rule);
+    }
+    rules = Array.from(map.values());
+
+    // Fallback: If no dedicated active PG charge rules exist, return active POS charge rules
+    if (rules.length === 0) {
+      try {
+        const PosChargeRule = require('../models/PosChargeRule');
+        const posRules = await PosChargeRule.findAll({
+          where: {
+            is_active: true,
+            [Op.or]: [
+              { user_id: callerId },
+              ...(franchiseId ? [{ franchaise_id: franchiseId }] : []),
+              ...(superFranchiseId ? [{ super_franchise_id: superFranchiseId }] : []),
+              ...(companyId ? [{ company_id: companyId }] : []),
+              { scope: 'super_admin_default' }
+            ]
+          },
+          order: [['min_amount', 'ASC'], ['id', 'DESC']]
+        });
+        if (posRules && posRules.length > 0) {
+          rules = posRules;
+        }
+      } catch (posErr) {
+        // ignore fallback error
+      }
+    }
+  }
+
+  return res.status(200).json({ success: true, data: rules });
+});
+
+/**
+ * @desc    Get single PG charge rule by ID
+ * @route   GET /api/pg/charge-rules/:id
+ * @access  Private
+ */
+const getChargeRuleById = asyncHandler(async (req, res) => {
+  const ruleId = parseInt(req.params.id, 10);
+  const PgChargeRule = db.models.PgChargeRule;
+  const rule = await PgChargeRule.findByPk(ruleId);
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Charge rule not found' });
+  }
+  return res.status(200).json({ success: true, data: rule });
+});
+
+/**
+ * @desc    Create a new PG charge rule
+ * @route   POST /api/pg/charge-rules
+ * @access  Private
+ *
+ * Scope is auto-derived from caller role + target ids.
+ * Each role can only create rules at their own level or below.
+ */
+const createChargeRule = asyncHandler(async (req, res) => {
+  const { id: callerId, role: callerRole, company_id: companyId } = req.user;
+  const normalizedRole = String(callerRole || '').trim().toLowerCase().replace(/[-\s]/g, '_');
+
+  const targetUserId = req.body.target_user_id ?? req.body.user_id ?? null;
+  const targetFranchiseId = req.body.target_franchise_id ?? req.body.franchaise_id ?? req.body.franchiseId ?? null;
+  const targetSuperFranchiseId = req.body.target_super_franchise_id ?? req.body.super_franchise_id ?? req.body.superFranchiseId ?? null;
+  const targetRole = req.body.target_role ?? req.body.role ?? null;
+  const gateway = req.body.gateway || 'ALL';
+  const paymentMode = req.body.payment_mode || req.body.method || 'ALL';
+  const cardType = req.body.card_type || req.body.cardType || null;
+  const cardBrand = req.body.card_brand || req.body.network || null;
+  const subType = req.body.sub_type || req.body.subType || req.body.classification_sub_type || req.body.card_classification || req.body.cardClassification || 'any';
+  const cardClassification = req.body.card_classification || req.body.cardClassification || subType || null;
+  const settlementType = req.body.settlement_type || req.body.settlementType || null;
+  const channel = req.body.channel || 'WEB';
+  const minAmount = req.body.min_amount != null ? parseFloat(req.body.min_amount) : (req.body.minAmount != null ? parseFloat(req.body.minAmount) : 0);
+  const maxAmount = req.body.max_amount != null ? parseFloat(req.body.max_amount) : (req.body.maxAmount != null ? parseFloat(req.body.maxAmount) : null);
+  const chargePercent = req.body.charge_percent != null ? parseFloat(req.body.charge_percent) : (req.body.chargePercent != null ? parseFloat(req.body.chargePercent) : (req.body.base_rate != null ? parseFloat(req.body.base_rate) : 0));
+  const chargeFlat = req.body.charge_flat != null ? parseFloat(req.body.charge_flat) : (req.body.chargeFlat != null ? parseFloat(req.body.chargeFlat) : 0);
+  const gstRequired = req.body.gst_required != null ? Boolean(req.body.gst_required) : Boolean(req.body.gstRequired);
+  const gstPercent = req.body.gst_percent != null ? parseFloat(req.body.gst_percent) : (req.body.gstPercent != null ? parseFloat(req.body.gstPercent) : (req.body.gst_rate != null ? parseFloat(req.body.gst_rate) : 0));
+  const companyName = req.body.company_name || req.body.companyName || null;
+
+  if (isNaN(chargePercent) && isNaN(chargeFlat)) {
+    return res.status(400).json({ success: false, message: 'charge_percent or charge_flat is required' });
+  }
+
+  // Derive scope from caller's role + provided target ids
+  let scope = req.body.scope;
+  if (!scope) {
+    scope = PgChargeService.deriveScope(
+      callerRole,
+      targetUserId,
+      targetFranchiseId,
+      targetSuperFranchiseId,
+      targetRole
+    );
+  } else {
+    // Sanitize scope against target entities to prevent mis-tagging
+    if (normalizedRole === 'super_admin' && targetUserId && scope === 'super_admin_default') {
+      scope = 'super_admin_admin';
+    } else if (normalizedRole === 'admin' && targetFranchiseId && scope === 'admin_default') {
+      scope = 'admin_franchise';
+    } else if (normalizedRole === 'admin' && targetUserId && scope === 'admin_default') {
+      scope = 'admin_merchant';
+    }
+  }
+
+  // Role-based scope guard: each role can only create scopes they own
+  const allowedScopesByRole = {
+    super_admin:    ['super_admin_default', 'super_admin_admin', 'admin_default'],
+    admin:          ['admin_default', 'admin_franchise', 'admin_merchant', 'admin_super_franchise'],
+    super_franchise:['super_franchise_default', 'super_franchise_franchise', 'super_franchise_merchant'],
+    franchise:      ['franchise_default', 'franchise_merchant'],
+    franchaise:     ['franchise_default', 'franchise_merchant']
+  };
+  const allowed = allowedScopesByRole[normalizedRole] || [];
+  if (!allowed.includes(scope) && normalizedRole !== 'super_admin') {
+    return res.status(403).json({ success: false, message: `Your role cannot create a '${scope}' rule` });
+  }
+
+  const PgChargeRule = db.models.PgChargeRule;
+  let resolvedCompanyId = companyId;
+  if (!resolvedCompanyId && targetUserId) {
+    const targetUser = await db.models.User.findByPk(targetUserId, { attributes: ['id', 'company_id'] });
+    if (targetUser?.company_id) {
+      resolvedCompanyId = targetUser.company_id;
+    }
+  }
+
+  // ── Duplicate & Overlap Check Guard ────────────────────────────────────────
+  // Rejects duplicate if active rule exists with same company, method, network, card type,
+  // classification sub type, settlement and overlapping amount slab
+  const duplicateWhere = {
+    scope,
+    gateway: gateway || 'ALL',
+    payment_mode: paymentMode || 'ALL',
+    card_type: cardType || null,
+    card_brand: cardBrand || null,
+    card_classification: cardClassification || null,
+    settlement_type: settlementType || null,
+    is_active: true
+  };
+
+  if (targetUserId) {
+    duplicateWhere.user_id = parseInt(targetUserId, 10);
+  } else if (['super_admin_default', 'admin_default', 'super_franchise_default', 'franchise_default'].includes(scope)) {
+    duplicateWhere.user_id = null;
+  }
+
+  if (targetFranchiseId) {
+    duplicateWhere.franchaise_id = parseInt(targetFranchiseId, 10);
+  } else if (['super_admin_default', 'admin_default', 'super_franchise_default', 'franchise_default'].includes(scope)) {
+    duplicateWhere.franchaise_id = null;
+  }
+
+  if (targetSuperFranchiseId) {
+    duplicateWhere.super_franchise_id = parseInt(targetSuperFranchiseId, 10);
+  } else if (['super_admin_default', 'admin_default', 'super_franchise_default', 'franchise_default'].includes(scope)) {
+    duplicateWhere.super_franchise_id = null;
+  }
+
+  if (normalizedRole !== 'super_admin' && resolvedCompanyId) {
+    duplicateWhere.company_id = resolvedCompanyId;
+  } else if (scope === 'super_admin_default') {
+    duplicateWhere.company_id = null;
+  } else if (resolvedCompanyId) {
+    duplicateWhere.company_id = resolvedCompanyId;
+  }
+
+  const existingRules = await PgChargeRule.findAll({ where: duplicateWhere });
+  const newMin = parseFloat(minAmount || 0);
+  const newMax = maxAmount !== null && maxAmount !== undefined && maxAmount !== '' && !isNaN(parseFloat(maxAmount))
+    ? parseFloat(maxAmount)
+    : null;
+
+  const m1 = newMin;
+  const m2 = newMax !== null ? newMax : Infinity;
+
+  const duplicateOverlap = existingRules.find((rule) => {
+    if (rule.is_active === false) return false;
+    const rMin = rule.min_amount != null ? parseFloat(rule.min_amount) : 0;
+    const rMax = rule.max_amount != null && !isNaN(parseFloat(rule.max_amount)) ? parseFloat(rule.max_amount) : null;
+    const s1 = rMin;
+    const s2 = rMax !== null ? rMax : Infinity;
+
+    return m1 <= s2 && m2 >= s1;
+  });
+
+  if (duplicateOverlap) {
+    const existingRange = `${duplicateOverlap.min_amount != null ? duplicateOverlap.min_amount : 0} - ${duplicateOverlap.max_amount != null ? duplicateOverlap.max_amount : 'Open'}`;
+    return res.status(400).json({
+      success: false,
+      message: `A duplicate PG charge rule with matching specifications and overlapping amount slab (${existingRange}) already exists.`
+    });
+  }
+
+  const rule = await PgChargeRule.create({
+    user_id:            targetUserId ? parseInt(targetUserId, 10) : null,
+    company_id:         resolvedCompanyId,
+    franchaise_id:      targetFranchiseId ? parseInt(targetFranchiseId, 10) : null,
+    super_franchise_id: targetSuperFranchiseId ? parseInt(targetSuperFranchiseId, 10) : null,
+    created_by:         callerId,
+    scope,
+    gateway,
+    payment_mode:       paymentMode,
+    card_type:          cardType,
+    card_brand:         cardBrand,
+    card_classification:cardClassification,
+    sub_type:           subType,
+    settlement_type:    settlementType,
+    channel,
+    min_amount:         minAmount,
+    max_amount:         maxAmount,
+    charge_percent:     chargePercent,
+    charge_flat:        chargeFlat,
+    gst_required:       gstRequired,
+    gst_percent:        gstPercent,
+    is_active:          true
+  });
+
+  return res.status(201).json({ success: true, message: 'Charge rule created', data: rule });
+});
+
+/**
+ * @desc    Update a PG charge rule
+ * @route   PUT /api/pg/charge-rules/:id
+ * @access  Private
+ */
+const updateChargeRule = asyncHandler(async (req, res) => {
+  const { id: callerId, role: callerRole, company_id: companyId } = req.user;
+  const ruleId = parseInt(req.params.id, 10);
+  const normalizedRole = String(callerRole || '').trim().toLowerCase().replace(/[-\s]/g, '_');
+
+  const PgChargeRule = db.models.PgChargeRule;
+
+  const where = { id: ruleId };
+  if (normalizedRole !== 'super_admin' && companyId) {
+    where.company_id = companyId;
+  }
+
+  const rule = await PgChargeRule.findOne({ where });
+
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Charge rule not found' });
+  }
+
+  if (rule.created_by && rule.created_by !== callerId && normalizedRole !== 'super_admin' && normalizedRole !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Only the creator or admin can update this rule' });
+  }
+
+  const {
+    gateway, payment_mode, method, card_type, cardType, card_brand, network,
+    card_classification, cardClassification, sub_type, subType,
+    settlement_type, settlementType, channel, min_amount, minAmount, max_amount, maxAmount,
+    charge_percent, chargePercent, base_rate, charge_flat, chargeFlat,
+    gst_required, gstRequired, gst_percent, gstPercent, gst_rate, is_active
+  } = req.body;
+
+  const resolvedPercent = charge_percent ?? chargePercent ?? base_rate;
+  const resolvedFlat = charge_flat ?? chargeFlat;
+  const resolvedMin = min_amount ?? minAmount;
+  const resolvedMax = max_amount ?? maxAmount;
+  const resolvedGstPercent = gst_percent ?? gstPercent ?? gst_rate;
+  const resolvedGstRequired = gst_required ?? gstRequired;
+  const resolvedSubType = sub_type ?? subType;
+  const resolvedClassification = card_classification ?? cardClassification ?? resolvedSubType;
+
+  const targetGateway = gateway != null ? gateway : rule.gateway;
+  const targetPaymentMode = (payment_mode || method) != null ? (payment_mode || method) : rule.payment_mode;
+  const targetCardType = (card_type || cardType) !== undefined ? (card_type || cardType || null) : rule.card_type;
+  const targetCardBrand = (card_brand || network) !== undefined ? (card_brand || network || null) : rule.card_brand;
+  const targetClassification = resolvedClassification !== undefined ? (resolvedClassification || null) : rule.card_classification;
+  const targetSettlement = (settlement_type || settlementType) !== undefined ? (settlement_type || settlementType || null) : rule.settlement_type;
+  const targetMin = resolvedMin != null ? parseFloat(resolvedMin) : parseFloat(rule.min_amount || 0);
+  const targetMax = resolvedMax !== undefined ? (resolvedMax !== null && resolvedMax !== '' ? parseFloat(resolvedMax) : null) : rule.max_amount;
+
+  const dupCheckWhere = {
+    id: { [Op.ne]: rule.id },
+    scope: rule.scope,
+    user_id: rule.user_id,
+    company_id: rule.company_id,
+    franchaise_id: rule.franchaise_id,
+    super_franchise_id: rule.super_franchise_id,
+    gateway: targetGateway || 'ALL',
+    payment_mode: targetPaymentMode || 'ALL',
+    card_type: targetCardType,
+    card_brand: targetCardBrand,
+    card_classification: targetClassification,
+    settlement_type: targetSettlement,
+    is_active: true
+  };
+
+  const existingUpdateRules = await PgChargeRule.findAll({ where: dupCheckWhere });
+  const updatedMin = targetMin;
+  const updatedMax = targetMax !== null && targetMax !== undefined && targetMax !== '' && !isNaN(parseFloat(targetMax))
+    ? parseFloat(targetMax)
+    : null;
+
+  const u1 = updatedMin;
+  const u2 = updatedMax !== null ? updatedMax : Infinity;
+
+  const duplicateUpdateOverlap = existingUpdateRules.find((other) => {
+    if (other.is_active === false) return false;
+    const otherMin = other.min_amount != null ? parseFloat(other.min_amount) : 0;
+    const otherMax = other.max_amount != null && !isNaN(parseFloat(other.max_amount)) ? parseFloat(other.max_amount) : null;
+    const s1 = otherMin;
+    const s2 = otherMax !== null ? otherMax : Infinity;
+
+    return u1 <= s2 && u2 >= s1;
+  });
+
+  if (duplicateUpdateOverlap) {
+    const existingRange = `${duplicateUpdateOverlap.min_amount != null ? duplicateUpdateOverlap.min_amount : 0} - ${duplicateUpdateOverlap.max_amount != null ? duplicateUpdateOverlap.max_amount : 'Open'}`;
+    return res.status(400).json({
+      success: false,
+      message: `Another active PG charge rule with matching specifications and overlapping amount slab (${existingRange}) already exists.`
+    });
+  }
+
+  await rule.update({
+    ...(gateway != null && { gateway }),
+    ...((payment_mode || method) != null && { payment_mode: payment_mode || method }),
+    ...((card_type || cardType) != null && { card_type: card_type || cardType }),
+    ...((card_brand || network) != null && { card_brand: card_brand || network }),
+    ...(resolvedClassification != null && { card_classification: resolvedClassification }),
+    ...(resolvedSubType != null && { sub_type: resolvedSubType }),
+    ...((settlement_type || settlementType) != null && { settlement_type: settlement_type || settlementType }),
+    ...(channel != null && { channel }),
+    ...(resolvedMin != null && { min_amount: parseFloat(resolvedMin) }),
+    ...(resolvedMax !== undefined && { max_amount: resolvedMax !== null && resolvedMax !== '' ? parseFloat(resolvedMax) : null }),
+    ...(resolvedPercent != null && { charge_percent: parseFloat(resolvedPercent) }),
+    ...(resolvedFlat != null && { charge_flat: parseFloat(resolvedFlat) }),
+    ...(resolvedGstRequired != null && { gst_required: Boolean(resolvedGstRequired) }),
+    ...(resolvedGstPercent != null && { gst_percent: parseFloat(resolvedGstPercent) }),
+    ...(is_active != null && { is_active: Boolean(is_active) })
+  });
+
+  return res.status(200).json({ success: true, message: 'Charge rule updated', data: rule });
+});
+
+/**
+ * @desc    Delete (soft-deactivate) a PG charge rule
+ * @route   DELETE /api/pg/charge-rules/:id
+ * @access  Private
+ */
+const deleteChargeRule = asyncHandler(async (req, res) => {
+  const { id: callerId, role: callerRole, company_id: companyId } = req.user;
+  const ruleId = parseInt(req.params.id, 10);
+  const normalizedRole = String(callerRole || '').trim().toLowerCase().replace(/[-\s]/g, '_');
+
+  const PgChargeRule = db.models.PgChargeRule;
+
+  const where = { id: ruleId };
+  if (normalizedRole !== 'super_admin' && companyId) {
+    where.company_id = companyId;
+  }
+
+  const rule = await PgChargeRule.findOne({ where });
+
+  if (!rule) {
+    return res.status(404).json({ success: false, message: 'Charge rule not found' });
+  }
+
+  if (rule.created_by && rule.created_by !== callerId && normalizedRole !== 'super_admin' && normalizedRole !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Only the creator or admin can delete this rule' });
+  }
+
+  // Soft delete — mark inactive instead of hard delete
+  await rule.update({ is_active: false });
+
+  return res.status(200).json({ success: true, message: 'Charge rule deleted (deactivated)' });
+});
+
+/**
+ * @desc    Calculate PG MDR charge preview
+ * @route   POST /api/pg/charge-rules/calculate
+ * @access  Private
+ */
+const calculateCharge = asyncHandler(async (req, res) => {
+  const { amount, method, payment_mode, card_type, card_brand, network, sub_type, settlement_type, gateway } = req.body;
+  const { id: userId, company_id: companyId } = req.user;
+
+  const rule = await PgChargeService.getChargeRule({
+    userId,
+    companyId,
+    gateway: gateway || 'ALL',
+    paymentMode: payment_mode || method || 'CARD',
+    cardType: card_type || 'CREDIT',
+    cardBrand: card_brand || network || 'VISA',
+    classification: sub_type || 'any',
+    sub_type: sub_type || 'any',
+    settlement: settlement_type || null,
+    amount: parseFloat(amount || 0)
+  });
+
+  const calculation = PgChargeService.calculateCharge(parseFloat(amount || 0), rule);
+  return res.status(200).json({ success: true, data: { rule, calculation } });
+});
+
 module.exports = {
   createOrder,
   handleWebhook,
   getTransactions,
-  getOrderStatus
+  getOrderStatus,
+  getChargeRules,
+  getChargeRuleById,
+  createChargeRule,
+  updateChargeRule,
+  deleteChargeRule,
+  calculateCharge,
 };
