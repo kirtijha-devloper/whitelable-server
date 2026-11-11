@@ -492,6 +492,25 @@ const getAdminServicesController = asyncHandler(async (req, res) => {
   });
 });
 
+const normalizeThemeColors = (raw) => {
+  if (!raw) return null;
+  let parsed = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const isHex = (v) => typeof v === "string" && /^#[0-9A-Fa-f]{6}$/.test(v.trim());
+  return {
+    primary: isHex(parsed.primary) ? parsed.primary.trim() : "#00D3CD",
+    dark: isHex(parsed.dark) ? parsed.dark.trim() : "#111827",
+    light: isHex(parsed.light) ? parsed.light.trim() : "#FFFFFF",
+  };
+};
+
 /**
  * POST /api/super-admin/createAdmin & POST /api/super-admin/admin/create-admin & POST /api/super-admin
  * Super Admin creates Admin User and Company in one request
@@ -524,6 +543,7 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
     gst_number,
     payout_limit,
     bill_payment_limit,
+    theme_colors,
   } = req.body;
 
   console.log("Received createSuperAdmin request body:", req.body);
@@ -766,6 +786,7 @@ const createSuperAdmin = asyncHandler(async (req, res) => {
         company_id: companyId,
         company_name: finalCompanyName,
         company_logo: logoUrl || null,
+        theme_colors : normalizeThemeColors(theme_colors),
         director_name: String(name).trim() || finalCompanyName,
         email: cleanEmail,
         mobile_number: cleanMobile,
@@ -881,6 +902,7 @@ const updateAdmin = asyncHandler(async (req, res) => {
     payout_limit,
     bill_payment_limit,
     t0_daily_limit,
+    theme_colors,
   } = req.body;
 
   const uploadedLocalFiles = [];
@@ -1160,6 +1182,21 @@ const updateAdmin = asyncHandler(async (req, res) => {
     if (newLogoUrl && newLogoUrl !== (company.company_logo || "")) {
       companyUpdates.company_logo = newLogoUrl;
     }
+
+    if (theme_colors !== undefined) {
+      const normalizedTheme = normalizeThemeColors(theme_colors);
+      const existingTheme = company.theme_colors || {};
+      const isThemeChanged =
+        normalizedTheme &&
+        (normalizedTheme.primary !== existingTheme.primary ||
+          normalizedTheme.dark !== existingTheme.dark ||
+          normalizedTheme.light !== existingTheme.light);
+
+      if (isThemeChanged) {
+        companyUpdates.theme_colors = normalizedTheme;
+      }
+    }
+
     if (userUpdates.status && userUpdates.status !== company.status) {
       companyUpdates.status = userUpdates.status;
     }

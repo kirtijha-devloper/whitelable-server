@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
 
     const company = await Company.findOne({
       where: { domain_name: domain },
-      attributes: ['company_logo', 'company_name']
+      attributes: ['company_logo', 'company_name', 'theme_colors']
     });
 
     if (!company) {
@@ -64,7 +64,8 @@ router.get('/', async (req, res) => {
     return res.status(200).json({
       success: true,
       logo,
-      company_name: company.company_name
+      company_name: company.company_name,
+      theme_colors: company.theme_colors || null,
     });
   } catch (err) {
     console.error('[logoRoutes] Unexpected error:', err.message || err);
