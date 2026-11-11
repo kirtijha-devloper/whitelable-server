@@ -119,22 +119,31 @@ const createPgChargeRule = asyncHandler(async (req, res) => {
   const normCardBrand = PgChargeService.normalizeCardBrand(card_brand);
   const normGateway = String(gateway || 'ALL').toLowerCase();
 
-  const existingRules = await PgChargeRule.findAll({
-    where: {
-      user_id: effectiveUserId,
-      company_id: req.user.company_id || null,
-      franchaise_id: effectiveFranchise,
-      super_franchise_id: effectiveSuperFranchise,
-      scope: ruleScope,
-      gateway: normGateway,
-      payment_mode: payment_mode || 'ALL',
-      card_type: card_type || null,
-      card_brand: normCardBrand || null,
-      card_classification: card_classification || null,
-      settlement_type: settlement_type || null,
-      is_active: true
+  let existingRules;
+  const duplicateWhere = {
+    user_id: effectiveUserId,
+    company_id: req.user.company_id || null,
+    franchaise_id: effectiveFranchise,
+    super_franchise_id: effectiveSuperFranchise,
+    scope: ruleScope,
+    gateway: normGateway,
+    payment_mode: payment_mode || 'ALL',
+    card_type: card_type || null,
+    card_brand: normCardBrand || null,
+    card_classification: card_classification || null,
+    settlement_type: settlement_type || null,
+    is_active: true
+  };
+  try {
+    existingRules = await PgChargeRule.findAll({ where: duplicateWhere });
+  } catch (findErr) {
+    if (findErr.message && findErr.message.includes('pg_charge_rules') && findErr.message.includes('does not exist')) {
+      await PgChargeRule.sync();
+      existingRules = await PgChargeRule.findAll({ where: duplicateWhere });
+    } else {
+      throw findErr;
     }
-  });
+  }
 
   const newMin = parseDecimal(min_amount) || 0;
   const newMax = parseDecimal(max_amount);
@@ -158,7 +167,7 @@ const createPgChargeRule = asyncHandler(async (req, res) => {
     });
   }
 
-  const newRule = await PgChargeRule.create({
+  const newRuleData = {
     user_id: effectiveUserId,
     company_id: req.user.company_id || null,
     franchaise_id: effectiveFranchise,
@@ -179,7 +188,19 @@ const createPgChargeRule = asyncHandler(async (req, res) => {
     gst_required: Boolean(gst_required),
     gst_percent: parseFloat(gst_percent) || 0,
     is_active: is_active !== undefined ? Boolean(is_active) : true
-  });
+  };
+
+  let newRule;
+  try {
+    newRule = await PgChargeRule.create(newRuleData);
+  } catch (createErr) {
+    if (createErr.message && createErr.message.includes('pg_charge_rules') && createErr.message.includes('does not exist')) {
+      await PgChargeRule.sync();
+      newRule = await PgChargeRule.create(newRuleData);
+    } else {
+      throw createErr;
+    }
+  }
 
   res.status(201).json({
     success: true,
@@ -264,12 +285,31 @@ const listPgChargeRules = asyncHandler(async (req, res) => {
   if (super_franchise_id) where.super_franchise_id = parseInt(super_franchise_id, 10);
 
   const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-  const { count, rows } = await PgChargeRule.findAndCountAll({
-    where,
-    limit: parseInt(limit, 10),
-    offset,
-    order: [['id', 'DESC']]
-  });
+  let count = 0, rows = [];
+  try {
+    const resData = await PgChargeRule.findAndCountAll({
+      where,
+      limit: parseInt(limit, 10),
+      offset,
+      order: [['id', 'DESC']]
+    });
+    count = resData.count;
+    rows = resData.rows;
+  } catch (listErr) {
+    if (listErr.message && listErr.message.includes('pg_charge_rules') && listErr.message.includes('does not exist')) {
+      await PgChargeRule.sync();
+      const resData = await PgChargeRule.findAndCountAll({
+        where,
+        limit: parseInt(limit, 10),
+        offset,
+        order: [['id', 'DESC']]
+      });
+      count = resData.count;
+      rows = resData.rows;
+    } else {
+      throw listErr;
+    }
+  }
 
   res.json({
     success: true,

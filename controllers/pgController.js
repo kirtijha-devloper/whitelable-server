@@ -923,23 +923,47 @@ const getChargeRules = asyncHandler(async (req, res) => {
     order: [['createdAt', 'DESC']]
   };
 
-  if (limit) {
-    const pageNum = parseInt(page || '1', 10);
-    const limitNum = parseInt(limit, 10);
-    queryOptions.limit = limitNum;
-    queryOptions.offset = (pageNum - 1) * limitNum;
-    const { count, rows } = await PgChargeRule.findAndCountAll(queryOptions);
-    return res.status(200).json({
-      success: true,
-      data: rows,
-      total: count,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(count / limitNum)
-    });
+  let count = 0, rows = [], rules = [];
+  try {
+    if (limit) {
+      const pageNum = parseInt(page || '1', 10);
+      const limitNum = parseInt(limit, 10);
+      queryOptions.limit = limitNum;
+      queryOptions.offset = (pageNum - 1) * limitNum;
+      const resData = await PgChargeRule.findAndCountAll(queryOptions);
+      return res.status(200).json({
+        success: true,
+        data: resData.rows,
+        total: resData.count,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(resData.count / limitNum)
+      });
+    }
+    rules = await PgChargeRule.findAll(queryOptions);
+  } catch (dbErr) {
+    if (dbErr.message && dbErr.message.includes('pg_charge_rules') && dbErr.message.includes('does not exist')) {
+      await PgChargeRule.sync();
+      if (limit) {
+        const pageNum = parseInt(page || '1', 10);
+        const limitNum = parseInt(limit, 10);
+        queryOptions.limit = limitNum;
+        queryOptions.offset = (pageNum - 1) * limitNum;
+        const resData = await PgChargeRule.findAndCountAll(queryOptions);
+        return res.status(200).json({
+          success: true,
+          data: resData.rows,
+          total: resData.count,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(resData.count / limitNum)
+        });
+      }
+      rules = await PgChargeRule.findAll(queryOptions);
+    } else {
+      throw dbErr;
+    }
   }
-
-  let rules = await PgChargeRule.findAll(queryOptions);
 
   // For merchants viewing applicable charges: collapse to effective rules by specificity
   const isMerchantViewer = (normalizedRole === 'merchant' || normalizedRole === 'retailer' || normalizedRole === 'user');
@@ -1137,7 +1161,17 @@ const createChargeRule = asyncHandler(async (req, res) => {
     duplicateWhere.company_id = resolvedCompanyId;
   }
 
-  const existingRules = await PgChargeRule.findAll({ where: duplicateWhere });
+  let existingRules;
+  try {
+    existingRules = await PgChargeRule.findAll({ where: duplicateWhere });
+  } catch (findErr) {
+    if (findErr.message && findErr.message.includes('pg_charge_rules') && findErr.message.includes('does not exist')) {
+      await PgChargeRule.sync();
+      existingRules = await PgChargeRule.findAll({ where: duplicateWhere });
+    } else {
+      throw findErr;
+    }
+  }
   const newMin = parseFloat(minAmount || 0);
   const newMax = maxAmount !== null && maxAmount !== undefined && maxAmount !== '' && !isNaN(parseFloat(maxAmount))
     ? parseFloat(maxAmount)
@@ -1164,7 +1198,8 @@ const createChargeRule = asyncHandler(async (req, res) => {
     });
   }
 
-  const rule = await PgChargeRule.create({
+  let rule;
+  const ruleData = {
     user_id:            targetUserId ? parseInt(targetUserId, 10) : null,
     company_id:         resolvedCompanyId,
     franchaise_id:      targetFranchiseId ? parseInt(targetFranchiseId, 10) : null,
@@ -1186,7 +1221,17 @@ const createChargeRule = asyncHandler(async (req, res) => {
     gst_required:       gstRequired,
     gst_percent:        gstPercent,
     is_active:          true
-  });
+  };
+  try {
+    rule = await PgChargeRule.create(ruleData);
+  } catch (createErr) {
+    if (createErr.message && createErr.message.includes('pg_charge_rules') && createErr.message.includes('does not exist')) {
+      await PgChargeRule.sync();
+      rule = await PgChargeRule.create(ruleData);
+    } else {
+      throw createErr;
+    }
+  }
 
   return res.status(201).json({ success: true, message: 'Charge rule created', data: rule });
 });

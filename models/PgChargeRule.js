@@ -67,6 +67,10 @@ const PgChargeRule = db.define('PgChargeRule', {
     type: Sequelize.STRING,
     allowNull: true
   },
+  sub_type: {
+    type: Sequelize.STRING(50),
+    allowNull: true
+  },
   settlement_type: {
     type: Sequelize.STRING,
     allowNull: true

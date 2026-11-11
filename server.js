@@ -460,6 +460,16 @@ const startServer = async () => {
     // Auto-seed BillAvenue 36 Credit Card Billers into PostgreSQL DB if not present
     await autoSeedBillAvenueBillers();
 
+    // Ensure PG tables exist (pg_charge_rules, pg_transactions)
+    try {
+      const PgChargeRule = require('./models/PgChargeRule');
+      const PgTransaction = require('./models/PgTransaction');
+      if (PgChargeRule) await PgChargeRule.sync();
+      if (PgTransaction) await PgTransaction.sync();
+    } catch (pgSyncErr) {
+      console.error('Failed to auto-sync PG tables:', pgSyncErr.message);
+    }
+
     // Only sync when explicitly enabled via SYNC_DB=true — never in production.
     if (process.env.SYNC_DB === 'true' && process.env.NODE_ENV !== 'production') {
       await db.sync({ alter: true }); // Sync models in dev only — use migrations in production
