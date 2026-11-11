@@ -158,6 +158,11 @@ const getUsers = asyncHandler(async (req, res) => {
       if (effectiveCompanyId) {
         where.company_id = effectiveCompanyId;
       }
+      if (req.query.direct_only === 'true' || req.query.parent === 'admin' || req.query.super_franchise_id === 'null') {
+        where.super_franchise_id = { [Op.is]: null };
+      } else if (req.query.super_franchise_id) {
+        where.super_franchise_id = req.query.super_franchise_id;
+      }
       if (status && status !== 'all') where.status = status;
     } else if (userRole === "super_franchise") {
       where.role = { [Op.in]: ["franchaise", "franchise"] };

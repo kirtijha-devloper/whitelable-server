@@ -11,10 +11,23 @@ const Company = require('../models/Company');
  */
 router.get('/', async (req, res) => {
   try {
-    const {hostname} = req.query;
-    const origin = req.header['origin'] || hostname ;
+    const { hostname } = req.query;
+    let domain = null;
 
-    const domain = new URL(origin).hostname;
+    const origin = req.headers['origin'] || (typeof req.get === 'function' ? req.get('origin') : null);
+    if (origin) {
+      try {
+        domain = new URL(origin).hostname;
+      } catch (_) {
+        domain = origin.replace(/^https?:\/\//i, '').split(':')[0];
+      }
+    } else if (hostname) {
+      try {
+        domain = hostname.includes('://') ? new URL(hostname).hostname : hostname.split(':')[0];
+      } catch (_) {
+        domain = hostname.split(':')[0];
+      }
+    }
 
     if (!domain) {
       console.warn('[logoRoutes] domain could not be resolved from origin header');

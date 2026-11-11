@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const dbPass = String(process.env.DB_PASS || process.env.DB_PASSWORD || '');
 const defaultDialect = process.env.DB_DIALECT || 'postgres';
 const defaultPort = process.env.DB_PORT ? Number(process.env.DB_PORT) : (defaultDialect === 'postgres' ? 5432 : 3306);
@@ -13,7 +14,11 @@ const defaultPort = process.env.DB_PORT ? Number(process.env.DB_PORT) : (default
 //   password: (dbPass || "pos@_2525") ? '****' : undefined
 // });
 
-const sslOptions = (process.env.DB_SSL === 'true' || (process.env.DB_HOST && process.env.DB_HOST.includes('neon.tech'))) ? {
+const sslOptions = (
+  process.env.DB_SSL === 'true' ||
+  (process.env.DB_HOST && process.env.DB_HOST.includes('neon.tech')) ||
+  (process.env.DB_URL && process.env.DB_URL.includes('neon.tech'))
+) ? {
   dialectOptions: {
     ssl: { require: true, rejectUnauthorized: false }
   }

@@ -210,23 +210,53 @@ const listPgChargeRules = asyncHandler(async (req, res) => {
   if (scope) where.scope = scope;
   if (is_active !== undefined) where.is_active = is_active === 'true' || is_active === true;
 
+  let parentAdminId = req.user.admin_id || null;
+  if (!parentAdminId && req.user.company_id) {
+    try {
+      const adminUser = await User.findOne({
+        where: { role: 'admin', company_id: req.user.company_id },
+        attributes: ['id']
+      });
+      if (adminUser) parentAdminId = adminUser.id;
+    } catch (e) {}
+  }
+
   if (isFranchiseRole(req.user.role)) {
-    where[Op.or] = [
-      { franchaise_id: req.user.id },
-      { scope: { [Op.in]: ['admin_default', 'super_admin_default', 'super_franchise_default', 'franchise_default'] } }
-    ];
+    if (scope === 'super_admin_admin') {
+      where.user_id = parentAdminId;
+    } else if (!scope) {
+      where[Op.or] = [
+        { franchaise_id: req.user.id },
+        { scope: { [Op.in]: ['admin_default', 'super_admin_default', 'super_franchise_default', 'franchise_default'] } },
+        ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : [])
+      ];
+    }
   } else if (isSuperFranchiseRole(req.user.role)) {
-    where[Op.or] = [
-      { super_franchise_id: req.user.id },
-      { scope: { [Op.in]: ['admin_default', 'super_admin_default', 'super_franchise_default'] } }
-    ];
+    if (scope === 'super_admin_admin') {
+      where.user_id = parentAdminId;
+    } else if (!scope) {
+      where[Op.or] = [
+        { super_franchise_id: req.user.id },
+        { scope: { [Op.in]: ['admin_default', 'super_admin_default', 'super_franchise_default'] } },
+        ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : [])
+      ];
+    }
+  } else if (req.user.role === 'admin') {
+    if (scope === 'super_admin_admin') {
+      where.user_id = req.user.id;
+    }
   } else if (req.user.role === 'merchant' || req.user.role === 'retailer') {
-    where[Op.or] = [
-      { user_id: req.user.id },
-      ...(req.user.franchaise_id ? [{ franchaise_id: req.user.franchaise_id }] : []),
-      ...(req.user.super_franchise_id ? [{ super_franchise_id: req.user.super_franchise_id }] : []),
-      { scope: { [Op.in]: ['admin_default', 'franchise_default', 'super_franchise_default', 'super_admin_default'] } }
-    ];
+    if (scope === 'super_admin_admin') {
+      where.user_id = parentAdminId;
+    } else if (!scope) {
+      where[Op.or] = [
+        { user_id: req.user.id },
+        ...(req.user.franchaise_id ? [{ franchaise_id: req.user.franchaise_id }] : []),
+        ...(req.user.super_franchise_id ? [{ super_franchise_id: req.user.super_franchise_id }] : []),
+        { scope: { [Op.in]: ['admin_default', 'franchise_default', 'super_franchise_default', 'super_admin_default'] } },
+        ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : [])
+      ];
+    }
   }
 
   if (user_id) where.user_id = parseInt(user_id, 10);

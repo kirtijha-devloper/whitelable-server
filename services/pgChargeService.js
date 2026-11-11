@@ -176,8 +176,8 @@ async function getTransactionChargeRule({
         WHEN 'admin_merchant'            THEN  700000
         WHEN 'admin_franchise'           THEN  600000
         WHEN 'admin_super_franchise'     THEN  500000
+        WHEN 'super_admin_admin'         THEN  450000
         WHEN 'admin_default'             THEN  400000
-        WHEN 'super_admin_admin'         THEN  300000
         WHEN 'super_admin_default'       THEN  200000
         ELSE 0
       END
@@ -323,8 +323,8 @@ async function getAdminChargeRuleForFranchise({
         WHEN 'super_franchise_default'   THEN 800000
         WHEN 'admin_franchise'           THEN 600000
         WHEN 'admin_super_franchise'     THEN 500000
+        WHEN 'super_admin_admin'         THEN 450000
         WHEN 'admin_default'             THEN 400000
-        WHEN 'super_admin_admin'         THEN 300000
         WHEN 'super_admin_default'       THEN 200000
         ELSE 0
       END
@@ -461,8 +461,8 @@ async function getAdminChargeRuleForSuperFranchise({
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' AND UPPER(card_type) != 'ALL' THEN 1000 ELSE 0 END) +
       CASE scope
         WHEN 'admin_super_franchise' THEN 500000
+        WHEN 'super_admin_admin'     THEN 450000
         WHEN 'admin_default'         THEN 400000
-        WHEN 'super_admin_admin'     THEN 300000
         WHEN 'super_admin_default'   THEN 200000
         ELSE 0
       END
@@ -589,8 +589,8 @@ async function getAdminEffectiveRule({
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' AND UPPER(card_brand) != 'ALL' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' AND UPPER(card_type) != 'ALL' THEN 1000 ELSE 0 END) +
       CASE scope
+        WHEN 'super_admin_admin'   THEN 450000
         WHEN 'admin_default'       THEN 400000
-        WHEN 'super_admin_admin'   THEN 300000
         WHEN 'super_admin_default' THEN 200000
         ELSE 0
       END
@@ -693,7 +693,7 @@ async function getSuperAdminChargeRuleForAdmin({
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' AND UPPER(card_brand) != 'ALL' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' AND UPPER(card_type) != 'ALL' THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'super_admin_admin'   THEN 300000
+        WHEN 'super_admin_admin'   THEN 450000
         WHEN 'super_admin_default' THEN 200000
         ELSE 0
       END
