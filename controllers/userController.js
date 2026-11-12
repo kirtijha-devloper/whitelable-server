@@ -172,6 +172,8 @@ function buildLoginToken(user) {
         role: normalizeRole(user.role),
         ipay_outlet_id: user.ipay_outlet_id || null,
         company_id: user.company_id || null,
+        super_franchise_id: user.super_franchise_id ? Number(user.super_franchise_id) : null,
+        franchaise_id: user.franchaise_id ? Number(user.franchaise_id) : null,
       }
     },
     process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || "supersecretjwtsecretkey12345",

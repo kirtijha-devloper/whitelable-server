@@ -787,6 +787,14 @@ const getChargeRules = asyncHandler(async (req, res) => {
   } = req.query;
 
   let parentAdminId = req.user.admin_id || null;
+  let effectiveSuperFranchiseId = superFranchiseId || null;
+  if (callerId && (!parentAdminId || !effectiveSuperFranchiseId)) {
+    try {
+      const u = await db.models.User.findByPk(callerId, { attributes: ['id', 'super_franchise_id', 'admin_id'] });
+      if (u?.super_franchise_id && !effectiveSuperFranchiseId) effectiveSuperFranchiseId = u.super_franchise_id;
+      if (u?.admin_id && !parentAdminId) parentAdminId = u.admin_id;
+    } catch (e) {}
+  }
   if (!parentAdminId && companyId) {
     try {
       const adminUser = await db.models.User.findOne({
@@ -823,6 +831,25 @@ const getChargeRules = asyncHandler(async (req, res) => {
         where.super_franchise_id = { [Op.is]: null };
       } else if (scope === 'super_admin_admin') {
         where.user_id = callerId;
+      } else if (scope === 'admin_super_franchise' || scope === 'super_franchise_default' || scope === 'super_franchise_franchise') {
+        if (companyId) where.company_id = companyId;
+        if (req.query.super_franchise_id) {
+          where.super_franchise_id = parseInt(req.query.super_franchise_id, 10);
+        }
+        if (req.query.franchaise_id) {
+          where.franchaise_id = parseInt(req.query.franchaise_id, 10);
+        }
+      } else if (scope === 'admin_franchise' || scope === 'franchise_default' || scope === 'franchise_merchant') {
+        if (companyId) where.company_id = companyId;
+        if (req.query.franchaise_id) {
+          where.franchaise_id = parseInt(req.query.franchaise_id, 10);
+        }
+        if (req.query.user_id) {
+          where[Op.or] = [
+            { user_id: parseInt(req.query.user_id, 10) },
+            { user_id: { [Op.is]: null } }
+          ];
+        }
       } else {
         where[Op.or] = [
           { company_id: companyId },
@@ -847,17 +874,44 @@ const getChargeRules = asyncHandler(async (req, res) => {
         where.user_id = parentAdminId;
       } else if (scope === 'super_admin_default') {
         where.user_id = { [Op.is]: null };
-      } else if (scope === 'admin_default' || scope === 'admin_super_franchise') {
+      } else if (scope === 'admin_default') {
         if (companyId) where.company_id = companyId;
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+        where.super_franchise_id = { [Op.is]: null };
+      } else if (scope === 'admin_super_franchise') {
+        if (companyId) where.company_id = companyId;
+        where.super_franchise_id = callerId;
+      } else if (scope === 'super_franchise_franchise') {
+        where.super_franchise_id = callerId;
+        if (req.query.franchaise_id) {
+          where.franchaise_id = parseInt(req.query.franchaise_id, 10);
+        }
+      } else if (scope === 'franchise_merchant' || scope === 'franchise_default') {
+        if (req.query.franchaise_id) {
+          where.franchaise_id = parseInt(req.query.franchaise_id, 10);
+        }
+        if (req.query.user_id) {
+          where[Op.or] = [
+            { user_id: parseInt(req.query.user_id, 10) },
+            { user_id: { [Op.is]: null } }
+          ];
+        }
       }
     } else {
-      where[Op.or] = [
-        { super_franchise_id: callerId },
-        { scope: 'admin_super_franchise', ...(companyId ? { company_id: companyId } : {}) },
-        { scope: 'admin_default', ...(companyId ? { company_id: companyId } : {}) },
-        ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : []),
-        { scope: 'super_admin_default', user_id: { [Op.is]: null } },
-      ];
+      if (req.query.user_id) {
+        where.user_id = parseInt(req.query.user_id, 10);
+      } else if (req.query.super_franchise_id) {
+        where.super_franchise_id = parseInt(req.query.super_franchise_id, 10);
+      } else {
+        where[Op.or] = [
+          { super_franchise_id: callerId },
+          { scope: 'admin_super_franchise', ...(companyId ? { company_id: companyId } : {}) },
+          { scope: 'admin_default', ...(companyId ? { company_id: companyId } : {}) },
+          ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : []),
+          { scope: 'super_admin_default', user_id: { [Op.is]: null } },
+        ];
+      }
     }
   } else if (normalizedRole === 'franchise' || normalizedRole === 'franchaise') {
     if (scope) {
@@ -869,19 +923,50 @@ const getChargeRules = asyncHandler(async (req, res) => {
         where.user_id = parentAdminId;
       } else if (scope === 'super_admin_default') {
         where.user_id = { [Op.is]: null };
-      } else if (scope === 'super_franchise_default' || scope === 'super_franchise_franchise') {
-        if (superFranchiseId) where.super_franchise_id = superFranchiseId;
-      } else if (scope === 'admin_default' || scope === 'admin_franchise') {
+        where.franchaise_id = { [Op.is]: null };
+        where.super_franchise_id = { [Op.is]: null };
+      } else if (scope === 'super_franchise_franchise') {
+        const targetSfId = req.query.super_franchise_id || effectiveSuperFranchiseId;
+        if (targetSfId) where.super_franchise_id = parseInt(targetSfId, 10);
+        where.franchaise_id = callerId;
+        where.user_id = { [Op.is]: null };
+      } else if (scope === 'super_franchise_default' || scope === 'admin_super_franchise') {
+        const targetSfId = req.query.super_franchise_id || effectiveSuperFranchiseId;
+        if (targetSfId) where.super_franchise_id = parseInt(targetSfId, 10);
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+      } else if (scope === 'admin_default') {
         if (companyId) where.company_id = companyId;
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+        where.super_franchise_id = { [Op.is]: null };
+      } else if (scope === 'admin_franchise') {
+        if (companyId) where.company_id = companyId;
+        where.franchaise_id = callerId;
+        where.user_id = { [Op.is]: null };
+      } else if (scope === 'franchise_merchant') {
+        where.franchaise_id = callerId;
+        if (req.query.user_id) {
+          where[Op.or] = [
+            { user_id: parseInt(req.query.user_id, 10) },
+            { user_id: { [Op.is]: null } }
+          ];
+        }
       }
     } else {
-      where[Op.or] = [
-        { franchaise_id: callerId },
-        ...(superFranchiseId ? [{ super_franchise_id: superFranchiseId, scope: { [Op.in]: ['super_franchise_franchise', 'super_franchise_default'] } }] : []),
-        { scope: { [Op.in]: ['admin_franchise', 'admin_default'] }, ...(companyId ? { company_id: companyId } : {}) },
-        ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : []),
-        { scope: 'super_admin_default', user_id: { [Op.is]: null } }
-      ];
+      if (req.query.user_id) {
+        where.user_id = parseInt(req.query.user_id, 10);
+      } else if (req.query.franchaise_id) {
+        where.franchaise_id = parseInt(req.query.franchaise_id, 10);
+      } else {
+        where[Op.or] = [
+          { franchaise_id: callerId },
+          ...(effectiveSuperFranchiseId ? [{ super_franchise_id: effectiveSuperFranchiseId, scope: { [Op.in]: ['super_franchise_franchise', 'super_franchise_default', 'admin_super_franchise'] } }] : []),
+          { scope: { [Op.in]: ['admin_franchise', 'admin_default'] }, ...(companyId ? { company_id: companyId } : {}) },
+          ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : []),
+          { scope: 'super_admin_default', user_id: { [Op.is]: null } }
+        ];
+      }
     }
   } else {
     // Merchant: Fetch all active applicable rules according to hierarchy
@@ -891,25 +976,83 @@ const getChargeRules = asyncHandler(async (req, res) => {
         where.user_id = parentAdminId;
       } else if (scope === 'super_admin_default') {
         where.user_id = { [Op.is]: null };
-      } else if (scope === 'admin_default' && companyId) {
-        where.company_id = companyId;
+        where.franchaise_id = { [Op.is]: null };
+        where.super_franchise_id = { [Op.is]: null };
+      } else if (scope === 'admin_default') {
+        if (companyId) where.company_id = companyId;
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+        where.super_franchise_id = { [Op.is]: null };
+      } else if (scope === 'admin_merchant') {
+        if (companyId) where.company_id = companyId;
+        where.user_id = callerId;
+      } else if (scope === 'admin_super_franchise') {
+        const targetSfId = req.query.super_franchise_id || superFranchiseId;
+        if (targetSfId) where.super_franchise_id = parseInt(targetSfId, 10);
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+      } else if (scope === 'super_franchise_default') {
+        const targetSfId = req.query.super_franchise_id || superFranchiseId;
+        if (targetSfId) where.super_franchise_id = parseInt(targetSfId, 10);
+        where.user_id = { [Op.is]: null };
+        where.franchaise_id = { [Op.is]: null };
+      } else if (scope === 'super_franchise_franchise') {
+        const targetSfId = req.query.super_franchise_id || superFranchiseId;
+        if (targetSfId) where.super_franchise_id = parseInt(targetSfId, 10);
+        const targetFId = req.query.franchaise_id || franchiseId;
+        if (targetFId) where.franchaise_id = parseInt(targetFId, 10);
+        where.user_id = { [Op.is]: null };
+      } else if (scope === 'super_franchise_merchant') {
+        const targetSfId = req.query.super_franchise_id || superFranchiseId;
+        if (targetSfId) where.super_franchise_id = parseInt(targetSfId, 10);
+        where.user_id = callerId;
+      } else if (scope === 'franchise_default') {
+        const targetFId = req.query.franchaise_id || franchiseId;
+        if (targetFId) where.franchaise_id = parseInt(targetFId, 10);
+        where.user_id = { [Op.is]: null };
+      } else if (scope === 'franchise_merchant') {
+        const targetFId = req.query.franchaise_id || franchiseId;
+        if (targetFId) where.franchaise_id = parseInt(targetFId, 10);
+        where[Op.or] = [
+          { user_id: callerId },
+          { user_id: { [Op.is]: null } }
+        ];
       }
     } else {
-      where[Op.or] = [
-        { user_id: callerId },
-        ...(franchiseId ? [{ franchaise_id: franchiseId, scope: { [Op.in]: ['franchise_merchant', 'franchise_default'] } }] : []),
-        ...(superFranchiseId ? [{ super_franchise_id: superFranchiseId, scope: { [Op.in]: ['super_franchise_merchant', 'super_franchise_default'] } }] : []),
-        ...(companyId ? [{ company_id: companyId, scope: { [Op.in]: ['admin_merchant', 'admin_default'] } }] : [{ scope: { [Op.in]: ['admin_merchant', 'admin_default'] } }]),
-        ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : []),
-        { scope: 'super_admin_default', user_id: { [Op.is]: null } }
-      ];
+      if (req.query.user_id) {
+        where.user_id = parseInt(req.query.user_id, 10);
+      } else {
+        where[Op.or] = [
+          { user_id: callerId },
+          ...(franchiseId ? [{ franchaise_id: franchiseId, scope: { [Op.in]: ['franchise_merchant', 'franchise_default'] } }] : []),
+          ...(superFranchiseId && franchiseId ? [{ super_franchise_id: superFranchiseId, franchaise_id: franchiseId, scope: 'super_franchise_franchise' }] : []),
+          ...(superFranchiseId ? [{ super_franchise_id: superFranchiseId, franchaise_id: { [Op.is]: null }, scope: { [Op.in]: ['super_franchise_merchant', 'super_franchise_default', 'admin_super_franchise'] } }] : []),
+          ...(companyId ? [{ company_id: companyId, scope: { [Op.in]: ['admin_merchant', 'admin_default'] } }] : [{ scope: { [Op.in]: ['admin_merchant', 'admin_default'] } }]),
+          ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : []),
+          { scope: 'super_admin_default', user_id: { [Op.is]: null } }
+        ];
+      }
     }
   }
 
   // Parameter-level overrides
-  if (user_id) where.user_id = parseInt(user_id, 10);
-  if (franchaise_id) where.franchaise_id = parseInt(franchaise_id, 10);
-  if (super_franchise_id) where.super_franchise_id = parseInt(super_franchise_id, 10);
+  const GLOBAL_DEFAULT_SCOPES = [
+    'super_admin_default',
+    'super_admin_admin',
+    'admin_default',
+    'admin_super_franchise',
+    'super_franchise_default',
+    'franchise_default'
+  ];
+  if (user_id && !where[Op.or] && !GLOBAL_DEFAULT_SCOPES.includes(scope)) {
+    where.user_id = parseInt(user_id, 10);
+  }
+  if (franchaise_id && !['super_admin_default', 'admin_default', 'admin_super_franchise'].includes(scope) && !where[Op.or]) {
+    where.franchaise_id = parseInt(franchaise_id, 10);
+  }
+  if (super_franchise_id && !['super_admin_default', 'admin_default'].includes(scope) && !where[Op.or]) {
+    where.super_franchise_id = parseInt(super_franchise_id, 10);
+  }
   if (gateway && gateway !== 'ALL') where.gateway = gateway;
   if (payment_mode && payment_mode !== 'ALL') where.payment_mode = payment_mode;
   if (card_type && card_type !== 'ALL') where.card_type = card_type;
@@ -965,23 +1108,29 @@ const getChargeRules = asyncHandler(async (req, res) => {
     }
   }
 
-  // For merchants viewing applicable charges: collapse to effective rules by specificity
+  // Collapse applicable rules by specificity priority when querying effective rules without a specific scope
   const isMerchantViewer = (normalizedRole === 'merchant' || normalizedRole === 'retailer' || normalizedRole === 'user');
-  if (isMerchantViewer && !scope) {
+  const shouldCollapseByPriority = !scope && !req.query.user_id && !req.query.franchaise_id && !req.query.super_franchise_id;
+  if ((isMerchantViewer || shouldCollapseByPriority) && !scope) {
     const SCOPE_PRIORITY = {
+      merchant: 70,
       franchise_merchant: 60,
       franchise_default: 50,
       super_franchise_merchant: 40,
+      super_franchise_franchise: 35,
       super_franchise_default: 30,
       admin_merchant: 25,
+      admin_franchise: 23,
+      admin_super_franchise: 22,
       admin_default: 20,
+      super_admin_admin: 15,
       super_admin_default: 10
     };
 
     const map = new Map();
     const sorted = [...rules].sort((a, b) => {
-      const pA = a.user_id ? 100 : (SCOPE_PRIORITY[a.scope] || 0);
-      const pB = b.user_id ? 100 : (SCOPE_PRIORITY[b.scope] || 0);
+      const pA = (a.user_id && a.user_id === callerId) ? 100 : (SCOPE_PRIORITY[a.scope] || 0);
+      const pB = (b.user_id && b.user_id === callerId) ? 100 : (SCOPE_PRIORITY[b.scope] || 0);
       return pA - pB;
     });
 
@@ -1054,10 +1203,19 @@ const createChargeRule = asyncHandler(async (req, res) => {
   const { id: callerId, role: callerRole, company_id: companyId } = req.user;
   const normalizedRole = String(callerRole || '').trim().toLowerCase().replace(/[-\s]/g, '_');
 
-  const targetUserId = req.body.target_user_id ?? req.body.user_id ?? null;
-  const targetFranchiseId = req.body.target_franchise_id ?? req.body.franchaise_id ?? req.body.franchiseId ?? null;
-  const targetSuperFranchiseId = req.body.target_super_franchise_id ?? req.body.super_franchise_id ?? req.body.superFranchiseId ?? null;
+  let targetUserId = req.body.target_user_id ?? req.body.user_id ?? null;
+  let targetFranchiseId = req.body.target_franchise_id ?? req.body.franchaise_id ?? req.body.franchiseId ?? null;
+  let targetSuperFranchiseId = req.body.target_super_franchise_id ?? req.body.super_franchise_id ?? req.body.superFranchiseId ?? null;
   const targetRole = req.body.target_role ?? req.body.role ?? null;
+
+  // Derive ownership: if caller is super_franchise, any rule they create belongs to their super_franchise_id
+  if (normalizedRole === 'super_franchise') {
+    targetSuperFranchiseId = callerId;
+  }
+  // If caller is franchise, any rule they create belongs to their franchise_id
+  if (normalizedRole === 'franchise' || normalizedRole === 'franchaise') {
+    targetFranchiseId = callerId;
+  }
   const gateway = req.body.gateway || 'ALL';
   const paymentMode = req.body.payment_mode || req.body.method || 'ALL';
   const cardType = req.body.card_type || req.body.cardType || null;
@@ -1068,15 +1226,23 @@ const createChargeRule = asyncHandler(async (req, res) => {
   const channel = req.body.channel || 'WEB';
   const minAmount = req.body.min_amount != null ? parseFloat(req.body.min_amount) : (req.body.minAmount != null ? parseFloat(req.body.minAmount) : 0);
   const maxAmount = req.body.max_amount != null ? parseFloat(req.body.max_amount) : (req.body.maxAmount != null ? parseFloat(req.body.maxAmount) : null);
-  const chargePercent = req.body.charge_percent != null ? parseFloat(req.body.charge_percent) : (req.body.chargePercent != null ? parseFloat(req.body.chargePercent) : (req.body.base_rate != null ? parseFloat(req.body.base_rate) : 0));
-  const chargeFlat = req.body.charge_flat != null ? parseFloat(req.body.charge_flat) : (req.body.chargeFlat != null ? parseFloat(req.body.chargeFlat) : 0);
-  const gstRequired = req.body.gst_required != null ? Boolean(req.body.gst_required) : Boolean(req.body.gstRequired);
-  const gstPercent = req.body.gst_percent != null ? parseFloat(req.body.gst_percent) : (req.body.gstPercent != null ? parseFloat(req.body.gstPercent) : (req.body.gst_rate != null ? parseFloat(req.body.gst_rate) : 0));
+  let chargePercent = req.body.charge_percent != null ? parseFloat(req.body.charge_percent) : (req.body.chargePercent != null ? parseFloat(req.body.chargePercent) : (req.body.base_rate != null ? parseFloat(req.body.base_rate) : 0));
+  let chargeFlat = req.body.charge_flat != null ? parseFloat(req.body.charge_flat) : (req.body.chargeFlat != null ? parseFloat(req.body.chargeFlat) : 0);
+  let gstRequired = req.body.gst_required != null ? Boolean(req.body.gst_required) : Boolean(req.body.gstRequired);
+  let gstPercent = req.body.gst_percent != null ? parseFloat(req.body.gst_percent) : (req.body.gstPercent != null ? parseFloat(req.body.gstPercent) : (req.body.gst_rate != null ? parseFloat(req.body.gst_rate) : 0));
   const companyName = req.body.company_name || req.body.companyName || null;
 
   if (isNaN(chargePercent) && isNaN(chargeFlat)) {
     return res.status(400).json({ success: false, message: 'charge_percent or charge_flat is required' });
   }
+
+  // Normalized tokens for consistent DB storage & matching
+  const normGateway = String(gateway || 'ALL').trim().toUpperCase();
+  const normPaymentMode = String(paymentMode || 'ALL').trim().toUpperCase();
+  const rawTypeStr = cardType ? String(cardType).trim().toUpperCase().replace(/[\s_-]/g, '').replace('CARD', '') : null;
+  const normCardType = (!rawTypeStr || rawTypeStr === 'ALL' || rawTypeStr === 'UNKNOWN') ? null : rawTypeStr;
+  const rawBrandNorm = cardBrand ? PgChargeService.normalizeCardBrand(cardBrand) : null;
+  const cleanCardBrand = (!rawBrandNorm || rawBrandNorm === 'ALL') ? null : rawBrandNorm;
 
   // Derive scope from caller's role + provided target ids
   let scope = req.body.scope;
@@ -1112,7 +1278,170 @@ const createChargeRule = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: `Your role cannot create a '${scope}' rule` });
   }
 
+  const isCallerAdmin = normalizedRole === 'super_admin' || normalizedRole === 'admin';
+  const isSuperFranchise = normalizedRole === 'super_franchise';
+  const isFranchise = normalizedRole === 'franchise' || normalizedRole === 'franchaise';
   const PgChargeRule = db.models.PgChargeRule;
+
+  if (!isCallerAdmin) {
+    const downlineScopes = [
+      'super_franchise_default', 'super_franchise_franchise', 'super_franchise_merchant',
+      'franchise_default', 'franchise_merchant'
+    ];
+    if (!downlineScopes.includes(scope)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Admin and Super Admin can create base rate rules. Super Franchise and Franchise can only set rates for their downline.'
+      });
+    }
+
+    // Verify that an upline rule with these payment specifications exists
+    let uplineScopes = [];
+    if (isSuperFranchise) {
+      uplineScopes = ['admin_super_franchise', 'admin_default', 'super_admin_admin', 'super_admin_default'];
+    } else if (isFranchise) {
+      uplineScopes = ['super_franchise_franchise', 'super_franchise_default', 'admin_franchise', 'admin_super_franchise', 'admin_default', 'super_admin_admin', 'super_admin_default'];
+    } else {
+      uplineScopes = ['admin_default', 'super_admin_admin', 'super_admin_default'];
+    }
+
+    const scopePriorityOrder = [
+      [db.literal(`CASE scope
+        WHEN 'super_franchise_franchise' THEN 900000
+        WHEN 'super_franchise_default'   THEN 800000
+        WHEN 'admin_franchise'           THEN 600000
+        WHEN 'admin_super_franchise'     THEN 500000
+        WHEN 'super_admin_admin'         THEN 450000
+        WHEN 'admin_default'             THEN 400000
+        WHEN 'super_admin_default'       THEN 200000
+        ELSE 0
+      END`), 'DESC'],
+      ['id', 'DESC']
+    ];
+
+    // 1. Strict exact match
+    const uplineWhere = {
+      scope: { [Op.in]: uplineScopes },
+      payment_mode: normPaymentMode,
+      min_amount: minAmount || 0,
+      is_active: true
+    };
+    if (maxAmount !== null && maxAmount !== undefined && maxAmount !== '' && !isNaN(parseFloat(maxAmount))) {
+      uplineWhere.max_amount = parseFloat(maxAmount);
+    } else {
+      uplineWhere.max_amount = null;
+    }
+    if (cleanCardBrand) uplineWhere.card_brand = cleanCardBrand;
+    if (normCardType) uplineWhere.card_type = normCardType;
+    if (settlementType) uplineWhere.settlement_type = settlementType;
+
+    if (isSuperFranchise) {
+      uplineWhere[Op.or] = [
+        { super_franchise_id: callerId },
+        { super_franchise_id: null }
+      ];
+    } else if (isFranchise) {
+      uplineWhere[Op.or] = [
+        { franchaise_id: callerId },
+        { franchaise_id: null }
+      ];
+    }
+
+    let uplineRule = await PgChargeRule.findOne({ where: uplineWhere, order: scopePriorityOrder });
+
+    // 2. Wildcard fallback: Brand or Type fallback to 'ALL' / NULL
+    if (!uplineRule) {
+      const wildcardWhere = {
+        scope: uplineWhere.scope,
+        payment_mode: normPaymentMode,
+        min_amount: uplineWhere.min_amount,
+        max_amount: uplineWhere.max_amount,
+        is_active: true
+      };
+      if (isSuperFranchise) {
+        wildcardWhere[Op.or] = [
+          { super_franchise_id: callerId },
+          { super_franchise_id: null }
+        ];
+      } else if (isFranchise) {
+        wildcardWhere[Op.or] = [
+          { franchaise_id: callerId },
+          { franchaise_id: null }
+        ];
+      }
+      if (cleanCardBrand) wildcardWhere.card_brand = { [Op.in]: [cleanCardBrand, 'ALL', null] };
+      if (normCardType) wildcardWhere.card_type = { [Op.in]: [normCardType, 'ALL', null] };
+      if (settlementType) wildcardWhere.settlement_type = { [Op.in]: [settlementType, 'ANY', null] };
+      uplineRule = await PgChargeRule.findOne({ where: wildcardWhere, order: scopePriorityOrder });
+    }
+
+    // 3. Open slab fallback: slab min/max fallback
+    if (!uplineRule) {
+      const slabFallbackWhere = {
+        scope: uplineWhere.scope,
+        payment_mode: normPaymentMode,
+        is_active: true
+      };
+      if (isSuperFranchise) {
+        slabFallbackWhere[Op.or] = [
+          { super_franchise_id: callerId },
+          { super_franchise_id: null }
+        ];
+      } else if (isFranchise) {
+        slabFallbackWhere[Op.or] = [
+          { franchaise_id: callerId },
+          { franchaise_id: null }
+        ];
+      }
+      if (cleanCardBrand) slabFallbackWhere.card_brand = { [Op.in]: [cleanCardBrand, 'ALL', null] };
+      if (normCardType) slabFallbackWhere.card_type = { [Op.in]: [normCardType, 'ALL', null] };
+      if (settlementType) slabFallbackWhere.settlement_type = { [Op.in]: [settlementType, 'ANY', null] };
+      uplineRule = await PgChargeRule.findOne({ where: slabFallbackWhere, order: scopePriorityOrder });
+    }
+
+    if (!uplineRule) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot create rate: payment mode, network, card type, settlement type, and slab amounts must first be defined by Admin or Super Admin.'
+      });
+    }
+
+    const uplineFlat = parseFloat(uplineRule.charge_flat || 0);
+    const uplinePercent = parseFloat(uplineRule.charge_percent || 0);
+
+    // Downline inherits GST setting from upline rule
+    gstRequired = Boolean(uplineRule.gst_required);
+    gstPercent = parseFloat(uplineRule.gst_percent || 0);
+
+    // If upline limit is flat, downline cannot convert to percentage
+    if (uplineFlat > 0 && uplinePercent <= 0) {
+      if (chargePercent > 0 && chargeFlat <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'The base rate for this specification is Flat Rate and cannot be converted to percentage.'
+        });
+      }
+      if (chargeFlat < uplineFlat) {
+        return res.status(400).json({
+          success: false,
+          message: `Flat charge (₹${chargeFlat}) cannot be less than the previously set flat rate of ₹${uplineFlat}.`
+        });
+      }
+    } else if (uplinePercent > 0 && chargeFlat <= 0) {
+      if (chargeFlat > 0 && chargePercent <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'The base rate for this specification is Percentage and cannot be converted to Flat Rate.'
+        });
+      }
+      if (chargePercent < uplinePercent) {
+        return res.status(400).json({
+          success: false,
+          message: `Rate (${chargePercent}%) cannot be less than the previously set rate of ${uplinePercent}%.`
+        });
+      }
+    }
+  }
   let resolvedCompanyId = companyId;
   if (!resolvedCompanyId && targetUserId) {
     const targetUser = await db.models.User.findByPk(targetUserId, { attributes: ['id', 'company_id'] });
@@ -1126,10 +1455,10 @@ const createChargeRule = asyncHandler(async (req, res) => {
   // classification sub type, settlement and overlapping amount slab
   const duplicateWhere = {
     scope,
-    gateway: gateway || 'ALL',
-    payment_mode: paymentMode || 'ALL',
-    card_type: cardType || null,
-    card_brand: cardBrand || null,
+    gateway: normGateway || 'ALL',
+    payment_mode: normPaymentMode || 'ALL',
+    card_type: normCardType || null,
+    card_brand: cleanCardBrand || null,
     card_classification: cardClassification || null,
     settlement_type: settlementType || null,
     is_active: true
@@ -1143,13 +1472,13 @@ const createChargeRule = asyncHandler(async (req, res) => {
 
   if (targetFranchiseId) {
     duplicateWhere.franchaise_id = parseInt(targetFranchiseId, 10);
-  } else if (['super_admin_default', 'admin_default', 'super_franchise_default', 'franchise_default'].includes(scope)) {
+  } else if (['super_admin_default', 'admin_default', 'super_franchise_default'].includes(scope)) {
     duplicateWhere.franchaise_id = null;
   }
 
   if (targetSuperFranchiseId) {
     duplicateWhere.super_franchise_id = parseInt(targetSuperFranchiseId, 10);
-  } else if (['super_admin_default', 'admin_default', 'super_franchise_default', 'franchise_default'].includes(scope)) {
+  } else if (['super_admin_default', 'admin_default'].includes(scope)) {
     duplicateWhere.super_franchise_id = null;
   }
 
@@ -1180,6 +1509,25 @@ const createChargeRule = asyncHandler(async (req, res) => {
   const m1 = newMin;
   const m2 = newMax !== null ? newMax : Infinity;
 
+  // Exact-slab UPSERT: If rule already exists for exact slab and specifications, update it seamlessly
+  const exactRule = existingRules.find((rule) => {
+    if (rule.is_active === false) return false;
+    const rMin = rule.min_amount != null ? parseFloat(rule.min_amount) : 0;
+    const rMax = rule.max_amount != null && !isNaN(parseFloat(rule.max_amount)) ? parseFloat(rule.max_amount) : null;
+    return rMin === newMin && rMax === newMax;
+  });
+
+  if (exactRule) {
+    await exactRule.update({
+      charge_percent: chargePercent != null ? parseFloat(chargePercent) : 0,
+      charge_flat: chargeFlat != null ? parseFloat(chargeFlat) : 0,
+      gst_required: Boolean(gstRequired),
+      gst_percent: gstPercent != null ? parseFloat(gstPercent) : 0,
+      is_active: true
+    });
+    return res.status(200).json({ success: true, message: 'PG Charge Rule updated', data: exactRule });
+  }
+
   const duplicateOverlap = existingRules.find((rule) => {
     if (rule.is_active === false) return false;
     const rMin = rule.min_amount != null ? parseFloat(rule.min_amount) : 0;
@@ -1206,14 +1554,14 @@ const createChargeRule = asyncHandler(async (req, res) => {
     super_franchise_id: targetSuperFranchiseId ? parseInt(targetSuperFranchiseId, 10) : null,
     created_by:         callerId,
     scope,
-    gateway,
-    payment_mode:       paymentMode,
-    card_type:          cardType,
-    card_brand:         cardBrand,
-    card_classification:cardClassification,
-    sub_type:           subType,
-    settlement_type:    settlementType,
-    channel,
+    gateway:            normGateway || 'ALL',
+    payment_mode:       normPaymentMode || 'ALL',
+    card_type:          normCardType || null,
+    card_brand:         cleanCardBrand || null,
+    card_classification:cardClassification || null,
+    sub_type:           subType || cardClassification || 'any',
+    settlement_type:    settlementType || null,
+    channel:            channel || 'WEB',
     min_amount:         minAmount,
     max_amount:         maxAmount,
     charge_percent:     chargePercent,
@@ -1259,8 +1607,19 @@ const updateChargeRule = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Charge rule not found' });
   }
 
-  if (rule.created_by && rule.created_by !== callerId && normalizedRole !== 'super_admin' && normalizedRole !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Only the creator or admin can update this rule' });
+  const isSuperFranchise = normalizedRole === 'super_franchise';
+  const isFranchise = normalizedRole === 'franchise' || normalizedRole === 'franchaise';
+  const isCallerAdmin = normalizedRole === 'super_admin' || normalizedRole === 'admin';
+
+  const isAuthorized = (
+    isCallerAdmin ||
+    rule.created_by === callerId ||
+    (isSuperFranchise && (rule.super_franchise_id === callerId || rule.scope === 'super_franchise_default')) ||
+    (isFranchise && (rule.franchaise_id === callerId || rule.scope === 'franchise_default'))
+  );
+
+  if (!isAuthorized) {
+    return res.status(403).json({ success: false, message: 'Only the creator, parent franchise, or admin can update this rule' });
   }
 
   const {
@@ -1279,6 +1638,185 @@ const updateChargeRule = asyncHandler(async (req, res) => {
   const resolvedGstRequired = gst_required ?? gstRequired;
   const resolvedSubType = sub_type ?? subType;
   const resolvedClassification = card_classification ?? cardClassification ?? resolvedSubType;
+
+  // Query upline rule to get base cost floor for this specification and slab
+  const normRuleMode = String(rule.payment_mode || 'ALL').trim().toUpperCase();
+  const rawRuleBrand = rule.card_brand;
+  const normRuleBrand = rawRuleBrand ? PgChargeService.normalizeCardBrand(rawRuleBrand) : null;
+  const cleanRuleBrand = (!normRuleBrand || normRuleBrand === 'ALL') ? null : normRuleBrand;
+  const rawRuleType = rule.card_type;
+  const cleanRuleType = rawRuleType ? String(rawRuleType).trim().toUpperCase().replace(/[\s_-]/g, '').replace('CARD', '') : null;
+  const normRuleType = (!cleanRuleType || cleanRuleType === 'ALL' || cleanRuleType === 'UNKNOWN') ? null : cleanRuleType;
+
+  // Determine allowed upline scopes based on the rule being updated
+  let uplineScopes = [];
+  if (['admin_super_franchise', 'admin_franchise', 'admin_merchant'].includes(rule.scope)) {
+    uplineScopes = ['admin_default', 'super_admin_admin', 'super_admin_default'];
+  } else if (rule.scope === 'admin_default') {
+    uplineScopes = ['super_admin_admin', 'super_admin_default'];
+  } else if (rule.scope === 'super_admin_admin') {
+    uplineScopes = ['super_admin_default'];
+  } else if (['super_franchise_default', 'super_franchise_franchise', 'super_franchise_merchant'].includes(rule.scope)) {
+    uplineScopes = ['admin_super_franchise', 'admin_default', 'super_admin_admin', 'super_admin_default'];
+  } else if (['franchise_default', 'franchise_merchant'].includes(rule.scope)) {
+    uplineScopes = ['super_franchise_franchise', 'super_franchise_default', 'admin_franchise', 'admin_super_franchise', 'admin_default', 'super_admin_admin', 'super_admin_default'];
+  } else {
+    uplineScopes = ['super_admin_default'];
+  }
+
+  let uplineRule = null;
+  if (rule.scope !== 'super_admin_default' && uplineScopes.length > 0) {
+    const scopePriorityOrder = [
+      [db.literal(`CASE scope
+        WHEN 'super_franchise_franchise' THEN 900000
+        WHEN 'super_franchise_default'   THEN 800000
+        WHEN 'admin_franchise'           THEN 600000
+        WHEN 'admin_super_franchise'     THEN 500000
+        WHEN 'super_admin_admin'         THEN 450000
+        WHEN 'admin_default'             THEN 400000
+        WHEN 'super_admin_default'       THEN 200000
+        ELSE 0
+      END`), 'DESC'],
+      ['id', 'DESC']
+    ];
+
+    const uplineWhere = {
+      id: { [Op.ne]: rule.id },
+      scope: { [Op.in]: uplineScopes },
+      payment_mode: normRuleMode,
+      min_amount: rule.min_amount != null ? parseFloat(rule.min_amount) : 0,
+      is_active: true
+    };
+    if (rule.max_amount !== null && rule.max_amount !== undefined && !isNaN(parseFloat(rule.max_amount))) {
+      uplineWhere.max_amount = parseFloat(rule.max_amount);
+    } else {
+      uplineWhere.max_amount = null;
+    }
+    if (cleanRuleBrand) uplineWhere.card_brand = cleanRuleBrand;
+    if (normRuleType) uplineWhere.card_type = normRuleType;
+    if (rule.settlement_type) uplineWhere.settlement_type = rule.settlement_type;
+
+    if (rule.super_franchise_id) {
+      uplineWhere[Op.or] = [
+        { super_franchise_id: rule.super_franchise_id },
+        { super_franchise_id: null }
+      ];
+    } else if (rule.franchaise_id) {
+      uplineWhere[Op.or] = [
+        { franchaise_id: rule.franchaise_id },
+        { franchaise_id: null }
+      ];
+    }
+
+    uplineRule = await PgChargeRule.findOne({ where: uplineWhere, order: scopePriorityOrder });
+
+    // Wildcard fallback: Brand or Type fallback to 'ALL' / NULL
+    if (!uplineRule) {
+      const wildcardWhere = {
+        id: { [Op.ne]: rule.id },
+        scope: uplineWhere.scope,
+        payment_mode: normRuleMode,
+        min_amount: uplineWhere.min_amount,
+        max_amount: uplineWhere.max_amount,
+        is_active: true
+      };
+      if (rule.super_franchise_id) {
+        wildcardWhere[Op.or] = [
+          { super_franchise_id: rule.super_franchise_id },
+          { super_franchise_id: null }
+        ];
+      } else if (rule.franchaise_id) {
+        wildcardWhere[Op.or] = [
+          { franchaise_id: rule.franchaise_id },
+          { franchaise_id: null }
+        ];
+      }
+      if (cleanRuleBrand) wildcardWhere.card_brand = { [Op.in]: [cleanRuleBrand, 'ALL', null] };
+      if (normRuleType) wildcardWhere.card_type = { [Op.in]: [normRuleType, 'ALL', null] };
+      if (rule.settlement_type) wildcardWhere.settlement_type = { [Op.in]: [rule.settlement_type, 'ANY', null] };
+      uplineRule = await PgChargeRule.findOne({ where: wildcardWhere, order: scopePriorityOrder });
+    }
+
+    // Open slab fallback
+    if (!uplineRule) {
+      const fallbackWhere = {
+        id: { [Op.ne]: rule.id },
+        scope: uplineWhere.scope,
+        payment_mode: normRuleMode,
+        is_active: true
+      };
+      if (rule.super_franchise_id) {
+        fallbackWhere[Op.or] = [
+          { super_franchise_id: rule.super_franchise_id },
+          { super_franchise_id: null }
+        ];
+      } else if (rule.franchaise_id) {
+        fallbackWhere[Op.or] = [
+          { franchaise_id: rule.franchaise_id },
+          { franchaise_id: null }
+        ];
+      }
+      if (cleanRuleBrand) fallbackWhere.card_brand = { [Op.in]: [cleanRuleBrand, 'ALL', null] };
+      if (normRuleType) fallbackWhere.card_type = { [Op.in]: [normRuleType, 'ALL', null] };
+      if (rule.settlement_type) fallbackWhere.settlement_type = { [Op.in]: [rule.settlement_type, 'ANY', null] };
+      uplineRule = await PgChargeRule.findOne({ where: fallbackWhere, order: scopePriorityOrder });
+    }
+  }
+
+  const uplineFlat = uplineRule ? parseFloat(uplineRule.charge_flat || 0) : 0;
+  const uplinePercent = uplineRule ? parseFloat(uplineRule.charge_percent || 0) : 0;
+
+  // If the upline rule was flat, downline cannot convert to percentage
+  if (uplineFlat > 0 && uplinePercent <= 0) {
+    if (resolvedPercent != null && parseFloat(resolvedPercent) > 0 && (resolvedFlat == null || parseFloat(resolvedFlat) <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This rate is configured as Flat Rate and cannot be converted to percentage.'
+      });
+    }
+    if (resolvedFlat != null && parseFloat(resolvedFlat) < uplineFlat && !(normalizedRole === 'super_admin' && rule.scope === 'super_admin_default')) {
+      return res.status(400).json({
+        success: false,
+        message: `Flat rate (₹${resolvedFlat}) cannot be less than upline flat rate of ₹${uplineFlat}.`
+      });
+    }
+  } else if (uplinePercent > 0 && (resolvedFlat == null || parseFloat(resolvedFlat) <= 0)) {
+    if (resolvedFlat != null && parseFloat(resolvedFlat) > 0 && (resolvedPercent == null || parseFloat(resolvedPercent) <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This rate is configured as Percentage and cannot be converted to Flat Rate.'
+      });
+    }
+    if (resolvedPercent != null && parseFloat(resolvedPercent) < uplinePercent && !(normalizedRole === 'super_admin' && rule.scope === 'super_admin_default')) {
+      return res.status(400).json({
+        success: false,
+        message: `Rate (${resolvedPercent}%) cannot be less than upline rate of ${uplinePercent}%.`
+      });
+    }
+  }
+
+  // Only Admin and Super Admin can edit rate payment mode, company name, network, card type, settlement type, min and max amount.
+  // Super Franchise and Franchise can only set/update rates for their downline.
+  if (!isCallerAdmin) {
+    const downlineScopes = [
+      'super_franchise_default', 'super_franchise_franchise', 'super_franchise_merchant',
+      'franchise_default', 'franchise_merchant'
+    ];
+    if (!downlineScopes.includes(rule.scope)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Admin and Super Admin can edit base rate rules and payment specifications.'
+      });
+    }
+
+    await rule.update({
+      ...(resolvedPercent != null && { charge_percent: parseFloat(resolvedPercent) }),
+      ...(resolvedFlat != null && { charge_flat: parseFloat(resolvedFlat) }),
+      ...(is_active != null && { is_active: Boolean(is_active) })
+    });
+
+    return res.status(200).json({ success: true, message: 'Downline rate updated successfully', data: rule });
+  }
 
   const targetGateway = gateway != null ? gateway : rule.gateway;
   const targetPaymentMode = (payment_mode || method) != null ? (payment_mode || method) : rule.payment_mode;
