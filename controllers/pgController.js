@@ -226,37 +226,41 @@ const handleWebhook = asyncHandler(async (req, res) => {
   if (chargeRule && !chargeRule.is_fallback) {
     chargeResult = PgChargeService.calculateCharge(parsedAmount, chargeRule);
   } else {
-    const posRule = await ChargeService.getChargeRule({
-      userId: user.id,
-      userRole: user.role,
-      franchiseId: user.franchaise_id || null,
-      superFranchiseId: user.super_franchise_id || null,
-      companyId: user.company_id || null,
+    // Check if PG has a super admin default rule first before falling back to POS
+    const pgSaDefault = await PgChargeService.getSuperAdminDefaultRule({
+      gateway: txn.gateway || gatewayConfig.key,
       paymentMode: normalizedMethod,
       cardType: normalizedCardType,
       cardBrand: normalizedBrand,
       classification: normalizedSubType,
       settlement: settlementType,
-      amount: parsedAmount,
-      companyName: gatewayConfig.providerName
+      amount: parsedAmount
     });
-    if (!posRule && !chargeRule) {
-      chargeRule = await PgChargeService.getSuperAdminDefaultRule({
-        gateway: gatewayConfig.providerName,
+
+    if (pgSaDefault) {
+      chargeRule = pgSaDefault;
+    } else {
+      const posRule = await ChargeService.getChargeRule({
+        userId: user.id,
+        userRole: user.role,
+        franchiseId: user.franchaise_id || null,
+        superFranchiseId: user.super_franchise_id || null,
+        companyId: user.company_id || null,
         paymentMode: normalizedMethod,
         cardType: normalizedCardType,
         cardBrand: normalizedBrand,
         classification: normalizedSubType,
         settlement: settlementType,
-        amount: parsedAmount
+        amount: parsedAmount,
+        companyName: gatewayConfig.providerName
       });
+      chargeRule = (posRule && !posRule.is_fallback ? posRule : null) || chargeRule || {
+        charge_percent: 0,
+        charge_flat: 0,
+        gst_required: false,
+        gst_percent: 0
+      };
     }
-    chargeRule = posRule || chargeRule || {
-      charge_percent: 0,
-      charge_flat: 0,
-      gst_required: false,
-      gst_percent: 0
-    };
     chargeResult = PgChargeService.calculateCharge(parsedAmount, chargeRule);
   }
 
@@ -905,7 +909,7 @@ const getChargeRules = asyncHandler(async (req, res) => {
         where.super_franchise_id = parseInt(req.query.super_franchise_id, 10);
       } else {
         where[Op.or] = [
-          { super_franchise_id: callerId },
+          { super_franchise_id: callerId, scope: { [Op.in]: ['super_franchise_default', 'admin_super_franchise'] } },
           { scope: 'admin_super_franchise', ...(companyId ? { company_id: companyId } : {}) },
           { scope: 'admin_default', ...(companyId ? { company_id: companyId } : {}) },
           ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : []),
@@ -960,7 +964,7 @@ const getChargeRules = asyncHandler(async (req, res) => {
         where.franchaise_id = parseInt(req.query.franchaise_id, 10);
       } else {
         where[Op.or] = [
-          { franchaise_id: callerId },
+          { franchaise_id: callerId, scope: { [Op.in]: ['franchise_default', 'super_franchise_franchise', 'admin_franchise'] } },
           ...(effectiveSuperFranchiseId ? [{ super_franchise_id: effectiveSuperFranchiseId, scope: { [Op.in]: ['super_franchise_franchise', 'super_franchise_default', 'admin_super_franchise'] } }] : []),
           { scope: { [Op.in]: ['admin_franchise', 'admin_default'] }, ...(companyId ? { company_id: companyId } : {}) },
           ...(parentAdminId ? [{ scope: 'super_admin_admin', user_id: parentAdminId }] : []),
@@ -1112,34 +1116,81 @@ const getChargeRules = asyncHandler(async (req, res) => {
   const isMerchantViewer = (normalizedRole === 'merchant' || normalizedRole === 'retailer' || normalizedRole === 'user');
   const shouldCollapseByPriority = !scope && !req.query.user_id && !req.query.franchaise_id && !req.query.super_franchise_id;
   if ((isMerchantViewer || shouldCollapseByPriority) && !scope) {
-    const SCOPE_PRIORITY = {
-      merchant: 70,
-      franchise_merchant: 60,
-      franchise_default: 50,
-      super_franchise_merchant: 40,
-      super_franchise_franchise: 35,
-      super_franchise_default: 30,
-      admin_merchant: 25,
-      admin_franchise: 23,
-      admin_super_franchise: 22,
-      admin_default: 20,
-      super_admin_admin: 15,
-      super_admin_default: 10
-    };
+    let priorityMap = {};
+    if (isMerchantViewer) {
+      priorityMap = {
+        merchant: 120,
+        franchise_merchant: 110,
+        franchise_default: 100,
+        super_franchise_merchant: 90,
+        super_franchise_franchise: 80,
+        super_franchise_default: 70,
+        admin_merchant: 60,
+        admin_franchise: 50,
+        admin_super_franchise: 40,
+        admin_default: 30,
+        super_admin_admin: 20,
+        super_admin_default: 10
+      };
+    } else if (normalizedRole === 'franchise' || normalizedRole === 'franchaise') {
+      priorityMap = {
+        franchise_default: 80,
+        super_franchise_franchise: 70,
+        super_franchise_default: 60,
+        admin_franchise: 50,
+        admin_super_franchise: 40,
+        admin_default: 30,
+        super_admin_admin: 20,
+        super_admin_default: 10
+      };
+    } else if (normalizedRole === 'super_franchise') {
+      priorityMap = {
+        super_franchise_default: 50,
+        admin_super_franchise: 40,
+        admin_default: 30,
+        super_admin_admin: 20,
+        super_admin_default: 10
+      };
+    } else if (normalizedRole === 'admin') {
+      priorityMap = {
+        admin_default: 30,
+        super_admin_admin: 20,
+        super_admin_default: 10
+      };
+    } else {
+      priorityMap = {
+        super_admin_admin: 20,
+        super_admin_default: 10
+      };
+    }
 
     const map = new Map();
     const sorted = [...rules].sort((a, b) => {
-      const pA = (a.user_id && a.user_id === callerId) ? 100 : (SCOPE_PRIORITY[a.scope] || 0);
-      const pB = (b.user_id && b.user_id === callerId) ? 100 : (SCOPE_PRIORITY[b.scope] || 0);
+      const pA = (a.user_id && a.user_id === callerId && isMerchantViewer) ? 200 : (priorityMap[a.scope] || 0);
+      const pB = (b.user_id && b.user_id === callerId && isMerchantViewer) ? 200 : (priorityMap[b.scope] || 0);
       return pA - pB;
     });
 
+    const canonicalGenericVal = (val) => {
+      if (!val) return 'ALL';
+      const s = String(val).trim().toUpperCase();
+      if (['ALL', 'ANY', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''].includes(s)) return 'ALL';
+      return s;
+    };
+
+    const canonicalSettlementVal = (val) => {
+      if (!val) return 'ANY';
+      const s = String(val).trim().toUpperCase();
+      if (['ALL', 'ANY', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''].includes(s)) return 'ANY';
+      return s;
+    };
+
     for (const rule of sorted) {
-      const mode = String(rule.payment_mode || 'ALL').toUpperCase();
-      const cType = String(rule.card_type || 'ALL').toUpperCase();
-      const brand = String(rule.card_brand || 'ALL').toUpperCase();
-      const subType = String(rule.card_classification || rule.sub_type || 'ANY').toLowerCase();
-      const st = String(rule.settlement_type || 'ANY').toLowerCase();
+      const mode = canonicalGenericVal(rule.payment_mode);
+      const cType = canonicalGenericVal(rule.card_type);
+      const brand = canonicalGenericVal(rule.card_brand);
+      const subType = canonicalGenericVal(rule.card_classification || rule.sub_type);
+      const st = canonicalSettlementVal(rule.settlement_type);
       const min = parseFloat(rule.min_amount || 0);
       const max = rule.max_amount !== null && rule.max_amount !== undefined ? parseFloat(rule.max_amount) : 'INF';
       const key = `${mode}_${cType}_${brand}_${subType}_${st}_${min}_${max}`;

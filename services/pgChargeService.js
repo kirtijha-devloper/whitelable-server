@@ -176,8 +176,8 @@ async function getTransactionChargeRule({
         WHEN 'admin_merchant'            THEN  700000
         WHEN 'admin_franchise'           THEN  600000
         WHEN 'admin_super_franchise'     THEN  500000
-        WHEN 'super_admin_admin'         THEN  450000
-        WHEN 'admin_default'             THEN  400000
+        WHEN 'admin_default'             THEN  450000
+        WHEN 'super_admin_admin'         THEN  400000
         WHEN 'super_admin_default'       THEN  200000
         ELSE 0
       END
@@ -187,21 +187,32 @@ async function getTransactionChargeRule({
       AND (
             ($1::integer IS NOT NULL AND user_id = $1::integer)
          OR ($11::integer IS NOT NULL AND user_id = $11::integer AND scope = 'super_admin_admin')
+         OR (user_id IS NULL AND scope = 'super_admin_default')
          OR (user_id IS NULL
              AND ($2::integer IS NULL OR franchaise_id = $2::integer OR franchaise_id IS NULL)
              AND (super_franchise_id IS NULL OR ($9::integer IS NOT NULL AND super_franchise_id = $9::integer))
              AND ($10::text IS NULL OR company_id IS NULL OR company_id = $10::text)
          )
       )
-      AND ($12::text IS NULL OR LOWER(gateway) = LOWER($12::text) OR gateway IS NULL OR LOWER(gateway) = 'all')
-      AND ($3::text IS NULL OR UPPER(payment_mode) = UPPER($3::text) OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY' OR UPPER(payment_mode) = 'ALL')
-      AND ($4::text IS NULL OR UPPER(card_type)    = UPPER($4::text)    OR card_type    IS NULL OR UPPER(card_type)    = 'ANY' OR UPPER(card_type)    = 'ALL')
-      AND ($5::text IS NULL OR UPPER(card_brand)   = UPPER($5::text)   OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY' OR UPPER(card_brand)   = 'ALL')
-      AND (($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
+      AND ($12::text IS NULL OR UPPER($12::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'NULL', '') OR LOWER(gateway) = LOWER($12::text) OR gateway IS NULL OR LOWER(gateway) IN ('all', 'any', 'n/a', 'na', 'null', ''))
+      AND ($3::text IS NULL OR UPPER($3::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'NULL', '') OR UPPER(payment_mode) = UPPER($3::text) OR payment_mode IS NULL OR UPPER(payment_mode) IN ('ANY', 'ALL', 'N/A', 'NA', 'NULL', ''))
+      AND ($4::text IS NULL OR UPPER($4::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') OR UPPER(card_type) = UPPER($4::text) OR card_type IS NULL OR UPPER(card_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($5::text IS NULL OR UPPER($5::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') OR UPPER(card_brand) = UPPER($5::text) OR card_brand IS NULL OR UPPER(card_brand) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND (
+        $6::text IS NULL
+        OR UPPER($6::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'NULL', '')
+        OR UPPER(card_classification) = UPPER($6::text)
+        OR card_classification IS NULL
+        OR UPPER(card_classification) IN ('ANY', 'ALL', 'N/A', 'NA', 'NULL', '')
+        OR UPPER(sub_type) = UPPER($6::text)
+        OR sub_type IS NULL
+        OR UPPER(sub_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'NULL', '')
+      )
       AND (
         $7::text IS NULL
+        OR UPPER($7::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'NULL', '')
         OR settlement_type IS NULL
-        OR UPPER(settlement_type) = 'ANY'
+        OR UPPER(settlement_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'NULL', '')
         OR settlement_type = $7::text
         OR ($7::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
         OR ($7::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
@@ -319,37 +330,50 @@ async function getAdminChargeRuleForFranchise({
       (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' AND UPPER(card_brand) != 'ALL' THEN 2000 ELSE 0 END) +
       (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' AND UPPER(card_type) != 'ALL' THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'super_franchise_franchise' THEN 900000
-        WHEN 'super_franchise_default'   THEN 800000
-        WHEN 'admin_franchise'           THEN 600000
-        WHEN 'admin_super_franchise'     THEN 500000
-        WHEN 'super_admin_admin'         THEN 450000
-        WHEN 'admin_default'             THEN 400000
-        WHEN 'super_admin_default'       THEN 200000
+        WHEN 'franchise_default'         THEN 1000000
+        WHEN 'super_franchise_franchise' THEN  900000
+        WHEN 'super_franchise_default'   THEN  800000
+        WHEN 'admin_franchise'           THEN  600000
+        WHEN 'admin_super_franchise'     THEN  500000
+        WHEN 'admin_default'             THEN  450000
+        WHEN 'super_admin_admin'         THEN  400000
+        WHEN 'super_admin_default'       THEN  200000
         ELSE 0
       END
     ) AS specificity
     FROM pg_charge_rules
     WHERE is_active = true
       AND (
-        (user_id IS NULL AND scope = 'super_franchise_franchise' AND ($8::integer IS NOT NULL AND super_franchise_id = $8::integer) AND franchaise_id = $1)
-        OR (user_id IS NULL AND scope = 'super_franchise_default' AND ($8::integer IS NOT NULL AND super_franchise_id = $8::integer) AND franchaise_id IS NULL)
-        OR (user_id IS NULL AND scope = 'admin_franchise' AND (franchaise_id = $1 OR franchaise_id IS NULL))
-        OR (user_id IS NULL AND scope = 'admin_super_franchise' AND ($8::integer IS NOT NULL AND super_franchise_id = $8::integer) AND franchaise_id IS NULL)
-        OR (user_id IS NULL AND scope = 'admin_default' AND franchaise_id IS NULL)
+        (
+          (user_id IS NULL AND scope = 'franchise_default' AND franchaise_id = $1)
+          OR (user_id IS NULL AND scope = 'super_franchise_franchise' AND ($8::integer IS NOT NULL AND super_franchise_id = $8::integer) AND franchaise_id = $1)
+          OR (user_id IS NULL AND scope = 'super_franchise_default' AND ($8::integer IS NOT NULL AND super_franchise_id = $8::integer) AND franchaise_id IS NULL)
+          OR (user_id IS NULL AND scope = 'admin_franchise' AND (franchaise_id = $1 OR franchaise_id IS NULL))
+          OR (user_id IS NULL AND scope = 'admin_super_franchise' AND ($8::integer IS NOT NULL AND super_franchise_id = $8::integer) AND franchaise_id IS NULL)
+          OR (user_id IS NULL AND scope = 'admin_default' AND franchaise_id IS NULL)
+        ) AND ($9::text IS NULL OR company_id IS NULL OR company_id = $9::text)
         OR ($10::integer IS NOT NULL AND user_id = $10::integer AND scope = 'super_admin_admin')
         OR (user_id IS NULL AND scope = 'super_admin_default')
       )
-      AND ($9::text IS NULL OR company_id IS NULL OR company_id = $9::text)
-      AND ($11::text IS NULL OR LOWER(gateway) = LOWER($11::text) OR gateway IS NULL OR LOWER(gateway) = 'all')
-      AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY' OR UPPER(payment_mode) = 'ALL')
-      AND (UPPER(card_type)    = $3 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY' OR UPPER(card_type)    = 'ALL')
-      AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY' OR UPPER(card_brand)   = 'ALL')
-      AND (($5::text IS NOT NULL AND UPPER(card_classification) = UPPER($5::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
+      AND ($11::text IS NULL OR UPPER($11::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'NULL', '') OR LOWER(gateway) = LOWER($11::text) OR gateway IS NULL OR LOWER(gateway) IN ('all', 'any', 'n/a', 'na', 'null', ''))
+      AND ($2::text IS NULL OR UPPER($2::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'NULL', '') OR UPPER(payment_mode) = UPPER($2::text) OR payment_mode IS NULL OR UPPER(payment_mode) IN ('ANY', 'ALL', 'N/A', 'NA', 'NULL', ''))
+      AND ($3::text IS NULL OR UPPER($3::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') OR UPPER(card_type) = UPPER($3::text) OR card_type IS NULL OR UPPER(card_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($4::text IS NULL OR UPPER($4::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') OR UPPER(card_brand) = UPPER($4::text) OR card_brand IS NULL OR UPPER(card_brand) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND (
+        $5::text IS NULL
+        OR UPPER($5::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'NULL', '')
+        OR UPPER(card_classification) = UPPER($5::text)
+        OR card_classification IS NULL
+        OR UPPER(card_classification) IN ('ANY', 'ALL', 'N/A', 'NA', 'NULL', '')
+        OR UPPER(sub_type) = UPPER($5::text)
+        OR sub_type IS NULL
+        OR UPPER(sub_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'NULL', '')
+      )
       AND (
         $6::text IS NULL
+        OR UPPER($6::text) IN ('ALL', 'ANY', 'N/A', 'NA', 'NULL', '')
         OR settlement_type IS NULL
-        OR UPPER(settlement_type) = 'ANY'
+        OR UPPER(settlement_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'NULL', '')
         OR settlement_type = $6::text
         OR ($6::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
         OR ($6::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
@@ -452,40 +476,43 @@ async function getAdminChargeRuleForSuperFranchise({
   const query = `
     SELECT *,
     (
-      (CASE WHEN gateway IS NOT NULL AND LOWER(gateway) != 'all' THEN 64000 ELSE 0 END) +
-      (CASE WHEN channel IS NOT NULL AND UPPER(channel) != 'ANY' THEN 32000 ELSE 0 END) +
-      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' AND UPPER(payment_mode) != 'ALL' THEN 16000 ELSE 0 END) +
-      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' AND UPPER(card_brand) != 'ALL' THEN 2000 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' AND UPPER(card_type) != 'ALL' THEN 1000 ELSE 0 END) +
+      (CASE WHEN gateway IS NOT NULL AND LOWER(gateway) NOT IN ('all', 'any', 'n/a', 'na', 'unknown', 'null', '') THEN 64000 ELSE 0 END) +
+      (CASE WHEN channel IS NOT NULL AND UPPER(channel) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 32000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'admin_super_franchise' THEN 500000
-        WHEN 'super_admin_admin'     THEN 450000
-        WHEN 'admin_default'         THEN 400000
-        WHEN 'super_admin_default'   THEN 200000
+        WHEN 'super_franchise_default' THEN 600000
+        WHEN 'admin_super_franchise'   THEN 500000
+        WHEN 'admin_default'           THEN 450000
+        WHEN 'super_admin_admin'       THEN 400000
+        WHEN 'super_admin_default'     THEN 200000
         ELSE 0
       END
     ) AS specificity
     FROM pg_charge_rules
     WHERE is_active = true
       AND (
-        (user_id IS NULL AND scope = 'admin_super_franchise' AND (super_franchise_id = $1 OR super_franchise_id IS NULL))
-        OR (user_id IS NULL AND scope = 'admin_default' AND franchaise_id IS NULL AND super_franchise_id IS NULL)
+        (
+          (user_id IS NULL AND scope = 'super_franchise_default' AND (super_franchise_id = $1 OR super_franchise_id IS NULL))
+          OR (user_id IS NULL AND scope = 'admin_super_franchise' AND (super_franchise_id = $1 OR super_franchise_id IS NULL))
+          OR (user_id IS NULL AND scope = 'admin_default' AND franchaise_id IS NULL AND super_franchise_id IS NULL)
+        ) AND ($8::text IS NULL OR company_id IS NULL OR company_id = $8::text)
         OR ($9::integer IS NOT NULL AND user_id = $9::integer AND scope = 'super_admin_admin')
         OR (user_id IS NULL AND scope = 'super_admin_default')
       )
       AND franchaise_id IS NULL
-      AND ($8::text IS NULL OR company_id IS NULL OR company_id = $8::text)
-      AND ($10::text IS NULL OR LOWER(gateway) = LOWER($10::text) OR gateway IS NULL OR LOWER(gateway) = 'all')
-      AND (UPPER(payment_mode) = $2 OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY' OR UPPER(payment_mode) = 'ALL')
-      AND (UPPER(card_type)    = $3 OR card_type    IS NULL OR UPPER(card_type)    = 'ANY' OR UPPER(card_type)    = 'ALL')
-      AND (UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY' OR UPPER(card_brand)   = 'ALL')
-      AND (($5::text IS NOT NULL AND UPPER(card_classification) = UPPER($5::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
+      AND ($10::text IS NULL OR LOWER(gateway) = LOWER($10::text) OR gateway IS NULL OR LOWER(gateway) IN ('all', 'any', 'n/a', 'na', 'unknown', 'null', ''))
+      AND ($2::text IS NULL OR UPPER(payment_mode) = $2 OR payment_mode IS NULL OR UPPER(payment_mode) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($3::text IS NULL OR UPPER(card_type)    = $3 OR card_type    IS NULL OR UPPER(card_type)    IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($4::text IS NULL OR UPPER(card_brand)   = $4 OR card_brand   IS NULL OR UPPER(card_brand)   IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($5::text IS NULL OR UPPER(card_classification) = UPPER($5::text) OR card_classification IS NULL OR UPPER(card_classification) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
       AND (
         $6::text IS NULL
         OR settlement_type IS NULL
-        OR UPPER(settlement_type) = 'ANY'
+        OR UPPER(settlement_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '')
         OR settlement_type = $6::text
         OR ($6::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
         OR ($6::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
@@ -581,16 +608,16 @@ async function getAdminEffectiveRule({
   const query = `
     SELECT *,
     (
-      (CASE WHEN gateway IS NOT NULL AND LOWER(gateway) != 'all' THEN 64000 ELSE 0 END) +
-      (CASE WHEN channel IS NOT NULL AND UPPER(channel) != 'ANY' THEN 32000 ELSE 0 END) +
-      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' AND UPPER(payment_mode) != 'ALL' THEN 16000 ELSE 0 END) +
-      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' AND UPPER(card_brand) != 'ALL' THEN 2000 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' AND UPPER(card_type) != 'ALL' THEN 1000 ELSE 0 END) +
+      (CASE WHEN gateway IS NOT NULL AND LOWER(gateway) NOT IN ('all', 'any', 'n/a', 'na', 'unknown', 'null', '') THEN 64000 ELSE 0 END) +
+      (CASE WHEN channel IS NOT NULL AND UPPER(channel) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 32000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 1000 ELSE 0 END) +
       CASE scope
-        WHEN 'super_admin_admin'   THEN 450000
-        WHEN 'admin_default'       THEN 400000
+        WHEN 'admin_default'       THEN 450000
+        WHEN 'super_admin_admin'   THEN 400000
         WHEN 'super_admin_default' THEN 200000
         ELSE 0
       END
@@ -603,15 +630,15 @@ async function getAdminEffectiveRule({
         OR ($2::integer IS NOT NULL AND user_id = $2::integer AND scope = 'super_admin_admin')
         OR (user_id IS NULL AND scope = 'super_admin_default')
       )
-      AND ($9::text IS NULL OR LOWER(gateway) = LOWER($9::text) OR gateway IS NULL OR LOWER(gateway) = 'all')
-      AND ($3::text IS NULL OR UPPER(payment_mode) = UPPER($3::text) OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY' OR UPPER(payment_mode) = 'ALL')
-      AND ($4::text IS NULL OR UPPER(card_type)    = UPPER($4::text)    OR card_type    IS NULL OR UPPER(card_type)    = 'ANY' OR UPPER(card_type)    = 'ALL')
-      AND ($5::text IS NULL OR UPPER(card_brand)   = UPPER($5::text)   OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY' OR UPPER(card_brand)   = 'ALL')
-      AND (($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
+      AND ($9::text IS NULL OR LOWER(gateway) = LOWER($9::text) OR gateway IS NULL OR LOWER(gateway) IN ('all', 'any', 'n/a', 'na', 'unknown', 'null', ''))
+      AND ($3::text IS NULL OR UPPER(payment_mode) = UPPER($3::text) OR payment_mode IS NULL OR UPPER(payment_mode) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($4::text IS NULL OR UPPER(card_type)    = UPPER($4::text)    OR card_type    IS NULL OR UPPER(card_type)    IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($5::text IS NULL OR UPPER(card_brand)   = UPPER($5::text)   OR card_brand   IS NULL OR UPPER(card_brand)   IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND (($6::text IS NOT NULL AND UPPER(card_classification) = UPPER($6::text)) OR card_classification IS NULL OR UPPER(card_classification) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
       AND (
         $7::text IS NULL
         OR settlement_type IS NULL
-        OR UPPER(settlement_type) = 'ANY'
+        OR UPPER(settlement_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '')
         OR settlement_type = $7::text
         OR ($7::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
         OR ($7::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
@@ -685,13 +712,13 @@ async function getSuperAdminChargeRuleForAdmin({
   const query = `
     SELECT *,
     (
-      (CASE WHEN gateway IS NOT NULL AND LOWER(gateway) != 'all' THEN 64000 ELSE 0 END) +
-      (CASE WHEN channel IS NOT NULL AND UPPER(channel) != 'ANY' THEN 32000 ELSE 0 END) +
-      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' AND UPPER(payment_mode) != 'ALL' THEN 16000 ELSE 0 END) +
-      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' AND UPPER(card_brand) != 'ALL' THEN 2000 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' AND UPPER(card_type) != 'ALL' THEN 1000 ELSE 0 END) +
+      (CASE WHEN gateway IS NOT NULL AND LOWER(gateway) NOT IN ('all', 'any', 'n/a', 'na', 'unknown', 'null', '') THEN 64000 ELSE 0 END) +
+      (CASE WHEN channel IS NOT NULL AND UPPER(channel) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 32000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 1000 ELSE 0 END) +
       CASE scope
         WHEN 'super_admin_admin'   THEN 450000
         WHEN 'super_admin_default' THEN 200000
@@ -705,15 +732,15 @@ async function getSuperAdminChargeRuleForAdmin({
         ($1::integer IS NOT NULL AND user_id = $1::integer AND scope = 'super_admin_admin')
         OR (user_id IS NULL AND scope = 'super_admin_default')
       )
-      AND ($8::text IS NULL OR LOWER(gateway) = LOWER($8::text) OR gateway IS NULL OR LOWER(gateway) = 'all')
-      AND ($2::text IS NULL OR UPPER(payment_mode) = UPPER($2::text) OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY' OR UPPER(payment_mode) = 'ALL')
-      AND ($3::text IS NULL OR UPPER(card_type)    = UPPER($3::text)    OR card_type    IS NULL OR UPPER(card_type)    = 'ANY' OR UPPER(card_type)    = 'ALL')
-      AND ($4::text IS NULL OR UPPER(card_brand)   = UPPER($4::text)   OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY' OR UPPER(card_brand)   = 'ALL')
-      AND (($5::text IS NOT NULL AND UPPER(card_classification) = UPPER($5::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
+      AND ($8::text IS NULL OR LOWER(gateway) = LOWER($8::text) OR gateway IS NULL OR LOWER(gateway) IN ('all', 'any', 'n/a', 'na', 'unknown', 'null', ''))
+      AND ($2::text IS NULL OR UPPER(payment_mode) = UPPER($2::text) OR payment_mode IS NULL OR UPPER(payment_mode) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($3::text IS NULL OR UPPER(card_type)    = UPPER($3::text)    OR card_type    IS NULL OR UPPER(card_type)    IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($4::text IS NULL OR UPPER(card_brand)   = UPPER($4::text)   OR card_brand   IS NULL OR UPPER(card_brand)   IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND (($5::text IS NOT NULL AND UPPER(card_classification) = UPPER($5::text)) OR card_classification IS NULL OR UPPER(card_classification) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
       AND (
         $6::text IS NULL
         OR settlement_type IS NULL
-        OR UPPER(settlement_type) = 'ANY'
+        OR UPPER(settlement_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '')
         OR settlement_type = $6::text
         OR ($6::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
         OR ($6::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
@@ -782,13 +809,13 @@ async function getSuperAdminDefaultRule({
   const query = `
     SELECT *,
     (
-      (CASE WHEN gateway IS NOT NULL AND LOWER(gateway) != 'all' THEN 64000 ELSE 0 END) +
-      (CASE WHEN channel IS NOT NULL AND UPPER(channel) != 'ANY' THEN 32000 ELSE 0 END) +
-      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) != 'ANY' AND UPPER(payment_mode) != 'ALL' THEN 16000 ELSE 0 END) +
-      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) != 'ANY' THEN 8000 ELSE 0 END) +
-      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) != 'ANY' AND UPPER(card_classification) != 'NULL' THEN 4000 ELSE 0 END) +
-      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) != 'ANY' AND UPPER(card_brand) != 'ALL' THEN 2000 ELSE 0 END) +
-      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) != 'ANY' AND UPPER(card_type) != 'ALL' THEN 1000 ELSE 0 END) +
+      (CASE WHEN gateway IS NOT NULL AND LOWER(gateway) NOT IN ('all', 'any', 'n/a', 'na', 'unknown', 'null', '') THEN 64000 ELSE 0 END) +
+      (CASE WHEN channel IS NOT NULL AND UPPER(channel) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 32000 ELSE 0 END) +
+      (CASE WHEN payment_mode IS NOT NULL AND UPPER(payment_mode) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 16000 ELSE 0 END) +
+      (CASE WHEN settlement_type IS NOT NULL AND UPPER(settlement_type) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 8000 ELSE 0 END) +
+      (CASE WHEN card_classification IS NOT NULL AND UPPER(card_classification) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 4000 ELSE 0 END) +
+      (CASE WHEN card_brand IS NOT NULL AND UPPER(card_brand) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 2000 ELSE 0 END) +
+      (CASE WHEN card_type IS NOT NULL AND UPPER(card_type) NOT IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '') THEN 1000 ELSE 0 END) +
       200000
     ) AS specificity
     FROM pg_charge_rules
@@ -797,15 +824,15 @@ async function getSuperAdminDefaultRule({
       AND user_id IS NULL
       AND franchaise_id IS NULL
       AND super_franchise_id IS NULL
-      AND ($7::text IS NULL OR LOWER(gateway) = LOWER($7::text) OR gateway IS NULL OR LOWER(gateway) = 'all')
-      AND ($1::text IS NULL OR UPPER(payment_mode) = UPPER($1::text) OR payment_mode IS NULL OR UPPER(payment_mode) = 'ANY' OR UPPER(payment_mode) = 'ALL')
-      AND ($2::text IS NULL OR UPPER(card_type)    = UPPER($2::text)    OR card_type    IS NULL OR UPPER(card_type)    = 'ANY' OR UPPER(card_type)    = 'ALL')
-      AND ($3::text IS NULL OR UPPER(card_brand)   = UPPER($3::text)   OR card_brand   IS NULL OR UPPER(card_brand)   = 'ANY' OR UPPER(card_brand)   = 'ALL')
-      AND (($4::text IS NOT NULL AND UPPER(card_classification) = UPPER($4::text)) OR card_classification IS NULL OR UPPER(card_classification) = 'ANY' OR UPPER(card_classification) = 'NULL')
+      AND ($7::text IS NULL OR LOWER(gateway) = LOWER($7::text) OR gateway IS NULL OR LOWER(gateway) IN ('all', 'any', 'n/a', 'na', 'unknown', 'null', ''))
+      AND ($1::text IS NULL OR UPPER(payment_mode) = UPPER($1::text) OR payment_mode IS NULL OR UPPER(payment_mode) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($2::text IS NULL OR UPPER(card_type)    = UPPER($2::text)    OR card_type    IS NULL OR UPPER(card_type)    IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND ($3::text IS NULL OR UPPER(card_brand)   = UPPER($3::text)   OR card_brand   IS NULL OR UPPER(card_brand)   IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
+      AND (($4::text IS NOT NULL AND UPPER(card_classification) = UPPER($4::text)) OR card_classification IS NULL OR UPPER(card_classification) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', ''))
       AND (
         $5::text IS NULL
         OR settlement_type IS NULL
-        OR UPPER(settlement_type) = 'ANY'
+        OR UPPER(settlement_type) IN ('ANY', 'ALL', 'N/A', 'NA', 'UNKNOWN', 'NULL', '')
         OR settlement_type = $5::text
         OR ($5::text IN ('T0', 'today_settlement') AND settlement_type IN ('T0', 'today_settlement'))
         OR ($5::text IN ('T1', 'next_day_settlement') AND settlement_type IN ('T1', 'next_day_settlement'))
