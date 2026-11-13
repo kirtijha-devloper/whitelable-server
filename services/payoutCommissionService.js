@@ -85,6 +85,23 @@ async function distributePayoutCommission({
   const refId = payoutTransaction?.reference_id || `PAYOUT_${txnId || Date.now()}`;
   const companyId = payoutTransaction?.company_id || null;
 
+  // Idempotency: verify commission has not already been distributed for this payout
+  try {
+    const existingCommission = await Commission.findOne({
+      where: {
+        transaction_id: String(refId),
+        service_key: 'payout',
+      },
+      transaction: dbTransaction,
+    });
+    if (existingCommission) {
+      console.log(`[PayoutCommission] Commissions already distributed for ${refId}, skipping.`);
+      return [];
+    }
+  } catch (idempErr) {
+    console.warn('[PayoutCommission] Idempotency check warning:', idempErr.message);
+  }
+
   // 1. Fetch Merchant
   const merchant = await User.findByPk(merchantId, { transaction: dbTransaction });
   if (!merchant) return [];
@@ -108,14 +125,9 @@ async function distributePayoutCommission({
     transaction: dbTransaction,
   });
 
-  // Find Super Admin (role === 'super_admin' or is_super_admin: true, fallback to primary admin)
+  // Find Super Admin (role === 'super_admin', fallback to primary admin)
   let superAdmin = await User.findOne({
-    where: {
-      [Op.or]: [
-        { role: 'super_admin' },
-        { is_super_admin: true },
-      ],
-    },
+    where: { role: 'super_admin' },
     order: [['id', 'ASC']],
     transaction: dbTransaction,
   });

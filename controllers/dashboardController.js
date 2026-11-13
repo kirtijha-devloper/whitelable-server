@@ -9,6 +9,7 @@ const PayoutRequest = require('../models/PayoutRequest');
 const WalletTransaction = require("../models/WalletTransaction");
 const BillAvenuePayment = require('../models/BillAvenuePayment');
 const { normalizeRole } = require("../utils/permissions");
+const PgTransaction = require("../models/PgTransaction");
 
 const CC_BILL_SUCCESS_STATUS_CODES = ['TXN', 'TUP'];
 const CC_BILL_FAILURE_STATUSES = ['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'REVERSED'];
@@ -71,7 +72,7 @@ const getRazorpayTransactionStats = async (whereClause) => {
     RazorpayNotification.sum('amount', {
       where: {
         ...whereClause,
-        status: { [Op.in]: ['CAPTURED', 'AUTHORIZED', 'SETTLED'] }
+        status: { [Op.in]: ['CAPTURED', 'AUTHORIZED', 'SETTLED','SUCCESS'] }
       }
     }),
     RazorpayNotification.sum('amount', {
@@ -517,6 +518,28 @@ const getDashboard = asyncHandler(async (req, res) => {
         getPayoutStats({ userIds: [userId], start, end })
       ]);
 
+      const [pgTransactionSum, successPgTraxnSum, failedPgTraxnSum] = await Promise.all([
+        PgTransaction.sum('amount', { where: {
+            user_id: userId,
+            created_at: { [Op.between]: [start, end] },
+          }
+        }),
+        PgTransaction.sum('amount', { where: {
+            user_id: userId,
+            created_at: { [Op.between]: [start, end] },
+            status: { [Op.in]: ['completed', 'success'] }
+          }
+        }),
+        PgTransaction.sum('amount', { where: {
+            user_id: userId,
+            created_at: { [Op.between]: [start, end] },
+            status: { [Op.in]: ['failed'] }
+          }
+        })
+      ]);
+
+      console.log('PG Transaction Sums:', { pgTransactionSum, successPgTraxnSum, failedPgTraxnSum });
+
       data = {
         pos_machines: { count: posMachineCount },
         pos_transactions: {
@@ -528,6 +551,11 @@ const getDashboard = asyncHandler(async (req, res) => {
           count: posStats.count,
           success_rate: posStats.success_rate,
           failure_rate: posStats.failure_rate
+        },
+        pg_transactions: {
+          total: Number(pgTransactionSum || 0),
+          success: Number(successPgTraxnSum || 0),
+          fail: Number(failedPgTraxnSum || 0)
         },
         today_total_payout: Number(today_total_payout || 0),
         ccBillPaymentTXN: ccBillStats.total + baCcBillStats.total,
